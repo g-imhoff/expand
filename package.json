@@ -1,0 +1,27 @@
+{
+  "name": "yodea",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "module": "backend/cli/main.ts",
+  "bin": { "yodea": "backend/cli/main.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "arch": "depcruise backend --config .dependency-cruiser.cjs",
+    "build": "bun build backend/cli/main.ts --compile --outfile dist/yodea"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.74",
+    "@effect/platform-bun": "4.0.0-beta.74",
+    "@effect/sql-sqlite-bun": "4.0.0-beta.74"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "4.1.7",
+    "dependency-cruiser": "17.4.2",
+    "@types/bun": "1.3.14",
+    "@types/node": "25.9.1"
+  }
+}
