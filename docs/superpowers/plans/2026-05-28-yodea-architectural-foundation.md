@@ -2,25 +2,30 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the CLI-only *walking skeleton* of Yodea — a single long-lived Effect backend that owns all state, a thin `@effect/cli` RPC client that discovers/spawns/connects over WebSocket, an event-sourced SQLite store, and automated enforcement of all four architectural invariants (I-1..I-4) — proving every architectural seam end-to-end with one trivial domain (`Session`).
+**Goal:** Build the CLI-only *walking skeleton* of Yodea — a single long-lived Effect backend that owns all state, a thin `effect/unstable/cli` RPC client that discovers/spawns/connects over WebSocket, an event-sourced SQLite store, and automated enforcement of all four architectural invariants (I-1..I-4) — proving every architectural seam end-to-end with one trivial domain (`Session`).
 
 **Architecture:** One process hosts the Effect `AppLayer` (`yodea server`); every other process is a thin WebSocket frontend (I-2). Use-cases form a hexagonal core that commits `DomainEvent`s to an append-only SQLite event log (source of truth) and broadcasts them on an `Effect.PubSub` bus; read-models are projections rebuilt from the log. The backend advertises itself via a single discovery file (I-3) and shuts down the instant its WebSocket connection count returns to zero (I-4). The CLI is import-isolated from all server internals (I-1), enforced by a `dependency-cruiser` fitness test that is treated as part of the specification.
 
-**Tech Stack:** TypeScript · Bun · Effect 3.x · `@effect/rpc` (WebSocket/NDJSON) · `@effect/cli` · `@effect/platform-bun` · `@effect/sql-sqlite-bun` (WAL) · `vitest` · `dependency-cruiser`.
+**Tech Stack:** TypeScript · Bun · Effect v4 (single `effect` package) · `effect/unstable/rpc` (WebSocket/NDJSON) · `effect/unstable/cli` · `@effect/platform-bun` · `@effect/sql-sqlite-bun` (WAL) · `vitest` · `dependency-cruiser`.
 
 **Verified version set (May 2026 — pin these, then `bun pm ls` to confirm post-install):**
 
 ```
-effect@3.21.2
-@effect/platform@0.96.1
-@effect/platform-bun@0.89.0
-@effect/cli@0.75.1
-@effect/rpc@0.75.1
-@effect/sql@^0.41        # latest compatible with platform 0.96.x — verify at install
-@effect/sql-sqlite-bun@^0.49   # 0.x, fast-moving — pin exact after install
+effect@4.0.0-beta.74
+@effect/platform-bun@4.0.0-beta.74
+@effect/sql-sqlite-bun@4.0.0-beta.74
+
+# devDependencies:
+typescript@6.0.3
+vitest@4.1.7
+dependency-cruiser@17.4.2
+@types/bun@1.3.14
+@types/node@25.9.1
 ```
 
-> **API-volatility note for implementers.** `@effect/*` packages are 0.x and publish frequently. The code in this plan is written against the version set above and was cross-checked against package sources in May 2026. Two areas are explicitly called out as "verify against installed version" where the API is most likely to drift: (a) the `@effect/rpc` WebSocket **client** transport wiring (Phase 5/6), and (b) observing per-connection WebSocket lifecycle for I-4 (Phase 5). Each such step contains a fallback. Everywhere else, treat the code as literal.
+> In Effect v4 the stack collapses into the single `effect` package: the former `@effect/platform`, `@effect/cli`, `@effect/rpc`, `@effect/sql`, and `@effect/experimental` packages **no longer exist** — their code now lives under `effect` core (e.g. `Schema`, `FileSystem`, `Path`) or `effect/unstable/*` (`effect/unstable/rpc`, `effect/unstable/cli`, `effect/unstable/socket`, `effect/unstable/http`, `effect/unstable/sql/*`). Only the platform adapters remain separate packages — `@effect/platform-bun` (`BunRuntime`, `BunServices`, `BunHttpServer`, `BunSocket`) and `@effect/sql-sqlite-bun` (`SqliteClient`, `SqliteMigrator`) — and they re-export their types from `effect/unstable/*`. Do **not** add the old separate packages to `package.json`.
+
+> **API-volatility note for implementers.** This plan targets the Effect **v4 beta** (`effect@4.0.0-beta.74`). Two compounding sources of churn apply. First, everything used here outside of `effect` core lives under `effect/unstable/*` — that namespace is explicitly *unstable* and its shapes can change without a stable-API guarantee. Second, the whole stack is a **beta**: import paths, layer constructors, and option bags can drift between betas (e.g. `Effect.fork` → `Effect.forkChild`, `Schema.parseJson` → `Schema.fromJsonString`, `Options`/`Args` → `Flag`/`Argument`, no auto `.Default` layer). The code in this plan is written against the version set above and was cross-checked against the installed package `.d.ts` sources in `node_modules/effect/dist/**` (plus `@effect/platform-bun` and `@effect/sql-sqlite-bun`) in May 2026. Two areas are explicitly called out as "verify against installed version" where the API is most likely to drift: (a) the `effect/unstable/rpc` WebSocket **client** transport wiring (Phase 5/6) — note WS = `RpcClient.layerProtocolSocket()` + `BunSocket.layerWebSocket(url)`, not a client `layerProtocolWebsocket`; and (b) observing per-connection WebSocket lifecycle for I-4 (Phase 5). Each such step contains a fallback. Everywhere else, treat the code as literal — but when a `tsc` error points at an `effect/unstable/*` symbol, re-grep the installed `.d.ts` before assuming the plan is wrong.
 
 ---
 
@@ -31,7 +36,7 @@ These were chosen deliberately; they shape the tasks below.
 1. **Runtime: Bun.** TS-native, `bun:sqlite` via `@effect/sql-sqlite-bun` (no native build step), and `bun build --compile` is the path to the single CLI+backend artifact that I-1 assumes. Backend & CLI share one Bun package; the (future) Electron desktop is a *separate* process that only ever speaks WebSocket, so it shares no runtime or native module with the backend — only the pure-Schema contracts in `backend/shared/**`.
 2. **Scope: CLI-only walking skeleton.** No Electron, no real services (Git/Terminal/FileWatcher/Highlighter/DiffParser/ACP) yet. Those are additive and do **not** alter the core seams this foundation establishes. Every I-1..I-4 invariant *is* in scope.
 3. **Persistence: event-sourced with one projection.** The `events` table is the source of truth. The `Session` read-model is a projection rebuilt by folding the event log. This proves the event-sourcing machinery without over-building.
-4. **CLI framework: `@effect/cli`** (per the C4 model, not commander.js).
+4. **CLI framework: `effect/unstable/cli`** (per the C4 model, not commander.js).
 
 ### Write-path decision (a deliberate, documented refinement of the C4)
 
@@ -85,7 +90,7 @@ yodea/
 │     │  ├─ health.ts                #   `yodea health [--json]`
 │     │  ├─ session.ts               #   `yodea session create|ls [--json]`
 │     │  └─ server.ts                #   `yodea server` — ONLY cli file allowed to import composition
-│     └─ main.ts                     #   @effect/cli root command + BunRuntime.runMain entrypoint
+│     └─ main.ts                     #   effect/unstable/cli root command + BunRuntime.runMain entrypoint
 └─ test/
    ├─ architecture/
    │  └─ i1-cli-isolation.test.ts    # DO NOT MODIFY — wraps dependency-cruiser (I-1)
@@ -142,6 +147,8 @@ Every `git commit` step below targets this feature branch, never `develop`. Suba
 
 - [ ] **Step 1: Create `package.json`**
 
+The Effect stack is now a single `effect` package — the v4 betas of `@effect/platform`, `@effect/cli`, `@effect/rpc`, and `@effect/sql` DO NOT EXIST as standalone packages; their code lives under `effect/unstable/*` or `effect` core. Only the Bun platform adapter (`@effect/platform-bun`) and the SQLite-Bun adapter (`@effect/sql-sqlite-bun`) remain separate packages. All three Effect packages are pinned to the same beta (`4.0.0-beta.74`).
+
 ```json
 {
   "name": "yodea",
@@ -158,24 +165,23 @@ Every `git commit` step below targets this feature branch, never `develop`. Suba
     "build": "bun build backend/cli/main.ts --compile --outfile dist/yodea"
   },
   "dependencies": {
-    "effect": "3.21.2",
-    "@effect/platform": "0.96.1",
-    "@effect/platform-bun": "0.89.0",
-    "@effect/cli": "0.75.1",
-    "@effect/rpc": "0.75.1",
-    "@effect/sql": "^0.41",
-    "@effect/sql-sqlite-bun": "^0.49"
+    "effect": "4.0.0-beta.74",
+    "@effect/platform-bun": "4.0.0-beta.74",
+    "@effect/sql-sqlite-bun": "4.0.0-beta.74"
   },
   "devDependencies": {
-    "typescript": "^5.6",
-    "vitest": "^2.1",
-    "dependency-cruiser": "^16",
-    "@types/bun": "latest"
+    "typescript": "6.0.3",
+    "vitest": "4.1.7",
+    "dependency-cruiser": "17.4.2",
+    "@types/bun": "1.3.14",
+    "@types/node": "25.9.1"
   }
 }
 ```
 
 - [ ] **Step 2: Create `tsconfig.json`**
+
+`skipLibCheck: true` is **load-bearing** for Effect v4: the v4 `.d.ts` files do not survive a strict lib check under `lib: ["ES2022"]` (≈40 errors). Keep `moduleResolution: "bundler"` — Effect v4 `.d.ts` files import internal modules with explicit `.ts` extensions, which `bundler` (or `nodenext`) resolves but `node`/`classic` would not. `"node"` is in `types` so `@types/node` is picked up.
 
 ```json
 {
@@ -203,7 +209,7 @@ Every `git commit` step below targets this feature branch, never `develop`. Suba
 
 Run: `bun install`
 Then: `bunx tsc --noEmit`
-Expected: install succeeds; `tsc` exits 0 (no source files yet → nothing to fail). If any pinned version 404s, run `bun pm ls` and adjust to the nearest published patch, recording the change.
+Expected: install succeeds; `tsc` exits 0 (no source files yet → nothing to fail). If any pinned version 404s, run `bun pm ls` and adjust to the nearest published beta, recording the change. (The `@effect/platform-bun` and `@effect/sql-sqlite-bun` pins were read from their installed `node_modules/**/package.json` — confirm they resolve to `4.0.0-beta.74`.)
 
 - [ ] **Step 4: Commit**
 
@@ -247,6 +253,8 @@ git commit -m "chore: scaffold backend and test directory skeleton"
 - Test: `test/unit/harness.test.ts`
 
 - [ ] **Step 1: Create `vitest.config.ts`**
+
+vitest 4 keeps `defineConfig` from `vitest/config`, `test.include`, and `resolve.alias` unchanged. The `@yodea` alias is required because tsconfig `paths` are not read at runtime. (vitest 4 requires Vite `^6 || ^7 || ^8` and Node ≥20, both satisfied by the pinned stack.)
 
 ```ts
 import { defineConfig } from "vitest/config"
@@ -302,7 +310,7 @@ git commit -m "test: add vitest harness"
 ```markdown
 ---
 name: tdd-implementer
-description: Implements a single planned task using strict TDD on the Yodea codebase (Bun + Effect). Writes the failing test first, confirms it fails for the right reason, writes minimal code to pass, re-runs, commits.
+description: Implements a single planned task using strict TDD on the Yodea codebase (Bun + Effect v4 beta). Writes the failing test first, confirms it fails for the right reason, writes minimal code to pass, re-runs, commits.
 tools: Read, Edit, Write, Bash, Grep, Glob
 ---
 
@@ -313,6 +321,7 @@ Rules:
 - Then write the MINIMAL code to make it pass. Re-run. Confirm green.
 - Run `bunx tsc --noEmit` before committing. It must pass.
 - Respect BOUNDARIES.md. If the task is in `backend/cli/**`, you may import ONLY from `backend/shared/**`, `backend/lib/**`, or npm — never server internals.
+- Use Effect v4 beta APIs: import from `effect`, `effect/unstable/*`, `@effect/platform-bun`, and `@effect/sql-sqlite-bun` only. Services are `Context.Service`; wire layers explicitly with `Layer.effect(X, X.make)` (there is no auto `.Default`). Do not use removed 3.x APIs (`Effect.Service`, `Context.Tag`, `Effect.fork`, `Effect.zipRight`, `Schema.parseJson`, `@effect/rpc`/`@effect/cli`/`@effect/sql`/`@effect/platform` package imports).
 - Do not add features, abstractions, or error handling beyond what the task's test requires.
 - Commit with the exact message in the task.
 - Report: the exact commands you ran, their output (pass/fail counts), and the final diff. Never claim success without showing the passing test output.
@@ -333,7 +342,8 @@ Check, in order:
 1. Correctness: does the code do what the task intended? Any logic bugs, race conditions, unhandled error channels?
 2. Invariants (BOUNDARIES.md): does anything under `backend/cli/**` import a server module (I-1)? Is there more than one place constructing the AppLayer (I-2)? Is the endpoint file written/removed via acquireRelease (I-3)? Is the connection-count shutdown logic correct — armed only after first connect, fires exactly at zero (I-4)?
 3. Spec fidelity: does it match the C4 model's component responsibilities?
-4. Placeholders: any TODO, stubbed return, `as any`, or test that asserts nothing.
+4. Effect v4 usage: services via `Context.Service` with explicit `Layer.effect(X, X.make)` layers (no auto `.Default`); imports only from `effect`/`effect/unstable/*`/`@effect/platform-bun`/`@effect/sql-sqlite-bun`; no removed 3.x APIs (`Effect.Service`, `Context.Tag`, `Effect.fork`, `Effect.zipRight`, `Schema.parseJson`, `@effect/rpc`/`@effect/cli`/`@effect/sql`/`@effect/platform`).
+5. Placeholders: any TODO, stubbed return, `as any`, or test that asserts nothing.
 
 Run `bun run test`, `bunx tsc --noEmit`, and `bun run arch` yourself and report results.
 Output a verdict: APPROVE or BLOCK with a numbered list of required changes. Be specific (file:line). Do not perform fixes.
@@ -569,9 +579,9 @@ git commit -m "chore: route architecture invariants to CODEOWNERS"
 
 ## Phase 2 — Shared contracts (pure Effect Schema)
 
-**Outcome:** The `backend/shared/**` and `backend/lib/**` modules: domain-event schema, the `Session` read-model schema, the endpoint/discovery schema + path, and the `@effect/rpc` group. These are pure (Schema + node stdlib only) so both the CLI and the server may import them without violating I-1.
+**Outcome:** The `backend/shared/**` and `backend/lib/**` modules: domain-event schema, the `Session` read-model schema, the endpoint/discovery schema + path, and the `effect/unstable/rpc` group. These are pure (Schema + node stdlib only) so both the CLI and the server may import them without violating I-1.
 
-> **File-map refinement:** the `Session` read-model *type* lives in a new pure module `backend/shared/session.ts` (Schema only, no `@effect/rpc`), so the `backend/domain/**` fold can import the type without dragging `@effect/rpc` into the domain. `backend/shared/rpc.ts` imports `Session` from there. This supersedes the map's note that the type lived in `domain/session.ts` (which now holds only the *fold*).
+> **File-map refinement:** the `Session` read-model *type* lives in a new pure module `backend/shared/session.ts` (Schema only, no `effect/unstable/rpc`), so the `backend/domain/**` fold can import the type without dragging `effect/unstable/rpc` into the domain. `backend/shared/rpc.ts` imports `Session` from there. This supersedes the map's note that the type lived in `domain/session.ts` (which now holds only the *fold*).
 
 ### Task 2.1: Id helper
 
@@ -669,7 +679,7 @@ Expected: FAIL.
 import { Schema } from "effect"
 
 // One event type today. As the domain grows, replace the alias below with
-// `Schema.Union(SessionCreated, SessionRenamed, ...)`; the projection fold
+// `Schema.Union([SessionCreated, SessionRenamed, ...])`; the projection fold
 // already switches on `_tag`, so adding a case is the only other change.
 export const SessionCreated = Schema.TaggedStruct("SessionCreated", {
   sessionId: Schema.String,
@@ -678,11 +688,11 @@ export const SessionCreated = Schema.TaggedStruct("SessionCreated", {
 })
 
 export const DomainEvent = SessionCreated
-export type DomainEvent = Schema.Schema.Type<typeof DomainEvent>
-export type DomainEventEncoded = Schema.Schema.Encoded<typeof DomainEvent>
+export type DomainEvent = typeof DomainEvent.Type
+export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
 // Encode/decode a DomainEvent to/from JSON text (used by the event log and RPC).
-export const DomainEventFromJson = Schema.parseJson(DomainEvent)
+export const DomainEventFromJson = Schema.fromJsonString(DomainEvent)
 ```
 
 - [ ] **Step 4: Run it — expect PASS.** `bun run test -- test/unit/events.test.ts` → 2 passed.
@@ -738,7 +748,7 @@ export const Session = Schema.Struct({
   title: Schema.String,
   createdAt: Schema.String
 })
-export type Session = Schema.Schema.Type<typeof Session>
+export type Session = typeof Session.Type
 ```
 
 - [ ] **Step 4: Run it — expect PASS.**
@@ -804,9 +814,9 @@ export const Endpoint = Schema.Struct({
   pid: Schema.Number,
   protocolVersion: Schema.Number
 })
-export type Endpoint = Schema.Schema.Type<typeof Endpoint>
+export type Endpoint = typeof Endpoint.Type
 
-export const EndpointFromJson = Schema.parseJson(Endpoint)
+export const EndpointFromJson = Schema.fromJsonString(Endpoint)
 
 // I-3: one well-known discovery file. YODEA_ENDPOINT_FILE (full path) and
 // YODEA_HOME (parent dir) allow test/runtime isolation.
@@ -853,14 +863,14 @@ describe("YodeaRpcs contract", () => {
 })
 ```
 
-> **Verify against installed version:** `RpcGroup`'s introspection surface (`.requests`) is the one bit of `@effect/rpc` 0.75 most likely to differ. If `.requests` is not a `Map`, replace Step-1's second assertion with `expect(Object.keys(YodeaRpcs)).toBeDefined()` and rely on the type-checker + Phase 5 server build to prove the group is wired. Do not delete the test — downgrade it.
+> **Verify against installed version:** `RpcGroup`'s introspection surface (`.requests`) is the one bit of `effect/unstable/rpc` most likely to differ. In `4.0.0-beta.74` `RpcGroup` exposes `readonly requests: ReadonlyMap<string, R>`, so `[...YodeaRpcs.requests.keys()]` yields the tags. If a later beta changes this shape and `.requests` is not a `Map`, replace Step-1's second assertion with `expect(Object.keys(YodeaRpcs)).toBeDefined()` and rely on the type-checker + Phase 5 server build to prove the group is wired. Do not delete the test — downgrade it.
 
 - [ ] **Step 2: Run it — expect FAIL.** `bun run test -- test/unit/rpc-contract.test.ts`
 
 - [ ] **Step 3: Implement `backend/shared/rpc.ts`**
 
 ```ts
-import { Rpc, RpcGroup } from "@effect/rpc"
+import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
 import { DomainEvent } from "@yodea/shared/events"
 import { Session } from "@yodea/shared/session"
@@ -894,7 +904,7 @@ git add backend/shared/rpc.ts test/unit/rpc-contract.test.ts
 git commit -m "feat: add YodeaRpcs WebSocket contract"
 ```
 
-**Phase 2 review gate:** dispatch `code-reviewer`. Confirm: all `backend/shared/**` modules import only Schema/node stdlib/`@effect/rpc` (no domain/server imports), schemas roundtrip, and `bun run arch` is still green. Advance only on APPROVE.
+**Phase 2 review gate:** dispatch `code-reviewer`. Confirm: all `backend/shared/**` modules import only Schema/node stdlib/`effect/unstable/rpc` (no domain/server imports), schemas roundtrip, and `bun run arch` is still green. Advance only on APPROVE.
 
 ---
 
@@ -919,12 +929,12 @@ git commit -m "feat: add YodeaRpcs WebSocket contract"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore } from "@yodea/db/event-store"
+import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
 import { SessionCreated } from "@yodea/shared/events"
 
 // In-memory DB, WAL disabled (WAL is meaningless / noisy for :memory:).
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestStore = EventStore.Default.pipe(Layer.provide(TestSql))
+const TestStore = EventStoreLayer.pipe(Layer.provide(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, EventStore>) =>
   Effect.runPromise(Effect.provide(eff, TestStore))
@@ -961,13 +971,16 @@ describe("EventStore", () => {
 - [ ] **Step 3: Implement `backend/db/event-store.ts`**
 
 ```ts
-import { SqlClient } from "@effect/sql"
-import { Effect, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { DomainEvent, DomainEventFromJson } from "@yodea/shared/events"
 
-export class EventStore extends Effect.Service<EventStore>()("yodea/EventStore", {
+export class EventStore extends Context.Service<EventStore, {
+  readonly append: (streamId: string, event: DomainEvent) => Effect.Effect<void>
+  readonly readAll: Effect.Effect<ReadonlyArray<DomainEvent>>
+}>()("yodea/EventStore", {
   // Requires SqlClient in context — provided by composition (file db) or tests (:memory:).
-  effect: Effect.gen(function* () {
+  make: Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient
 
     // Foundation schema: one append-only table. seq is the monotonic global order.
@@ -984,7 +997,7 @@ export class EventStore extends Effect.Service<EventStore>()("yodea/EventStore",
 
     const append = (streamId: string, event: DomainEvent) =>
       Effect.gen(function* () {
-        const payload = yield* Schema.encode(DomainEventFromJson)(event)
+        const payload = yield* Schema.encodeEffect(DomainEventFromJson)(event)
         yield* sql`INSERT INTO events ${sql.insert({
           stream_id: streamId,
           event_type: event._tag,
@@ -997,13 +1010,16 @@ export class EventStore extends Effect.Service<EventStore>()("yodea/EventStore",
         SELECT payload FROM events ORDER BY seq ASC
       `
       return yield* Effect.forEach(rows, (r) =>
-        Schema.decodeUnknown(DomainEventFromJson)(r.payload)
+        Schema.decodeUnknownEffect(DomainEventFromJson)(r.payload)
       )
     })
 
     return { append, readAll } as const
   })
 }) {}
+
+// v4 has no auto `.Default` layer — wire the layer from the stored `make` constructor.
+export const EventStoreLayer = Layer.effect(EventStore, EventStore.make)
 ```
 
 - [ ] **Step 4: Run it — expect PASS.** `bun run test -- test/integration/event-store.test.ts` → 2 passed.
@@ -1103,18 +1119,18 @@ git commit -m "feat: add pure session projection fold"
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore } from "@yodea/db/event-store"
-import { SessionProjection } from "@yodea/application/projections"
+import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
+import { SessionProjection, SessionProjectionLayer } from "@yodea/application/projections"
 import { SessionCreated } from "@yodea/shared/events"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 
 // CRITICAL: provideMerge shares ONE EventStore instance with both the test's
-// append calls and the projection. Providing EventStore.Default twice would
+// append calls and the projection. Providing EventStoreLayer twice would
 // build two independent :memory: databases and the projection would see nothing.
 const TestLayer = Layer.provideMerge(
-  SessionProjection.Default,
-  EventStore.Default
+  SessionProjectionLayer,
+  EventStoreLayer
 ).pipe(Layer.provide(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, SessionProjection | EventStore>) =>
@@ -1143,21 +1159,24 @@ describe("SessionProjection", () => {
 - [ ] **Step 3: Implement `backend/application/projections.ts`**
 
 ```ts
-import { Effect } from "effect"
+import { Context, Effect, Layer } from "effect"
+import type { Session } from "@yodea/shared/session"
 import { EventStore } from "@yodea/db/event-store"
 import { projectSessions } from "@yodea/domain/session"
 
-export class SessionProjection extends Effect.Service<SessionProjection>()(
-  "yodea/SessionProjection",
-  {
-    // Requires EventStore — provided once by composition (shared instance).
-    effect: Effect.gen(function* () {
-      const store = yield* EventStore
-      const list = Effect.map(store.readAll, projectSessions)
-      return { list } as const
-    })
-  }
-) {}
+export class SessionProjection extends Context.Service<SessionProjection, {
+  readonly list: Effect.Effect<ReadonlyArray<Session>>
+}>()("yodea/SessionProjection", {
+  // Requires EventStore — provided once by composition (shared instance).
+  make: Effect.gen(function* () {
+    const store = yield* EventStore
+    const list = Effect.map(store.readAll, projectSessions)
+    return { list } as const
+  })
+}) {}
+
+// v4 has no auto `.Default` layer — wire the layer from the stored `make` constructor.
+export const SessionProjectionLayer = Layer.effect(SessionProjection, SessionProjection.make)
 ```
 
 > Note: `list` is an `Effect` value (not a function) because it takes no arguments. The test and use-cases `yield*` it directly.
@@ -1192,8 +1211,8 @@ git commit -m "feat: add SessionProjection service"
 ```ts
 // test/integration/event-bus.test.ts
 import { describe, expect, it } from "vitest"
-import { Effect, Queue } from "effect"
-import { EventBus } from "@yodea/application/event-bus"
+import { Effect, PubSub } from "effect"
+import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
 import { SessionCreated } from "@yodea/shared/events"
 
 describe("EventBus", () => {
@@ -1205,8 +1224,8 @@ describe("EventBus", () => {
       yield* bus.publish(
         SessionCreated.make({ sessionId: "s1", title: "A", createdAt: "t1" })
       )
-      return yield* Queue.take(sub)
-    }).pipe(Effect.scoped, Effect.provide(EventBus.Default))
+      return yield* PubSub.take(sub)
+    }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
 
     const event = await Effect.runPromise(program)
     expect(event._tag).toBe("SessionCreated")
@@ -1220,22 +1239,31 @@ describe("EventBus", () => {
 - [ ] **Step 3: Implement `backend/application/event-bus.ts`**
 
 ```ts
-import { Effect, PubSub, Stream } from "effect"
+import { Context, Effect, Layer, PubSub, Scope, Stream } from "effect"
 import type { DomainEvent } from "@yodea/shared/events"
 
-export class EventBus extends Effect.Service<EventBus>()("yodea/EventBus", {
-  // `scoped`: the PubSub is a resource; it is shut down when the AppLayer scope closes.
-  scoped: Effect.gen(function* () {
+export class EventBus extends Context.Service<EventBus, {
+  readonly publish: (event: DomainEvent) => Effect.Effect<boolean>
+  // Scoped Subscription — deterministic consumers/tests use this.
+  readonly subscribe: Effect.Effect<PubSub.Subscription<DomainEvent>, never, Scope.Scope>
+  // Stream view — the RPC `Events` handler returns this (new subscription per run).
+  readonly stream: Stream.Stream<DomainEvent>
+}>()("yodea/EventBus", {
+  // `make`: the PubSub is a resource; it is shut down when the AppLayer scope closes.
+  make: Effect.gen(function* () {
     const pubsub = yield* PubSub.unbounded<DomainEvent>()
     return {
       publish: (event: DomainEvent) => PubSub.publish(pubsub, event),
-      // Scoped Dequeue — deterministic consumers/tests use this.
+      // Scoped Subscription — consume with PubSub.take.
       subscribe: PubSub.subscribe(pubsub),
-      // Stream view — the RPC `Events` handler returns this (new subscription per run).
+      // Stream view — Stream.fromPubSub self-subscribes (new subscription per run).
       stream: Stream.fromPubSub(pubsub)
     } as const
   })
 }) {}
+
+// v4 has no auto `.Default` layer — wire it manually with Layer.effect.
+export const EventBusLayer = Layer.effect(EventBus, EventBus.make)
 ```
 
 - [ ] **Step 4: Run it — expect PASS.**
@@ -1260,22 +1288,22 @@ git commit -m "feat: add EventBus (PubSub broadcast)"
 ```ts
 // test/integration/use-cases.test.ts
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, Queue } from "effect"
+import { Effect, Layer, PubSub } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore } from "@yodea/db/event-store"
-import { EventBus } from "@yodea/application/event-bus"
-import { SessionProjection } from "@yodea/application/projections"
-import { UseCases } from "@yodea/application/use-cases"
+import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
+import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
+import { SessionProjection, SessionProjectionLayer } from "@yodea/application/projections"
+import { UseCases, UseCasesLayer } from "@yodea/application/use-cases"
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 // ONE shared EventStore (same constant referenced everywhere -> memoized to one instance).
-const Store = EventStore.Default.pipe(Layer.provide(Sql))
-const Projection = SessionProjection.Default.pipe(Layer.provide(Store))
+const Store = EventStoreLayer.pipe(Layer.provide(Sql))
+const Projection = SessionProjectionLayer.pipe(Layer.provide(Store))
 // Output UseCases + EventStore + EventBus so the test can inspect all three.
-const TestLayer = UseCases.Default.pipe(
+const TestLayer = UseCasesLayer.pipe(
   Layer.provide(Projection),
   Layer.provideMerge(Store),
-  Layer.provideMerge(EventBus.Default)
+  Layer.provideMerge(EventBusLayer)
 )
 
 describe("UseCases.createSession", () => {
@@ -1288,7 +1316,7 @@ describe("UseCases.createSession", () => {
       const sub = yield* bus.subscribe // subscribe before the command (deterministic)
       const session = yield* useCases.createSession("Hello")
 
-      const broadcast = yield* Queue.take(sub)
+      const broadcast = yield* PubSub.take(sub)
       const persisted = yield* store.readAll
       const listed = yield* useCases.listSessions
 
@@ -1317,15 +1345,21 @@ describe("UseCases.createSession", () => {
 - [ ] **Step 3: Implement `backend/application/use-cases.ts`**
 
 ```ts
-import { Effect } from "effect"
+import { Context, Effect, Layer } from "effect"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { SessionProjection } from "@yodea/application/projections"
 import { SessionCreated } from "@yodea/shared/events"
 import { newId } from "@yodea/lib/ids"
 
-export class UseCases extends Effect.Service<UseCases>()("yodea/UseCases", {
-  effect: Effect.gen(function* () {
+export class UseCases extends Context.Service<UseCases, {
+  readonly health: Effect.Effect<string>
+  readonly createSession: (
+    title: string
+  ) => Effect.Effect<{ id: string; title: string; createdAt: string }>
+  readonly listSessions: Effect.Effect<ReadonlyArray<{ id: string; title: string; createdAt: string }>>
+}>()("yodea/UseCases", {
+  make: Effect.gen(function* () {
     const store = yield* EventStore
     const bus = yield* EventBus
     const projection = yield* SessionProjection
@@ -1349,6 +1383,9 @@ export class UseCases extends Effect.Service<UseCases>()("yodea/UseCases", {
     return { health, createSession, listSessions } as const
   })
 }) {}
+
+// v4 has no auto `.Default` layer — wire it manually with Layer.effect.
+export const UseCasesLayer = Layer.effect(UseCases, UseCases.make)
 ```
 
 - [ ] **Step 4: Run it — expect PASS.** `bun run test -- test/integration/use-cases.test.ts` → 2 passed.
@@ -1372,7 +1409,7 @@ git commit -m "feat: add UseCases with append-then-publish commit path"
 
 ### Task 5.1: RPC handlers
 
-**Agent:** tdd-implementer. The contract conformance check here is the **type-checker**: `@effect/rpc` enforces that every handler's payload/success/error matches `YodeaRpcs`. A mismatch fails `tsc`. (Runtime behavior is exercised end-to-end in Phase 7.)
+**Agent:** tdd-implementer. The contract conformance check here is the **type-checker**: `effect/unstable/rpc` enforces that every handler's payload/success/error matches `YodeaRpcs`. A mismatch fails `tsc`. (Runtime behavior is exercised end-to-end in Phase 7.)
 
 **Files:**
 - Modify: `backend/server/rpc-handlers.ts`
@@ -1393,9 +1430,10 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
   // onDisconnect (via finalizer) when the stream's scope closes on socket drop.
-  // `Stream.never` keeps the subscription open after the marker.
+  // `Stream.never` keeps the subscription open after the marker. In v4 the
+  // wrapped effect requires Scope, and `Stream.unwrap` discharges it.
   Connect: () =>
-    Stream.unwrapScoped(
+    Stream.unwrap(
       Effect.gen(function* () {
         const tracker = yield* ConnectionTracker
         yield* tracker.onConnect
@@ -1408,7 +1446,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
 })
 ```
 
-> **Verify against installed version:** the handler-map shape (`YodeaRpcs.toLayer({...})`, payload destructured as the first arg, `() =>` for no-payload procedures) is the @effect/rpc 0.75 idiom from the research. If `toLayer` is named differently or expects `Rpc.fromTaggedRequest`-style handlers in your installed version, adapt the wiring — the handler bodies (what each returns) stay identical.
+> **Verify against installed version:** the handler-map shape (`YodeaRpcs.toLayer({...})`, payload destructured as the first arg, `() =>` for no-payload procedures) is the `effect/unstable/rpc` idiom (`RpcGroup.toLayer` is an instance method on the group). `Stream.unwrap` replaces the 3.x `Stream.unwrapScoped` — it strips the inner effect's `Scope.Scope` requirement, so the scoped `addFinalizer` still runs `onDisconnect` when the subscription's scope closes. If `toLayer` is named differently or expects different handler shapes in your installed beta, adapt the wiring — the handler bodies (what each returns) stay identical.
 
 - [ ] **Step 2: Type-check — the contract conformance gate**
 
@@ -1436,10 +1474,10 @@ git commit -m "feat: add RPC handlers mapping the contract to use-cases"
 // test/unit/connection-tracker.test.ts
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
-import { ConnectionTracker } from "@yodea/server/connection-tracker"
+import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 
 const run = <A, E>(eff: Effect.Effect<A, E, ConnectionTracker>) =>
-  Effect.runPromise(Effect.provide(Effect.scoped(eff), ConnectionTracker.Default))
+  Effect.runPromise(Effect.provide(Effect.scoped(eff), ConnectionTrackerLayer))
 
 describe("ConnectionTracker (I-4)", () => {
   it("is not armed before the first connect, and arms then fires exactly at zero", async () => {
@@ -1480,40 +1518,46 @@ describe("ConnectionTracker (I-4)", () => {
 - [ ] **Step 3: Implement `backend/server/connection-tracker.ts`**
 
 ```ts
-import { Deferred, Effect, Ref } from "effect"
+import { Context, Deferred, Effect, Layer, Ref } from "effect"
 
-export class ConnectionTracker extends Effect.Service<ConnectionTracker>()(
-  "yodea/ConnectionTracker",
-  {
-    scoped: Effect.gen(function* () {
-      const count = yield* Ref.make(0)
-      const armed = yield* Ref.make(false)
-      const shutdown = yield* Deferred.make<void>()
+export class ConnectionTracker extends Context.Service<ConnectionTracker, {
+  readonly onConnect: Effect.Effect<void>
+  readonly onDisconnect: Effect.Effect<void>
+  readonly awaitShutdown: Effect.Effect<void>
+  readonly isShuttingDown: Effect.Effect<boolean>
+  readonly count: Effect.Effect<number>
+}>()("yodea/ConnectionTracker", {
+  make: Effect.gen(function* () {
+    const count = yield* Ref.make(0)
+    const armed = yield* Ref.make(false)
+    const shutdown = yield* Deferred.make<void>()
 
-      const onConnect = Effect.zipRight(
-        Ref.update(count, (n) => n + 1),
-        Ref.set(armed, true)
-      )
+    const onConnect = Effect.andThen(
+      Ref.update(count, (n) => n + 1),
+      Ref.set(armed, true)
+    )
 
-      const onDisconnect = Effect.gen(function* () {
-        const n = yield* Ref.updateAndGet(count, (c) => Math.max(0, c - 1))
-        const isArmed = yield* Ref.get(armed)
-        if (isArmed && n === 0) {
-          yield* Deferred.succeed(shutdown, undefined)
-        }
-      })
-
-      return {
-        onConnect,
-        onDisconnect,
-        // Composition blocks on this; resolves once armed && count returns to 0.
-        awaitShutdown: Deferred.await(shutdown),
-        isShuttingDown: Deferred.isDone(shutdown),
-        count: Ref.get(count)
-      } as const
+    const onDisconnect = Effect.gen(function* () {
+      const n = yield* Ref.updateAndGet(count, (c) => Math.max(0, c - 1))
+      const isArmed = yield* Ref.get(armed)
+      if (isArmed && n === 0) {
+        yield* Deferred.succeed(shutdown, undefined)
+      }
     })
-  }
-) {}
+
+    return {
+      onConnect,
+      onDisconnect,
+      // Composition blocks on this; resolves once armed && count returns to 0.
+      awaitShutdown: Deferred.await(shutdown),
+      isShuttingDown: Deferred.isDone(shutdown),
+      count: Ref.get(count)
+    } as const
+  })
+}) {}
+
+// v4 has no auto `.Default` layer — wire it manually from the stored `make`.
+export const ConnectionTrackerLayer = Layer.effect(ConnectionTracker, ConnectionTracker.make)
 ```
 
 - [ ] **Step 4: Run it — expect PASS.** `bun run test -- test/unit/connection-tracker.test.ts` → 2 passed.
@@ -1538,9 +1582,8 @@ git commit -m "feat: add I-4 connection-tracker state machine"
 ```ts
 // test/integration/endpoint-file.test.ts
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, Scope } from "effect"
-import { BunContext } from "@effect/platform-bun"
-import { FileSystem } from "@effect/platform"
+import { Effect, Exit, FileSystem, Scope } from "effect"
+import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1577,7 +1620,7 @@ describe("endpoint file (I-3)", () => {
       yield* Scope.close(scope, Exit.void)
       const after = yield* fs.exists(file)
       return { during, after }
-    }).pipe(Effect.provide(BunContext.layer))
+    }).pipe(Effect.provide(BunServices.layer))
 
     const r = await Effect.runPromise(program)
     expect(r.during).toBe(true)
@@ -1591,8 +1634,7 @@ describe("endpoint file (I-3)", () => {
 - [ ] **Step 3: Implement `backend/server/endpoint-file.ts`**
 
 ```ts
-import { FileSystem, Path } from "@effect/platform"
-import { Effect, Schema } from "effect"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import { Endpoint, EndpointFromJson, endpointFilePath } from "@yodea/shared/endpoint"
 
 // I-3: write server.json on acquire, remove it on scope close (clean shutdown).
@@ -1603,7 +1645,7 @@ export const writeEndpointFile = (endpoint: Endpoint) =>
       const path = yield* Path.Path
       const file = endpointFilePath()
       yield* fs.makeDirectory(path.dirname(file), { recursive: true })
-      const json = yield* Schema.encode(EndpointFromJson)(endpoint)
+      const json = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
       yield* fs.writeFileString(file, json)
       return file
     }),
@@ -1634,10 +1676,10 @@ git commit -m "feat: add I-3 endpoint file resource"
 - [ ] **Step 1: Implement `backend/server/http.ts`**
 
 ```ts
-import { HttpRouter } from "@effect/platform"
-import { BunHttpServer } from "@effect/platform-bun"
-import { RpcSerialization, RpcServer } from "@effect/rpc"
 import { Layer } from "effect"
+import { HttpRouter } from "effect/unstable/http"
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { BunHttpServer } from "@effect/platform-bun"
 import { YodeaRpcs } from "@yodea/shared/rpc"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
@@ -1649,15 +1691,14 @@ export const httpServerLayer = (port: number) => {
   const protocol = RpcServer.layerProtocolWebsocket({ path: "/rpc" }).pipe(
     Layer.provide(RpcSerialization.layerNdjson)
   )
-  return HttpRouter.Default.serve().pipe(
-    Layer.provide(rpc),
+  return HttpRouter.serve(rpc).pipe(
     Layer.provide(protocol),
     Layer.provide(BunHttpServer.layer({ port }))
   )
 }
 ```
 
-> **Verify against installed version (transport — the #1 volatility point):** confirm `RpcServer.layer`, `RpcServer.layerProtocolWebsocket({ path })`, `RpcSerialization.layerNdjson`, and that `HttpRouter.Default.serve()` is the correct host for the WS upgrade under `BunHttpServer.layer({ port })`. The research confirmed all four against @effect/rpc 0.75 / platform-bun 0.89. If `layerProtocolWebsocket` moved or renamed, the bodies stay; only the layer names change.
+> **Verify against installed version (transport — the #1 volatility point):** confirm `RpcServer.layer`, `RpcServer.layerProtocolWebsocket({ path })`, `RpcSerialization.layerNdjson`, and that `HttpRouter.serve(appLayer)` is the correct host for the WS upgrade under `BunHttpServer.layer({ port })`. In v4 `HttpRouter.serve` takes the app **layer** directly (there is no `HttpRouter.Default.serve()`); the RPC runner layer is passed as that arg, with the protocol + serialization layers provided into it. Note the lowercase `s` in `layerProtocolWebsocket`. If `layerProtocolWebsocket` moved or renamed, the bodies stay; only the layer names change.
 
 - [ ] **Step 2: Type-check.** Run: `bunx tsc --noEmit` → exits 0.
 
@@ -1678,14 +1719,14 @@ git commit -m "feat: add WebSocket RPC transport layer"
 - [ ] **Step 1: Implement `backend/composition/app.ts`**
 
 ```ts
-import { BunContext } from "@effect/platform-bun"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { Effect, Layer } from "effect"
-import { EventStore } from "@yodea/db/event-store"
-import { EventBus } from "@yodea/application/event-bus"
-import { SessionProjection } from "@yodea/application/projections"
-import { UseCases } from "@yodea/application/use-cases"
-import { ConnectionTracker } from "@yodea/server/connection-tracker"
+import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { BunServices } from "@effect/platform-bun"
+import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
+import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
+import { SessionProjectionLayer } from "@yodea/application/projections"
+import { UseCasesLayer } from "@yodea/application/use-cases"
+import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 import { httpServerLayer } from "@yodea/server/http"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@yodea/shared/endpoint"
@@ -1696,20 +1737,21 @@ export interface RunServerOptions {
   readonly port: number
 }
 
-// Domain + application services as ONE shared graph. Every `.Default` is a
-// stable memoized layer, so referencing `store` in three places yields ONE
-// EventStore instance (and thus one SQLite handle, one PubSub, one tracker).
+// Domain + application services as ONE shared graph. Each `XLayer` is a stable
+// memoized layer, so referencing `store` in three places yields ONE EventStore
+// instance (and thus one SQLite handle, one PubSub, one tracker). v4 has no
+// auto `.Default` — every service exports its layer explicitly (`Layer.effect`).
 const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const store = EventStore.Default.pipe(Layer.provide(sql))
-  const projection = SessionProjection.Default.pipe(Layer.provide(store))
-  const useCases = UseCases.Default.pipe(
+  const store = EventStoreLayer.pipe(Layer.provide(sql))
+  const projection = SessionProjectionLayer.pipe(Layer.provide(store))
+  const useCases = UseCasesLayer.pipe(
     Layer.provide(store),
-    Layer.provide(EventBus.Default),
+    Layer.provide(EventBusLayer),
     Layer.provide(projection)
   )
   // The RPC handlers depend on exactly these three.
-  return Layer.mergeAll(useCases, EventBus.Default, ConnectionTracker.Default)
+  return Layer.mergeAll(useCases, EventBusLayer, ConnectionTrackerLayer)
 }
 
 export const runServer = (options: RunServerOptions) => {
@@ -1738,7 +1780,7 @@ export const runServer = (options: RunServerOptions) => {
       Layer.mergeAll(
         httpServerLayer(options.port).pipe(Layer.provide(core)),
         core,
-        BunContext.layer
+        BunServices.layer
       )
     ),
     Effect.scoped
@@ -1746,7 +1788,7 @@ export const runServer = (options: RunServerOptions) => {
 }
 ```
 
-> **Why `Effect.scoped` + `awaitShutdown` instead of `Layer.launch`:** the server must perform imperative lifecycle steps (advertise endpoint, then wait for the zero-connection signal) that depend on the running `AppLayer`. Wrapping the orchestration program in the provided layers and `Effect.scoped` guarantees that when `awaitShutdown` resolves (or the fiber is interrupted by SIGINT/SIGTERM via `BunRuntime.runMain`), the scope closes in reverse order: endpoint file removed → server stopped → SQLite closed.
+> **Why `Effect.scoped` + `awaitShutdown` instead of `Layer.launch`:** the server must perform imperative lifecycle steps (advertise endpoint, then wait for the zero-connection signal) that depend on the running `AppLayer`. Wrapping the orchestration program in the provided layers and `Effect.scoped` guarantees that when `awaitShutdown` resolves (or the fiber is interrupted by SIGINT/SIGTERM via `BunRuntime.runMain`), the scope closes in reverse order: endpoint file removed → server stopped → SQLite closed. If a long-lived supervisory fiber is ever needed here, use `Effect.forkScoped` (3.x `Effect.fork` is gone in v4) so the fiber is bound to this scope and interrupted on shutdown.
 
 - [ ] **Step 2: Type-check.** Run: `bunx tsc --noEmit` → exits 0.
 
@@ -1757,13 +1799,13 @@ git add backend/composition/app.ts
 git commit -m "feat: add runServer composition (single AppLayer, I-2/I-3/I-4)"
 ```
 
-**Phase 5 review gate:** dispatch `code-reviewer`. Confirm: (a) `coreLayer` shares one `EventStore`/`ConnectionTracker` (the `core` const is reused, not rebuilt), (b) the endpoint file is written *after* the server layer is in the environment (advertise only once listening), (c) `runServer` is the *only* place an `AppLayer` is assembled (grep: no other module imports `SqliteClient.layer` outside tests), (d) `bun run arch` still green. Advance only on APPROVE.
+**Phase 5 review gate:** dispatch `code-reviewer`. Confirm: (a) `coreLayer` shares one `EventStore`/`ConnectionTracker` (the `core` const is reused, not rebuilt; the memoized `XLayer`s are referenced, not rebuilt), (b) the endpoint file is written *after* the server layer is in the environment (advertise only once listening), (c) `runServer` is the *only* place an `AppLayer` is assembled (grep: no other module imports `SqliteClient.layer` outside tests), (d) `bun run arch` still green. Advance only on APPROVE.
 
 ---
 
 ## Phase 6 — CLI thin client (I-1)
 
-**Outcome:** The `backend/cli/**` modules: endpoint discovery + find-or-spawn, the RPC client (which opens the `Events` subscription = its I-4 connection), the `@effect/cli` commands, and `main.ts`. Every file here imports only `backend/shared/**`, `backend/lib/**`, or npm — except `commands/server.ts`, which is the sanctioned I-1 exception. The I-1 fitness test from Phase 1 stays green throughout.
+**Outcome:** The `backend/cli/**` modules: endpoint discovery + find-or-spawn, the RPC client (which opens the `Events` subscription = its I-4 connection), the `effect/unstable/cli` commands, and `main.ts`. Every file here imports only `backend/shared/**`, `backend/lib/**`, or npm — except `commands/server.ts`, which is the sanctioned I-1 exception. The I-1 fitness test from Phase 1 stays green throughout.
 
 ### Task 6.1: Endpoint discovery (read + validate)
 
@@ -1779,7 +1821,7 @@ git commit -m "feat: add runServer composition (single AppLayer, I-2/I-3/I-4)"
 // test/integration/discovery.test.ts
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Option } from "effect"
-import { BunContext } from "@effect/platform-bun"
+import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1797,7 +1839,7 @@ afterEach(() => {
 })
 
 const run = <A, E>(eff: Effect.Effect<A, E, any>) =>
-  Effect.runPromise(Effect.provide(eff, BunContext.layer))
+  Effect.runPromise(Effect.provide(eff, BunServices.layer))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
@@ -1834,8 +1876,7 @@ describe("readEndpoint", () => {
 - [ ] **Step 3: Implement `backend/cli/discovery.ts`** (imports only shared + platform npm — I-1 safe)
 
 ```ts
-import { FileSystem } from "@effect/platform"
-import { Data, Effect, Option, Schema } from "effect"
+import { Data, Effect, FileSystem, Option, Schema } from "effect"
 import { Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
@@ -1861,7 +1902,7 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
       return Option.none()
     }
     const text = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
-    const decoded = yield* Schema.decodeUnknown(EndpointFromJson)(text).pipe(Effect.option)
+    const decoded = yield* Schema.decodeUnknownEffect(EndpointFromJson)(text).pipe(Effect.option)
     if (Option.isNone(decoded)) return Option.none()
     const endpoint = decoded.value
     if (endpoint.protocolVersion !== PROTOCOL_VERSION) return Option.none()
@@ -1895,7 +1936,7 @@ git commit -m "feat: add CLI endpoint discovery with staleness checks"
 // test/integration/find-or-spawn.test.ts
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect } from "effect"
-import { BunContext } from "@effect/platform-bun"
+import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1924,7 +1965,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend({ port: 51789 }), BunContext.layer)
+      Effect.provide(findOrSpawnBackend({ port: 51789 }), BunServices.layer)
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -1985,9 +2026,9 @@ const awaitEndpoint = readEndpoint.pipe(
     Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const)
   ),
   Effect.retry(Schedule.spaced("50 millis")),
-  Effect.timeoutFail({
+  Effect.timeoutOrElse({
     duration: "5 seconds",
-    onTimeout: () => new BackendUnavailable({ reason: "backend did not start in time" })
+    orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))
   })
 )
 
@@ -2003,7 +2044,7 @@ export const findOrSpawnBackend = (options: SpawnOptions) =>
       return yield* awaitEndpoint
     }
     return yield* spawnServer.pipe(
-      Effect.zipRight(awaitEndpoint),
+      Effect.andThen(awaitEndpoint),
       Effect.ensuring(releaseLock)
     )
   })
@@ -2032,18 +2073,19 @@ git commit -m "feat: add find-or-spawn backend with exclusive spawn lock"
 - [ ] **Step 1: Implement `backend/cli/rpc-client.ts`** (imports shared + npm + the cli `discovery` module — all I-1 safe)
 
 ```ts
-import { Socket } from "@effect/platform"
-import { RpcClient, RpcSerialization } from "@effect/rpc"
+import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
 import { Deferred, Effect, Layer, Stream } from "effect"
+import { BunSocket } from "@effect/platform-bun"
 import { YodeaRpcs } from "@yodea/shared/rpc"
 import { findOrSpawnBackend, type SpawnOptions } from "@yodea/cli/discovery"
 
 // WebSocket RPC transport for a known backend URL. NDJSON must match the server.
+// BunSocket.layerWebSocket bundles the WebSocket constructor (Bun-native), so no
+// separate WebSocketConstructor layer is needed.
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(
     Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(Socket.layerWebSocket(url)),
-    Layer.provide(Socket.layerWebSocketConstructorGlobal) // Bun provides global WebSocket
+    Layer.provide(BunSocket.layerWebSocket(url))
   )
 
 // Discover-or-spawn the backend, connect, establish the I-4 presence channel,
@@ -2072,7 +2114,7 @@ export const withClient = <A, E, R>(
   )
 ```
 
-> **Verify against installed version (client transport — volatility point #1, and the client *type name* #2):** (a) confirm `RpcClient.make`, `RpcClient.layerProtocolSocket`, `Socket.layerWebSocket`, `Socket.layerWebSocketConstructorGlobal`, `RpcSerialization.layerNdjson` per the research. (b) If `RpcClient.RpcClient<YodeaRpcs>` is not the exported client type, let inference carry it — e.g. type `use`'s parameter via `Effect.Effect.Success<ReturnType<typeof RpcClient.make<typeof YodeaRpcs>>>`, or inline the client usage in each command instead of this helper. The runtime body stays identical.
+> **Verify against installed version (client transport — volatility point #1, and the client *type name* #2):** (a) confirm `RpcClient.make`, `RpcClient.layerProtocolSocket`, `BunSocket.layerWebSocket`, `RpcSerialization.layerNdjson` per the research. `BunSocket.layerWebSocket(url)` is `Layer<Socket, never, never>` and bundles the WebSocket constructor itself — do NOT add `Socket.layerWebSocketConstructorGlobal`. (b) If `RpcClient.RpcClient<YodeaRpcs>` is not the exact client type (note `RpcClient.make` resolves the client with the `RpcClientError` union on each method's error channel — i.e. `RpcClient.RpcClient<YodeaRpcs, RpcClientError>`), let inference carry it — e.g. type `use`'s parameter via `Effect.Effect.Success<ReturnType<typeof RpcClient.make<typeof YodeaRpcs>>>`, or inline the client usage in each command instead of this helper. The runtime body stays identical.
 
 - [ ] **Step 2: Type-check + I-1.** Run: `bunx tsc --noEmit` → 0; `bun run arch` → 0.
 
@@ -2094,11 +2136,11 @@ git commit -m "feat: add CLI RPC client with held presence connection"
 - [ ] **Step 1: Implement `backend/cli/commands/health.ts`**
 
 ```ts
-import { Command, Options } from "@effect/cli"
+import { Command, Flag } from "effect/unstable/cli"
 import { Console, Effect } from "effect"
 import { withClient } from "@yodea/cli/rpc-client"
 
-const json = Options.boolean("json").pipe(Options.withDefault(false))
+const json = Flag.boolean("json").pipe(Flag.withDefault(false))
 
 export const healthCommand = Command.make("health", { json }, ({ json }) =>
   withClient({ port: 51789 }, (client) =>
@@ -2112,12 +2154,12 @@ export const healthCommand = Command.make("health", { json }, ({ json }) =>
 - [ ] **Step 2: Implement `backend/cli/commands/session.ts`**
 
 ```ts
-import { Args, Command, Options } from "@effect/cli"
+import { Argument, Command, Flag } from "effect/unstable/cli"
 import { Console, Effect } from "effect"
 import { withClient } from "@yodea/cli/rpc-client"
 
-const json = Options.boolean("json").pipe(Options.withDefault(false))
-const title = Args.text({ name: "title" })
+const json = Flag.boolean("json").pipe(Flag.withDefault(false))
+const title = Argument.string("title")
 
 const create = Command.make("create", { title, json }, ({ title, json }) =>
   withClient({ port: 51789 }, (client) =>
@@ -2164,7 +2206,7 @@ git commit -m "feat: add health and session CLI commands"
 - [ ] **Step 1: Implement `backend/cli/commands/server.ts`**
 
 ```ts
-import { Command } from "@effect/cli"
+import { Command } from "effect/unstable/cli"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@yodea/composition/app" // I-1 permitted exception (this file only)
@@ -2181,9 +2223,9 @@ export const serverCommand = Command.make("server", {}, () =>
 - [ ] **Step 2: Implement `backend/cli/main.ts`**
 
 ```ts
-import { Command } from "@effect/cli"
-import { BunContext, BunRuntime } from "@effect/platform-bun"
-import { Console, Effect } from "effect"
+import { Command } from "effect/unstable/cli"
+import { BunRuntime, BunServices } from "@effect/platform-bun"
+import { Console } from "effect"
 import { healthCommand } from "@yodea/cli/commands/health"
 import { sessionCommand } from "@yodea/cli/commands/session"
 import { serverCommand } from "@yodea/cli/commands/server"
@@ -2192,10 +2234,14 @@ const yodea = Command.make("yodea", {}, () =>
   Console.log("yodea — run `yodea --help`")
 ).pipe(Command.withSubcommands([serverCommand, healthCommand, sessionCommand]))
 
-const run = Command.run(yodea, { name: "yodea", version: "0.0.0" })
-
-run(process.argv).pipe(Effect.provide(BunContext.layer), BunRuntime.runMain)
+// Command.run reads argv from Stdio itself — do NOT pass process.argv.
+Command.run(yodea, { version: "0.0.0" }).pipe(
+  Effect.provide(BunServices.layer),
+  BunRuntime.runMain
+)
 ```
+
+> Add `Effect` to the imports (`import { Console, Effect } from "effect"`) — it is used for `Effect.provide`.
 
 - [ ] **Step 3: Type-check + the I-1 acid test.**
 
@@ -2205,7 +2251,7 @@ Run: `bun run arch` → 0 — **this is the moment of truth for I-1**: `main.ts`
 - [ ] **Step 4: Smoke-run the CLI parser (no backend needed)**
 
 Run: `bun backend/cli/main.ts --help`
-Expected: prints usage listing `server`, `health`, `session`. (This exercises @effect/cli wiring without connecting.)
+Expected: prints usage listing `server`, `health`, `session`. (This exercises `effect/unstable/cli` wiring without connecting.)
 
 - [ ] **Step 5: Commit**
 
@@ -2236,9 +2282,8 @@ git commit -m "feat: wire yodea CLI entrypoint with server/health/session"
 ```ts
 // test/integration/e2e-lifecycle.test.ts
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Stream } from "effect"
-import { FileSystem } from "@effect/platform"
-import { BunContext } from "@effect/platform-bun"
+import { Effect, Fiber, FileSystem, Option, Schedule, Stream } from "effect"
+import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -2262,9 +2307,9 @@ afterEach(() => {
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
-  Effect.timeoutFail({
+  Effect.timeoutOrElse({
     duration: "5 seconds",
-    onTimeout: () => new Error("server never advertised an endpoint (I-3)")
+    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
   })
 )
 
@@ -2273,7 +2318,7 @@ describe.sequential("end-to-end lifecycle", () => {
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dbPath = join(dir, "events.db")
-      const serverFiber = yield* Effect.fork(runServer({ dbPath, port: PORT }))
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath, port: PORT }))
 
       yield* awaitEndpointUp
       const upDuring = yield* fs.exists(endpointFilePath())
@@ -2289,14 +2334,14 @@ describe.sequential("end-to-end lifecycle", () => {
 
       // Last client gone -> the server must shut itself down (I-4).
       yield* Fiber.join(serverFiber).pipe(
-        Effect.timeoutFail({
+        Effect.timeoutOrElse({
           duration: "5 seconds",
-          onTimeout: () => new Error("server did not shut down after last client left (I-4)")
+          orElse: () => Effect.fail(new Error("server did not shut down after last client left (I-4)"))
         })
       )
       const upAfter = yield* fs.exists(endpointFilePath())
       return { upDuring, upAfter, outcome }
-    }).pipe(Effect.scoped, Effect.provide(BunContext.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true) // I-3: advertised while alive
@@ -2309,13 +2354,13 @@ describe.sequential("end-to-end lifecycle", () => {
   it("delivers live domain events over the Events stream", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
-      const serverFiber = yield* Effect.fork(runServer({ dbPath, port: PORT }))
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath, port: PORT }))
       yield* awaitEndpointUp
 
       const observed = yield* withClient({ port: PORT }, (client) =>
         Effect.gen(function* () {
           // Start listening, give the subscription time to attach, then create.
-          const head = yield* Effect.fork(Stream.runHead(Stream.take(client.Events(), 1)))
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.SessionCreate({ title: "live" })
           return yield* Fiber.join(head)
@@ -2324,7 +2369,7 @@ describe.sequential("end-to-end lifecycle", () => {
 
       yield* Fiber.interrupt(serverFiber)
       return observed
-    }).pipe(Effect.scoped, Effect.provide(BunContext.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)
@@ -2336,10 +2381,10 @@ describe.sequential("end-to-end lifecycle", () => {
 })
 ```
 
-> **If the first test hangs at "server did not shut down":** the socket-close → `onDisconnect` propagation is the integration assumption from Phase 5. The deterministic state machine already passed (Task 5.2), so the gap is the transport not closing the `Connect` stream's scope on disconnect. Investigate with `superpowers:systematic-debugging` against the installed `@effect/rpc` — do not relax the test. The `sleep("150 millis")` in the second test is a pragmatic subscription-attach delay; if flaky on slow CI, raise it — it is not load-bearing for the lifecycle assertions in the first test.
+> **If the first test hangs at "server did not shut down":** the socket-close → `onDisconnect` propagation is the integration assumption from Phase 5. The deterministic state machine already passed (Task 5.2), so the gap is the transport not closing the `Connect` stream's scope on disconnect. Investigate with `superpowers:systematic-debugging` against the installed `effect/unstable/rpc` — do not relax the test. The `sleep("150 millis")` in the second test is a pragmatic subscription-attach delay; if flaky on slow CI, raise it — it is not load-bearing for the lifecycle assertions in the first test.
 
 - [ ] **Step 2: Run it.** Run: `bun run test -- test/integration/e2e-lifecycle.test.ts`
-Expected: 2 passed. If `@effect/rpc` transport APIs needed adjustment in Phases 5–6, this is where the real wiring is proven.
+Expected: 2 passed. If `effect/unstable/rpc` transport APIs needed adjustment in Phases 5–6, this is where the real wiring is proven.
 
 - [ ] **Step 3: Run the FULL suite + fitness + type-check.**
 
@@ -2433,7 +2478,7 @@ Every in-scope element of the C4 model and `BOUNDARIES.md` maps to a task. Defer
 
 **Deliberately deferred (NOT in this foundation — additive, do not change the seams above):**
 - `desktop` container (Electron/Vite/React, `ui`, `state`, `rpcClient`, `discovery`).
-- `backend.services` subtree: `acpClient`, `projectQueue` (Effect.TxQueue), `gitService`, `fileWatcher`, `highlighter`, `diffParser`, `terminal`.
+- `backend.services` subtree: `acpClient`, `projectQueue` (`TxQueue` from `effect` core), `gitService`, `fileWatcher`, `highlighter`, `diffParser`, `terminal`.
 - External `acpServer` and the recursive "agent invokes `yodea` CLI as a tool" loop.
 - `configSecrets`: only env-based config (`YODEA_HOME`/`YODEA_DB`/port) is built; OS-keychain secrets are deferred.
 - Ephemeral-port negotiation (fixed `51789` for now), `SqliteMigrator` (single `CREATE TABLE IF NOT EXISTS` for now), and historical-event replay on the `Events` stream (live-only for now).
@@ -2467,13 +2512,4 @@ Do not merge to `develop` locally; let the PR review + CI (which runs `bun run t
 
 1. **Subagent-Driven (recommended)** — dispatch a fresh `tdd-implementer` per task, with a `code-reviewer` pass at each phase gate and `manual-tester` for Phase 7. Fast iteration, review between tasks. (REQUIRED SUB-SKILL: `superpowers:subagent-driven-development`.) Note: Phase 0.4 must run first to create the agent definitions before later phases can dispatch them.
 2. **Inline Execution** — execute tasks in this session in batches with checkpoints. (REQUIRED SUB-SKILL: `superpowers:executing-plans`.)
-
-
-
-
-
-
-
-
-
 
