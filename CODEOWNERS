@@ -1,0 +1,5 @@
+# Architectural invariants — changes require architecture-owner review.
+# See docs/architecture/BOUNDARIES.md ("Modifying these invariants").
+/docs/architecture/BOUNDARIES.md   @your-org/architecture-owners
+/.dependency-cruiser.cjs           @your-org/architecture-owners
+/test/architecture/                @your-org/architecture-owners
