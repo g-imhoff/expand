@@ -7,8 +7,8 @@
   "bin": { "yodea": "backend/cli/main.ts" },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "bun --bun vitest run",
+    "test:watch": "bun --bun vitest",
     "arch": "depcruise backend --config .dependency-cruiser.cjs",
     "build": "bun build backend/cli/main.ts --compile --outfile dist/yodea"
   },
