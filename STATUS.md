@@ -7,10 +7,16 @@ The CLI-only **walking skeleton** is fully implemented, reviewed, and tested on 
 ## Verification (all green — re-run any of these)
 ```
 bunx tsc --noEmit     # exit 0 (strict + exactOptionalPropertyTypes + noUncheckedIndexedAccess)
-bun run test          # 33 tests / 18 files passed   (bun --bun vitest)
+bun run test          # 33 tests / 18 files passed (reliably green x5)   (bun --bun vitest)
 bun run arch          # 0 dependency violations       (dependency-cruiser, enforces I-1)
 bun run build         # produces dist/yodea (single ~101MB binary, 351 modules)
 ```
+> **Post-completion fix (test reliability):** the I-1 fitness test shells out to `bunx depcruise`
+> (full TS pre-compilation graph analysis), which grew to ~6.4s as the backend filled in — over
+> vitest's 5s default — so it began failing consistently *after* the build was "done" (the earlier
+> green predated the codebase crossing 5s). Fixed by raising `testTimeout`/`hookTimeout` to 30s in
+> `vitest.config.ts` (config only; the DO-NOT-MODIFY I-1 test and the cruiser rules are unchanged, so
+> the guarantee is intact). Now reliably green: 5/5 full-suite runs, 33/33 each. See `docs/PR-REVIEW-GUIDE.md` §8 C1.
 Manual (compiled binary, isolated `YODEA_HOME`): `yodea health --json` → `{"status":"ok"}`; back-to-back `session create alpha && session create beta && session ls --json` lists both (each via a distinct freshly-spawned, then self-terminated, server — **event-sourced durability across zero-connection restarts**); `server.json` written on startup and removed on shutdown (I-3); server self-shuts-down when the last WebSocket connection closes (I-4); 4-way concurrent spawn converges on one shared backend.
 
 ## What was built
