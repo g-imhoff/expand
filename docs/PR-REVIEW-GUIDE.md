@@ -50,15 +50,15 @@ process that many frontends connect to over WebSocket RPC, built on **Effect v4 
 thin CLI client. It proves every architectural seam end-to-end while deliberately deferring all
 real features (no desktop, no agents, no real services).
 
-**Scope.** CLI-only walking skeleton. One domain event (`SessionCreated`), one read-model
-(`Session`), five RPC procedures (`Health`, `SessionCreate`, `SessionList`, `Connect`, `Events`).
+**Scope.** CLI-only walking skeleton. One domain event (`ProjectCreated`), one read-model
+(`Project`), five RPC procedures (`Health`, `ProjectCreate`, `ProjectList`, `Connect`, `Events`).
 Everything else is structural scaffolding designed to flex as features are added.
 
 **Headline numbers** (verified on this machine after the [C1](#8-potential-issues--review-hotspots) test-timeout fix):
 
 | Metric | Value |
 | --- | --- |
-| Commits on branch | 37 (`develop..HEAD`) |
+| Commits on branch | ~39 (`develop..HEAD`) |
 | Production source | 21 files / 906 LOC |
 | Tests | 18 files / 724 LOC — **33 pass / 0 fail**, reliably green ×5 after the C1 fix |
 | `tsc --noEmit` | exit 0 (strict + `exactOptionalPropertyTypes` + `noUncheckedIndexedAccess`) |
@@ -99,19 +99,19 @@ State changes follow a strict pipeline. The **durable append is the commit point
 broadcast is best-effort:
 
 ```
-command (SessionCreate RPC)
+command (ProjectCreate RPC)
    │
    ▼
-use-case: createSession(title)
-   │  build SessionCreated event
+use-case: createProject(name)
+   │  build ProjectCreated event
    ├─► EventStore.append  ──►  SQLite events table (ORDER BY seq = source of truth)   [COMMIT POINT]
    │
    └─► EventBus.publish   ──►  in-memory PubSub  ──►  Events stream (live frontends)   [best-effort]
 
-query (SessionList RPC)
+query (ProjectList RPC)
    │
    ▼
-SessionProjection.list ──► EventStore.readAll ──► projectSessions(events) fold ──► [Session]
+ProjectProjection.list ──► EventStore.readAll ──► projectsFromEvents(events) fold ──► [Project]
                            (re-read + re-fold the whole log on every query)
 ```
 
@@ -122,7 +122,7 @@ skeleton.
 ### A request, end to end
 
 ```
- yodea session create "alpha"
+ yodea project create "alpha"
         │
         ▼
  findOrSpawnBackend ──► readEndpoint(server.json)?
@@ -135,7 +135,7 @@ skeleton.
         ├─ fork Connect() stream  ─────► server: tracker.onConnect (count 1, ARMED)
         │     (held for whole scope)               emits one `true`  ─► client resolves `ready`
         │
-        ├─ SessionCreate({title}) ─────► append + publish ─► returns Session
+        ├─ ProjectCreate({name}) ──────► append + publish ─► returns Project
         │
         ▼  scope closes (command done)
  Connect() scope drops ─────────────► server: onDisconnect (count 0 & armed) ─► awaitShutdown fires (I-4)
@@ -176,8 +176,8 @@ the server, then composition, then the CLI, then tests. One line per file: **pat
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
 | 1 | `backend/lib/ids.ts` | `newId()` = `crypto.randomUUID()` | 1 |
-| 2 | `backend/shared/session.ts` | `Session` read-model schema (plain Struct) | 8 |
-| 3 | `backend/shared/events.ts` | `SessionCreated`/`DomainEvent` + `DomainEventFromJson` codec | 17 |
+| 2 | `backend/shared/project.ts` | `Project` read-model schema (plain Struct) | 8 |
+| 3 | `backend/shared/events.ts` | `ProjectCreated`/`DomainEvent` + `DomainEventFromJson` codec | 17 |
 | 4 | `backend/shared/endpoint.ts` | `Endpoint` schema, `PROTOCOL_VERSION`, `endpointFilePath()` (I-3 contract) | 21 |
 | 5 | `backend/shared/rpc.ts` | `YodeaRpcs` RpcGroup — the single client↔server protocol | 23 |
 
@@ -186,10 +186,10 @@ the server, then composition, then the CLI, then tests. One line per file: **pat
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
 | 6 | `backend/db/event-store.ts` | append-only SQLite event log (source of truth, `ORDER BY seq`) | 54 |
-| 7 | `backend/domain/session.ts` | pure `projectSessions` fold (events → read-model) | 23 |
-| 8 | `backend/application/projections.ts` | `SessionProjection` binding the fold to the live log | 23 |
+| 7 | `backend/domain/project.ts` | pure `projectsFromEvents` fold (events → read-model) | 23 |
+| 8 | `backend/application/projections.ts` | `ProjectProjection` binding the fold to the live log | 23 |
 | 9 | `backend/application/event-bus.ts` | `EventBus` PubSub broadcast (live fan-out) | 25 |
-| 10 | `backend/application/use-cases.ts` | `createSession` (append-then-publish), `listSessions`, `health` | 45 |
+| 10 | `backend/application/use-cases.ts` | `createProject` (append-then-publish), `listProjects`, `health` | 45 |
 
 ### Server transport + lifetime
 
@@ -213,7 +213,7 @@ the server, then composition, then the CLI, then tests. One line per file: **pat
 | 16 | `backend/cli/discovery.ts` | `readEndpoint`, find-or-spawn-under-lock, stale-lock recovery | 176 |
 | 17 | `backend/cli/rpc-client.ts` | `withClient`: connect, hold presence channel, connect-timeout + respawn | 85 |
 | 18 | `backend/cli/commands/health.ts` | `health` command | 13 |
-| 19 | `backend/cli/commands/session.ts` | `session create` / `session ls` commands | 30 |
+| 19 | `backend/cli/commands/project.ts` | `project create` / `project ls` commands | 30 |
 | 20 | `backend/cli/commands/server.ts` | `server` subcommand — **sole** composition importer; `process.exit(0)` | 32 |
 | 21 | `backend/cli/main.ts` | entry point; wires subcommands; imports NO server internals | 16 |
 
@@ -244,17 +244,17 @@ stdlib. (Verified: the complete import set across `shared/**` + `lib/**` is exac
 `effect`, `effect/unstable/rpc`, `node:os`, `node:path`, and intra-`shared` siblings. Zero server
 imports today.)
 
-- **`events.ts`** defines `SessionCreated = Schema.TaggedStruct("SessionCreated", {...})`; today
-  `DomainEvent = SessionCreated` (a single-member "union"). `TaggedStruct` auto-adds the
+- **`events.ts`** defines `ProjectCreated = Schema.TaggedStruct("ProjectCreated", {...})`; today
+  `DomainEvent = ProjectCreated` (a single-member "union"). `TaggedStruct` auto-adds the
   `_tag` literal so the projection fold can `switch (_tag)`. `DomainEventFromJson =
   Schema.fromJsonString(DomainEvent)` is the JSON-text codec used at two boundaries: the SQLite
   `payload` column and the `Events` RPC stream. On **decode** it JSON-parses *and* validates, so a
   malformed/foreign-tag row fails decode rather than passing silently — the property the event
   log's integrity relies on. **Growth path** (documented in-line): swap the alias for
   `Schema.Union([...])` and add a fold case.
-- **`session.ts`** is the projection *output* shape — a plain `Struct` (deliberately *not*
+- **`project.ts`** is the projection *output* shape — a plain `Struct` (deliberately *not*
   tagged; it's a read-model row, not an event). Note the intentional shape difference: the event
-  has `sessionId`, the read-model has `id`; the projection maps one to the other.
+  has `projectId`, the read-model has `id`; the projection maps one to the other.
 - **`endpoint.ts`** is the **I-3 rendezvous contract**: `PROTOCOL_VERSION = 1`, the `Endpoint`
   schema (`url`, `token`, `pid`, `protocolVersion`), and `endpointFilePath()` resolving
   `$YODEA_ENDPOINT_FILE || $YODEA_HOME/server.json || ~/.yodea/server.json`. The
@@ -262,7 +262,7 @@ imports today.)
   mis-speak to it. The env overrides are the test/runtime isolation seam (every integration test
   uses one).
 - **`rpc.ts`** is the single source of truth for the protocol: a `RpcGroup` of `Health`,
-  `SessionCreate` (`payload: { title }` → `Session`), `SessionList` (→ `Array(Session)`),
+  `ProjectCreate` (`payload: { name }` → `Project`), `ProjectList` (→ `Array(Project)`),
   `Connect` (`stream: true`, the I-4 presence channel), and `Events` (`stream: true`, live
   `DomainEvent` broadcast). For any `stream: true` RPC the error schema is forced to
   `Schema.Never` — by design, a SQL/codec failure is a server *defect* (`Effect.orDie`), not a
@@ -283,19 +283,19 @@ The whole subsystem is parameterized by the one `DomainEvent` schema.
   **`ORDER BY seq ASC` is the load-bearing guarantee that replay order equals commit order.** Error
   channel is honest: `StoreError = SqlError | SchemaError`. `CREATE TABLE IF NOT EXISTS` makes boot
   idempotent across the spawn-per-command lifecycle.
-- **`domain/session.ts`** is the pure, I/O-free `projectSessions` fold — a left-fold over the log
-  into a `Map` keyed by `sessionId`, returned in insertion order. The textbook "projection =
+- **`domain/project.ts`** is the pure, I/O-free `projectsFromEvents` fold — a left-fold over the log
+  into a `Map` keyed by `projectId`, returned in insertion order. The textbook "projection =
   fold(events)" pattern; the place new event types get folded in.
 - **`projections.ts`** binds the pure fold to the live log: `list = Effect.map(store.readAll,
-  projectSessions)`. Every `list` re-reads and re-folds the *entire* log — true projection-on-read,
+  projectsFromEvents)`. Every `list` re-reads and re-folds the *entire* log — true projection-on-read,
   no cache.
 - **`event-bus.ts`** is the in-memory live fan-out: one `PubSub.unbounded<DomainEvent>()` exposed
   three ways (`publish`, scoped `subscribe`, and `stream = Stream.fromPubSub(...)`). It is
   **live-only** — it carries no historical replay. `publish` returns `boolean` (PubSub semantics:
   `false` if shut down).
-- **`use-cases.ts`** is the commit path. `createSession` mints an id + timestamp, builds the event,
+- **`use-cases.ts`** is the commit path. `createProject` mints an id + timestamp, builds the event,
   **`store.append` (the commit point — durable), then `bus.publish` (best-effort live fan-out)** —
-  the ordering is the architectural statement. `listSessions` is just the projection's `list`
+  the ordering is the architectural statement. `listProjects` is just the projection's `list`
   (read-your-writes through the same SQLite connection). The single-connection, semaphore-serialized
   Bun SQLite driver makes that read-your-writes a genuine guarantee, not luck.
 
@@ -309,7 +309,7 @@ The whole subsystem is parameterized by the one `DomainEvent` schema.
   doesn't suicide instantly at startup. The composition root blocks on `awaitShutdown`; the
   handlers mutate the same instance (shared via the merged `coreLayer`).
 - **`rpc-handlers.ts`** maps the contract to use-cases via `YodeaRpcs.toLayer({...})`.
-  `SessionCreate`/`SessionList` call the use-case then `Effect.orDie` to discharge `SqlError |
+  `ProjectCreate`/`ProjectList` call the use-case then `Effect.orDie` to discharge `SqlError |
   SchemaError` into the defect channel (matching the `Schema.Never` contract). The **`Connect`
   handler is the I-4 linchpin**: `Stream.unwrap` over `tracker.onConnect` +
   `Effect.addFinalizer(() => tracker.onDisconnect)`, then `Stream.make(true).pipe(Stream.concat(
@@ -581,8 +581,8 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
 
 - **[I7] One corrupt row poisons the entire read path — `event-store.ts:~44-46`.**
   `Effect.forEach(rows, decodeUnknownEffect(...))` short-circuits on the first un-decodable row, so a
-  single malformed/forward-incompatible `payload` makes `readAll` (→ `listSessions` → every
-  `SessionList`) fail for the whole store. With schema evolution (the documented growth path), an old
+  single malformed/forward-incompatible `payload` makes `readAll` (→ `listProjects` → every
+  `ProjectList`) fail for the whole store. With schema evolution (the documented growth path), an old
   binary reading a newer log hits this. **No test** inserts a bad payload. **What to check:** decide
   whether unknown/future event tags should be *skipped* rather than fatal; add a malformed-row test
   asserting the expected `SchemaError` and that the RPC `orDie` behavior is intended.
@@ -591,8 +591,8 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
   durability across zero-connection restarts," but both e2e tests create a fresh DB and never start a
   *second* server against an *existing* file; integration tests use `:memory:`. The single most
   important property of the system is **manual-only**. **What to check:** add a test: `runServer({
-  dbPath})` → create session → let it shut down (I-4) → `runServer({dbPath})` again on the same file
-  → assert `SessionList` returns the prior session.
+  dbPath})` → create project → let it shut down (I-4) → `runServer({dbPath})` again on the same file
+  → assert `ProjectList` returns the prior project.
 
 - **[I9] No concurrency / multi-client coverage.** Every integration test uses one client. The I-4
   "as long as ≥1 connection remains, the server stays alive" clause (BOUNDARIES step 4) is **never
@@ -620,7 +620,7 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
 ### Minor
 
 - **[M1] Projection rebuild cost — `projections.ts:~17` + `event-store.ts:~42`.** Every
-  `SessionList` does a full `SELECT ... ORDER BY seq` + decode of *every* row — O(total events) per
+  `ProjectList` does a full `SELECT ... ORDER BY seq` + decode of *every* row — O(total events) per
   query, no snapshot/cache. Fine at skeleton scale; the first scaling hotspot. **Check:** confirm
   it's an accepted tradeoff and snapshots are on the roadmap.
 - **[M2] `readAll` loads the whole table into memory — `event-store.ts:~40-47`.** No streaming/
@@ -629,19 +629,19 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
 - **[M3] Commit-path is not transactional — `use-cases.ts:~33-35`.** `append` then `publish` are
   separate effects; an interruption between them, or a `publish` returning `false` (discarded
   boolean), commits durably but doesn't broadcast — at-most-once, lossy-by-design fan-out. Correct
-  for the skeleton (next `listSessions` reads the log). **Check:** team accepts broadcast is lossy.
+  for the skeleton (next `listProjects` reads the log). **Check:** team accepts broadcast is lossy.
 - **[M4] Multi-event commits won't be atomic — `event-store.ts:~33-37`.** A single INSERT is
   auto-commit-atomic today, but the "commit point" framing implies a boundary not explicitly
   expressed; a future multi-event command needs `sql.withTransaction`. **Check:** team knows not to
   add multi-event commits naively.
-- **[M5] No optimistic-concurrency / idempotency on `sessionId` — `event-store.ts:~30-38`.** `append`
+- **[M5] No optimistic-concurrency / idempotency on `projectId` — `event-store.ts:~30-38`.** `append`
   always INSERTs; no expected-version check. Can't collide today (fresh UUID per command) but
   standard event-store concurrency control is absent. Note for when commands target existing streams.
 - **[M6] Unmanaged `Date`/`crypto` effects — `use-cases.ts:~30-31`, `lib/ids.ts:1`.** Wall-clock and
   UUID via raw globals, not Effect `Clock`/services → non-deterministic, slightly off-idiom. `ids.ts`
   relies on the global `crypto` with no `import { randomUUID } from "node:crypto"` (safe under Bun/
   Node ≥19). Cheap to live with; flag when timestamps become semantically significant.
-- **[M7] Timestamps are free-form `Schema.String` — `events.ts:~6-9`, `session.ts`.** Nothing
+- **[M7] Timestamps are free-form `Schema.String` — `events.ts:~6-9`, `project.ts`.** Nothing
   validates ISO-8601; `"banana"` round-trips. Reasonable for a skeleton (keeps the wire JSON-trivial);
   a contract weakness if any consumer ever sorts/compares timestamps.
 - **[M8] Endpoint `url`/`token` unvalidated — `endpoint.ts:~7-12`.** `protocolVersion` is the only
@@ -715,7 +715,7 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
   or longer. Consider a test holding a raw WS open through the zero-trigger asserting completion <2s,
   to actually prove the abandon path.
 - **[W7] `rpc-contract.test.ts` asserts tag *existence* only.** It doesn't verify `Connect`/`Events`
-  are `stream: true`, that `SessionCreate` requires `title`, or success shapes — a drift renaming a
+  are `stream: true`, that `ProjectCreate` requires `name`, or success shapes — a drift renaming a
   payload field or flipping a stream flag would pass. A few `Rpc`-introspection assertions would lock
   the contract.
 - **[W8] No negative-path test for `DomainEventFromJson`/`EndpointFromJson` decode failures.** The
@@ -782,9 +782,9 @@ export YODEA_HOME="$(mktemp -d)"
 ./dist/yodea health --json                     # EXPECT: {"status":"ok"}
 
 # back-to-back durability across self-terminating servers (the back-to-back race fix)
-./dist/yodea session create alpha \
-  && ./dist/yodea session create beta \
-  && ./dist/yodea session ls --json            # EXPECT: lists BOTH alpha and beta
+./dist/yodea project create alpha \
+  && ./dist/yodea project create beta \
+  && ./dist/yodea project ls --json            # EXPECT: lists BOTH alpha and beta
 #   each command spawns a distinct ephemeral-port server that self-terminates;
 #   the second/third re-read the event log (durability across zero-connection restarts)
 
@@ -796,8 +796,8 @@ printf '{"pid":2147483647,"startedAt":0}' > "$YODEA_HOME/server.json.lock"   # d
 ./dist/yodea health --json                     # EXPECT: {"status":"ok"} (lock detected stale, cleared, fresh spawn)
 
 # 4-way concurrent spawn converges on one backend
-for i in 1 2 3 4; do ./dist/yodea session create "c$i" & done; wait
-./dist/yodea session ls --json                 # EXPECT: all four present, one shared backend won the lock
+for i in 1 2 3 4; do ./dist/yodea project create "c$i" & done; wait
+./dist/yodea project ls --json                 # EXPECT: all four present, one shared backend won the lock
 ```
 
 ### Confirm checklist
@@ -807,7 +807,7 @@ for i in 1 2 3 4; do ./dist/yodea session create "c$i" & done; wait
 - [ ] `bun run arch` reports 0 violations **and** the temporary forbidden-import experiment made it fail (non-vacuous).
 - [ ] `bun run build` produces `dist/yodea`.
 - [ ] Manual: `health --json` → `{"status":"ok"}`.
-- [ ] Manual: back-to-back `session create` × N then `session ls` lists all (durability across restarts).
+- [ ] Manual: back-to-back `project create` × N then `project ls` lists all (durability across restarts).
 - [ ] Manual: `server.json` appears on startup, removed on shutdown (I-3); server self-terminates after the last client leaves (I-4).
 - [ ] Manual: stale-lock recovery and 4-way concurrent spawn both converge cleanly.
 - [ ] Reviewed [I1] (transitive `shared`/`lib` arch rule) and decided whether to require the third forbidden rule before merge.
