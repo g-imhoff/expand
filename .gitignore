@@ -31,3 +31,6 @@ bun-debug.log*
 # OS/editor noise
 .DS_Store
 Thumbs.db
+
+# AI Generated Files
+/docs/superpowers
