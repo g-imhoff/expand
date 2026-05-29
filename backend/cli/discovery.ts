@@ -1,5 +1,5 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
-import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
+import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
 import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
 
@@ -34,11 +34,21 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     return Option.some(endpoint)
   })
 
-// Spawn `yodea server` as a detached background process. Targets the COMPILED
-// binary (process.execPath === dist/yodea), which is the shipped artifact.
+// Launch `<this program> server` as a detached background process. Works in
+// both runtimes:
+//   - compiled binary: process.execPath IS the yodea binary -> [execPath, "server"]
+//   - dev from source (`bun backend/cli/main.ts ...`, e.g. `bun run dev:cli`):
+//     Bun.main is a real .ts/.js entry on disk, so re-invoke the runtime with that
+//     entry -> [bun, entry, "server"]. (process.execPath alone is the bun binary,
+//     and `bun server` would be meaningless.)
 const spawnServer = Effect.sync(() => {
+  const entry = Bun.main
+  const fromSource = existsSync(entry) && /\.(ts|js|mjs|cjs)$/.test(entry)
+  const cmd = fromSource
+    ? [process.execPath, entry, "server"]
+    : [process.execPath, "server"]
   const child = Bun.spawn({
-    cmd: [process.execPath, "server"],
+    cmd,
     stdout: "ignore",
     stderr: "ignore",
     stdin: "ignore",

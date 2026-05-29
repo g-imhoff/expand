@@ -10,7 +10,9 @@
     "test": "bun --bun vitest run",
     "test:watch": "bun --bun vitest",
     "arch": "depcruise backend --config .dependency-cruiser.cjs",
-    "build": "bun build backend/cli/main.ts --compile --outfile dist/yodea"
+    "build": "bun build backend/cli/main.ts --compile --outfile dist/yodea",
+    "dev:cli": "bun backend/cli/main.ts",
+    "dev:server": "bun backend/cli/main.ts server"
   },
   "dependencies": {
     "effect": "4.0.0-beta.74",
