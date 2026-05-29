@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
-import { SessionCreated } from "@yodea/shared/events"
+import { ProjectCreated } from "@yodea/shared/events"
 
 // In-memory DB, WAL disabled (WAL is meaningless / noisy for :memory:).
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
@@ -17,18 +17,18 @@ describe("EventStore", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         yield* store.append(
-          "s1",
-          SessionCreated.make({ sessionId: "s1", title: "A", createdAt: "t1" })
+          "p1",
+          ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
         )
         yield* store.append(
-          "s2",
-          SessionCreated.make({ sessionId: "s2", title: "B", createdAt: "t2" })
+          "p2",
+          ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" })
         )
         return yield* store.readAll
       })
     )
-    expect(events.map((e) => e.sessionId)).toEqual(["s1", "s2"])
-    expect(events[0]?._tag).toBe("SessionCreated")
+    expect(events.map((e) => e.projectId)).toEqual(["p1", "p2"])
+    expect(events[0]?._tag).toBe("ProjectCreated")
   })
 
   it("returns an empty log initially", async () => {
