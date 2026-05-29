@@ -44,8 +44,8 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient((client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
-          const created = yield* client.SessionCreate({ title: "E2E" })
-          const listed = yield* client.SessionList()
+          const created = yield* client.ProjectCreate({ name: "E2E" })
+          const listed = yield* client.ProjectList()
           return { health, created, listed }
         })
       )
@@ -64,7 +64,7 @@ describe.sequential("end-to-end lifecycle", () => {
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true) // I-3: advertised while alive
     expect(r.outcome.health).toBe("ok")
-    expect(r.outcome.created.title).toBe("E2E")
+    expect(r.outcome.created.name).toBe("E2E")
     expect(r.outcome.listed).toEqual([r.outcome.created]) // event -> projection over the wire
     expect(r.upAfter).toBe(false) // I-3/I-4: endpoint removed on zero-connection shutdown
   })
@@ -80,7 +80,7 @@ describe.sequential("end-to-end lifecycle", () => {
           // Start listening, give the subscription time to attach, then create.
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
           yield* Effect.sleep("150 millis")
-          yield* client.SessionCreate({ title: "live" })
+          yield* client.ProjectCreate({ name: "live" })
           return yield* Fiber.join(head)
         })
       )
@@ -92,8 +92,8 @@ describe.sequential("end-to-end lifecycle", () => {
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)
     if (Option.isSome(observed)) {
-      expect(observed.value._tag).toBe("SessionCreated")
-      expect(observed.value.title).toBe("live")
+      expect(observed.value._tag).toBe("ProjectCreated")
+      expect(observed.value.name).toBe("live")
     }
   })
 })
