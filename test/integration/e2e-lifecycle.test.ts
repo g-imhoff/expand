@@ -41,7 +41,7 @@ describe.sequential("end-to-end lifecycle", () => {
       yield* awaitEndpointUp
       const upDuring = yield* fs.exists(endpointFilePath())
 
-      const outcome = yield* withClient({ port: 0 }, (client) =>
+      const outcome = yield* withClient((client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
           const created = yield* client.SessionCreate({ title: "E2E" })
@@ -75,7 +75,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
-      const observed = yield* withClient({ port: 0 }, (client) =>
+      const observed = yield* withClient((client) =>
         Effect.gen(function* () {
           // Start listening, give the subscription time to attach, then create.
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))

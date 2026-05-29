@@ -6,7 +6,7 @@ const json = Flag.boolean("json").pipe(Flag.withDefault(false))
 const title = Argument.string("title")
 
 const create = Command.make("create", { title, json }, ({ title, json }) =>
-  withClient({ port: 0 }, (client) =>
+  withClient((client) =>
     Effect.flatMap(client.SessionCreate({ title }), (session) =>
       Console.log(json ? JSON.stringify(session) : `created ${session.id}  ${session.title}`)
     )
@@ -14,7 +14,7 @@ const create = Command.make("create", { title, json }, ({ title, json }) =>
 )
 
 const ls = Command.make("ls", { json }, ({ json }) =>
-  withClient({ port: 0 }, (client) =>
+  withClient((client) =>
     Effect.flatMap(client.SessionList(), (sessions) =>
       json
         ? Console.log(JSON.stringify(sessions))
