@@ -89,7 +89,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         )
 
         // The whole point: this must COMPLETE (not hang) and return real data.
-        const result = yield* withClient({ port: 0 }, (client) =>
+        const result = yield* withClient((client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
             const created = yield* client.SessionCreate({ title: "after-stale" })

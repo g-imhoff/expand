@@ -2,7 +2,7 @@ import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc
 import { Data, Deferred, Effect, FileSystem, Layer, Stream } from "effect"
 import { BunSocket } from "@effect/platform-bun"
 import { YodeaRpcs } from "@yodea/shared/rpc"
-import { deleteEndpoint, findOrSpawnBackend, type SpawnOptions } from "@yodea/cli/discovery"
+import { deleteEndpoint, findOrSpawnBackend } from "@yodea/cli/discovery"
 
 // The concrete client `RpcClient.make` resolves to: each method's error channel
 // is unioned with `RpcClientError` (transport-level failures). Annotate `use`
@@ -41,10 +41,9 @@ const protocolLayer = (url: string) =>
 // and retry find-or-spawn so the command ultimately spawns a fresh server and
 // succeeds instead of hanging. `use`'s own failures are NOT retried.
 export const withClient = <A, E, R>(
-  options: SpawnOptions,
   use: (client: YodeaClient) => Effect.Effect<A, E, R>
 ) => {
-  const attempt = findOrSpawnBackend(options).pipe(
+  const attempt = findOrSpawnBackend.pipe(
     Effect.flatMap((endpoint) =>
       Effect.gen(function* () {
         const client = yield* RpcClient.make(YodeaRpcs)
