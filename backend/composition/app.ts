@@ -96,6 +96,12 @@ export const runServer = (options: RunServerOptions) => {
 
   // `core` is shared between the transport (handlers) and the program (tracker),
   // so the count the handlers mutate is the count the program awaits.
+  //
+  // NOTE: this effect COMPLETES after a clean I-4 shutdown but does NOT force the
+  // OS process to exit — that is the responsibility of the real process entry
+  // point (`backend/cli/commands/server.ts`), so in-process callers (tests) can
+  // run `runServer` and observe completion without killing the test runner. See
+  // the exit rationale documented there.
   return program.pipe(
     Effect.provide(Layer.mergeAll(core, BunServices.layer)),
     Effect.scoped
