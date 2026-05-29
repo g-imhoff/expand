@@ -84,6 +84,16 @@ const awaitEndpoint = readEndpoint.pipe(
   })
 )
 
+// Remove a stale discovery file (best-effort). Used by the client when a
+// discovered endpoint turns out to point at a dead/dying server: deleting it
+// forces the next find-or-spawn to spawn a fresh backend instead of re-reading
+// the same stale entry and hanging again.
+export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.remove(endpointFilePath()).pipe(Effect.ignore)
+  })
+
 // I-2/I-4 step 1: find a running backend or spawn exactly one.
 export const findOrSpawnBackend = (options: SpawnOptions) =>
   Effect.gen(function* () {
