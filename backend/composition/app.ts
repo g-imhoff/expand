@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect"
+import { Effect, Exit, Layer, Scope } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/db/event-store"
@@ -15,6 +15,10 @@ export interface RunServerOptions {
   readonly dbPath: string
   readonly port: number
 }
+
+// How long we wait for the HTTP server's own scope to close gracefully before
+// abandoning it (see the `httpScope` teardown in `runServer`).
+const HTTP_SHUTDOWN_GRACE = "1 second"
 
 // Domain + application services as ONE shared graph. Each `XLayer` is a stable
 // memoized layer, so referencing `store` in three places yields ONE EventStore
@@ -37,9 +41,35 @@ export const runServer = (options: RunServerOptions) => {
   const core = coreLayer(options.dbPath)
   const url = `ws://127.0.0.1:${options.port}/rpc`
 
+  // `core` + `BunServices` live in the OUTER scope (this effect's `Effect.scoped`).
+  // The HTTP/WebSocket transport lives in its own CHILD scope (`httpScope`) so we
+  // can close it on demand — and, critically, with a deadline.
+  //
+  // WHY the child scope + deadline: on Bun, the `HttpServer` finalizer calls
+  // graceful `server.stop()` (no force flag, and the unconditional finalizer is
+  // untimed — see node_modules/@effect/platform-bun/dist/BunHttpServer.js:65-70).
+  // Bun's graceful `server.stop()` only resolves once every open socket has
+  // closed; during a zero-connection (I-4) shutdown the last presence WebSocket
+  // is still registered with Bun at the instant teardown begins, so graceful stop
+  // blocks forever and the whole scope teardown (incl. I-3 endpoint removal and
+  // `Fiber.join`) deadlocks. There is no force-close knob on the `HttpServer`
+  // service, so we bound the transport's teardown ourselves: we ask its scope to
+  // close, give graceful stop a short grace window, then proceed regardless. The
+  // OS reclaims the port on process exit; the client is already gone, so nothing
+  // observable is leaked.
+  const transportLayer = Layer.mergeAll(
+    httpServerLayer(options.port).pipe(Layer.provide(core)),
+    BunServices.layer
+  )
+
   const program = Effect.gen(function* () {
     const tracker = yield* ConnectionTracker
-    // I-3: advertise the endpoint (acquireRelease removes it on scope close).
+
+    // Bring up the transport in a dedicated closeable scope.
+    const httpScope = yield* Scope.make()
+    yield* Layer.buildWithScope(transportLayer, httpScope)
+
+    // I-3: advertise the endpoint (acquireRelease removes it on outer scope close).
     yield* writeEndpointFile({
       url,
       token: newId(),
@@ -47,21 +77,27 @@ export const runServer = (options: RunServerOptions) => {
       protocolVersion: PROTOCOL_VERSION
     })
     yield* Effect.logInfo(`yodea backend listening on ${url} (pid ${process.pid})`)
+
     // I-4: block until armed && connection count returns to zero.
     yield* tracker.awaitShutdown
     yield* Effect.logInfo("last connection closed — shutting down")
+
+    // Close the transport's scope, but never let Bun's graceful `server.stop()`
+    // deadlock the shutdown. After the grace window we move on; the outer scope
+    // then removes the endpoint file (I-3) and the fiber completes (I-4).
+    yield* Scope.close(httpScope, Exit.void).pipe(
+      Effect.timeoutOrElse({
+        duration: HTTP_SHUTDOWN_GRACE,
+        orElse: () =>
+          Effect.logInfo("http server did not stop within grace window — abandoning")
+      })
+    )
   })
 
   // `core` is shared between the transport (handlers) and the program (tracker),
   // so the count the handlers mutate is the count the program awaits.
   return program.pipe(
-    Effect.provide(
-      Layer.mergeAll(
-        httpServerLayer(options.port).pipe(Layer.provide(core)),
-        core,
-        BunServices.layer
-      )
-    ),
+    Effect.provide(Layer.mergeAll(core, BunServices.layer)),
     Effect.scoped
   )
 }
