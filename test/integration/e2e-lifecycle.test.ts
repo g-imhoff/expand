@@ -9,7 +9,6 @@ import { withClient } from "@yodea/cli/rpc-client"
 import { readEndpoint } from "@yodea/cli/discovery"
 import { endpointFilePath } from "@yodea/shared/endpoint"
 
-const PORT = 51990
 let dir: string
 
 beforeEach(() => {
@@ -35,12 +34,14 @@ describe.sequential("end-to-end lifecycle", () => {
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dbPath = join(dir, "events.db")
-      const serverFiber = yield* Effect.forkChild(runServer({ dbPath, port: PORT }))
+      // No fixed port: the server binds an ephemeral OS port and advertises the
+      // real URL in the discovery file; the client discovers it from there.
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
 
       yield* awaitEndpointUp
       const upDuring = yield* fs.exists(endpointFilePath())
 
-      const outcome = yield* withClient({ port: PORT }, (client) =>
+      const outcome = yield* withClient({ port: 0 }, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
           const created = yield* client.SessionCreate({ title: "E2E" })
@@ -71,10 +72,10 @@ describe.sequential("end-to-end lifecycle", () => {
   it("delivers live domain events over the Events stream", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
-      const serverFiber = yield* Effect.forkChild(runServer({ dbPath, port: PORT }))
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
-      const observed = yield* withClient({ port: PORT }, (client) =>
+      const observed = yield* withClient({ port: 0 }, (client) =>
         Effect.gen(function* () {
           // Start listening, give the subscription time to attach, then create.
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))

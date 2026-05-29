@@ -22,7 +22,11 @@ const dbPath = () =>
 // point (not in `runServer`) so in-process callers — the e2e tests — can run the
 // server effect to completion without `process.exit` killing the test runner.
 export const serverCommand = Command.make("server", {}, () =>
-  runServer({ dbPath: dbPath(), port: 51789 }).pipe(
+  // No `port`: bind an ephemeral OS port. This lets a freshly auto-spawned server
+  // start cleanly while a previous one is still in its grace-window teardown
+  // (otherwise a fixed port would race into EADDRINUSE). The real bound port is
+  // read back inside `runServer` and advertised in the discovery file.
+  runServer({ dbPath: dbPath() }).pipe(
     Effect.ensuring(Effect.sync(() => process.exit(0)))
   )
 )
