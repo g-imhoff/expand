@@ -10,9 +10,9 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
   // codec failure is a server defect, not a typed RPC error. `Effect.orDie`
   // discharges the use-case error channel (SqlError | SchemaError) to match the
   // contract's `Schema.Never` error schema.
-  SessionCreate: ({ title }) =>
-    Effect.flatMap(UseCases, (u) => u.createSession(title)).pipe(Effect.orDie),
-  SessionList: () => Effect.flatMap(UseCases, (u) => u.listSessions).pipe(Effect.orDie),
+  ProjectCreate: ({ name }) =>
+    Effect.flatMap(UseCases, (u) => u.createProject(name)).pipe(Effect.orDie),
+  ProjectList: () => Effect.flatMap(UseCases, (u) => u.listProjects).pipe(Effect.orDie),
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
   // onDisconnect (via finalizer) when the stream's scope closes on socket drop.

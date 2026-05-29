@@ -1,10 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import type { Session } from "@yodea/shared/session"
+import type { Project } from "@yodea/shared/project"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
-import { SessionProjection } from "@yodea/application/projections"
-import { SessionCreated } from "@yodea/shared/events"
+import { ProjectProjection } from "@yodea/application/projections"
+import { ProjectCreated } from "@yodea/shared/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -13,31 +13,31 @@ type UseCaseError = SqlError | Schema.SchemaError
 
 export class UseCases extends Context.Service<UseCases, {
   readonly health: Effect.Effect<string>
-  readonly createSession: (title: string) => Effect.Effect<Session, UseCaseError>
-  readonly listSessions: Effect.Effect<ReadonlyArray<Session>, UseCaseError>
+  readonly createProject: (name: string) => Effect.Effect<Project, UseCaseError>
+  readonly listProjects: Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
     const store = yield* EventStore
     const bus = yield* EventBus
-    const projection = yield* SessionProjection
+    const projection = yield* ProjectProjection
 
     const health = Effect.succeed("ok")
 
     // Commit path: durable append (source of truth) THEN live publish.
     // Append is the commit point; publish is best-effort live fan-out.
-    const createSession = (title: string) =>
+    const createProject = (name: string) =>
       Effect.gen(function* () {
         const id = newId()
         const createdAt = new Date().toISOString()
-        const event = SessionCreated.make({ sessionId: id, title, createdAt })
+        const event = ProjectCreated.make({ projectId: id, name, createdAt })
         yield* store.append(id, event)
         yield* bus.publish(event)
-        return { id, title, createdAt }
+        return { id, name, createdAt }
       })
 
-    const listSessions = projection.list
+    const listProjects = projection.list
 
-    return { health, createSession, listSessions } as const
+    return { health, createProject, listProjects } as const
   })
 }) {}
 

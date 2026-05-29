@@ -1,22 +1,22 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, SessionCreated } from "@yodea/shared/events"
+import { DomainEventFromJson, ProjectCreated } from "@yodea/shared/events"
 
 describe("DomainEvent", () => {
-  it("constructs SessionCreated with an auto-filled _tag", () => {
-    const e = SessionCreated.make({
-      sessionId: "s1",
-      title: "First",
+  it("constructs ProjectCreated with an auto-filled _tag", () => {
+    const e = ProjectCreated.make({
+      projectId: "p1",
+      name: "First",
       createdAt: "2026-01-01T00:00:00.000Z"
     })
-    expect(e._tag).toBe("SessionCreated")
-    expect(e.title).toBe("First")
+    expect(e._tag).toBe("ProjectCreated")
+    expect(e.name).toBe("First")
   })
 
   it("roundtrips through JSON text", () => {
-    const e = SessionCreated.make({
-      sessionId: "s1",
-      title: "First",
+    const e = ProjectCreated.make({
+      projectId: "p1",
+      name: "First",
       createdAt: "2026-01-01T00:00:00.000Z"
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)

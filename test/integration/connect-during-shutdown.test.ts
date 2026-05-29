@@ -92,7 +92,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         const result = yield* withClient((client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
-            const created = yield* client.SessionCreate({ title: "after-stale" })
+            const created = yield* client.ProjectCreate({ name: "after-stale" })
             return { health, created }
           })
         ).pipe(
@@ -109,7 +109,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")
-      expect(r.created.title).toBe("after-stale")
+      expect(r.created.name).toBe("after-stale")
     },
     20000
   )

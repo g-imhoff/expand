@@ -9,7 +9,7 @@ describe("YodeaRpcs contract", () => {
     // RpcGroup exposes its requests; assert the tags we depend on exist.
     const tags = [...YodeaRpcs.requests.keys()]
     expect(tags).toEqual(
-      expect.arrayContaining(["Health", "SessionCreate", "SessionList", "Connect", "Events"])
+      expect.arrayContaining(["Health", "ProjectCreate", "ProjectList", "Connect", "Events"])
     )
   })
 })
