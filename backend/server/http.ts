@@ -1,9 +1,55 @@
-import { Layer } from "effect"
-import { HttpRouter } from "effect/unstable/http"
+import { Effect, Layer, Option } from "effect"
+import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer } from "@effect/platform-bun"
 import { YodeaRpcs } from "@yodea/shared/rpc"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
+
+// Access-log middleware: a near-verbatim copy of `HttpMiddleware.logger`, with
+// ONE change — a client-abort (HTTP 499) is logged at DEBUG instead of INFO.
+//
+// WHY: the I-4 zero-connection shutdown force-closes the transport scope while
+// the presence WebSocket (`Connect`) is still attached, interrupting that
+// request fiber. The stock logger renders the interrupt as
+// `INFO http.span: InterruptError ... http.status: 499` — harmless (it IS the
+// expected teardown), but alarming in `yodea server` output. A 499 is by
+// definition a client-side abort, never a server defect, so demoting only the
+// 499 case to DEBUG quiets the noise WITHOUT hiding real errors: any genuine
+// failure resolves to 500/503 and still logs at INFO with its full cause.
+const accessLogger = HttpMiddleware.make((httpApp) =>
+  Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
+    const path = request.url
+    return Effect.withLogSpan(
+      Effect.flatMap(Effect.exit(httpApp), (exit) => {
+        if (exit._tag === "Failure") {
+          const [response, cause] = HttpServerError.causeResponseStripped(exit.cause)
+          const message = Option.getOrElse(cause, () => "Sent HTTP Response")
+          const annotations = {
+            "http.method": request.method,
+            "http.url": path,
+            "http.status": response.status
+          }
+          // Client aborts (499) are benign teardown noise -> DEBUG; everything
+          // else keeps the stock INFO-level access log.
+          const log =
+            response.status === 499
+              ? Effect.logDebug(message)
+              : Effect.log(message)
+          return Effect.andThen(Effect.annotateLogs(log, annotations), exit)
+        }
+        return Effect.andThen(
+          Effect.annotateLogs(Effect.log("Sent HTTP response"), {
+            "http.method": request.method,
+            "http.url": path,
+            "http.status": exit.value.status
+          }),
+          exit
+        )
+      }),
+      "http.span"
+    )
+  })
+)
 
 // Serves YodeaRpcs over WebSocket (NDJSON) at /rpc. The handler dependencies
 // (UseCases | EventBus | ConnectionTracker) bubble up as requirements for
@@ -30,5 +76,11 @@ export const httpServerLayer = (port: number) => {
     Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
     Layer.provide(RpcSerialization.layerNdjson)
   )
-  return Layer.mergeAll(HttpRouter.serve(rpc), bun).pipe(Layer.provide(bun))
+  // `disableLogger` turns off the stock access logger; `middleware` installs our
+  // 499-demoting copy in its place (see `accessLogger`). Everything else about
+  // `serve` is unchanged.
+  return Layer.mergeAll(
+    HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }),
+    bun
+  ).pipe(Layer.provide(bun))
 }
