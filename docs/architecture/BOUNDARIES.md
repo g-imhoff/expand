@@ -9,12 +9,24 @@ explicit architecture decision, not a code-review judgment call.
 
 ---
 
-## I-1. CLI client isolation
+## I-1. Frontend isolation
 
-**Rule.** Source files under `apps/cli/cli/**` must never import from any
-server-only module. The CLI is a thin RPC client over WebSocket and the
-only legitimate way for it to interact with backend state is to send a
-command to the running `yodea` backend.
+**Rule (generalized).** No frontend — `apps/cli/cli`, `apps/tui`,
+`apps/desktop` — and no shared client code (`packages/client-core`) may
+import backend-internal modules
+(`apps/cli/{server,application,domain,db,...}`). Frontends depend ONLY on the
+pure contract (`packages/contracts`) and the connection brain
+(`packages/client-core`). The sole exception:
+`apps/cli/cli/commands/server.ts` imports `apps/cli/composition` to boot the
+backend. Additionally, the Electron **renderer** (`apps/desktop/src/renderer`)
+may not import `packages/client-core` or the Electron **main** process; it
+reaches the backend exclusively through the preload `contextBridge`. Enforced
+by `.dependency-cruiser.cjs` + `test/architecture/i1-cli-isolation.test.ts`.
+
+The original CLI-only statement (kept below for the rationale it documents)
+is now a special case of this rule: the CLI is a thin RPC client over
+WebSocket and the only legitimate way for any frontend to interact with
+backend state is to send a command to the running `yodea` backend.
 
 **Forbidden import sources** from `apps/cli/cli/**`:
 
