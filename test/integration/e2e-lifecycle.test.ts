@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { runServer } from "@yodea/composition/app"
 import { withClient } from "@yodea/cli/rpc-client"
 import { readEndpoint } from "@yodea/cli/discovery"
-import { endpointFilePath } from "@yodea/shared/endpoint"
+import { endpointFilePath } from "@yodea/contracts/endpoint"
 
 let dir: string
 

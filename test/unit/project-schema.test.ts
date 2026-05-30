@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { Project } from "@yodea/shared/project"
+import { Project } from "@yodea/contracts/project"
 
 describe("Project schema", () => {
   it("decodes a well-formed project", () => {

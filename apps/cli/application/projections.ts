@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import type { Project } from "@yodea/shared/project"
+import type { Project } from "@yodea/contracts/project"
 import { EventStore } from "@yodea/db/event-store"
 import { projectsFromEvents } from "@yodea/domain/project"
 

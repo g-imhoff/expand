@@ -9,7 +9,7 @@ import { UseCasesLayer } from "@yodea/application/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 import { httpServerLayer } from "@yodea/server/http"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
-import { PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import { newId } from "@yodea/lib/ids"
 
 export interface RunServerOptions {

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 let dir: string
 beforeEach(() => {
