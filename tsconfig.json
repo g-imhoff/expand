@@ -14,7 +14,7 @@
     "isolatedModules": true,
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
-    "paths": { "@yodea/*": ["backend/*"] }
+    "paths": { "@yodea/*": ["apps/cli/*"] }
   },
-  "include": ["backend", "test", "migrations", "vitest.config.ts"]
+  "include": ["apps/cli", "test", "migrations", "vitest.config.ts"]
 }

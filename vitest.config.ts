@@ -15,6 +15,6 @@ export default defineConfig({
     hookTimeout: 30_000
   },
   resolve: {
-    alias: { "@yodea": new URL("./backend", import.meta.url).pathname }
+    alias: { "@yodea": new URL("./apps/cli", import.meta.url).pathname }
   }
 })

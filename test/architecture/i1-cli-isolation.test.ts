@@ -9,13 +9,14 @@ import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
 
 describe("I-1: CLI client isolation", () => {
-  it("backend/cli/** does not import server-only modules", () => {
+  it("apps/cli/cli/** does not import server-only modules", () => {
     let output = ""
     let code = 0
     try {
+      // Cruise target path relocated backend -> apps/cli by the apps/ refactor.
       output = execFileSync(
         "bunx",
-        ["depcruise", "backend", "--config", ".dependency-cruiser.cjs"],
+        ["depcruise", "apps/cli", "--config", ".dependency-cruiser.cjs"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
       )
     } catch (e: any) {

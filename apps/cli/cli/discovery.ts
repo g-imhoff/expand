@@ -37,7 +37,7 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
 // Launch `<this program> server` as a detached background process. Works in
 // both runtimes:
 //   - compiled binary: process.execPath IS the yodea binary -> [execPath, "server"]
-//   - dev from source (`bun backend/cli/main.ts ...`, e.g. `bun run dev:cli`):
+//   - dev from source (`bun apps/cli/cli/main.ts ...`, e.g. `bun run dev:cli`):
 //     Bun.main is a real .ts/.js entry on disk, so re-invoke the runtime with that
 //     entry -> [bun, entry, "server"]. (process.execPath alone is the bun binary,
 //     and `bun server` would be meaningless.)
