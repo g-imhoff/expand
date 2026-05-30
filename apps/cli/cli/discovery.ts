@@ -1,7 +1,7 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
 import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
-import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string

@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, PubSub, Scope, Stream } from "effect"
-import type { DomainEvent } from "@yodea/shared/events"
+import type { DomainEvent } from "@yodea/contracts/events"
 
 export class EventBus extends Context.Service<EventBus, {
   readonly publish: (event: DomainEvent) => Effect.Effect<boolean>

@@ -1,10 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import type { Project } from "@yodea/shared/project"
+import type { Project } from "@yodea/contracts/project"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectCreated } from "@yodea/shared/events"
+import { ProjectCreated } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the

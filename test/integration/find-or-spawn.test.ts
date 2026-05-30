@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { findOrSpawnBackend } from "@yodea/cli/discovery"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 let dir: string
 beforeEach(() => {

@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
-import { ProjectCreated } from "@yodea/shared/events"
+import { ProjectCreated } from "@yodea/contracts/events"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 

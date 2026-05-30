@@ -1,5 +1,5 @@
-import type { DomainEvent } from "@yodea/shared/events"
-import type { Project } from "@yodea/shared/project"
+import type { DomainEvent } from "@yodea/contracts/events"
+import type { Project } from "@yodea/contracts/project"
 
 // Pure left-fold of the event log into the Project read-model.
 // No I/O — this is the deterministic core of the projection. As new event

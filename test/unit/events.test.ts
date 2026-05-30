@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, ProjectCreated } from "@yodea/shared/events"
+import { DomainEventFromJson, ProjectCreated } from "@yodea/contracts/events"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
