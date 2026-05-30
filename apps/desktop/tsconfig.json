@@ -12,5 +12,10 @@
     },
     "noEmit": true
   },
+  // The root tsconfig excludes apps/desktop's src/main|preload|renderer to keep
+  // electron/DOM-only files out of the ROOT graph. That exclude is inherited via
+  // `extends` and would (resolved relative to this dir) drop the very files this
+  // config must typecheck — so override it back to empty here.
+  "exclude": [],
   "include": ["src"]
 }
