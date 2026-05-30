@@ -49,3 +49,41 @@ Electron desktop; the real backend services (Git, Terminal, FileWatcher, Highlig
 
 ## Next step
 Open a PR `feat/architectural-foundation` → `develop` (do **not** merge to `develop` directly). The seams are proven; features can be built on top by adding event types (extend the `DomainEvent` union + projection fold) and services (one Layer at a time).
+
+---
+
+# Electron + Ink Frontends (branch `feat/electron-ink-frontends`)
+
+Two new Effect-first frontends — an **Ink terminal app** and an **Electron desktop app** — attach to the existing backend over RPC-over-WebSocket and drive the project feature (create + list) with **live cross-frontend updates**. The backend stays in `apps/cli` as the spawnable `yodea` binary; all three frontends discover-or-spawn it and share one running backend.
+
+## Verification (all green — re-run any of these)
+```
+bunx tsc --noEmit          # exit 0
+bun run typecheck:desktop  # exit 0 (apps/desktop tsconfig: DOM lib for renderer, Node/Electron for main)
+bun run test               # 48 tests / 26 files passed   (bun --bun vitest)
+bun run arch               # 0 dependency violations, 62 modules cruised (generalized I-1)
+bun run build              # produces dist/yodea (single binary, 355 modules)
+bun run build:desktop      # produces apps/desktop/out/{main,preload,renderer}
+```
+
+## What was built
+- **`packages/contracts`** (alias `@yodea/contracts`): the pure contract, moved out of `apps/cli/shared/` (`rpc`, `events`, `project`, `endpoint`). The `@yodea/shared` alias is gone; all backend/CLI imports retargeted.
+- **`packages/client-core`** (alias `@yodea/client-core`): the runtime-agnostic connection brain — discovery (find-or-spawn-under-lock), `withClient`, and a long-lived `ProjectStore`. The single cross-runtime seam is `RuntimeAdapter` (a `protocolLayer(url): Layer<RpcClient.Protocol>` + an `spawnBackend: Effect`). Two adapters ship: a **Bun adapter** (`@effect/platform-bun` `BunSocket` + `Bun.spawn`) and a **Node adapter** (`makeNodeAdapter` — `ws` package as `Socket.WebSocketConstructor` + `child_process` spawn). Adapters live behind explicit subpaths so a Node build never pulls the Bun adapter and vice-versa.
+- **`ProjectStore`** — the live store: a scoped Effect service holding a `SubscriptionRef<ReadonlyArray<Project>>` seeded from the `ProjectList` snapshot and folded forward by every `ProjectCreated` on the `Events` stream. Holds its `Connect` presence for the runtime's lifetime. This is the **one-backend-many-frontends** payoff — a create through one frontend appears live in the others.
+- **`apps/tui`** (Ink 7 + React 19): pure presentational `ProjectList` / `CreateInput` components, a `useProjects` bridge (drives `SubscriptionRef.changes` → React `setState` via a `ManagedRuntime`), and a `main.tsx` entry that wires the Bun adapter. Tested with `ink-testing-library` against a fake `ProjectStore`.
+- **`apps/desktop`** (Electron 42 + electron-vite 5 + React 19): **main** owns the connection (Node adapter + `ProjectStore` via `NodeRuntime`); the **renderer** is pure UI over a typed `contextBridge` (`window.yodea`) and never imports `client-core` or the main process. IPC wiring is a dependency-injected module (no `electron` import) so it unit-tests under Bun. Minimal app-local `package.json` (Electron needs a `main` entry) + `tsconfig.json`; deps stay in root.
+
+## Invariant I-1, generalized
+The original I-1 (CLI may not import backend internals) is **generalized to all frontends**: `apps/cli/cli`, `apps/tui`, `apps/desktop`, and `packages/client-core` may import only `packages/contracts` + `packages/client-core` (+ npm) — never `apps/cli` backend internals (server/composition/application/domain/db). The lone exception is `apps/cli/cli/commands/server.ts`, which imports `apps/cli/composition` to boot the backend. A second rule isolates the Electron renderer (`apps/desktop/src/renderer`): it may not import `client-core` or the Electron main process. The DO-NOT-MODIFY I-1 fitness test was widened and **re-proven non-vacuous** (a backend-import from client-core AND a renderer-import from client-core both trip the guard).
+
+## New scripts
+- `dev:tui` — `bun apps/tui/main.tsx` (Ink TUI from source).
+- `dev:desktop` — `electron-vite dev` in `apps/desktop`.
+- `build:desktop` — `electron-vite build` → `apps/desktop/out/{main,preload,renderer}`.
+- `typecheck:desktop` — `tsc --noEmit -p apps/desktop/tsconfig.json` (kept out of the root typecheck because of its DOM/Electron libs).
+
+## Dependency note (Node adapter)
+The Node adapter adds `@effect/platform-node` (`4.0.0-beta.74`, same beta wave) and `ws` (+ `@types/ws` dev). Both are **allowed** — Node has no global WebSocket, so the adapter provides one from `ws`; `@effect/platform-node` covers Electron-main platform services. These are NOT the forbidden `@effect/*` 3.x packages.
+
+## Deferred (out of scope, per spec)
+Packaging/installers/code-signing; historical event replay; auth beyond the existing token; Bun workspaces; any new domain feature beyond project create + list.
