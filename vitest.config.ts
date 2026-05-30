@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   test: {
-    include: ["test/**/*.test.ts"],
+    include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     environment: "node",
     globals: false,
     // The I-1 architecture fitness test shells out to dependency-cruiser, which
@@ -20,6 +20,7 @@ export default defineConfig({
     alias: {
       "@yodea/contracts": new URL("./packages/contracts", import.meta.url).pathname,
       "@yodea/client-core": new URL("./packages/client-core", import.meta.url).pathname,
+      "@yodea/tui": new URL("./apps/tui", import.meta.url).pathname,
       "@yodea": new URL("./apps/cli", import.meta.url).pathname
     }
   }
