@@ -19,6 +19,7 @@ export default defineConfig({
     // @yodea alias so contract imports resolve to packages/contracts.
     alias: {
       "@yodea/contracts": new URL("./packages/contracts", import.meta.url).pathname,
+      "@yodea/client-core": new URL("./packages/client-core", import.meta.url).pathname,
       "@yodea": new URL("./apps/cli", import.meta.url).pathname
     }
   }
