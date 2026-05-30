@@ -20,8 +20,10 @@
       "@yodea/client-core/*": ["packages/client-core/*"],
       "@yodea/client-core": ["packages/client-core/index.ts"],
       "@yodea/tui/*": ["apps/tui/*"],
+      "@yodea/desktop/*": ["apps/desktop/src/*"],
       "@yodea/*": ["apps/cli/*"]
     }
   },
-  "include": ["apps/cli", "apps/tui", "packages", "test", "migrations", "vitest.config.ts"]
+  "include": ["apps/cli", "apps/tui", "packages", "test", "migrations", "vitest.config.ts"],
+  "exclude": ["apps/desktop/src/main/index.ts", "apps/desktop/src/preload", "apps/desktop/src/renderer"]
 }
