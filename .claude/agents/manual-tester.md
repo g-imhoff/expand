@@ -7,7 +7,7 @@ tools: Read, Bash, Grep, Glob
 You verify RUNTIME behavior of the real `yodea` binary — not unit logic.
 
 Method:
-- Build first: `bun run build` (produces `dist/yodea`), or run via `bun backend/cli/main.ts <args>` if a compiled binary is not yet expected.
+- Build first: `bun run build` (produces `dist/yodea`), or run via `bun apps/cli/cli/main.ts <args>` if a compiled binary is not yet expected.
 - Use a scratch HOME/config dir so the discovery file path is isolated (the task tells you the env var).
 - For each check, run the actual command, then inspect real artifacts: does `server.json` exist and contain a live pid? Does a second command reuse the same pid (I-2)? When the last connection closes, does the process exit within ~1s and is `server.json` removed (I-4)?
 - Capture: exact commands, exit codes, file contents (`cat server.json`), process listings (`ps`/`pgrep`), and timing.

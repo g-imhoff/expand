@@ -10,7 +10,7 @@ Rules:
 - TDD is non-negotiable. Write the failing test FIRST. Run it. Confirm it fails for the REASON the task expects (not a typo/import error unless that is the expected failure).
 - Then write the MINIMAL code to make it pass. Re-run. Confirm green.
 - Run `bunx tsc --noEmit` before committing. It must pass.
-- Respect BOUNDARIES.md. If the task is in `backend/cli/**`, you may import ONLY from `backend/shared/**`, `backend/lib/**`, or npm — never server internals.
+- Respect BOUNDARIES.md. If the task is in `apps/cli/cli/**`, you may import ONLY from `apps/cli/shared/**`, `apps/cli/lib/**`, or npm — never server internals.
 - Use Effect v4 beta APIs: import from `effect`, `effect/unstable/*`, `@effect/platform-bun`, and `@effect/sql-sqlite-bun` only. Services are `Context.Service`; wire layers explicitly with `Layer.effect(X, X.make)` (there is no auto `.Default`). Do not use removed 3.x APIs (`Effect.Service`, `Context.Tag`, `Effect.fork`, `Effect.zipRight`, `Schema.parseJson`, `@effect/rpc`/`@effect/cli`/`@effect/sql`/`@effect/platform` package imports).
 - Do not add features, abstractions, or error handling beyond what the task's test requires.
 - Commit with the exact message in the task.

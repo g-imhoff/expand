@@ -11,37 +11,37 @@ explicit architecture decision, not a code-review judgment call.
 
 ## I-1. CLI client isolation
 
-**Rule.** Source files under `backend/cli/**` must never import from any
+**Rule.** Source files under `apps/cli/cli/**` must never import from any
 server-only module. The CLI is a thin RPC client over WebSocket and the
 only legitimate way for it to interact with backend state is to send a
 command to the running `yodea` backend.
 
-**Forbidden import sources** from `backend/cli/**`:
+**Forbidden import sources** from `apps/cli/cli/**`:
 
-- `backend/server/**`
-- `backend/application/**`
-- `backend/domain/**`
-- `backend/features/**`
-- `backend/infrastructure/**`
-- `backend/db/**`
-- `backend/services/**`
-- `backend/composition/**`
+- `apps/cli/server/**`
+- `apps/cli/application/**`
+- `apps/cli/domain/**`
+- `apps/cli/features/**`
+- `apps/cli/infrastructure/**`
+- `apps/cli/db/**`
+- `apps/cli/services/**`
+- `apps/cli/composition/**`
 
-**Allowed import sources** from `backend/cli/**`:
+**Allowed import sources** from `apps/cli/cli/**`:
 
-- `backend/shared/**` — RPC contracts (Effect Schema) and shared utilities.
-- `backend/lib/**` — low-level helpers genuinely shared with the server.
+- `apps/cli/shared/**` — RPC contracts (Effect Schema) and shared utilities.
+- `apps/cli/lib/**` — low-level helpers genuinely shared with the server.
 - External npm packages.
 
-**Permitted exception.** `backend/cli/commands/server.ts` is the
+**Permitted exception.** `apps/cli/cli/commands/server.ts` is the
 `yodea server` subcommand wrapper. It is the *only* CLI file allowed to
-import from `backend/composition/**`, and only to start the backend. Keep
+import from `apps/cli/composition/**`, and only to start the backend. Keep
 this file as small as possible — ideally a single named import and a
 function call.
 
 **Why this matters.** The CLI binary and the backend live in the same
 artifact, so the import graph is the only thing physically preventing the
-CLI from instantiating a backend in-process. If a `backend/cli/**` file
+CLI from instantiating a backend in-process. If a `apps/cli/cli/**` file
 imports a server module, every `yodea <command>` invocation builds its own
 Effect AppLayer with its own event bus, its own SQLite handle, and its own
 spawned ACP subprocesses — completely disconnected from any backend that

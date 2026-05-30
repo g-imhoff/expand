@@ -1,31 +1,31 @@
 // Architectural fitness config — enforces BOUNDARIES.md I-1.
-// Two rules together encode: backend/cli/** may import ONLY shared/, lib/, npm;
-// the SOLE exception is backend/cli/commands/server.ts importing backend/composition/**.
+// Two rules together encode: apps/cli/cli/** may import ONLY shared/, lib/, npm;
+// the SOLE exception is apps/cli/cli/commands/server.ts importing apps/cli/composition/**.
 module.exports = {
   forbidden: [
     {
       name: "cli-client-must-not-import-server",
       severity: "error",
       comment:
-        "BOUNDARIES.md I-1: backend/cli/** must never import server-only modules. " +
-        "The CLI is a thin RPC client; it may import only backend/shared, backend/lib, or npm.",
-      from: { path: "^backend/cli/" },
+        "BOUNDARIES.md I-1: apps/cli/cli/** must never import server-only modules. " +
+        "The CLI is a thin RPC client; it may import only apps/cli/shared, apps/cli/lib, or npm.",
+      from: { path: "^apps/cli/cli/" },
       to: {
         path:
-          "^backend/(server|application|domain|features|infrastructure|db|services)(/|$)"
+          "^apps/cli/(server|application|domain|features|infrastructure|db|services)(/|$)"
       }
     },
     {
       name: "cli-composition-only-from-server-subcommand",
       severity: "error",
       comment:
-        "BOUNDARIES.md I-1: only backend/cli/commands/server.ts may import backend/composition/**, " +
+        "BOUNDARIES.md I-1: only apps/cli/cli/commands/server.ts may import apps/cli/composition/**, " +
         "and only to boot the backend.",
       from: {
-        path: "^backend/cli/",
-        pathNot: "^backend/cli/commands/server\\.ts$"
+        path: "^apps/cli/cli/",
+        pathNot: "^apps/cli/cli/commands/server\\.ts$"
       },
-      to: { path: "^backend/composition(/|$)" }
+      to: { path: "^apps/cli/composition(/|$)" }
     }
   ],
   options: {

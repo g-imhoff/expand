@@ -124,7 +124,7 @@ export const runServer = (options: RunServerOptions) => {
   //
   // NOTE: this effect COMPLETES after a clean I-4 shutdown but does NOT force the
   // OS process to exit — that is the responsibility of the real process entry
-  // point (`backend/cli/commands/server.ts`), so in-process callers (tests) can
+  // point (`apps/cli/cli/commands/server.ts`), so in-process callers (tests) can
   // run `runServer` and observe completion without killing the test runner. See
   // the exit rationale documented there.
   return program.pipe(
