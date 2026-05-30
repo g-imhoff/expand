@@ -15,7 +15,10 @@
     "build": "bun build apps/cli/cli/main.ts --compile --outfile dist/yodea",
     "dev:cli": "bun apps/cli/cli/main.ts",
     "dev:server": "bun apps/cli/cli/main.ts server",
-    "dev:tui": "bun apps/tui/main.tsx"
+    "dev:tui": "bun apps/tui/main.tsx",
+    "dev:desktop": "cd apps/desktop && electron-vite dev",
+    "build:desktop": "cd apps/desktop && electron-vite build",
+    "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
@@ -33,7 +36,10 @@
     "@types/react": "19",
     "@types/react-dom": "19",
     "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.2",
     "dependency-cruiser": "17.4.2",
+    "electron": "42",
+    "electron-vite": "5",
     "ink-testing-library": "4",
     "typescript": "6.0.3",
     "vitest": "4.1.7"

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "react", "react-dom"],
+    "baseUrl": "../..",
+    "paths": {
+      "@yodea/contracts/*": ["packages/contracts/*"],
+      "@yodea/client-core": ["packages/client-core/index.ts"],
+      "@yodea/client-core/*": ["packages/client-core/*"],
+      "@yodea/desktop/*": ["apps/desktop/src/*"]
+    },
+    "noEmit": true
+  },
+  "include": ["src"]
+}
