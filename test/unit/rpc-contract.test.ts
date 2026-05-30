@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { YodeaRpcs } from "@yodea/shared/rpc"
+import { YodeaRpcs } from "@yodea/contracts/rpc"
 
 describe("YodeaRpcs contract", () => {
   it("is a defined RpcGroup", () => {

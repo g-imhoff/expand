@@ -14,7 +14,10 @@
     "isolatedModules": true,
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
-    "paths": { "@yodea/*": ["apps/cli/*"] }
+    "paths": {
+      "@yodea/contracts/*": ["packages/contracts/*"],
+      "@yodea/*": ["apps/cli/*"]
+    }
   },
-  "include": ["apps/cli", "test", "migrations", "vitest.config.ts"]
+  "include": ["apps/cli", "packages", "test", "migrations", "vitest.config.ts"]
 }

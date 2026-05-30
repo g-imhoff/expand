@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { projectsFromEvents } from "@yodea/domain/project"
-import { ProjectCreated } from "@yodea/shared/events"
+import { ProjectCreated } from "@yodea/contracts/events"
 
 describe("projectsFromEvents", () => {
   it("folds an empty log into no projects", () => {

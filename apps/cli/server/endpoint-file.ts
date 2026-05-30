@@ -1,6 +1,6 @@
 import { Effect, FileSystem, Path, Schema } from "effect"
-import type { Endpoint } from "@yodea/shared/endpoint"
-import { EndpointFromJson, endpointFilePath } from "@yodea/shared/endpoint"
+import type { Endpoint } from "@yodea/contracts/endpoint"
+import { EndpointFromJson, endpointFilePath } from "@yodea/contracts/endpoint"
 
 // I-3: write server.json on acquire, remove it on scope close (clean shutdown).
 export const writeEndpointFile = (endpoint: Endpoint) =>

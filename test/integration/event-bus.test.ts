@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, PubSub } from "effect"
 import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
-import { ProjectCreated } from "@yodea/shared/events"
+import { ProjectCreated } from "@yodea/contracts/events"
 
 describe("EventBus", () => {
   it("delivers events published after a subscription", async () => {

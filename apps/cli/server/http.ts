@@ -2,7 +2,7 @@ import { Effect, Layer, Option } from "effect"
 import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer } from "@effect/platform-bun"
-import { YodeaRpcs } from "@yodea/shared/rpc"
+import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
 // Access-log middleware: a near-verbatim copy of `HttpMiddleware.logger`, with

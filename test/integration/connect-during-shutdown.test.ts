@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { runServer } from "@yodea/composition/app"
 import { withClient } from "@yodea/cli/rpc-client"
 import { readEndpoint } from "@yodea/cli/discovery"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The

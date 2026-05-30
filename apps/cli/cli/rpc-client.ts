@@ -1,7 +1,7 @@
 import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc"
 import { Data, Deferred, Effect, FileSystem, Layer, Stream } from "effect"
 import { BunSocket } from "@effect/platform-bun"
-import { YodeaRpcs } from "@yodea/shared/rpc"
+import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { deleteEndpoint, findOrSpawnBackend } from "@yodea/cli/discovery"
 
 // The concrete client `RpcClient.make` resolves to: each method's error channel

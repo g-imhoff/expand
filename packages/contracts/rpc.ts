@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
-import { DomainEvent } from "@yodea/shared/events"
-import { Project } from "@yodea/shared/project"
+import { DomainEvent } from "@yodea/contracts/events"
+import { Project } from "@yodea/contracts/project"
 
 export class YodeaRpcs extends RpcGroup.make(
   // Liveness query.

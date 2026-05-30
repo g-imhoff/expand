@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { endpointFilePath, EndpointFromJson, PROTOCOL_VERSION } from "@yodea/shared/endpoint"
+import { endpointFilePath, EndpointFromJson, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 const ORIGINAL = process.env.YODEA_ENDPOINT_FILE
 

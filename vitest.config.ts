@@ -15,6 +15,11 @@ export default defineConfig({
     hookTimeout: 30_000
   },
   resolve: {
-    alias: { "@yodea": new URL("./apps/cli", import.meta.url).pathname }
+    // Longest-prefix first: @yodea/contracts must be matched before the broader
+    // @yodea alias so contract imports resolve to packages/contracts.
+    alias: {
+      "@yodea/contracts": new URL("./packages/contracts", import.meta.url).pathname,
+      "@yodea": new URL("./apps/cli", import.meta.url).pathname
+    }
   }
 })

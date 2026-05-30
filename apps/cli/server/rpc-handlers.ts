@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect"
-import { YodeaRpcs } from "@yodea/shared/rpc"
+import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { UseCases } from "@yodea/application/use-cases"
 import { EventBus } from "@yodea/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
