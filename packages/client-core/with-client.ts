@@ -1,8 +1,8 @@
-import { RpcClient, RpcClientError, RpcSerialization } from "effect/unstable/rpc"
-import { Data, Deferred, Effect, FileSystem, Layer, Stream } from "effect"
-import { BunSocket } from "@effect/platform-bun"
+import { RpcClient, RpcClientError } from "effect/unstable/rpc"
+import { Data, Deferred, Effect, Stream } from "effect"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { deleteEndpoint, findOrSpawnBackend } from "@yodea/cli/discovery"
+import { deleteEndpoint, findOrSpawnBackend } from "@yodea/client-core/discovery"
+import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 
 // The concrete client `RpcClient.make` resolves to: each method's error channel
 // is unioned with `RpcClientError` (transport-level failures). Annotate `use`
@@ -23,15 +23,6 @@ class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
   readonly reason: string
 }> {}
 
-// WebSocket RPC transport for a known backend URL. NDJSON must match the server.
-// BunSocket.layerWebSocket bundles the WebSocket constructor (Bun-native), so no
-// separate WebSocketConstructor layer is needed.
-const protocolLayer = (url: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(BunSocket.layerWebSocket(url))
-  )
-
 // Discover-or-spawn the backend, connect, establish the I-4 presence channel,
 // wait (bounded) until the server registered us, run `use`, then tear everything
 // down (dropping presence -> server may shut down if we were the last connection).
@@ -41,9 +32,10 @@ const protocolLayer = (url: string) =>
 // and retry find-or-spawn so the command ultimately spawns a fresh server and
 // succeeds instead of hanging. `use`'s own failures are NOT retried.
 export const withClient = <A, E, R>(
+  adapter: RuntimeAdapter,
   use: (client: YodeaClient) => Effect.Effect<A, E, R>
 ) => {
-  const attempt = findOrSpawnBackend.pipe(
+  const attempt = findOrSpawnBackend(adapter).pipe(
     Effect.flatMap((endpoint) =>
       Effect.gen(function* () {
         const client = yield* RpcClient.make(YodeaRpcs)
@@ -68,7 +60,7 @@ export const withClient = <A, E, R>(
           })
         )
         return yield* use(client)
-      }).pipe(Effect.scoped, Effect.provide(protocolLayer(endpoint.url)))
+      }).pipe(Effect.scoped, Effect.provide(adapter.protocolLayer(endpoint.url)))
     )
   )
 

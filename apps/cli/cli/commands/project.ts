@@ -1,12 +1,13 @@
 import { Argument, Command, Flag } from "effect/unstable/cli"
 import { Console, Effect } from "effect"
-import { withClient } from "@yodea/cli/rpc-client"
+import { withClient } from "@yodea/client-core"
+import { bunAdapter } from "@yodea/client-core/adapters/bun"
 
 const json = Flag.boolean("json").pipe(Flag.withDefault(false))
 const name = Argument.string("name")
 
 const create = Command.make("create", { name, json }, ({ name, json }) =>
-  withClient((client) =>
+  withClient(bunAdapter, (client) =>
     Effect.flatMap(client.ProjectCreate({ name }), (project) =>
       Console.log(json ? JSON.stringify(project) : `created ${project.id}  ${project.name}`)
     )
@@ -14,7 +15,7 @@ const create = Command.make("create", { name, json }, ({ name, json }) =>
 )
 
 const ls = Command.make("ls", { json }, ({ json }) =>
-  withClient((client) =>
+  withClient(bunAdapter, (client) =>
     Effect.flatMap(client.ProjectList(), (projects) =>
       json
         ? Console.log(JSON.stringify(projects))
