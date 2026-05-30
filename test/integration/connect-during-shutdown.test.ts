@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@yodea/composition/app"
-import { withClient } from "@yodea/cli/rpc-client"
+import { withClient } from "@yodea/client-core"
+import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
 import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
@@ -89,7 +90,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         )
 
         // The whole point: this must COMPLETE (not hang) and return real data.
-        const result = yield* withClient((client) =>
+        const result = yield* withClient(bunAdapter, (client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
             const created = yield* client.ProjectCreate({ name: "after-stale" })
