@@ -4,7 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readEndpoint } from "@yodea/cli/discovery"
+import { readEndpoint } from "@yodea/client-core/discovery"
 import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 let dir: string

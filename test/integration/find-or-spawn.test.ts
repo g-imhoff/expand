@@ -4,7 +4,8 @@ import { BunServices } from "@effect/platform-bun"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { findOrSpawnBackend } from "@yodea/cli/discovery"
+import { findOrSpawnBackend } from "@yodea/client-core/discovery"
+import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 
 let dir: string
@@ -29,7 +30,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend, BunServices.layer)
+      Effect.provide(findOrSpawnBackend(bunAdapter), BunServices.layer)
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -65,7 +66,7 @@ describe("findOrSpawnBackend", () => {
       // Pre-fix: this would wait the full 5s awaitEndpoint window and then fail
       // with BackendUnavailable, never clearing the lock. Post-fix: it clears the
       // stale lock, "spawns", and returns the advertised endpoint.
-      const endpoint = yield* findOrSpawnBackend
+      const endpoint = yield* findOrSpawnBackend(bunAdapter)
       yield* Fiber.join(reviver)
       return endpoint
     }).pipe(Effect.provide(BunServices.layer))

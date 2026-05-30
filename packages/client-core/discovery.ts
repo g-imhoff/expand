@@ -1,7 +1,8 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
-import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
+import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
 import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string
@@ -33,29 +34,6 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     if (!isProcessAlive(endpoint.pid)) return Option.none()
     return Option.some(endpoint)
   })
-
-// Launch `<this program> server` as a detached background process. Works in
-// both runtimes:
-//   - compiled binary: process.execPath IS the yodea binary -> [execPath, "server"]
-//   - dev from source (`bun apps/cli/cli/main.ts ...`, e.g. `bun run dev:cli`):
-//     Bun.main is a real .ts/.js entry on disk, so re-invoke the runtime with that
-//     entry -> [bun, entry, "server"]. (process.execPath alone is the bun binary,
-//     and `bun server` would be meaningless.)
-const spawnServer = Effect.sync(() => {
-  const entry = Bun.main
-  const fromSource = existsSync(entry) && /\.(ts|js|mjs|cjs)$/.test(entry)
-  const cmd = fromSource
-    ? [process.execPath, entry, "server"]
-    : [process.execPath, "server"]
-  const child = Bun.spawn({
-    cmd,
-    stdout: "ignore",
-    stderr: "ignore",
-    stdin: "ignore",
-    env: process.env
-  })
-  child.unref()
-})
 
 const lockPath = () => `${endpointFilePath()}.lock`
 
@@ -167,20 +145,15 @@ export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
     yield* fs.remove(endpointFilePath()).pipe(Effect.ignore)
   })
 
-// I-2/I-4 step 1: find a running backend or spawn exactly one. The server binds
-// an ephemeral OS port and advertises the real URL via the discovery file, so
-// there is no port to pass in here.
-export const findOrSpawnBackend = Effect.gen(function* () {
-  const existing = yield* readEndpoint
-  if (Option.isSome(existing)) return existing.value
-
-  const acquired = yield* tryAcquireLock
-  if (!acquired) {
-    // Another CLI is spawning — don't spawn a second server; just wait.
-    return yield* awaitEndpoint
-  }
-  return yield* spawnServer.pipe(
-    Effect.andThen(awaitEndpoint),
-    Effect.ensuring(releaseLock)
-  )
-})
+// I-2/I-4 step 1: find a running backend or spawn exactly one (via the adapter).
+export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
+  Effect.gen(function* () {
+    const existing = yield* readEndpoint
+    if (Option.isSome(existing)) return existing.value
+    const acquired = yield* tryAcquireLock
+    if (!acquired) return yield* awaitEndpoint
+    return yield* adapter.spawnBackend.pipe(
+      Effect.andThen(awaitEndpoint),
+      Effect.ensuring(releaseLock)
+    )
+  })
