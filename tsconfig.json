@@ -13,13 +13,15 @@
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "ignoreDeprecations": "6.0",
+    "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
       "@yodea/contracts/*": ["packages/contracts/*"],
       "@yodea/client-core/*": ["packages/client-core/*"],
       "@yodea/client-core": ["packages/client-core/index.ts"],
+      "@yodea/tui/*": ["apps/tui/*"],
       "@yodea/*": ["apps/cli/*"]
     }
   },
-  "include": ["apps/cli", "packages", "test", "migrations", "vitest.config.ts"]
+  "include": ["apps/cli", "apps/tui", "packages", "test", "migrations", "vitest.config.ts"]
 }
