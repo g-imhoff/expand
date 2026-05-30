@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@yodea/composition/app"
-import { withClient } from "@yodea/cli/rpc-client"
+import { withClient } from "@yodea/client-core"
+import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
 import { endpointFilePath } from "@yodea/contracts/endpoint"
 
@@ -41,7 +42,7 @@ describe.sequential("end-to-end lifecycle", () => {
       yield* awaitEndpointUp
       const upDuring = yield* fs.exists(endpointFilePath())
 
-      const outcome = yield* withClient((client) =>
+      const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
           const created = yield* client.ProjectCreate({ name: "E2E" })
@@ -75,7 +76,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
-      const observed = yield* withClient((client) =>
+      const observed = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           // Start listening, give the subscription time to attach, then create.
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
