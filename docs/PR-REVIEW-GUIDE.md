@@ -67,7 +67,7 @@ Everything else is structural scaffolding designed to flex as features are added
 
 **The four invariants, one line each:**
 
-- **I-1 — CLI client isolation.** `backend/cli/**` must never import a server-only module; the only allowed connection to backend state is RPC. (Sole exception: `cli/commands/server.ts` may import `composition/`.)
+- **I-1 — CLI client isolation.** `apps/cli/cli/**` must never import a server-only module; the only allowed connection to backend state is RPC. (Sole exception: `cli/commands/server.ts` may import `composition/`.)
 - **I-2 — Single AppLayer per machine.** At most one backend process, built from one `runServer` AppLayer, owning one SQLite handle, one EventBus, one ConnectionTracker.
 - **I-3 — Single discovery file.** Exactly one well-known `server.json` written on startup and removed on shutdown; it is the only rendezvous between client and server.
 - **I-4 — Zero-connection self-shutdown.** Once the server has had ≥1 WebSocket connection, it self-terminates the moment the connection count returns to 0.
@@ -175,47 +175,47 @@ the server, then composition, then the CLI, then tests. One line per file: **pat
 
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
-| 1 | `backend/lib/ids.ts` | `newId()` = `crypto.randomUUID()` | 1 |
-| 2 | `backend/shared/project.ts` | `Project` read-model schema (plain Struct) | 8 |
-| 3 | `backend/shared/events.ts` | `ProjectCreated`/`DomainEvent` + `DomainEventFromJson` codec | 17 |
-| 4 | `backend/shared/endpoint.ts` | `Endpoint` schema, `PROTOCOL_VERSION`, `endpointFilePath()` (I-3 contract) | 21 |
-| 5 | `backend/shared/rpc.ts` | `YodeaRpcs` RpcGroup — the single client↔server protocol | 23 |
+| 1 | `apps/cli/lib/ids.ts` | `newId()` = `crypto.randomUUID()` | 1 |
+| 2 | `apps/cli/shared/project.ts` | `Project` read-model schema (plain Struct) | 8 |
+| 3 | `apps/cli/shared/events.ts` | `ProjectCreated`/`DomainEvent` + `DomainEventFromJson` codec | 17 |
+| 4 | `apps/cli/shared/endpoint.ts` | `Endpoint` schema, `PROTOCOL_VERSION`, `endpointFilePath()` (I-3 contract) | 21 |
+| 5 | `apps/cli/shared/rpc.ts` | `YodeaRpcs` RpcGroup — the single client↔server protocol | 23 |
 
 ### Event-sourced core (storage → domain → application)
 
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
-| 6 | `backend/db/event-store.ts` | append-only SQLite event log (source of truth, `ORDER BY seq`) | 54 |
-| 7 | `backend/domain/project.ts` | pure `projectsFromEvents` fold (events → read-model) | 23 |
-| 8 | `backend/application/projections.ts` | `ProjectProjection` binding the fold to the live log | 23 |
-| 9 | `backend/application/event-bus.ts` | `EventBus` PubSub broadcast (live fan-out) | 25 |
-| 10 | `backend/application/use-cases.ts` | `createProject` (append-then-publish), `listProjects`, `health` | 45 |
+| 6 | `apps/cli/db/event-store.ts` | append-only SQLite event log (source of truth, `ORDER BY seq`) | 54 |
+| 7 | `apps/cli/domain/project.ts` | pure `projectsFromEvents` fold (events → read-model) | 23 |
+| 8 | `apps/cli/application/projections.ts` | `ProjectProjection` binding the fold to the live log | 23 |
+| 9 | `apps/cli/application/event-bus.ts` | `EventBus` PubSub broadcast (live fan-out) | 25 |
+| 10 | `apps/cli/application/use-cases.ts` | `createProject` (append-then-publish), `listProjects`, `health` | 45 |
 
 ### Server transport + lifetime
 
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
-| 11 | `backend/server/connection-tracker.ts` | I-4 state machine (arm-on-first-connect, fire-at-zero) | 40 |
-| 12 | `backend/server/rpc-handlers.ts` | maps `YodeaRpcs` → use-cases; `Connect` presence handler | 32 |
-| 13 | `backend/server/endpoint-file.ts` | I-3 acquireRelease: write `server.json` / remove on close | 22 |
-| 14 | `backend/server/http.ts` | WebSocket/NDJSON RPC transport + 499-demoting access logger | 86 |
+| 11 | `apps/cli/server/connection-tracker.ts` | I-4 state machine (arm-on-first-connect, fire-at-zero) | 40 |
+| 12 | `apps/cli/server/rpc-handlers.ts` | maps `YodeaRpcs` → use-cases; `Connect` presence handler | 32 |
+| 13 | `apps/cli/server/endpoint-file.ts` | I-3 acquireRelease: write `server.json` / remove on close | 22 |
+| 14 | `apps/cli/server/http.ts` | WebSocket/NDJSON RPC transport + 499-demoting access logger | 86 |
 
 ### Composition (single construction site — read carefully)
 
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
-| 15 | `backend/composition/app.ts` | `coreLayer` (I-2 single graph) + `runServer` lifecycle (I-3/I-4) | 134 |
+| 15 | `apps/cli/composition/app.ts` | `coreLayer` (I-2 single graph) + `runServer` lifecycle (I-3/I-4) | 134 |
 
 ### CLI thin client (I-1)
 
 | # | File | Responsibility | LOC |
 | --- | --- | --- | --- |
-| 16 | `backend/cli/discovery.ts` | `readEndpoint`, find-or-spawn-under-lock, stale-lock recovery | 176 |
-| 17 | `backend/cli/rpc-client.ts` | `withClient`: connect, hold presence channel, connect-timeout + respawn | 85 |
-| 18 | `backend/cli/commands/health.ts` | `health` command | 13 |
-| 19 | `backend/cli/commands/project.ts` | `project create` / `project ls` commands | 30 |
-| 20 | `backend/cli/commands/server.ts` | `server` subcommand — **sole** composition importer; `process.exit(0)` | 32 |
-| 21 | `backend/cli/main.ts` | entry point; wires subcommands; imports NO server internals | 16 |
+| 16 | `apps/cli/cli/discovery.ts` | `readEndpoint`, find-or-spawn-under-lock, stale-lock recovery | 176 |
+| 17 | `apps/cli/cli/rpc-client.ts` | `withClient`: connect, hold presence channel, connect-timeout + respawn | 85 |
+| 18 | `apps/cli/cli/commands/health.ts` | `health` command | 13 |
+| 19 | `apps/cli/cli/commands/project.ts` | `project create` / `project ls` commands | 30 |
+| 20 | `apps/cli/cli/commands/server.ts` | `server` subcommand — **sole** composition importer; `process.exit(0)` | 32 |
+| 21 | `apps/cli/cli/main.ts` | entry point; wires subcommands; imports NO server internals | 16 |
 
 ### Tests & enforcement config (review last, but they prove the above)
 
@@ -238,8 +238,8 @@ the server, then composition, then the CLI, then tests. One line per file: **pat
 These five files are the public contract both the long-lived backend and the thin CLI compile
 against. Their *entire reason to exist* is **I-1**: because the CLI and backend live in the same
 compiled artifact, the import graph is the only thing preventing the CLI from booting an
-in-process backend. Files here are the *allowed* import targets for `backend/cli/**` (alongside
-`backend/lib/**`), so they must stay import-pure — only `effect`, `effect/unstable/rpc`, and node
+in-process backend. Files here are the *allowed* import targets for `apps/cli/cli/**` (alongside
+`apps/cli/lib/**`), so they must stay import-pure — only `effect`, `effect/unstable/rpc`, and node
 stdlib. (Verified: the complete import set across `shared/**` + `lib/**` is exactly
 `effect`, `effect/unstable/rpc`, `node:os`, `node:path`, and intra-`shared` siblings. Zero server
 imports today.)
@@ -358,7 +358,7 @@ program awaits."
 ### 5.5 CLI thin client (I-1)
 
 The CLI is the only frontend: a thin WebSocket RPC client that owns no domain state and (with one
-surgical exception) imports nothing from the server. Path aliases: `@yodea/* → backend/*`.
+surgical exception) imports nothing from the server. Path aliases: `@yodea/* → apps/cli/*`.
 
 - **`discovery.ts`** — `readEndpoint` returns `Option<Endpoint>` and **never fails**: any staleness
   signal (missing file, unreadable, malformed JSON, schema mismatch, protocol mismatch, or dead PID
@@ -404,16 +404,16 @@ for the test-gate flakiness and coverage gaps.
 
 | Invariant | Where enforced | Mechanism | How the reviewer verifies |
 | --- | --- | --- | --- |
-| **I-1** CLI isolation | `.dependency-cruiser.cjs`; `test/architecture/i1-cli-isolation.test.ts`; `CODEOWNERS` | Two forbidden `error` rules (type-aware); vitest fitness test; architecture-owner review gate | `bun run arch` → 0 violations. Then **prove non-vacuity**: temporarily add `import "@yodea/server/http"` to `backend/cli/commands/health.ts`, run `bun run arch` → expect `cli-client-must-not-import-server` error; revert. |
-| **I-2** Single AppLayer / one backend | `backend/composition/app.ts` (`coreLayer` memoization); `backend/cli/discovery.ts` (`tryAcquireLock`) | One memoized layer graph → one `EventStore`/`EventBus`/`ConnectionTracker`; O_EXCL spawn lock so one spawner wins | `git grep -n "Layer.mergeAll" backend/composition/app.ts` (confirm core merged once). Manual: 4-way concurrent spawn (see [§10](#10-reviewer-checklist--commands)) converges on one backend — distinct ephemeral pids resolve to one `server.json`. |
-| **I-3** Single discovery file | `backend/server/endpoint-file.ts` (acquireRelease); `backend/composition/app.ts:~90,~108` (write-after-bind, eager-remove) | `server.json` written after the port binds, removed eagerly on shutdown + idempotent finalizer backup | Manual smoke: `ls $YODEA_HOME/server.json` exists while server runs, gone after it self-terminates. `endpoint-file.test.ts` asserts write-on-acquire / remove-on-close. |
-| **I-4** Zero-connection self-shutdown | `backend/server/connection-tracker.ts` (state machine); `rpc-handlers.ts` `Connect` finalizer; `app.ts` `awaitShutdown` | Arm-on-first-connect; fire `Deferred` when armed & count→0; socket drop → per-request scope close → `onDisconnect` | `bun --bun vitest run test/unit/connection-tracker.test.ts` and `test/integration/e2e-lifecycle.test.ts` (asserts server self-shuts-down after the client leaves). Manual: run one command, watch the spawned server exit shortly after. |
+| **I-1** CLI isolation | `.dependency-cruiser.cjs`; `test/architecture/i1-cli-isolation.test.ts`; `CODEOWNERS` | Two forbidden `error` rules (type-aware); vitest fitness test; architecture-owner review gate | `bun run arch` → 0 violations. Then **prove non-vacuity**: temporarily add `import "@yodea/server/http"` to `apps/cli/cli/commands/health.ts`, run `bun run arch` → expect `cli-client-must-not-import-server` error; revert. |
+| **I-2** Single AppLayer / one backend | `apps/cli/composition/app.ts` (`coreLayer` memoization); `apps/cli/cli/discovery.ts` (`tryAcquireLock`) | One memoized layer graph → one `EventStore`/`EventBus`/`ConnectionTracker`; O_EXCL spawn lock so one spawner wins | `git grep -n "Layer.mergeAll" apps/cli/composition/app.ts` (confirm core merged once). Manual: 4-way concurrent spawn (see [§10](#10-reviewer-checklist--commands)) converges on one backend — distinct ephemeral pids resolve to one `server.json`. |
+| **I-3** Single discovery file | `apps/cli/server/endpoint-file.ts` (acquireRelease); `apps/cli/composition/app.ts:~90,~108` (write-after-bind, eager-remove) | `server.json` written after the port binds, removed eagerly on shutdown + idempotent finalizer backup | Manual smoke: `ls $YODEA_HOME/server.json` exists while server runs, gone after it self-terminates. `endpoint-file.test.ts` asserts write-on-acquire / remove-on-close. |
+| **I-4** Zero-connection self-shutdown | `apps/cli/server/connection-tracker.ts` (state machine); `rpc-handlers.ts` `Connect` finalizer; `app.ts` `awaitShutdown` | Arm-on-first-connect; fire `Deferred` when armed & count→0; socket drop → per-request scope close → `onDisconnect` | `bun --bun vitest run test/unit/connection-tracker.test.ts` and `test/integration/e2e-lifecycle.test.ts` (asserts server self-shuts-down after the client leaves). Manual: run one command, watch the spawned server exit shortly after. |
 
 ---
 
 ## 7. Deviations from the plan & runtime integration fixes
 
-> The committed code under `backend/` is the source of truth. The plan docs
+> The committed code under `apps/cli/` is the source of truth. The plan docs
 > (`docs/superpowers/plans/2026-05-28-yodea-architectural-foundation.md` and
 > `v4-migration-reference.md`) were authored against Effect 3.x and partly predate the runtime
 > fixes below; they were removed from the working tree by commit `6d0583b` ("suppress superpowers",
@@ -451,7 +451,7 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
      is abandoned. *(See [§8](#8-potential-issues--review-hotspots) #I3/#I4 — the abandon path is a
      bounded, intentional leak relying on the next fix.)*
 
-2. **`process.exit(0)` on clean shutdown** (`backend/cli/commands/server.ts`, `app.ts`; commit
+2. **`process.exit(0)` on clean shutdown** (`apps/cli/cli/commands/server.ts`, `app.ts`; commit
    `15e931e`).
    - *Symptom:* each auto-spawned server hung after a clean self-shutdown — a ~100 MB zombie in
      `epoll_wait` holding the SQLite WAL open, one per command. Defeats I-4.
@@ -529,12 +529,12 @@ These were found by the e2e + manual testing and fixed at the right seam. Commit
 ### Important
 
 - **[I1] dependency-cruiser does NOT transitively protect `shared`/`lib` purity — `.dependency-cruiser.cjs:13-31`.**
-  The forbidden rules only constrain edges whose `from` matches `^backend/cli/`. There is **no rule**
-  stopping `backend/shared/**` or `backend/lib/**` from importing a server module, and plain
+  The forbidden rules only constrain edges whose `from` matches `^apps/cli/cli/`. There is **no rule**
+  stopping `apps/cli/shared/**` or `apps/cli/lib/**` from importing a server module, and plain
   `to.path` matches *direct* edges only (no `reachable`/`via`). A future `shared/foo.ts` importing
   `db/...` would let the CLI transitively bundle server code — the exact I-1 failure mode — while
   `bun run arch` stays green. Latent today (all imports are pure). **What to check:** add a third
-  forbidden rule `from: { path: "^backend/(shared|lib)/" }, to: { path: "^backend/(server|application|domain|features|infrastructure|db|services|composition)(/|$)" }`. *Highest-value hardening in the PR.*
+  forbidden rule `from: { path: "^apps/cli/(shared|lib)/" }, to: { path: "^apps/cli/(server|application|domain|features|infrastructure|db|services|composition)(/|$)" }`. *Highest-value hardening in the PR.*
 
 - **[I2] Real subprocess auto-spawn path has ZERO automated coverage.** `spawnServer`
   (`discovery.ts:~39`) targets the compiled binary; under the test runner `process.execPath` is
@@ -768,9 +768,9 @@ bun run build                        # expect: dist/yodea single binary (~101MB,
 
 ```bash
 # Temporarily violate I-1, confirm the guard fires, then revert:
-printf '\nimport "@yodea/server/http"\n' >> backend/cli/commands/health.ts
+printf '\nimport "@yodea/server/http"\n' >> apps/cli/cli/commands/health.ts
 bun run arch     # EXPECT: error "cli-client-must-not-import-server"
-git checkout backend/cli/commands/health.ts   # revert
+git checkout apps/cli/cli/commands/health.ts   # revert
 ```
 
 ### Manual smoke (compiled binary, isolated home)

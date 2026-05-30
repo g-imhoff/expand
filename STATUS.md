@@ -29,7 +29,7 @@ Manual (compiled binary, isolated `YODEA_HOME`): `yodea health --json` → `{"st
 - **Subagent definitions:** `.claude/agents/{tdd-implementer,code-reviewer,manual-tester}.md`.
 
 ## Notable deviations from the original plan (all deliberate; commit history documents each)
-1. **Stack: Effect 3.x → Effect v4 beta `4.0.0-beta.74`** (per request). All framework code is under `effect/unstable/*` or `effect` core; only `@effect/platform-bun` + `@effect/sql-sqlite-bun` remain separate. Devtools at latest: TypeScript 6.0.3, vitest 4.1.7, dependency-cruiser 17.4.2. (The original v4-migration-reference plan doc has since been removed from the tree — it lives only in git history.) **The committed code under `backend/` is the source of truth**; some snippets in that plan doc predate the runtime fixes below.
+1. **Stack: Effect 3.x → Effect v4 beta `4.0.0-beta.74`** (per request). All framework code is under `effect/unstable/*` or `effect` core; only `@effect/platform-bun` + `@effect/sql-sqlite-bun` remain separate. Devtools at latest: TypeScript 6.0.3, vitest 4.1.7, dependency-cruiser 17.4.2. (The original v4-migration-reference plan doc has since been removed from the tree — it lives only in git history.) **The committed code under `apps/cli/` is the source of truth**; some snippets in that plan doc predate the runtime fixes below.
 2. **Toolchain:** tests run via `bun --bun vitest` (the Node loader can't resolve `bun:sqlite`). `tsconfig` needs `ignoreDeprecations: "6.0"` (TS 6 deprecates `baseUrl`) and `skipLibCheck: true` is load-bearing for effect v4 `.d.ts`.
 3. **v4 API corrections vs the migration reference:** `yield* SqlClient` (the named export IS the tag; `SqlClient.SqlClient` is `undefined`); client type `RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>`; service error channels widened to `SqlError | SchemaError`; `Effect.timeoutOrElse` (not the removed `timeoutFail`); `Effect.forkChild`.
 4. **Runtime integration fixes (found by the e2e + manual testing, fixed at the right seam):**
@@ -41,7 +41,7 @@ Manual (compiled binary, isolated `YODEA_HOME`): `yodea health --json` → `{"st
 
 ## Known limitations (non-blocking)
 - Last-client shutdown takes ~1s (the documented Bun graceful-stop grace window). If a future v4 beta exposes a force-stop, drop the window.
-- `backend/server/http.ts` relies on single-build layer memoization to avoid a second listener (correct; note for any future composition refactor).
+- `apps/cli/server/http.ts` relies on single-build layer memoization to avoid a second listener (correct; note for any future composition refactor).
 - Effect v4 is **beta** with modules under `unstable/` — expect breaking changes between betas; re-pin deliberately.
 
 ## Deliberately deferred (per plan scope — not missing work)
