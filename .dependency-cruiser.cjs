@@ -4,28 +4,36 @@
 module.exports = {
   forbidden: [
     {
-      name: "cli-client-must-not-import-server",
+      name: "frontends-must-not-import-backend",
       severity: "error",
       comment:
-        "BOUNDARIES.md I-1: apps/cli/cli/** must never import server-only modules. " +
-        "The CLI is a thin RPC client; it may import only apps/cli/shared, apps/cli/lib, or npm.",
-      from: { path: "^apps/cli/cli/" },
-      to: {
-        path:
-          "^apps/cli/(server|application|domain|features|infrastructure|db|services)(/|$)"
-      }
+        "BOUNDARIES.md I-1: no frontend (apps/cli/cli, apps/tui, apps/desktop) and not " +
+        "packages/client-core may import backend-only modules. Frontends share ONLY " +
+        "packages/contracts + packages/client-core.",
+      from: { path: "^(apps/cli/cli|apps/tui|apps/desktop/src|packages/client-core)/" },
+      to: { path: "^apps/cli/(server|application|domain|features|infrastructure|db|services)(/|$)" }
     },
     {
-      name: "cli-composition-only-from-server-subcommand",
+      name: "composition-only-from-server-subcommand",
       severity: "error",
       comment:
         "BOUNDARIES.md I-1: only apps/cli/cli/commands/server.ts may import apps/cli/composition/**, " +
         "and only to boot the backend.",
       from: {
-        path: "^apps/cli/cli/",
+        path: "^(apps/cli/cli|apps/tui|apps/desktop/src|packages/client-core)/",
         pathNot: "^apps/cli/cli/commands/server\\.ts$"
       },
       to: { path: "^apps/cli/composition(/|$)" }
+    },
+    {
+      name: "renderer-must-not-import-client-core",
+      severity: "error",
+      comment:
+        "BOUNDARIES.md I-1: the Electron renderer is pure UI. It may import ONLY " +
+        "packages/contracts (+ npm UI libs) and talks to the backend solely via the " +
+        "preload bridge — never client-core or the Electron main process.",
+      from: { path: "^apps/desktop/src/renderer/" },
+      to: { path: "^(packages/client-core|apps/desktop/src/main)(/|$)" }
     }
   ],
   options: {
