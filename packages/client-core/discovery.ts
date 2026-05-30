@@ -1,5 +1,5 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
-import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
 import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
@@ -82,8 +82,10 @@ const isLockStale = (): boolean => {
 const createLockOnce = (): boolean => {
   try {
     // "wx" => create + fail if exists. Directory is ensured by the server, but
-    // for the spawn race we create it here too.
-    Bun.spawnSync({ cmd: ["mkdir", "-p", dirname(lockPath())] })
+    // for the spawn race we create it here too. Use node:fs (not Bun.spawnSync)
+    // so this stays runtime-neutral — discovery is shared client-core and runs in
+    // the Electron Node main process too, where the Bun global does not exist.
+    mkdirSync(dirname(lockPath()), { recursive: true })
     const fd = openSync(lockPath(), "wx")
     try {
       const info: LockInfo = { pid: process.pid, startedAt: Date.now() }
