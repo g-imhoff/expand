@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "module": "apps/cli/cli/main.ts",
-  "bin": { "yodea": "apps/cli/cli/main.ts" },
+  "bin": {
+    "yodea": "apps/cli/cli/main.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun --bun vitest run",
@@ -15,15 +17,18 @@
     "dev:server": "bun apps/cli/cli/main.ts server"
   },
   "dependencies": {
-    "effect": "4.0.0-beta.74",
     "@effect/platform-bun": "4.0.0-beta.74",
-    "@effect/sql-sqlite-bun": "4.0.0-beta.74"
+    "@effect/platform-node": "4.0.0-beta.74",
+    "@effect/sql-sqlite-bun": "4.0.0-beta.74",
+    "effect": "4.0.0-beta.74",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
-    "typescript": "6.0.3",
-    "vitest": "4.1.7",
-    "dependency-cruiser": "17.4.2",
     "@types/bun": "1.3.14",
-    "@types/node": "25.9.1"
+    "@types/node": "25.9.1",
+    "@types/ws": "^8.18.1",
+    "dependency-cruiser": "17.4.2",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
   }
 }
