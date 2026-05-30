@@ -16,6 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@yodea/contracts/*": ["packages/contracts/*"],
+      "@yodea/client-core/*": ["packages/client-core/*"],
+      "@yodea/client-core": ["packages/client-core/index.ts"],
       "@yodea/*": ["apps/cli/*"]
     }
   },
