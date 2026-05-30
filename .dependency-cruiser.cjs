@@ -40,6 +40,6 @@ module.exports = {
     tsConfig: { fileName: "tsconfig.json" },
     tsPreCompilationDeps: true,
     doNotFollow: { path: "node_modules" },
-    exclude: { path: "(node_modules|test)" }
+    exclude: { path: "(node_modules|test|(^|/)out/|(^|/)dist/)" }
   }
 }
