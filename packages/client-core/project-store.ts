@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, Queue, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import type { Project } from "@yodea/contracts/project"
@@ -39,17 +39,39 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     // I-4 presence: held open for the whole scope (drop => backend may shut down).
     yield* Effect.forkScoped(Stream.runDrain(client.Connect()))
 
-    // Snapshot, then live fold of ProjectCreated.
+    // Open the live Events stream as a QUEUE *synchronously in this fiber* (rather
+    // than evaluating `client.Events()` lazily inside a forked `Stream.runForEach`).
+    // This sends the stream-open request IN ORDER, before the snapshot below — and
+    // critically before `createProject` can ever be called by a consumer. The
+    // server's Events handler is `Stream.fromPubSub` over an unbounded PubSub, which
+    // only delivers events emitted AFTER the subscription is registered; lazily
+    // forking the subscribe let an immediate create race ahead of it (the event was
+    // published before the server saw our subscribe, so it was never pushed). Over
+    // Bun's WebSocket the fork happened to win that race; over the Node `ws`
+    // transport it lost, and the ref stayed []. The queue's lifecycle is bound to
+    // this (ambient) scope, so it is torn down with the runtime like the old fork.
+    const events = yield* client.Events(undefined, { asQueue: true })
+
+    // Snapshot. Because requests travel a single ordered socket, ProjectList's
+    // response can only arrive after the server has processed the earlier Events
+    // subscribe — so this round-trip doubles as a barrier proving the subscription
+    // is live before we return (and thus before the first possible createProject).
     const initial = yield* client.ProjectList()
     yield* SubscriptionRef.set(projects, initial)
+
+    // Fold every future ProjectCreated into the ref. Forked on the ambient scope so
+    // it runs for the store's lifetime and is interrupted on dispose.
     yield* Effect.forkScoped(
-      Stream.runForEach(client.Events(), (event) =>
-        event._tag === "ProjectCreated"
-          ? SubscriptionRef.update(projects, (cur) =>
-              cur.some((p) => p.id === event.projectId)
-                ? cur
-                : [...cur, { id: event.projectId, name: event.name, createdAt: event.createdAt }])
-          : Effect.void)
+      Queue.take(events).pipe(
+        Effect.flatMap((event) =>
+          event._tag === "ProjectCreated"
+            ? SubscriptionRef.update(projects, (cur) =>
+                cur.some((p) => p.id === event.projectId)
+                  ? cur
+                  : [...cur, { id: event.projectId, name: event.name, createdAt: event.createdAt }])
+            : Effect.void),
+        Effect.forever
+      )
     )
 
     return { projects, createProject: (name: string) => client.ProjectCreate({ name }) }
