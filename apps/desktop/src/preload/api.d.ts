@@ -1,9 +1,8 @@
-import type { Project } from "@yodea/contracts/project"
-
+// The renderer's only bridge surface: a request to (re)establish the RPC port.
+// Everything else flows through the transferred MessagePort + the typed
+// YodeaRpcs contract — no per-feature methods here.
 export interface YodeaBridge {
-  listProjects: () => Promise<ReadonlyArray<Project>>
-  createProject: (name: string) => Promise<Project>
-  onProjectsChanged: (cb: (projects: ReadonlyArray<Project>) => void) => () => void
+  requestPort: () => void
 }
 
 declare global {
