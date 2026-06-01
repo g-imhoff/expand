@@ -14,7 +14,6 @@ export const createCommand = defineCommand(
   "create",
   { name, ensure },
   {
-    kind: "Project",
     envelope: (r: CreateResult) => ({ apiVersion: API_VERSION, kind: "Project", created: r.created, data: r.project }),
     text: (r: CreateResult) => `created ${r.project.id}  ${r.project.name}`,
     quiet: (r: CreateResult) => r.project.id
