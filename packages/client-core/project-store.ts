@@ -74,7 +74,18 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       )
     )
 
-    return { projects, createProject: (name: string) => client.ProjectCreate({ name }) }
+    // Idempotent create (ensure: true) keeps createProject's error type to
+    // RpcClientError only (no ProjectAlreadyExists leaking into the TUI/desktop
+    // bridges) while still yielding a Project. With ensure: true the server never
+    // returns ProjectAlreadyExists, so discharge that (impossible) tag as a defect.
+    return {
+      projects,
+      createProject: (name: string) =>
+        client.ProjectCreate({ name, ensure: true }).pipe(
+          Effect.map((r) => r.project),
+          Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e))
+        )
+    }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —
     // matching the plan's `never`-error layer signature. `Effect.orDie` discharges

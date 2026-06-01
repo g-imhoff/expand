@@ -25,7 +25,7 @@ describe("UseCases.createProject", () => {
       const store = yield* EventStore
 
       const sub = yield* bus.subscribe // subscribe before the command (deterministic)
-      const project = yield* useCases.createProject("Hello")
+      const { project } = yield* useCases.createProject("Hello", false)
 
       const broadcast = yield* PubSub.take(sub)
       const persisted = yield* store.readAll
