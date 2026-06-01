@@ -128,3 +128,37 @@ Manual (real compiled binary, isolated `YODEA_HOME`): `yodea health` → `{"apiV
 
 ## Deferred
 `project get` / `project delete`; a `yodea schema` introspection command; config files; shell completions; ANSI color output.
+
+---
+
+# Desktop architecture redesign (branch `feat/desktop-architecture`)
+
+The Electron desktop app was rebuilt onto a clean, scalable base organized around the **project** domain. The renderer is now **"just another `YodeaRpcs` frontend"**: it speaks the *same* contract to the Electron **main** process over a per-window `MessageChannelMain` port; main maps those calls onto the shared `ProjectStore`. Design spec + plan are local under `docs/superpowers/` (gitignored); the research report is at `docs/research/2026-06-01-electron-best-practices.md`.
+
+## Verification (all green — re-run any of these)
+```
+bunx tsc --noEmit          # exit 0
+bun run typecheck:desktop  # exit 0
+bun run test               # 51 tests / 30 files passed   (bun --bun vitest)
+bun run arch               # 0 violations, 72 modules cruised (I-1 extended to the preload)
+bun run build              # dist/yodea (single binary)
+bun run build:desktop      # out/{main/index.mjs, preload/index.cjs, renderer}
+xvfb-run -a bun run e2e:desktop  # 1 passed — create a project, see it live (Playwright _electron)
+```
+
+## What was built
+- **Typed IPC seam (centerpiece):** `RpcServer.makeNoSerialization` (main, `src/main/rpc/server.ts` + `handlers.ts` delegating to `ProjectStore`) ↔ `RpcClient.makeNoSerialization` (renderer, `src/renderer/rpc/client.ts`) over a per-window `MessageChannelMain` port (`src/main/rpc/transport.ts`). The `YodeaRpcs` contract is the single source of truth on both the backend↔main (WebSocket) and main↔renderer (MessagePort) hops — adding a feature is now a new Rpc + a handler + a hook, no per-feature IPC plumbing. The hand-mirrored `api.d.ts` bridge is gone.
+- **`ProjectStore` gained a live `events: Stream<DomainEvent>`** (PubSub tee) so each window's `Events` handler gets its own live subscription — the only `client-core` change.
+- **Effect-first renderer:** a small `ManagedRuntime` runs the `RpcClient`; **TanStack Query** is the React cache, seeded by `ProjectList` and folded forward by the live `Events` stream (`features/projects/{cache,event-fold,use-projects}.ts`); **TanStack Router** shell: `/` project picker → `/p/:projectId` workspace.
+- **Security:** `sandbox:true` + the preload converted to **CommonJS** (`index.cjs` — a sandboxed ESM preload silently breaks on Electron 42); strict CSP for the packaged renderer (dev relies on the dev server); `will-navigate` + `setWindowOpenHandler` lockdown; `:9222` CDP gated behind `!isPackaged && YODEA_DEVTOOLS_CDP=1`.
+- **Bugs fixed structurally:** the multi-window `ipcMain.handle` duplicate-registration crash (now per-window `RpcServer` + a single captured teardown, no post-`closed` `webContents` access); the leaked push fiber / send-after-destroy (per-window port scope torn down on `closed`/`render-process-gone`); `runtime.dispose()` moved to `before-quit`.
+
+## Invariant I-1, extended to the preload
+The `renderer-must-not-import-client-core` rule now covers `apps/desktop/src/(renderer|preload)` — the preload is a pure `MessagePort` broker. The renderer/preload import only `@yodea/contracts` + `effect`/`effect/unstable/rpc` + npm UI libs, never `client-core` or the main process. The DO-NOT-MODIFY I-1 fitness test was re-proven **non-vacuous** (a forbidden `preload → client-core` import trips the rule). `BOUNDARIES.md` + `.dependency-cruiser.cjs` + the test updated together.
+
+## New scripts / deps
+- `e2e:desktop` — `playwright test -c apps/desktop/e2e/playwright.config.ts` (`_electron.launch` against the built app; isolated `YODEA_HOME`, absolute `YODEA_BACKEND_CMD`).
+- Added `@tanstack/react-query`, `@tanstack/react-router`, `@playwright/test`, `electron-playwright-helpers`.
+
+## Deferred (per spec)
+Typed domain errors (pattern established; coarse `orDie` for now); multi-window (the per-window-port transport already supports it); packaging/Fuses/asar/`protocol.handle`/deep-links; persistence (recent-projects, window bounds); reconnect-after-backend-crash UX; effect-atom (blocked on Effect v3).

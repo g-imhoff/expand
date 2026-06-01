@@ -18,10 +18,12 @@ import backend-internal modules
 pure contract (`packages/contracts`) and the connection brain
 (`packages/client-core`). The sole exception:
 `apps/cli/cli/commands/server.ts` imports `apps/cli/composition` to boot the
-backend. Additionally, the Electron **renderer** (`apps/desktop/src/renderer`)
-may not import `packages/client-core` or the Electron **main** process; it
-reaches the backend exclusively through the preload `contextBridge`. Enforced
-by `.dependency-cruiser.cjs` + `test/architecture/i1-cli-isolation.test.ts`.
+backend. Additionally, the Electron **renderer and preload**
+(`apps/desktop/src/{renderer,preload}`) may not import `packages/client-core`
+or the Electron **main** process; they reach the backend exclusively through
+the typed `YodeaRpcs` contract carried over the preload-brokered `MessagePort`
+(the preload is a pure port broker — it exposes no per-feature surface).
+Enforced by `.dependency-cruiser.cjs` + `test/architecture/i1-cli-isolation.test.ts`.
 
 The original CLI-only statement (kept below for the rationale it documents)
 is now a special case of this rule: the CLI is a thin RPC client over
