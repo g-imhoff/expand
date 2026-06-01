@@ -7,7 +7,6 @@ export const healthCommand = defineCommand(
   "health",
   {},
   {
-    kind: "Health",
     envelope: (status: string) => ({ apiVersion: API_VERSION, kind: "Health", data: { status } }),
     text: (status: string) => status,
     quiet: (status: string) => status

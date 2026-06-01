@@ -4,7 +4,6 @@ import { Format, Quiet } from "@yodea/cli/global-flags"
 import { successLine, writeOut } from "@yodea/cli/output"
 
 export interface ResultSpec<R> {
-  readonly kind: "Project" | "ProjectList" | "Health"
   readonly envelope: (r: R) => object
   readonly text: (r: R) => string
   readonly quiet: (r: R) => string

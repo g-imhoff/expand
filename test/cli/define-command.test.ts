@@ -10,7 +10,6 @@ const create = defineCommand(
   "make",
   { name: Argument.string("name") },
   {
-    kind: "Project",
     envelope: (r: { created: boolean; project: { id: string; name: string; createdAt: string } }) => ({
       apiVersion: "yodea/v1", kind: "Project", created: r.created, data: r.project
     }),
