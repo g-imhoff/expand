@@ -3,5 +3,6 @@
 // adapter (which imports @effect/platform-bun) and vice-versa.
 export type { RuntimeAdapter } from "@yodea/client-core/adapter"
 export { findOrSpawnBackend, deleteEndpoint, readEndpoint, BackendUnavailable } from "@yodea/client-core/discovery"
-export { withClient, type YodeaClient } from "@yodea/client-core/with-client"
+export { YodeaClient, YodeaClientLive, type YodeaClientApi } from "@yodea/client-core/yodea-client"
+export { withClient } from "@yodea/client-core/with-client"
 export { ProjectStore } from "@yodea/client-core/project-store"
