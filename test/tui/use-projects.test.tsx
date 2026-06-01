@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
-import { Effect, Layer, ManagedRuntime, SubscriptionRef } from "effect"
+import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
 import { ProjectStore } from "@yodea/client-core"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
@@ -10,6 +10,7 @@ import { App } from "@yodea/tui/components/app"
 const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
+    events: Stream.empty,
     createProject: (name: string) => {
       const project = { id: `id-${name}`, name, createdAt: "t" }
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
