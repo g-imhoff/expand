@@ -1,0 +1,236 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapshot 1`] = `
+{
+  "ErrorEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "yodea/v1",
+          ],
+          "type": "string",
+        },
+        "code": {
+          "enum": [
+            "UNEXPECTED",
+            "INVALID_ARGUMENT",
+            "INVALID_OPTION",
+            "UNKNOWN_COMMAND",
+            "PROJECT_EXISTS",
+            "BACKEND_UNREACHABLE",
+          ],
+          "type": "string",
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "input": {
+          "anyOf": [
+            {},
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "Error",
+          ],
+          "type": "string",
+        },
+        "message": {
+          "type": "string",
+        },
+        "retryable": {
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "code",
+        "message",
+        "retryable",
+      ],
+      "type": "object",
+    },
+  },
+  "HealthEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "yodea/v1",
+          ],
+          "type": "string",
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "status",
+          ],
+          "type": "object",
+        },
+        "kind": {
+          "enum": [
+            "Health",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+  "ProjectEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "yodea/v1",
+          ],
+          "type": "string",
+        },
+        "created": {
+          "type": "boolean",
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "createdAt": {
+              "type": "string",
+            },
+            "id": {
+              "type": "string",
+            },
+            "name": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "id",
+            "name",
+            "createdAt",
+          ],
+          "type": "object",
+        },
+        "kind": {
+          "enum": [
+            "Project",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "created",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+  "ProjectListEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "yodea/v1",
+          ],
+          "type": "string",
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "number",
+            },
+            {
+              "enum": [
+                "NaN",
+              ],
+              "type": "string",
+            },
+            {
+              "enum": [
+                "Infinity",
+              ],
+              "type": "string",
+            },
+            {
+              "enum": [
+                "-Infinity",
+              ],
+              "type": "string",
+            },
+          ],
+        },
+        "data": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "createdAt": {
+                "type": "string",
+              },
+              "id": {
+                "type": "string",
+              },
+              "name": {
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "name",
+              "createdAt",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "kind": {
+          "enum": [
+            "ProjectList",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "count",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+}
+`;
