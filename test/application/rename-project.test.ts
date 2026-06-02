@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/db/event-store"
 import { EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/application/projections"
@@ -10,7 +11,14 @@ const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
-  return UseCasesLayer.pipe(Layer.provide(store), Layer.provide(EventBusLayer), Layer.provide(projection))
+  // UseCases.make yields FileSystem+Path (for changeDirectory); supply them.
+  return UseCasesLayer.pipe(
+    Layer.provide(store),
+    Layer.provide(EventBusLayer),
+    Layer.provide(projection),
+    Layer.provide(BunFileSystem.layer),
+    Layer.provide(BunServices.layer)
+  )
 }
 const run = <A, E>(eff: Effect.Effect<A, E, UseCases>) => Effect.runPromise(Effect.provide(eff, layer()))
 
