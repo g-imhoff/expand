@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, PubSub } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
 import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
@@ -57,5 +58,14 @@ describe("UseCases.createProject", () => {
     }).pipe(Effect.provide(TestLayer)))
     expect(r.def.map((p) => p.name)).toEqual(["alpha"])
     expect(r.all.map((p) => p.name)).toEqual(["alpha"])
+  })
+
+  // Locks the layer-composition shape the change-directory slice reuses:
+  // BunFileSystem supplies FileSystem, BunServices supplies Path. UseCases
+  // still resolves (it does not yield FS yet) — proving the wiring is additive.
+  it("UseCases resolves with FileSystem+Path provided", async () => {
+    const FsTestLayer = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
+    const ok = await Effect.runPromise(Effect.provide(Effect.flatMap(UseCases, (u) => u.health), FsTestLayer))
+    expect(ok).toBe("ok")
   })
 })
