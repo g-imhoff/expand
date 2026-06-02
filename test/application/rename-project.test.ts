@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { EventStoreLayer } from "@yodea/db/event-store"
 import { EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/application/projections"
@@ -60,5 +63,41 @@ describe("UseCases.renameProject", () => {
       return yield* u.renameProject(a.project.id, "alpha")
     }))
     expect(r.name).toBe("alpha")
+  })
+
+  // An ARCHIVED project stays live: its name remains reserved. Renaming a live
+  // project to an archived project's name must conflict (uniqueness checks the
+  // full non-deleted set, archived included). Deferred from the rename slice
+  // until archive existed; now exercised via the archiveProject use-case.
+  it("an archived project's name stays reserved -> ProjectNameConflict", async () => {
+    const exit = await run(Effect.gen(function* () {
+      const u = yield* UseCases
+      const archived = yield* u.createProject("archived-name", false)
+      yield* u.archiveProject(archived.project.id)
+      const live = yield* u.createProject("live-name", false)
+      return yield* u.renameProject(live.project.id, "archived-name").pipe(Effect.result)
+    }))
+    expect((exit as { failure: { _tag: string; name: string } }).failure._tag).toBe("ProjectNameConflict")
+    expect((exit as { failure: { _tag: string; name: string } }).failure.name).toBe("archived-name")
+  })
+
+  // Likewise an archived project's DIRECTORY stays reserved: changing a live
+  // project's directory to an archived project's directory must conflict.
+  it("an archived project's directory stays reserved -> ProjectDirectoryConflict", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-arch-dir-"))
+    try {
+      const exit = await run(Effect.gen(function* () {
+        const u = yield* UseCases
+        const a = yield* u.createProject("archived-dir", false)
+        yield* u.changeDirectory(a.project.id, tmp)
+        yield* u.archiveProject(a.project.id)
+        const live = yield* u.createProject("live-dir", false)
+        return yield* u.changeDirectory(live.project.id, tmp).pipe(Effect.result)
+      }))
+      expect((exit as { failure: { _tag: string; directory: string } }).failure._tag).toBe("ProjectDirectoryConflict")
+      expect((exit as { failure: { _tag: string; directory: string } }).failure.directory).toBe(tmp)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })
