@@ -29,6 +29,7 @@
     "apps/desktop/src/main/index.ts",
     "apps/desktop/src/preload",
     "apps/desktop/src/renderer",
-    "test/desktop/rename-dialog.test.tsx"
+    "test/desktop/rename-dialog.test.tsx",
+    "test/desktop/change-directory-dialog.test.tsx"
   ]
 }
