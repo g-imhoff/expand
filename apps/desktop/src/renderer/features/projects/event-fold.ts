@@ -22,5 +22,7 @@ export const foldEvent = (
             createdAt: event.createdAt,
             updatedAt: event.createdAt
           }]
+    default:
+      return list
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, ProjectCreated } from "@yodea/contracts/events"
+import { DomainEventFromJson, ProjectCreated, ProjectRenamed } from "@yodea/contracts/events"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
@@ -36,5 +36,19 @@ describe("DomainEvent", () => {
   it("roundtrips ProjectCreated WITH a directory", () => {
     const e = ProjectCreated.make({ projectId: "p1", name: "First", directory: "/tmp/x", createdAt: "t" })
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(Schema.encodeSync(DomainEventFromJson)(e))).toEqual(e)
+  })
+})
+
+describe("ProjectRenamed", () => {
+  it("constructs with an auto-filled _tag", () => {
+    const e = ProjectRenamed.make({ projectId: "p1", name: "Renamed", occurredAt: "2026-01-02T00:00:00.000Z" })
+    expect(e._tag).toBe("ProjectRenamed")
+    expect(e.name).toBe("Renamed")
+  })
+  it("roundtrips through the DomainEvent JSON codec", () => {
+    const e = ProjectRenamed.make({ projectId: "p1", name: "Renamed", occurredAt: "2026-01-02T00:00:00.000Z" })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(typeof json).toBe("string")
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
   })
 })
