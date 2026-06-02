@@ -21,6 +21,20 @@ describe("DomainEvent", () => {
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(typeof json).toBe("string")
-    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+    // `directory` is omitted on encode (optionalKey) and decodes back to the
+    // null default — the roundtrip materializes the additive field.
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual({ ...e, directory: null })
+  })
+
+  it("decodes a legacy ProjectCreated JSON without directory to directory:null", () => {
+    const legacy = JSON.stringify({ _tag: "ProjectCreated", projectId: "p1", name: "First", createdAt: "2026-01-01T00:00:00.000Z" })
+    const decoded = Schema.decodeUnknownSync(DomainEventFromJson)(legacy)
+    expect(decoded._tag).toBe("ProjectCreated")
+    expect((decoded as { directory: string | null }).directory).toBeNull()
+  })
+
+  it("roundtrips ProjectCreated WITH a directory", () => {
+    const e = ProjectCreated.make({ projectId: "p1", name: "First", directory: "/tmp/x", createdAt: "t" })
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(Schema.encodeSync(DomainEventFromJson)(e))).toEqual(e)
   })
 })
