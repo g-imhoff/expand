@@ -14,9 +14,6 @@ export interface RenameDialogProps {
   readonly onRename: (id: string, name: string) => void
 }
 
-// Controlled, prefilled rename dialog. Decoupled from RPC via an injected
-// `onRename` so it is unit-testable; the wiring components pass
-// `useRenameProject().mutate` adapted to (id, name).
 export const RenameDialog = ({ open, project, onOpenChange, onRename }: RenameDialogProps) => {
   const [value, setValue] = useState(project?.name ?? "")
   useEffect(() => { setValue(project?.name ?? "") }, [project?.id, project?.name])

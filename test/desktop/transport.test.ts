@@ -5,7 +5,6 @@ import type { DomainEvent } from "@yodea/contracts/events"
 import { ProjectStore } from "@yodea/client-core"
 import { connectPort } from "@yodea/desktop/main/rpc/transport"
 
-// A fake MainPortLike that records start() + the registered message handler.
 const makePort = () => {
   const sent: Array<unknown> = []
   let handler: ((e: { data: unknown }) => void) | undefined
@@ -68,12 +67,11 @@ describe("connectPort", () => {
     const p = makePort()
     try {
       const teardown = connectPort({ port: p.port, runtime })
-      // let the forked fiber build the server + wire the port
       await new Promise((r) => setTimeout(r, 50))
       expect(p.isStarted()).toBe(true)
       expect(p.hasHandler()).toBe(true)
       expect(typeof teardown).toBe("function")
-      await teardown() // resolves: scope closed, fibers interrupted
+      await teardown()
     } finally {
       await runtime.dispose()
     }

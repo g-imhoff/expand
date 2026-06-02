@@ -8,7 +8,6 @@ import {
   DialogTitle
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
-// Parse a comma-separated tags input into a deduped, trimmed, non-empty list.
 const parseTags = (raw: string): ReadonlyArray<string> =>
   [...new Set(raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0))]
 
@@ -19,11 +18,6 @@ export interface EditMetadataDialogProps {
   readonly onSubmit: (patch: { description: string | null; tags: ReadonlyArray<string> }) => Promise<unknown>
 }
 
-// Controlled metadata editor. Decoupled from RPC via an injected `onSubmit` so it
-// is unit-testable; the wiring component passes
-// `(patch) => setMetadata.mutateAsync({ id: project.id, ...patch })`. An empty
-// description trims to null (clears it); the tags input parses to a deduped list
-// (empty input => [] => clears tags).
 export const EditMetadataDialog = ({ open, project, onOpenChange, onSubmit }: EditMetadataDialogProps) => {
   const [description, setDescription] = useState(project.description ?? "")
   const [tagsRaw, setTagsRaw] = useState(project.tags.join(", "))

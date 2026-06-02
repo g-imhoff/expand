@@ -53,7 +53,6 @@ describe.sequential("project delete e2e", () => {
     expect(Option.isSome(first.event)).toBe(true)
     expect(first.listed.some((p) => p.id === first.id)).toBe(false)
 
-    // Restart against the SAME db: the tombstone is durable, id stays gone.
     const afterRestart = await Effect.runPromise(
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))

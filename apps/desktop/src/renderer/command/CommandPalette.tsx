@@ -16,18 +16,11 @@ import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/Ed
 import { useCommandPalette } from "./store"
 import { useCommandPaletteHotkey } from "./use-command-palette-hotkey"
 
-// Pure UI (I-1): reaches the backend only through the renderer's own TanStack
-// hooks (which ride the preload-brokered RPC client) — never client-core/main.
-// Mounted once in the root route layout, so the Ctrl/Cmd+Shift+P listener is
-// active on every route and the palette has Router + Query + RPC context.
 export const CommandPalette = () => {
   useCommandPaletteHotkey()
   const open = useCommandPalette((state) => state.open)
   const setOpen = useCommandPalette((state) => state.setOpen)
   const navigate = useNavigate()
-  // Includes archived projects so their Restore command is reachable — archive must
-  // not be a one-way trip. The main projects view keeps using useProjects() (archived
-  // hidden), so this does not change the default list semantics.
   const { data: projects = [] } = useAllProjects()
   const createProject = useCreateProject()
   const renameProject = useRenameProject()
@@ -70,8 +63,6 @@ export const CommandPalette = () => {
         <CommandEmpty>No matches.</CommandEmpty>
         {trimmed !== "" && (
           <CommandGroup heading="Actions">
-            {/* value={query} (the live cmdk search) → exact filter match, so this
-                action is always visible while the user is typing. */}
             <CommandItem value={query} onSelect={handleCreate}>
               <PlusIcon className="size-4" />
               <span>Create project “{trimmed}”</span>

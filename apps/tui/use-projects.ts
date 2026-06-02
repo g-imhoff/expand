@@ -10,7 +10,6 @@ export const useProjects = () => {
   const [projects, setProjects] = useState<ReadonlyArray<Project>>([])
 
   useEffect(() => {
-    // Drive the store's reactive ref into React state for the component's lifetime.
     const fiber = runtime.runFork(
       Effect.flatMap(ProjectStore, (store) =>
         Stream.runForEach(SubscriptionRef.changes(store.projects), (ps) =>

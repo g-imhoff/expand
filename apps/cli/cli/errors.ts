@@ -95,7 +95,6 @@ export type YodeaCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli
 const tagOf = (e: unknown): string | undefined =>
   typeof e === "object" && e !== null && "_tag" in e ? (e as { _tag: string })._tag : undefined
 
-// Map a handler's domain/transport failure to a YodeaCliError.
 export const mapContractError = (e: unknown): YodeaCliError => {
   switch (tagOf(e)) {
     case "ProjectAlreadyExists":
@@ -117,7 +116,6 @@ export const mapContractError = (e: unknown): YodeaCliError => {
   }
 }
 
-// Parse/usage errors (CliError) -> the same JSON ErrorEnvelope (exit 2 via main.ts remap).
 const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
     case "InvalidValue":
@@ -134,7 +132,6 @@ const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   }
 }
 
-// Formatter: JSON for errors (stderr); human help/version via the default formatter.
 export const jsonCliErrorFormatter: CliOutput.Formatter = {
   ...CliOutput.defaultFormatter(),
   formatCliError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
