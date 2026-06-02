@@ -30,6 +30,12 @@ export interface ProjectStoreShape {
   // (does NOT Effect.die it) so TUI/desktop can react.
   readonly archiveProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   readonly restoreProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  // Set-metadata (replace-style) over the held connection. SURFACES the typed
+  // ProjectNotFound (does NOT Effect.die it) so TUI/desktop can react.
+  readonly setMetadata: (
+    id: string,
+    patch: { description?: string | null; tags?: ReadonlyArray<string> }
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   // Live stream of every DomainEvent the backend commits, for additional
   // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
   // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
@@ -127,6 +133,17 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                   return SubscriptionRef.update(projects, (cur) =>
                     cur.map((p) =>
                       p.id === event.projectId ? { ...p, archived: false, updatedAt: event.occurredAt } : p))
+                case "ProjectMetadataChanged":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.map((p) =>
+                      p.id === event.projectId
+                        ? {
+                            ...p,
+                            ...(event.description !== undefined ? { description: event.description } : {}),
+                            ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
+                            updatedAt: event.occurredAt
+                          }
+                        : p))
                 default:
                   return Effect.void
               }
@@ -156,7 +173,16 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       changeDirectory: (id: string, directory: string) => client.ProjectChangeDirectory({ id, directory }),
       // Surface ProjectNotFound (does NOT Effect.die it).
       archiveProject: (id: string) => client.ProjectArchive({ id }),
-      restoreProject: (id: string) => client.ProjectRestore({ id })
+      restoreProject: (id: string) => client.ProjectRestore({ id }),
+      // Replace-style metadata. Surfaces ProjectNotFound (does NOT Effect.die it).
+      // Only the provided fields are sent (present description incl. null / present
+      // tags); absent keys leave that field unchanged server-side.
+      setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+        client.ProjectSetMetadata({
+          id,
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.tags !== undefined ? { tags: patch.tags } : {})
+        })
     }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —

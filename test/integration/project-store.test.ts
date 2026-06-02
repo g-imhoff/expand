@@ -141,4 +141,22 @@ describe("ProjectStore", () => {
       await rt.dispose()
     }
   })
+  it("setMetadata mutates the reactive ref via the live fold", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rt = ManagedRuntime.make(appLayer)
+    try {
+      const store = await rt.runPromise(ProjectStore)
+      const created = await rt.runPromise(store.createProject("withmeta"))
+      await rt.runPromise(store.setMetadata(created.id, { description: "desc", tags: ["a", "a"] }))
+      // allow the Events fold loop to apply (mirror the settle the file uses)
+      await new Promise((r) => setTimeout(r, 300))
+      const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
+      const p = snapshot.find((x) => x.id === created.id)
+      expect(p?.description).toBe("desc")
+      expect(p?.tags).toEqual(["a"])
+    } finally {
+      await rt.dispose()
+    }
+  })
 })
+
