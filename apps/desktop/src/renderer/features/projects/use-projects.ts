@@ -48,3 +48,25 @@ export const useChangeDirectory = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
   })
 }
+
+// Archive a project. The resulting ProjectArchived arrives via the Events stream
+// and folds into the cache; invalidate as a belt-and-braces refresh. The typed
+// ProjectNotFound rejects the promise.
+export const useArchiveProject = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => runtime.runPromise(client.ProjectArchive({ id })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}
+
+// Restore (un-archive) a project. Mirrors useArchiveProject.
+export const useRestoreProject = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => runtime.runPromise(client.ProjectRestore({ id })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}

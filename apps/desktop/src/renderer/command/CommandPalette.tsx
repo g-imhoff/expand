@@ -9,7 +9,7 @@ import {
   CommandItem,
   CommandList
 } from "../components/ui/command"
-import { useCreateProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useArchiveProject, useCreateProject, useProjects, useRenameProject, useRestoreProject } from "@yodea/desktop/renderer/features/projects/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 import { useCommandPalette } from "./store"
 import { useCommandPaletteHotkey } from "./use-command-palette-hotkey"
@@ -26,6 +26,8 @@ export const CommandPalette = () => {
   const { data: projects = [] } = useProjects()
   const createProject = useCreateProject()
   const renameProject = useRenameProject()
+  const archiveProject = useArchiveProject()
+  const restoreProject = useRestoreProject()
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
@@ -74,13 +76,26 @@ export const CommandPalette = () => {
             {projects.map((project) => (
               <Fragment key={project.id}>
                 <CommandItem value={project.name} onSelect={() => openProject(project.id)}>
-                  {project.name}
+                  {project.name}{project.archived ? " (archived)" : ""}
                 </CommandItem>
                 <CommandItem
                   value={`rename ${project.name}`}
                   onSelect={() => { setOpen(false); setRenaming({ id: project.id, name: project.name }) }}
                 >
                   <span>Rename “{project.name}”</span>
+                </CommandItem>
+                <CommandItem
+                  value={`${project.name} ${project.archived ? "restore" : "archive"}`}
+                  onSelect={() => {
+                    const action = project.archived ? restoreProject : archiveProject
+                    action.mutate(project.id, {
+                      onError: (cause: unknown) =>
+                        setError(`Could not ${project.archived ? "restore" : "archive"} “${project.name}”: ${cause instanceof Error ? cause.message : String(cause)}`)
+                    })
+                    setOpen(false)
+                  }}
+                >
+                  <span>{project.archived ? "Restore" : "Archive"} “{project.name}”{project.archived ? " (archived)" : ""}</span>
                 </CommandItem>
               </Fragment>
             ))}
