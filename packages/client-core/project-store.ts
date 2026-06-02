@@ -1,7 +1,8 @@
-import { Context, Effect, Layer, Queue, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, PubSub, Queue, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import type { Project } from "@yodea/contracts/project"
+import type { DomainEvent } from "@yodea/contracts/events"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
@@ -11,6 +12,10 @@ export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   // Issue a create over the held connection (server emits the event we fold).
   readonly createProject: (name: string) => Effect.Effect<Project, RpcClientError.RpcClientError>
+  // Live stream of every DomainEvent the backend commits, for additional
+  // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
+  // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
+  readonly events: Stream.Stream<DomainEvent>
 }
 
 // Ground truth (Task 2.1 Step 3): Context.Service<Self, Shape>()("id") accepts
@@ -59,22 +64,34 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     const initial = yield* client.ProjectList()
     yield* SubscriptionRef.set(projects, initial)
 
-    // Fold every future ProjectCreated into the ref. Forked on the ambient scope so
-    // it runs for the store's lifetime and is interrupted on dispose.
+    // Re-broadcast hub: the fold loop publishes every event here so external
+    // subscribers (each window's RpcServer) get their own live subscription,
+    // without competing for the single `events` queue. Bound to the ambient scope.
+    const hub = yield* PubSub.unbounded<DomainEvent>()
+
+    // Fold every future ProjectCreated into the ref AND re-publish to the hub.
     yield* Effect.forkScoped(
       Queue.take(events).pipe(
         Effect.flatMap((event) =>
-          event._tag === "ProjectCreated"
-            ? SubscriptionRef.update(projects, (cur) =>
-                cur.some((p) => p.id === event.projectId)
-                  ? cur
-                  : [...cur, { id: event.projectId, name: event.name, createdAt: event.createdAt }])
-            : Effect.void),
+          Effect.andThen(
+            PubSub.publish(hub, event),
+            event._tag === "ProjectCreated"
+              ? SubscriptionRef.update(projects, (cur) =>
+                  cur.some((p) => p.id === event.projectId)
+                    ? cur
+                    : [...cur, { id: event.projectId, name: event.name, createdAt: event.createdAt }])
+              : Effect.void
+          )
+        ),
         Effect.forever
       )
     )
 
-    return { projects, createProject: (name: string) => client.ProjectCreate({ name }) }
+    return {
+      projects,
+      events: Stream.fromPubSub(hub),
+      createProject: (name: string) => client.ProjectCreate({ name })
+    }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —
     // matching the plan's `never`-error layer signature. `Effect.orDie` discharges
