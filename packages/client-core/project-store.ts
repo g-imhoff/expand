@@ -88,11 +88,15 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     // this (ambient) scope, so it is torn down with the runtime like the old fork.
     const events = yield* client.Events(undefined, { asQueue: true })
 
-    // Snapshot. Because requests travel a single ordered socket, ProjectList's
-    // response can only arrive after the server has processed the earlier Events
-    // subscribe — so this round-trip doubles as a barrier proving the subscription
-    // is live before we return (and thus before the first possible createProject).
-    const initial = yield* client.ProjectList({})
+    // Snapshot. includeArchived:true so archived projects are present from startup —
+    // the TUI list renders them with an `[archived]` marker and they must be
+    // selectable so 'a' can restore them (archive must not be a one-way trip; without
+    // this, a project archived in a prior session would vanish on the next launch and
+    // restore would be unreachable). Because requests travel a single ordered socket,
+    // ProjectList's response can only arrive after the server has processed the
+    // earlier Events subscribe — so this round-trip doubles as a barrier proving the
+    // subscription is live before we return (and thus before the first createProject).
+    const initial = yield* client.ProjectList({ includeArchived: true })
     yield* SubscriptionRef.set(projects, initial)
 
     // Re-broadcast hub: the fold loop publishes every event here so external
