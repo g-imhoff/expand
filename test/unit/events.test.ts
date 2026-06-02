@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { DomainEventFromJson, ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
@@ -87,6 +87,40 @@ describe("ProjectArchived / ProjectRestored", () => {
   })
   it("roundtrips ProjectRestored through JSON text", () => {
     const e = ProjectRestored.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+})
+
+describe("ProjectMetadataChanged", () => {
+  it("constructs with optional description + tags and an auto-filled _tag", () => {
+    const e = ProjectMetadataChanged.make({
+      projectId: "p1",
+      description: "a project",
+      tags: ["alpha", "beta"],
+      occurredAt: "2026-01-02T00:00:00.000Z"
+    })
+    expect(e._tag).toBe("ProjectMetadataChanged")
+    expect(e.description).toBe("a project")
+    expect(e.tags).toEqual(["alpha", "beta"])
+  })
+
+  it("roundtrips through JSON text with only description present", () => {
+    const e = ProjectMetadataChanged.make({
+      projectId: "p1",
+      description: null,
+      occurredAt: "2026-01-02T00:00:00.000Z"
+    })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+
+  it("roundtrips through the DomainEvent union with only tags present", () => {
+    const e = ProjectMetadataChanged.make({
+      projectId: "p1",
+      tags: ["x"],
+      occurredAt: "2026-01-02T00:00:00.000Z"
+    })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
   })
