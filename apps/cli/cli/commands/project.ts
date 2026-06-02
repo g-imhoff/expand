@@ -5,8 +5,9 @@ import { renameCommand } from "@yodea/cli/commands/project/rename"
 import { changeDirectoryCommand } from "@yodea/cli/commands/project/change-directory"
 import { archiveCommand } from "@yodea/cli/commands/project/archive"
 import { restoreCommand } from "@yodea/cli/commands/project/restore"
+import { setMetadataCommand } from "@yodea/cli/commands/project/set-metadata"
 
 export const projectCommand = Command.make("project").pipe(
   Command.withDescription("Manage projects"),
-  Command.withSubcommands([createCommand, listCommand, renameCommand, changeDirectoryCommand, archiveCommand, restoreCommand])
+  Command.withSubcommands([createCommand, listCommand, renameCommand, changeDirectoryCommand, archiveCommand, restoreCommand, setMetadataCommand])
 )
