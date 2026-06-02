@@ -12,7 +12,8 @@ export const ErrorCode = Schema.Literals([
   "INVALID_OPTION",
   "UNKNOWN_COMMAND",
   "PROJECT_EXISTS",
-  "BACKEND_UNREACHABLE"
+  "BACKEND_UNREACHABLE",
+  "PROJECT_NOT_FOUND"
 ])
 export type ErrorCode = typeof ErrorCode.Type
 
