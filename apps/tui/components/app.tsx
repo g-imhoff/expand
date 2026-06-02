@@ -7,18 +7,22 @@ import { DirectoryInput } from "@yodea/tui/components/directory-input"
 import { useProjects } from "@yodea/tui/use-projects"
 
 export const App = () => {
-  const { projects, create, rename, changeDirectory } = useProjects()
+  const { projects, create, rename, changeDirectory, archive, restore } = useProjects()
   const [mode, setMode] = useState<"list" | "rename" | "directory">("list")
   const selected = projects[0] ?? null
   useInput((input) => {
     if (mode === "list" && selected) {
       if (input === "r") setMode("rename")
       else if (input === "d") setMode("directory")
+      else if (input === "a") {
+        if (selected.archived) restore(selected.id)
+        else archive(selected.id)
+      }
     }
   })
   return (
     <Box flexDirection="column" gap={1}>
-      <ProjectList projects={projects} />
+      <ProjectList projects={projects} selectedId={selected?.id} />
       {mode === "rename" && selected ? (
         <RenameInput
           current={selected.name}
