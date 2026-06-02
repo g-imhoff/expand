@@ -14,8 +14,16 @@ export const resolveProjectTarget = (token: string) =>
     : Effect.flatMap(YodeaClient, (c) => c.ProjectList({ includeArchived: true })).pipe(
         Effect.flatMap((ps) => {
           const matches = ps.filter((p) => p.name === token)
-          return matches.length === 1 && matches[0] !== undefined
-            ? Effect.succeed(matches[0].id)
-            : Effect.fail(new ProjectNotFound({ id: token }))
+          if (matches.length > 1) {
+            // Names are unique among live projects (enforced at create/rename),
+            // so >1 match is a broken invariant, not a user error — fail as a defect.
+            return Effect.die(
+              new Error(`Ambiguous project name "${token}": ${matches.length} live projects share it`)
+            )
+          }
+          const match = matches[0]
+          return match === undefined
+            ? Effect.fail(new ProjectNotFound({ id: token }))
+            : Effect.succeed(match.id)
         })
       )
