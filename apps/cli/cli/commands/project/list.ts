@@ -12,7 +12,6 @@ export const listCommand = defineCommand(
   "list",
   {},
   {
-    kind: "ProjectList",
     envelope: (ps: ReadonlyArray<Project>) => ({ apiVersion: API_VERSION, kind: "ProjectList", count: ps.length, data: sorted(ps) }),
     text: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => `${p.id}  ${p.name}`).join("\n"),
     quiet: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => p.id).join("\n")
