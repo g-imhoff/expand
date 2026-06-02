@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectNotFound, YodeaRpcs } from "@yodea/contracts/rpc"
+import { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNotFound, YodeaRpcs } from "@yodea/contracts/rpc"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
 describe("YodeaRpcs contract", () => {
@@ -20,5 +20,12 @@ describe("YodeaRpcs contract", () => {
     expect(tags).toEqual(
       expect.arrayContaining(["Health", "ProjectCreate", "ProjectList", "Connect", "Events", "ProjectRename"])
     )
+  })
+  it("exposes ProjectChangeDirectory and its directory error classes", () => {
+    expect([...YodeaRpcs.requests.keys()]).toEqual(
+      expect.arrayContaining(["ProjectChangeDirectory"])
+    )
+    expect(new ProjectDirectoryInvalid({ directory: "/x", reason: "not-absolute" }).directory).toBe("/x")
+    expect(new ProjectDirectoryConflict({ directory: "/x" }).directory).toBe("/x")
   })
 })
