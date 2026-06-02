@@ -1,9 +1,6 @@
 import type { Project } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events"
 
-// Pure fold of one live DomainEvent into the project list. Idempotent on id so a
-// replayed/duplicated event (or a snapshot that already contains it) never dupes.
-// DOM-free so it is Bun-testable. Mirrors apps/cli/domain/project.ts.
 export const foldEvent = (
   list: ReadonlyArray<Project>,
   event: DomainEvent
@@ -45,8 +42,6 @@ export const foldEvent = (
             }
           : p)
     case "ProjectDeleted":
-      // Tombstone: drop the project (filter on an absent id is a no-op — mirrors
-      // the server + client-core folds; a deleted id never reappears).
       return list.filter((p) => p.id !== event.projectId)
     default:
       return list

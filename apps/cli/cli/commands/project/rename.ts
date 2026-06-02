@@ -6,8 +6,6 @@ import { YodeaClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
-// target accepts a project NAME or UUID (no withSchema); resolveProjectTarget
-// turns it into an id (passing a UUID straight through, resolving a name via list).
 const target = Argument.string("project")
 const name = Argument.string("name").pipe(Argument.withSchema(ProjectName))
 

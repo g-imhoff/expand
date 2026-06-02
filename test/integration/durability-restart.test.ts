@@ -40,7 +40,6 @@ describe.sequential("durability across a backend restart", () => {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
         const out = yield* withClient(bunAdapter, use)
-        // wait for I-4 self-termination so the second boot owns the endpoint file.
         yield* Fiber.join(serverFiber).pipe(
           Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
         )
@@ -57,7 +56,6 @@ describe.sequential("durability across a backend restart", () => {
           return project.id
         })
       )
-      // SECOND backend, same db: read-only assertion of the re-folded model.
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
@@ -114,7 +112,6 @@ describe.sequential("durability across a backend restart", () => {
     expect(survivor.id).toBe(r.ids.keepId)
     expect(survivor.name).toBe("keeper-renamed")
     expect(survivor.directory).toBe(workdir)
-    // deleted tombstone stays gone across the restart
     expect(r.listed.some((p) => p.id === r.ids.doomedId)).toBe(false)
     rmSync(workdir, { recursive: true, force: true })
   })

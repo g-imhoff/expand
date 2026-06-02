@@ -61,12 +61,6 @@ describe("App archive keybinding", () => {
   })
 
   it("shows a project that is ALREADY archived at startup and restores it with 'a'", async () => {
-    // Regression: the store snapshot (project-store.ts) must seed with
-    // includeArchived:true so a project archived in a prior session is present from
-    // startup — selectable (selected = projects[0]) and restorable with 'a'. Without
-    // it the snapshot excluded archived, the project vanished, and restore was
-    // unreachable from the TUI. Here the ref starts with an archived project (mirroring
-    // the fixed snapshot); pressing 'a' must flip it back to live (marker gone).
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([
       { id: "p1", name: "alpha", directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" }
     ]))

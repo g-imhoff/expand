@@ -35,8 +35,6 @@ describe.sequential("end-to-end lifecycle", () => {
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const dbPath = join(dir, "events.db")
-      // No fixed port: the server binds an ephemeral OS port and advertises the
-      // real URL in the discovery file; the client discovers it from there.
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
 
       yield* awaitEndpointUp
@@ -51,7 +49,6 @@ describe.sequential("end-to-end lifecycle", () => {
         })
       )
 
-      // Last client gone -> the server must shut itself down (I-4).
       yield* Fiber.join(serverFiber).pipe(
         Effect.timeoutOrElse({
           duration: "5 seconds",
@@ -63,11 +60,11 @@ describe.sequential("end-to-end lifecycle", () => {
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
     const r = await Effect.runPromise(program)
-    expect(r.upDuring).toBe(true) // I-3: advertised while alive
+    expect(r.upDuring).toBe(true)
     expect(r.outcome.health).toBe("ok")
     expect(r.outcome.created.project.name).toBe("E2E")
-    expect(r.outcome.listed).toEqual([r.outcome.created.project]) // event -> projection over the wire
-    expect(r.upAfter).toBe(false) // I-3/I-4: endpoint removed on zero-connection shutdown
+    expect(r.outcome.listed).toEqual([r.outcome.created.project])
+    expect(r.upAfter).toBe(false)
   })
 
   it("archive hides from default list, restore brings it back, ProjectNotFound on bogus id", async () => {
@@ -78,8 +75,6 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "arch-e2e", ensure: false })
-          // Subscribe to Events, let the subscription attach, then archive so the
-          // live ProjectArchived is delivered (the PubSub only fans out post-subscribe).
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.ProjectArchive({ id: project.id })
@@ -113,7 +108,6 @@ describe.sequential("end-to-end lifecycle", () => {
 
       const observed = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          // Start listening, give the subscription time to attach, then create.
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.ProjectCreate({ name: "live", ensure: false })

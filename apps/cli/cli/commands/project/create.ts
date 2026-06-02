@@ -7,8 +7,6 @@ import { defineCommand } from "@yodea/cli/_command"
 
 const name = Argument.string("name").pipe(Argument.withSchema(ProjectName))
 const ensure = Flag.boolean("ensure").pipe(Flag.withDefault(false))
-// (D2) --directory is optional: present sets the project's directory at create
-// (validated server-side: absolute + on-disk + unique); absent leaves it null.
 const directory = Flag.string("directory").pipe(Flag.optional)
 
 type CreateResult = { created: boolean; project: { id: string; name: string; directory?: string | null; createdAt: string } }

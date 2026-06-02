@@ -1,14 +1,6 @@
 import { Effect, Schema } from "effect"
 import { DESCRIPTION_MAX_LENGTH, Tag } from "@yodea/contracts/project"
 
-// One event type today. As the domain grows, replace the alias below with
-// `Schema.Union([ProjectCreated, ProjectRenamed, ...])`; the projection fold
-// already switches on `_tag`, so adding a case is the only other change.
-//
-// `directory` is optional on the encoded side (legacy persisted events lack it)
-// and decodes to null when absent — keeps the event log backward-compatible.
-// NOTE: the v4 beta `withDecodingDefaultKey` takes an Effect default value (not a
-// thunk) — the plan's `() => null` is spelled `Effect.succeed(null)` here.
 export const ProjectCreated = Schema.TaggedStruct("ProjectCreated", {
   projectId: Schema.String,
   name: Schema.String,
@@ -16,52 +8,35 @@ export const ProjectCreated = Schema.TaggedStruct("ProjectCreated", {
   createdAt: Schema.String
 })
 
-// A project was renamed. `occurredAt` is the ISO event time the fold uses to
-// stamp `updatedAt`.
 export const ProjectRenamed = Schema.TaggedStruct("ProjectRenamed", {
   projectId: Schema.String,
   name: Schema.String,
   occurredAt: Schema.String
 })
 
-// A project's working directory was changed. `directory` is always an absolute,
-// on-disk-validated path (validation happens server-side in the use-case);
-// `occurredAt` stamps `updatedAt` in the fold.
 export const ProjectDirectoryChanged = Schema.TaggedStruct("ProjectDirectoryChanged", {
   projectId: Schema.String,
   directory: Schema.String,
   occurredAt: Schema.String
 })
 
-// A project was archived (hidden from the default list but still live — its name
-// and directory stay reserved). `occurredAt` stamps `updatedAt` in the fold.
 export const ProjectArchived = Schema.TaggedStruct("ProjectArchived", {
   projectId: Schema.String,
   occurredAt: Schema.String
 })
 
-// A project was restored (un-archived). `occurredAt` stamps `updatedAt`.
 export const ProjectRestored = Schema.TaggedStruct("ProjectRestored", {
   projectId: Schema.String,
   occurredAt: Schema.String
 })
 
-// A project's metadata was changed (replace-style). Only the fields the caller
-// intends to change are present; the fold merges those onto the existing Project
-// and stamps `updatedAt` from `occurredAt`. `description` may be set to null;
-// `tags` are deduped in the fold.
 export const ProjectMetadataChanged = Schema.TaggedStruct("ProjectMetadataChanged", {
   projectId: Schema.String,
-  // description is capped at DESCRIPTION_MAX_LENGTH (2048) at the schema boundary;
-  // an over-long value is rejected when the event encodes (store.append).
   description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
   tags: Schema.optionalKey(Schema.Array(Tag)),
   occurredAt: Schema.String
 })
 
-// A project was deleted (soft tombstone). The fold removes the project from every
-// read-model and a tombstoned id never reappears (excluded from all lists
-// regardless of includeArchived). `occurredAt` is the ISO event time.
 export const ProjectDeleted = Schema.TaggedStruct("ProjectDeleted", {
   projectId: Schema.String,
   occurredAt: Schema.String
@@ -71,5 +46,4 @@ export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, Project
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
-// Encode/decode a DomainEvent to/from JSON text (used by the event log and RPC).
 export const DomainEventFromJson = Schema.fromJsonString(DomainEvent)

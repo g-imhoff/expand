@@ -13,10 +13,6 @@ let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-store-"))
   process.env.YODEA_HOME = dir
-  // Under vitest, Bun.main is the vitest worker, so the Bun adapter's
-  // from-source spawn would launch the worker instead of the backend. Point it
-  // at the real CLI entry so spawnBackend boots a working `yodea server` exactly
-  // as it does in dev-from-source. Restored in afterEach.
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/cli/cli/main.ts")
 })
@@ -26,9 +22,6 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// Two independent stores attach to the SAME backend (one is discovered/spawned,
-// the other reuses it). A create through store A must appear in store B live via
-// the Events stream — the one-backend-many-frontends payoff.
 describe("ProjectStore", () => {
   it("snapshot + live cross-store updates", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
@@ -38,12 +31,8 @@ describe("ProjectStore", () => {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
 
-      // Let B's forked Events subscription register on the server before A
-      // publishes — the unbounded PubSub only delivers events emitted AFTER a
-      // subscription attaches, so a create racing B's attach would be missed.
       await new Promise((r) => setTimeout(r, 500))
 
-      // Wait until B's live stream reflects a create done via A.
       const seen = rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.name === "alpha")),
@@ -53,7 +42,7 @@ describe("ProjectStore", () => {
       )
       const created = await rtA.runPromise(storeA.createProject("alpha"))
       expect(created.name).toBe("alpha")
-      await seen // resolves only once B observed "alpha" via Events
+      await seen
 
       const listB = await rtB.runPromise(SubscriptionRef.get(storeB.projects))
       expect(listB.map((p) => p.name)).toContain("alpha")
@@ -70,7 +59,6 @@ describe("ProjectStore", () => {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("alpha"))
       await rt.runPromise(store.renameProject(created.id, "alpha-renamed"))
-      // allow the Events fold loop to apply (mirror the settle the file uses)
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(snapshot.find((p) => p.id === created.id)?.name).toBe("alpha-renamed")
@@ -87,7 +75,6 @@ describe("ProjectStore", () => {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("cdstore"))
       const moved = await rt.runPromise(store.changeDirectory(created.id, tmp))
-      // allow the Events fold loop to apply (mirror the settle the file uses)
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(moved.directory).toBe(tmp)
@@ -121,20 +108,14 @@ describe("ProjectStore", () => {
   })
 
   it("seeds the startup snapshot with archived projects (restore stays reachable)", async () => {
-    // Regression: the snapshot must call ProjectList({ includeArchived: true }) so a
-    // project archived in a prior session is present when a fresh store attaches —
-    // otherwise it vanishes from the TUI/desktop list and its restore is unreachable.
-    // Archive via store A, then attach store B (fresh snapshot) and assert B sees it.
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
     const rtA = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const created = await rtA.runPromise(storeA.createProject("archived-at-rest"))
       await rtA.runPromise(storeA.archiveProject(created.id))
-      // let A's fold settle so the server has persisted the ProjectArchived event
       await new Promise((r) => setTimeout(r, 300))
 
-      // Fresh store: its snapshot is a brand-new ProjectList round-trip.
       const rtB = ManagedRuntime.make(appLayer)
       try {
         const storeB = await rtB.runPromise(ProjectStore)
@@ -155,7 +136,6 @@ describe("ProjectStore", () => {
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
-      // subscribe BEFORE the create so the live (post-subscription) event is seen
       const seen = rt.runPromise(
         store.events.pipe(
           Stream.filter((e) => e._tag === "ProjectCreated" && e.name === "gamma"),
@@ -178,7 +158,6 @@ describe("ProjectStore", () => {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("withmeta"))
       await rt.runPromise(store.setMetadata(created.id, { description: "desc", tags: ["a", "a"] }))
-      // allow the Events fold loop to apply (mirror the settle the file uses)
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       const p = snapshot.find((x) => x.id === created.id)
@@ -197,7 +176,6 @@ describe("ProjectStore", () => {
       const storeB = await rtB.runPromise(ProjectStore)
       await new Promise((r) => setTimeout(r, 500))
       const created = await rtA.runPromise(storeA.createProject("toremove"))
-      // Wait until B sees the create, then delete via A and wait for B to lose it.
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id)),

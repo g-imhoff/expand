@@ -6,9 +6,6 @@ import { YodeaClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
-// target accepts a project NAME or UUID (no withSchema); resolveProjectTarget
-// turns it into an id. directory is validated server-side (absolute + exists +
-// unique among live projects).
 const target = Argument.string("project")
 const directory = Argument.string("directory")
 

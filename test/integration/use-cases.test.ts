@@ -11,17 +11,13 @@ import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/pr
 import { UseCases, UseCasesLayer } from "@yodea/application/use-cases"
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-// ONE shared EventStore (same constant referenced everywhere -> memoized to one instance).
 const Store = EventStoreLayer.pipe(Layer.provide(Sql))
 const Projection = ProjectProjectionLayer.pipe(Layer.provide(Store))
-// Output UseCases + EventStore + EventBus so the test can inspect all three.
 const TestLayer = UseCasesLayer.pipe(
   Layer.provide(Projection),
   Layer.provideMerge(Store),
   Layer.provideMerge(EventBusLayer)
 )
-// The change-directory use-case yields FileSystem+Path; supply them via the Bun
-// platform layers (real FS, exercised against real temp dirs).
 const TestLayerFs = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
 
 describe("UseCases.createProject", () => {
@@ -31,7 +27,7 @@ describe("UseCases.createProject", () => {
       const bus = yield* EventBus
       const store = yield* EventStore
 
-      const sub = yield* bus.subscribe // subscribe before the command (deterministic)
+      const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("Hello", false)
 
       const broadcast = yield* PubSub.take(sub)
@@ -44,9 +40,9 @@ describe("UseCases.createProject", () => {
     const r = await Effect.runPromise(program)
     expect(r.project.name).toBe("Hello")
     expect(r.broadcast._tag).toBe("ProjectCreated")
-    expect(r.broadcast.projectId).toBe(r.project.id) // same event broadcast as committed
+    expect(r.broadcast.projectId).toBe(r.project.id)
     expect(r.persisted).toHaveLength(1)
-    expect(r.listed).toEqual([r.project]) // read-your-writes
+    expect(r.listed).toEqual([r.project])
   })
 
   it("health returns ok", async () => {
@@ -66,9 +62,6 @@ describe("UseCases.createProject", () => {
     expect(r.all.map((p) => p.name)).toEqual(["alpha"])
   })
 
-  // Locks the layer-composition shape the change-directory slice reuses:
-  // BunFileSystem supplies FileSystem, BunServices supplies Path. UseCases
-  // still resolves (it does not yield FS yet) — proving the wiring is additive.
   it("UseCases resolves with FileSystem+Path provided", async () => {
     const FsTestLayer = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
     const ok = await Effect.runPromise(Effect.provide(Effect.flatMap(UseCases, (u) => u.health), FsTestLayer))
@@ -232,10 +225,10 @@ describe("UseCases.setMetadata", () => {
 
     const r = await Effect.runPromise(program)
     expect(r.updated.description).toBe("hi")
-    expect(r.updated.tags).toEqual(["a", "b"]) // deduped via the fold
+    expect(r.updated.tags).toEqual(["a", "b"])
     expect(r.updated.id).toBe(r.project.id)
     expect(r.broadcast._tag).toBe("ProjectMetadataChanged")
-    expect(r.persisted).toHaveLength(2) // ProjectCreated + ProjectMetadataChanged
+    expect(r.persisted).toHaveLength(2)
   })
 
   it("fails with ProjectNotFound for an unknown id", async () => {
@@ -266,21 +259,14 @@ describe("UseCases.setMetadata", () => {
     const program = Effect.gen(function* () {
       const u = yield* UseCases
       const { project } = yield* u.createProject("desc2049", false)
-      // Effect.result captures a graceful failure; if the over-long value is
-      // rejected as a defect instead, runPromiseExit's cause is non-empty — both
-      // mean the cap is enforced. We assert the stored description is NOT the
-      // over-long value (read-your-writes), independent of the failure mechanism.
       yield* u.setMetadata(project.id, { description: desc }).pipe(Effect.result)
       const listed = yield* u.listProjects()
       return listed.find((p) => p.id === project.id)?.description ?? null
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const stored = await Effect.runPromiseExit(program)
-    // Either the program failed/died before persisting (cap enforced at encode),
-    // or it completed with the description still unset (never the 2049-char value).
     if (stored._tag === "Success") {
       expect(stored.value).not.toBe(desc)
     } else {
-      // a defect/failure is also an acceptable enforcement of the cap
       expect(stored._tag).toBe("Failure")
     }
   })
@@ -293,7 +279,7 @@ describe("UseCases.deleteProject", () => {
       const bus = yield* EventBus
       const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("doomed", false)
-      yield* PubSub.take(sub) // drain ProjectCreated
+      yield* PubSub.take(sub)
       const result = yield* useCases.deleteProject(project.id)
       const broadcast = yield* PubSub.take(sub)
       const listed = yield* useCases.listProjects()

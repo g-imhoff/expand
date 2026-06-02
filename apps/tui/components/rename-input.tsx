@@ -1,8 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 
-// Controlled rename input, seeded from `current`. Enter submits the trimmed value;
-// Escape cancels. Mirrors CreateInput but prefilled.
 export const RenameInput = ({
   current, onSubmit, onCancel
 }: { current: string; onSubmit: (name: string) => void; onCancel: () => void }) => {

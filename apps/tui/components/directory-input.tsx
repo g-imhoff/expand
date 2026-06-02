@@ -1,8 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 
-// Controlled directory input. Enter submits the trimmed path; Escape cancels.
-// Mirrors CreateInput/RenameInput, prefixed with the project name in the prompt.
 export const DirectoryInput = ({
   projectName, onSubmit, onCancel
 }: { projectName: string; onSubmit: (dir: string) => void; onCancel: () => void }) => {
