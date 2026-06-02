@@ -1,10 +1,13 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { useCreateProject, useProjects } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useCreateProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 
 export const ProjectsView = () => {
   const { data: projects = [], error } = useProjects()
   const create = useCreateProject()
+  const rename = useRenameProject()
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [name, setName] = useState("")
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,10 +34,17 @@ export const ProjectsView = () => {
         {projects.map((p) => (
           <li key={p.id}>
             <Link to="/p/$projectId" params={{ projectId: p.id }}>{p.name}</Link>{" "}
-            <small style={{ opacity: 0.6 }}>{p.id}</small>
+            <small style={{ opacity: 0.6 }}>{p.id}</small>{" "}
+            <button onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>
           </li>
         ))}
       </ul>
+      <RenameDialog
+        open={renaming !== null}
+        project={renaming}
+        onOpenChange={(o) => { if (!o) setRenaming(null) }}
+        onRename={(id, name) => rename.mutate({ id, name })}
+      />
     </main>
   )
 }
