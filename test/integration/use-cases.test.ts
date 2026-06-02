@@ -192,3 +192,31 @@ describe("UseCases.setMetadata", () => {
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
 })
+
+describe("UseCases.deleteProject", () => {
+  it("tombstones the project: removed from the projection, event broadcast", async () => {
+    const program = Effect.gen(function* () {
+      const useCases = yield* UseCases
+      const bus = yield* EventBus
+      const sub = yield* bus.subscribe
+      const { project } = yield* useCases.createProject("doomed", false)
+      yield* PubSub.take(sub) // drain ProjectCreated
+      const result = yield* useCases.deleteProject(project.id)
+      const broadcast = yield* PubSub.take(sub)
+      const listed = yield* useCases.listProjects()
+      return { result, broadcast, listed, id: project.id }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    expect(r.result).toEqual({ id: r.id, deleted: true })
+    expect(r.broadcast._tag).toBe("ProjectDeleted")
+    expect(r.listed).toEqual([])
+  })
+  it("fails with ProjectNotFound for an unknown id", async () => {
+    const program = Effect.gen(function* () {
+      const useCases = yield* UseCases
+      return yield* useCases.deleteProject("missing").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+  })
+})
