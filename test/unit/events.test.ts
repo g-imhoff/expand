@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { DomainEventFromJson, ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
@@ -122,6 +122,20 @@ describe("ProjectMetadataChanged", () => {
       occurredAt: "2026-01-02T00:00:00.000Z"
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+})
+
+describe("ProjectDeleted", () => {
+  it("constructs with an auto-filled _tag", () => {
+    const e = ProjectDeleted.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
+    expect(e._tag).toBe("ProjectDeleted")
+    expect(e.projectId).toBe("p1")
+  })
+  it("roundtrips through JSON text via the union codec", () => {
+    const e = ProjectDeleted.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(typeof json).toBe("string")
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
   })
 })
