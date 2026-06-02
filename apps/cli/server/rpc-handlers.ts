@@ -56,6 +56,29 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
+  // Archive/restore each map the single allowed domain tag (ProjectNotFound) to
+  // the typed RPC error channel; everything else (SqlError/SchemaError) dies.
+  // Same shape as ProjectCreate, refined on one tag.
+  ProjectArchive: ({ id }) =>
+    Effect.flatMap(UseCases, (u) => u.archiveProject(id)).pipe(
+      Effect.catchIf(
+        (e): e is ProjectNotFound =>
+          typeof e === "object" && e !== null && "_tag" in e &&
+          (e as { _tag: string })._tag === "ProjectNotFound",
+        (e) => Effect.fail(e),
+        (e) => Effect.die(e)
+      )
+    ),
+  ProjectRestore: ({ id }) =>
+    Effect.flatMap(UseCases, (u) => u.restoreProject(id)).pipe(
+      Effect.catchIf(
+        (e): e is ProjectNotFound =>
+          typeof e === "object" && e !== null && "_tag" in e &&
+          (e as { _tag: string })._tag === "ProjectNotFound",
+        (e) => Effect.fail(e),
+        (e) => Effect.die(e)
+      )
+    ),
   ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
