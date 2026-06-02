@@ -29,6 +29,11 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
       SubscriptionRef.modify(ref, (c) => {
         const next = c.map((p: any) => p.id === id ? { ...p, archived: false } : p)
         return [next.find((p: any) => p.id === id), next] as const
+      }),
+    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+      SubscriptionRef.modify(ref, (c) => {
+        const next = c.map((p: any) => p.id === id ? { ...p, ...patch } : p)
+        return [next.find((p: any) => p.id === id), next] as const
       })
   })
 

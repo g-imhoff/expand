@@ -39,6 +39,10 @@ const fakeStoreLayer = (
     restoreProject: (id: string) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, archived: false } : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
       )
   })
 
