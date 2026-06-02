@@ -12,7 +12,7 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     projects: ref,
     events: Stream.empty,
     createProject: (name: string) => {
-      const project = { id: `id-${name}`, name, createdAt: "t" }
+      const project = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
     }
   })

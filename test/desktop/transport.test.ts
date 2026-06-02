@@ -31,7 +31,7 @@ const fakeStoreLayer = (
     projects: ref,
     events: Stream.fromPubSub(hub),
     createProject: (name: string) => {
-      const p = { id: `id-${name}`, name, createdAt: "t" }
+      const p = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (c) => [...c, p]).pipe(Effect.as(p))
     }
   })
