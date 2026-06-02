@@ -87,3 +87,44 @@ The Node adapter adds `@effect/platform-node` (`4.0.0-beta.74`, same beta wave) 
 
 ## Deferred (out of scope, per spec)
 Packaging/installers/code-signing; historical event replay; auth beyond the existing token; Bun workspaces; any new domain feature beyond project create + list.
+
+---
+
+# Agent-first CLI architecture (branch `feat/agent-first-cli`)
+
+The `yodea` CLI is reworked to be **agent-first**: every command emits a versioned, machine-readable JSON envelope on stdout by default, errors carry a stable taxonomy mapped to stable exit codes, and stdout/stderr are strictly separated (data vs diagnostics). This makes the binary safe to invoke as a tool by an autonomous agent — branch on the exit code, parse the single-line JSON envelope.
+
+## Verification (all green — re-run any of these)
+```
+bunx tsc --noEmit     # exit 0
+bun run test          # 80 tests / 35 files passed   (bun --bun vitest)
+bun run arch          # 0 dependency violations, 68 modules cruised
+bun run build         # produces dist/yodea (single ~101MB binary, 364 modules)
+```
+Manual (real compiled binary, isolated `YODEA_HOME`): `yodea health` → `{"apiVersion":"yodea/v1","kind":"Health","data":{"status":"ok"}}` (exit 0); `project create alpha` → `kind:"Project",created:true` (exit 0); a duplicate `project create alpha` → `kind:"Error",code:"PROJECT_EXISTS",retryable:false` on stdout, exit **5**; `project create alpha --ensure` → `created:false` idempotent no-op (exit 0); `project list` → `kind:"ProjectList",count:1` (exit 0); an invalid name (e.g. empty) → `code:"INVALID_ARGUMENT"` JSON on **stderr**, exit **2**, stdout clean (data channel never polluted by errors). `--format text` renders the same data as plain lines.
+
+## What was built
+- **Versioned JSON envelope** (`packages/contracts/cli.ts`): every payload carries `apiVersion:"yodea/v1"` and a `kind` discriminant — `ProjectEnvelope` (adds `created:boolean`), `ProjectListEnvelope` (adds `count`), `HealthEnvelope`, and `ErrorEnvelope`. A versioning-guard snapshot pins the envelope shapes so a breaking change to the wire contract trips a test.
+- **`YodeaCliError` taxonomy → stable exit codes:** `0` success/help; `2` usage (`INVALID_ARGUMENT` / `INVALID_OPTION` / `UNKNOWN_COMMAND`); `5` `PROJECT_EXISTS`; `6` `BACKEND_UNREACHABLE` (retryable); `1` `UNEXPECTED`; `130` SIGINT. The `ErrorEnvelope` exposes `code`, `message`, `retryable`, and (where useful) `input`/`hint`.
+- **Strict stream discipline:** stdout = data only; stderr = diagnostics + error envelopes. Agents read the data envelope from stdout and, on a non-zero exit, the error envelope from stderr.
+- **Global options:** `--format json|text` (default **json**) and `--quiet`.
+- **Single top-level `renderErrors` seam** (`apps/cli/cli/run.ts`): catches BOTH handler-domain failures AND `YodeaClientLive` layer-acquisition failures (e.g. backend unreachable), maps them through the taxonomy, and writes the error envelope + exit code. A custom `CliOutput` JSON formatter renders parse/usage errors as envelopes too.
+- **`defineCommand` success-rendering seam:** every command returns its typed payload and the seam wraps it in the right envelope for the active `--format`.
+- **`YodeaClient` as a scoped `Context` service** (`packages/client-core/yodea-client.ts`): holds the I-4 presence channel (`Connect`) for the lifetime of the work; `withClient` is reimplemented over it.
+- **`ProjectCreate` idempotency:** the RPC gains an error channel (`ProjectAlreadyExists`) and an `ensure` flag; server-side name uniqueness is enforced. `--ensure` makes create an idempotent no-op (returns the existing project, `created:false`); a strict create on a duplicate fails with exit 5.
+- **`ls` → `list`** (clearer, less abbreviated command name).
+
+## Notable decisions/deviations
+- The envelope is **single-line JSON** per invocation (one object on stdout), not a stream — agents consume one result per command run.
+- The error taxonomy is mapped at one seam only (`run.ts`); commands raise typed domain errors and never format their own output, so exit-code/envelope policy lives in exactly one place.
+
+## Known limitations (documented, accepted)
+1. On a **parse error** the framework prints the human help block to **stdout** while the JSON error envelope goes to **stderr** + exit 2. Agents should branch on the exit code and read stderr (not assume stdout is always parseable JSON). Verified by manual smoke test.
+2. `createProject` name-uniqueness is **list-then-check**, so a TOCTOU window exists for two simultaneous same-name creates. Acceptable under the single-backend invariant (I-2); the deferred per-project `TxQueue` closes it.
+3. On the rare **stale-endpoint retry** path, the `YodeaClientLive` layer may leave up to 2 dead-socket transports until layer close — harmless (dead ports, scope-bounded; reclaimed on layer teardown).
+
+## Follow-up doc nit (not done here)
+`docs/architecture/yodea.c4` still labels the CLI technology as `@effect/cli`; the actual stack is Effect v4 beta `effect/unstable/cli`. Flagged for an architecture-owner doc fix — left untouched here as it is a CODEOWNERS-governed architecture document.
+
+## Deferred
+`project get` / `project delete`; a `yodea schema` introspection command; config files; shell completions; ANSI color output.
