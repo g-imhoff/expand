@@ -25,7 +25,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
-  ProjectList: () => Effect.flatMap(UseCases, (u) => u.listProjects).pipe(Effect.orDie),
+  ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
   // onDisconnect (via finalizer) when the stream's scope closes on socket drop.

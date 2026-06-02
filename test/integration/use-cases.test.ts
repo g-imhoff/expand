@@ -29,7 +29,7 @@ describe("UseCases.createProject", () => {
 
       const broadcast = yield* PubSub.take(sub)
       const persisted = yield* store.readAll
-      const listed = yield* useCases.listProjects
+      const listed = yield* useCases.listProjects()
 
       return { project, broadcast, persisted, listed }
     }).pipe(Effect.scoped, Effect.provide(TestLayer))
@@ -47,5 +47,15 @@ describe("UseCases.createProject", () => {
       Effect.provide(Effect.flatMap(UseCases, (u) => u.health), TestLayer)
     )
     expect(ok).toBe("ok")
+  })
+
+  it("listProjects(includeArchived) accepts the flag and returns non-deleted projects", async () => {
+    const r = await Effect.runPromise(Effect.gen(function* () {
+      const u = yield* UseCases
+      yield* u.createProject("alpha", false)
+      return { def: yield* u.listProjects(false), all: yield* u.listProjects(true) }
+    }).pipe(Effect.provide(TestLayer)))
+    expect(r.def.map((p) => p.name)).toEqual(["alpha"])
+    expect(r.all.map((p) => p.name)).toEqual(["alpha"])
   })
 })

@@ -61,7 +61,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     // response can only arrive after the server has processed the earlier Events
     // subscribe — so this round-trip doubles as a barrier proving the subscription
     // is live before we return (and thus before the first possible createProject).
-    const initial = yield* client.ProjectList()
+    const initial = yield* client.ProjectList({})
     yield* SubscriptionRef.set(projects, initial)
 
     // Re-broadcast hub: the fold loop publishes every event here so external

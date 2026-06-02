@@ -15,8 +15,10 @@ export const DesktopRpcHandlers = YodeaRpcs.toLayer({
       Effect.map((project) => ({ created: true, project })),
       Effect.orDie
     ),
-  ProjectList: () =>
-    Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)),
+  ProjectList: ({ includeArchived }) =>
+    Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)).pipe(
+      Effect.map((ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
+    ),
   Connect: () => Stream.make(true).pipe(Stream.concat(Stream.never)),
   Events: () => Stream.unwrap(Effect.map(ProjectStore, (s) => s.events))
 })
