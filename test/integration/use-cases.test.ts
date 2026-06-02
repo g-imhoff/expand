@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer, PubSub } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
 import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
@@ -17,6 +20,9 @@ const TestLayer = UseCasesLayer.pipe(
   Layer.provideMerge(Store),
   Layer.provideMerge(EventBusLayer)
 )
+// The change-directory use-case yields FileSystem+Path; supply them via the Bun
+// platform layers (real FS, exercised against real temp dirs).
+const TestLayerFs = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
 
 describe("UseCases.createProject", () => {
   it("appends a durable event, broadcasts it live, and reflects it in the projection", async () => {
@@ -33,7 +39,7 @@ describe("UseCases.createProject", () => {
       const listed = yield* useCases.listProjects()
 
       return { project, broadcast, persisted, listed }
-    }).pipe(Effect.scoped, Effect.provide(TestLayer))
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
 
     const r = await Effect.runPromise(program)
     expect(r.project.name).toBe("Hello")
@@ -45,7 +51,7 @@ describe("UseCases.createProject", () => {
 
   it("health returns ok", async () => {
     const ok = await Effect.runPromise(
-      Effect.provide(Effect.flatMap(UseCases, (u) => u.health), TestLayer)
+      Effect.provide(Effect.flatMap(UseCases, (u) => u.health), TestLayerFs)
     )
     expect(ok).toBe("ok")
   })
@@ -55,7 +61,7 @@ describe("UseCases.createProject", () => {
       const u = yield* UseCases
       yield* u.createProject("alpha", false)
       return { def: yield* u.listProjects(false), all: yield* u.listProjects(true) }
-    }).pipe(Effect.provide(TestLayer)))
+    }).pipe(Effect.provide(TestLayerFs)))
     expect(r.def.map((p) => p.name)).toEqual(["alpha"])
     expect(r.all.map((p) => p.name)).toEqual(["alpha"])
   })
@@ -67,5 +73,65 @@ describe("UseCases.createProject", () => {
     const FsTestLayer = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
     const ok = await Effect.runPromise(Effect.provide(Effect.flatMap(UseCases, (u) => u.health), FsTestLayer))
     expect(ok).toBe("ok")
+  })
+})
+
+describe("UseCases.changeDirectory", () => {
+  it("sets a valid absolute existing directory and reflects it in the projection", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("cdok", false)
+      const updated = yield* u.changeDirectory(project.id, tmp)
+      const listed = yield* u.listProjects()
+      return { updated, listed }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    rmSync(tmp, { recursive: true, force: true })
+    expect(r.updated.directory).toBe(tmp)
+    expect(r.listed[0]?.directory).toBe(tmp)
+  })
+  it("fails ProjectNotFound for an unknown id", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      return yield* u.changeDirectory("nope", "/").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+  })
+  it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("cdrel", false)
+      return yield* u.changeDirectory(project.id, "relative/dir").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    const f = (exit as { failure: { _tag: string; reason: string } }).failure
+    expect(f._tag).toBe("ProjectDirectoryInvalid")
+    expect(f.reason).toBe("not-absolute")
+  })
+  it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("cdmiss", false)
+      return yield* u.changeDirectory(project.id, "/this/does/not/exist/yodea").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    const f = (exit as { failure: { _tag: string; reason: string } }).failure
+    expect(f._tag).toBe("ProjectDirectoryInvalid")
+    expect(f.reason).toBe("not-found")
+  })
+  it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const a = (yield* u.createProject("cda", false)).project
+      const b = (yield* u.createProject("cdb", false)).project
+      yield* u.changeDirectory(a.id, tmp)
+      return yield* u.changeDirectory(b.id, tmp).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    rmSync(tmp, { recursive: true, force: true })
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
   })
 })
