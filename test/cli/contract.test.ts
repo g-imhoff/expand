@@ -3,10 +3,21 @@ import { Effect } from "effect"
 import { makeYodea } from "@yodea/cli/main"
 import { runCli, stubLayer } from "./harness"
 
-const FULL = (over: Partial<{ id: string; name: string }>) => ({
-  id: over.id ?? "01J", name: over.name ?? "alpha", directory: null, description: null,
-  tags: [], archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+const FULL = (over: Partial<{ id: string; name: string; directory: string | null; archived: boolean }>) => ({
+  id: over.id ?? "01J", name: over.name ?? "alpha", directory: over.directory ?? null, description: null,
+  tags: [], archived: over.archived ?? false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
 })
+
+const UUID = "11111111-1111-4111-8111-111111111111"
+const cdClient = {
+  ProjectList: () => Effect.succeed([FULL({ id: UUID, name: "alpha" })]),
+  ProjectChangeDirectory: ({ id, directory }: { id: string; directory: string }) =>
+    directory === "/bad"
+      ? Effect.fail({ _tag: "ProjectDirectoryInvalid", directory, reason: "not-found" })
+      : directory === "/dup"
+        ? Effect.fail({ _tag: "ProjectDirectoryConflict", directory })
+        : Effect.succeed(FULL({ id, name: "alpha", directory }))
+}
 
 const okClient = {
   Health: () => Effect.succeed("ok"),
@@ -101,5 +112,24 @@ describe("CLI contract", () => {
     const r = await runCli(tree(okClient), ["project", "rename", "ghost", "x"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
     expect(r.code).toBe(7)
+  })
+  it("project change-directory by name -> Project envelope created:false, exit 0", async () => {
+    const r = await runCli(tree(cdClient), ["project", "change-directory", "alpha", "/srv/alpha"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: false, data: { directory: "/srv/alpha" } })
+  })
+  it("project change-directory by uuid -> resolves without ProjectList", async () => {
+    const r = await runCli(tree({ ProjectChangeDirectory: cdClient.ProjectChangeDirectory }), ["project", "change-directory", UUID, "/srv/x"])
+    expect(r.code).toBe(0)
+  })
+  it("project change-directory invalid dir -> DIRECTORY_INVALID exit 9", async () => {
+    const r = await runCli(tree(cdClient), ["project", "change-directory", "alpha", "/bad"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "DIRECTORY_INVALID", retryable: false })
+    expect(r.code).toBe(9)
+  })
+  it("project change-directory conflicting dir -> DIRECTORY_CONFLICT exit 10", async () => {
+    const r = await runCli(tree(cdClient), ["project", "change-directory", "alpha", "/dup"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "DIRECTORY_CONFLICT", retryable: false })
+    expect(r.code).toBe(10)
   })
 })
