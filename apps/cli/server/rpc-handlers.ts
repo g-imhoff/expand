@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect"
-import { YodeaRpcs, ProjectAlreadyExists, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import { YodeaRpcs, ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { UseCases } from "@yodea/application/use-cases"
 import { EventBus } from "@yodea/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
@@ -36,6 +36,22 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
           typeof e === "object" && e !== null && "_tag" in e &&
           ((e as { _tag: string })._tag === "ProjectNotFound" ||
             (e as { _tag: string })._tag === "ProjectNameConflict"),
+        (e) => Effect.fail(e),
+        (e) => Effect.die(e)
+      )
+    ),
+  // Change-directory maps all THREE allowed domain tags (ProjectNotFound,
+  // ProjectDirectoryInvalid, ProjectDirectoryConflict) to the typed RPC error
+  // channel; everything else (SqlError/SchemaError) dies. Same shape as Rename,
+  // widened to three tags.
+  ProjectChangeDirectory: ({ id, directory }) =>
+    Effect.flatMap(UseCases, (u) => u.changeDirectory(id, directory)).pipe(
+      Effect.catchIf(
+        (e): e is ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict =>
+          typeof e === "object" && e !== null && "_tag" in e &&
+          ((e as { _tag: string })._tag === "ProjectNotFound" ||
+            (e as { _tag: string })._tag === "ProjectDirectoryInvalid" ||
+            (e as { _tag: string })._tag === "ProjectDirectoryConflict"),
         (e) => Effect.fail(e),
         (e) => Effect.die(e)
       )
