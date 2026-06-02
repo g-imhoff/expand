@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { Project } from "@yodea/contracts/project"
+import { Project, ProjectId, Tag } from "@yodea/contracts/project"
 
 describe("Project schema", () => {
   it("decodes a well-formed project", () => {
@@ -14,5 +14,15 @@ describe("Project schema", () => {
 
   it("rejects a project missing a field", () => {
     expect(() => Schema.decodeUnknownSync(Project)({ id: "p1" })).toThrow()
+  })
+
+  it("ProjectId accepts a v4 UUID and rejects a name", () => {
+    expect(Schema.decodeUnknownSync(ProjectId)("3f2504e0-4f89-41d3-9a0c-0305e82c3301")).toBeTypeOf("string")
+    expect(() => Schema.decodeUnknownSync(ProjectId)("alpha")).toThrow()
+  })
+
+  it("Tag accepts kebab and rejects spaces/uppercase", () => {
+    expect(Schema.decodeUnknownSync(Tag)("web-app")).toBe("web-app")
+    expect(() => Schema.decodeUnknownSync(Tag)("Web App")).toThrow()
   })
 })
