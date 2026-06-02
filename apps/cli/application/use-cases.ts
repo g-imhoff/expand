@@ -5,7 +5,7 @@ import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -26,6 +26,8 @@ export class UseCases extends Context.Service<UseCases, {
     id: string,
     directory: string
   ) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
+  readonly archiveProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  readonly restoreProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
@@ -119,13 +121,38 @@ export class UseCases extends Context.Service<UseCases, {
         return { ...existing, directory, updatedAt: occurredAt }
       })
 
+    // Archive/restore is a pure toggle of the `archived` flag — no uniqueness
+    // check (toggling cannot collide). Validate the target exists in the FULL
+    // non-deleted set (archived included), append the toggle event, publish, and
+    // return the freshly re-folded project (falling back to `existing` on a fold
+    // miss). `toggleArchived` keeps both directions in lockstep.
+    const toggleArchived = (
+      id: string,
+      makeEvent: (occurredAt: string) => typeof ProjectArchived.Type | typeof ProjectRestored.Type
+    ) =>
+      Effect.gen(function* () {
+        const all = yield* projection.list
+        const existing = all.find((p) => p.id === id)
+        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        const event = makeEvent(new Date().toISOString())
+        yield* store.append(id, event)
+        yield* bus.publish(event)
+        const updated = (yield* projection.list).find((p) => p.id === id)
+        return updated ?? existing
+      })
+
+    const archiveProject = (id: string) =>
+      toggleArchived(id, (occurredAt) => ProjectArchived.make({ projectId: id, occurredAt }))
+    const restoreProject = (id: string) =>
+      toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
+
     // Default false: filter out archived. Deleted are already absent from the
     // fold. The full set (archived included) is reached with includeArchived:true,
     // which slices use for uniqueness checks.
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, renameProject, changeDirectory, listProjects } as const
+    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, listProjects } as const
   })
 }) {}
 
