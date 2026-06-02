@@ -1,3 +1,4 @@
+import "./index.css"
 import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
 import { Providers } from "@yodea/desktop/renderer/app/providers"
