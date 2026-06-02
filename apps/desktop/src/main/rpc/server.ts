@@ -37,6 +37,9 @@ const makePortProtocol = (port: MainPortLike) =>
         Effect.forkScoped
       )
       return {
+        // Single-client seam: teardown is interrupt-driven (transport.ts interrupts
+        // the connection fiber on port close), so this queue is intentionally never
+        // offered to — the server's disconnect loop just blocks on it until interrupt.
         disconnects: yield* Queue.make<number>(),
         send: (_clientId: number, response) => {
           const encoded = parser.encode(response)
