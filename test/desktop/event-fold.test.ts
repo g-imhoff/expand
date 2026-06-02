@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events"
+import { ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 describe("foldEvent", () => {
@@ -22,5 +22,15 @@ describe("foldEvent", () => {
   })
   it("ProjectRenamed for an unknown id is a no-op", () => {
     expect(foldEvent([], ProjectRenamed.make({ projectId: "ghost", name: "x", occurredAt: "t" }))).toEqual([])
+  })
+  it("ProjectDirectoryChanged updates directory + updatedAt", () => {
+    const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }]
+    const next = foldEvent(base, ProjectDirectoryChanged.make({ projectId: "a", directory: "/srv/a", occurredAt: "t2" }))
+    expect(next[0]?.directory).toBe("/srv/a")
+    expect(next[0]?.updatedAt).toBe("t2")
+  })
+  it("ProjectDirectoryChanged for an unknown id is a no-op", () => {
+    const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }]
+    expect(foldEvent(base, ProjectDirectoryChanged.make({ projectId: "z", directory: "/x", occurredAt: "t2" }))).toEqual(base)
   })
 })
