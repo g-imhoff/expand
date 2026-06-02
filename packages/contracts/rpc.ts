@@ -63,6 +63,11 @@ export class YodeaRpcs extends RpcGroup.make(
     success: Project,
     error: Schema.Union([ProjectNotFound, ProjectDirectoryInvalid, ProjectDirectoryConflict])
   }),
+  // Command: archive a project (by id). Hides it from the default list but keeps
+  // it live (name/directory stay reserved). Fails ProjectNotFound if absent.
+  Rpc.make("ProjectArchive", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
+  // Command: restore (un-archive) a project (by id). Fails ProjectNotFound if absent.
+  Rpc.make("ProjectRestore", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
   // Query: list projects (projection). `includeArchived` (default false) controls
   // whether archived projects are returned; deleted are always excluded.
   Rpc.make("ProjectList", { payload: { includeArchived: Schema.optionalKey(Schema.Boolean) }, success: Schema.Array(Project) }),
