@@ -240,3 +240,77 @@ describe("CLI contract", () => {
   })
 
 })
+
+describe("CLI parse/validation edge cases", () => {
+  // A full-Project stub (all 8 fields via FULL) plus every mutating method, so
+  // resolveProjectTarget's name lookup (ProjectList, includeArchived) resolves.
+  const opsClient = {
+    ...okClient,
+    ProjectList: () => Effect.succeed([FULL({ id: "01J", name: "alpha" })]),
+    ProjectRename: ({ id, name }: { id: string; name: string }) =>
+      name === "taken"
+        ? Effect.fail({ _tag: "ProjectNameConflict", name })
+        : Effect.succeed(FULL({ id, name })),
+    ProjectChangeDirectory: ({ id, directory }: { id: string; directory: string }) =>
+      directory === "/nope"
+        ? Effect.fail({ _tag: "ProjectDirectoryInvalid", directory, reason: "not-found" })
+        : Effect.succeed(FULL({ id, directory })),
+    ProjectArchive: ({ id }: { id: string }) => Effect.succeed(FULL({ id })),
+    ProjectRestore: ({ id }: { id: string }) => Effect.succeed(FULL({ id })),
+    ProjectSetMetadata: ({ id }: { id: string }) => Effect.succeed(FULL({ id })),
+    ProjectDelete: ({ id }: { id: string }) => Effect.succeed({ id, deleted: true })
+  }
+  // No project in the list -> resolveProjectTarget reports PROJECT_NOT_FOUND.
+  const missingClient = {
+    ...opsClient,
+    ProjectList: () => Effect.succeed([] as ReadonlyArray<ReturnType<typeof FULL>>),
+    ProjectRename: ({ id }: { id: string }) => Effect.fail({ _tag: "ProjectNotFound", id })
+  }
+
+  it("over-length name (>64 chars) -> INVALID_ARGUMENT, exit 2 (parse-time)", async () => {
+    const long = "a".repeat(65)
+    const r = await runCli(tree(opsClient), ["project", "create", long])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })
+    expect(r.code).toBe(2)
+  })
+  it("uppercase/illegal name -> INVALID_ARGUMENT, exit 2", async () => {
+    const r = await runCli(tree(opsClient), ["project", "create", "BadName"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ code: "INVALID_ARGUMENT" })
+    expect(r.code).toBe(2)
+  })
+  it("empty name -> INVALID_ARGUMENT, exit 2", async () => {
+    const r = await runCli(tree(opsClient), ["project", "create", ""])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ code: "INVALID_ARGUMENT" })
+    expect(r.code).toBe(2)
+  })
+  it("rename missing the new-name arg -> INVALID_ARGUMENT, exit 2", async () => {
+    const r = await runCli(tree(opsClient), ["project", "rename", "alpha"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ code: "INVALID_ARGUMENT" })
+    expect(r.code).toBe(2)
+  })
+  it("rename a name that resolves but server reports name conflict -> NAME_CONFLICT, exit 8", async () => {
+    const r = await runCli(tree(opsClient), ["project", "rename", "alpha", "taken"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "NAME_CONFLICT", retryable: false })
+    expect(r.code).toBe(8)
+  })
+  it("change-directory to a non-existent path -> DIRECTORY_INVALID, exit 9", async () => {
+    const r = await runCli(tree(opsClient), ["project", "change-directory", "alpha", "/nope"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ code: "DIRECTORY_INVALID", retryable: false })
+    expect(r.code).toBe(9)
+  })
+  it("rename a name not in the list -> PROJECT_NOT_FOUND, exit 7 (resolveProjectTarget)", async () => {
+    const r = await runCli(tree(missingClient), ["project", "rename", "ghost", "newname"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ code: "PROJECT_NOT_FOUND", retryable: false })
+    expect(r.code).toBe(7)
+  })
+  it("delete by UUID target skips the list lookup and returns ProjectDelete envelope, exit 0", async () => {
+    const r = await runCli(tree(opsClient), ["project", "delete", "11111111-1111-4111-8111-111111111111"])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "ProjectDelete", data: { deleted: true } })
+    expect(r.code).toBe(0)
+  })
+  it("list --archived passes includeArchived (still ProjectList envelope), exit 0", async () => {
+    const r = await runCli(tree(opsClient), ["project", "list", "--archived"])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "ProjectList" })
+    expect(r.code).toBe(0)
+  })
+})
