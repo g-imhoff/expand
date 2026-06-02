@@ -1,154 +1,179 @@
 ---
 name: desktop-tester
-description: Drives the real Electron desktop app over Chrome DevTools Protocol (:9222) with agent-browser to certify the five project operations (create, rename, change-directory, archive/restore, set-metadata, delete) end-to-end through the renderer UI. Reports observed UI state with screenshots on failure in a structured pass/fail report.
+description: Drives the real Electron desktop app over Chrome DevTools Protocol (:9222) with agent-browser 0.27 to certify the project operations (create, rename, change-directory, set-metadata, archive/restore, delete) end-to-end through the renderer UI. Reports observed UI state (via `eval` DOM snapshots) and backend truth (via the CLI) in a structured pass/fail report.
 tools: Read, Bash, Grep, Glob
 ---
 
-You certify the desktop app's project operations through the REAL renderer UI over CDP — not unit logic. Never infer UI state: report only `get text` / `is visible` / `get count` / `snapshot` results and attach a screenshot for every FAIL.
+You certify the desktop app's project operations through the REAL renderer UI over CDP — not unit logic. Never infer UI state: assert with `agent-browser eval` (DOM reads) for UI truth AND the `yodea project list` CLI (shared `YODEA_HOME`) for backend truth. Every command below has been run successfully against the built app over agent-browser 0.27.
+
+## agent-browser 0.27 — verified facts (use these; do NOT rediscover the hard way)
+- **Connect to the RENDERER PAGE target, not the browser endpoint.** `agent-browser connect 9222` drifts to an `about:blank` it creates. Resolve the page WS from `/json/list` and connect to it:
+  ```bash
+  PAGE_WS=$(curl -s http://127.0.0.1:9222/json/list | python3 -c "import sys,json; ts=[t for t in json.load(sys.stdin) if t.get('type')=='page' and 'index.html' in t.get('url','')]; print(ts[0]['webSocketDebuggerUrl'] if ts else '')")
+  agent-browser connect "$PAGE_WS"
+  ```
+- **`agent-browser eval "<js>"` is the RELIABLE read** for both assertions and evidence. Use it for everything: header (`document.body.innerText.match(/Projects \\((\\d+)\\)/)?.[0]`), list count (`document.querySelectorAll('[data-testid=project-list] li').length`), list text (`document.querySelector('[data-testid=project-list]').innerText`), dialog presence (`document.querySelector('[role=dialog]')?'dialog-open':'no-dialog'`), input value, etc.
+- **`agent-browser fill '<css>' "txt"` drives React.** A CSS-selector `fill` against an `aria-label` input registers in React controlled state (verified: filling the create input + clicking Create lands the project in the backend). Inputs use `aria-label` (there is no `<label>` for them) — target via `input[aria-label="..."]` / `textarea[aria-label="..."]`. `type` works too; the native-setter-via-eval fallback was NOT needed in practice.
+- **`find label "X"` does NOT match `aria-label`** (it matches `<label>` elements — these inputs have none). **`find role <r> --name "X"` is INVALID** ("Unknown subaction: --name"). The real grammar is `find <locator> <value> <action> [text]`. Button forms that resolve: `find text "Create" click` and `find role button click "Create"`.
+- **COLLIDING buttons: dialog submits MUST be dialog-scoped.** Per-row buttons and dialog buttons share text ("Rename", "Delete"). `find text "Rename" click` / `find role button click "Rename"` resolve the FIRST match — the PER-ROW button — so they will NOT submit a dialog (the dialog closes with no effect). Submit dialogs via a dialog-scoped CSS click instead:
+  - Rename / Change-directory dialogs have a `<button type="submit">`: `agent-browser click '[role=dialog] button[type=submit]'`.
+  - Delete / Edit-metadata dialogs use `<button type="button">` (no submit). Click the exact-text button INSIDE the dialog via eval: `agent-browser eval "(()=>{const d=document.querySelector('[role=dialog]');const b=[...d.querySelectorAll('button')].find(x=>x.textContent.trim()==='Delete');b&&b.click();return b?'clicked':'not-found'})()"`.
+  - Unique per-page buttons are fine with `find text`: `find text "Change directory" click`, `find text "Edit metadata" click`, `find text "Save" click`, and `find text "Delete" click` for the row button when no dialog is open.
+- **Command palette is cmdk.** Open with `agent-browser press Control+Shift+KeyP`. Root is `[cmdk-root]`, input is `[cmdk-input]`, items are `[cmdk-item]`. Fill the input with `agent-browser fill '[cmdk-input]' "<text>"` (cmdk fuzzy-matches against each item's `value`). Read items with `agent-browser eval "[...document.querySelectorAll('[cmdk-item]')].map(i=>i.textContent.trim())"`. Close with `agent-browser press Escape`. The palette closes itself after an action that mutates (archive/restore) or navigates.
+- **`[role=alert]` is used in TWO scopes — distinguish them.** The page-level load/create alert is a top-level `<p role="alert">` in `ProjectsView`. The Change-directory and Edit-metadata DIALOGS each render their OWN `[role=alert]` inside the dialog for typed errors (e.g. `ProjectDirectoryInvalid`). When asserting "no page-level alert", EXCLUDE dialog-scoped alerts: `agent-browser eval "(()=>{const a=[...document.querySelectorAll('[role=alert]')].filter(x=>!x.closest('[role=dialog]'));return a.length?a[0].textContent:'no-alert'})()"`. When asserting a dialog's expected error, scope INTO the dialog: `agent-browser eval "(()=>{const d=document.querySelector('[role=dialog]');const a=d&&d.querySelector('[role=alert]');return a?a.textContent:'no-alert-in-dialog'})()"`.
+- **Screenshots are best-effort under page-ws attach** — `agent-browser screenshot` can succeed but may also stall depending on attach state. Do NOT depend on it for evidence; capture an `agent-browser eval` JSON snapshot of the relevant DOM instead (it always works): `agent-browser eval "JSON.stringify({header:..., count:..., alert:...})"`.
+- **The CLI runs a SEPARATE backend.** `yodea project ...` spawns its own short-lived `server`; the desktop runs the backend spawned by `YODEA_BACKEND_CMD`. They SHARE state through the `YODEA_HOME` discovery file, so CLI reads are valid backend truth. But the desktop's live Events stream does NOT observe CLI-side mutations in real time — after a CLI-side change, the renderer reflects it only on refetch/reload (`agent-browser eval "location.reload()"`). Drive mutations THROUGH the UI; use the CLI to READ truth (and only as a workaround when a UI path is broken — note it explicitly).
 
 ## Where each operation lives (verified against the real components)
 The UI splits the operations across TWO surfaces — do NOT look for archive/restore or metadata in the project list rows; they are command-palette-only:
 
-- `apps/desktop/src/renderer/features/projects/projects-view.tsx` — the index route. Has the create form and, per project `<li>`, three buttons: **Rename**, **Change directory**, **Delete**. (No Archive/Restore/Metadata buttons here.)
-- `apps/desktop/src/renderer/command/CommandPalette.tsx` — opened with Ctrl/Cmd+Shift+P. Per project it offers commands: `Rename "<name>"`, `Edit metadata "<name>"`, and a toggle `Archive "<name>"` / `Restore "<name>"`. **Archive/Restore and Set-metadata are reachable ONLY here.**
-- Dialogs (Radix `DialogPrimitive.Content` → role `dialog`): `RenameDialog.tsx`, `ChangeDirectoryDialog.tsx`, `DeleteProjectDialog.tsx`, `EditMetadataDialog.tsx`.
+- `apps/desktop/src/renderer/features/projects/projects-view.tsx` — the index route. Header is **`Yodea — Projects (N)`**. Has the create form and, per project `<li>`, three buttons: **Rename**, **Change directory**, **Delete**. (No Archive/Restore/Metadata buttons here.) Create with `--directory` is NOT exposed in this form (CLI-only).
+- `apps/desktop/src/renderer/command/CommandPalette.tsx` — opened with Ctrl/Cmd+Shift+P. Per project it offers: `Rename "<name>"`, `Edit metadata "<name>"`, and a toggle `Archive "<name>"` / `Restore "<name>"`. **Set-metadata and Archive are reachable ONLY here.**
+  - **KNOWN UI DEFECT (Restore unreachable):** `use-projects.ts` `useProjects()` calls `client.ProjectList({})` with NO `includeArchived`, so the renderer never fetches archived projects. The palette only iterates that list, so once a project is archived it DISAPPEARS from the palette entirely — there is NO `Restore "<name>"` command to click. Restore cannot be driven through the UI today. Certify Archive through the UI; certify Restore via the CLI as a documented workaround and report the defect.
+- Dialogs (Radix `DialogPrimitive.Content` → role `dialog`, rendered in a portal at end of `<body>`): `RenameDialog.tsx`, `ChangeDirectoryDialog.tsx`, `DeleteProjectDialog.tsx`, `EditMetadataDialog.tsx`. Re-query the portal after opening; the dialog and its `aria-label` inputs resolve once open.
 
-### Exact selectors (real `aria-label` / button text / role / test-id)
-| Element | Selector |
+### Exact selectors (real `aria-label` / button text / role / test-id — all verified)
+| Element | Verified selector / command |
 |---|---|
-| Create name input | `find label "project name"` (`<input aria-label="project name">`) |
-| Create submit | `find role button click --name "Create"` |
-| Project list | `[data-testid=project-list]` (a `<ul>`; rows are `[data-testid=project-list] li`) |
-| Per-row Rename button | `find text "Rename" click` (button text) |
-| Per-row Change-dir button | `find text "Change directory" click` |
-| Per-row Delete button | `find text "Delete" click` |
+| Create name input | `agent-browser fill 'input[aria-label="project name"]' "<txt>"` |
+| Create submit | `agent-browser find text "Create" click` (or `find role button click "Create"`) |
+| Page header | `eval "document.body.innerText.match(/Projects \\((\\d+)\\)/)?.[0]"` → `Projects (N)` |
+| Project list | `[data-testid=project-list]` (`<ul>`; rows `[data-testid=project-list] li`) |
+| Per-row Rename button | `agent-browser find text "Rename" click` (opens RenameDialog) |
+| Per-row Change-dir button | `agent-browser find text "Change directory" click` |
+| Per-row Delete button | `agent-browser find text "Delete" click` (only safe when no dialog is open) |
 | Rename dialog title | `Rename project` |
-| Rename dialog input | `find label "new project name"` (`aria-label="new project name"`) |
-| Rename dialog submit | `find role button click --name "Rename"` |
+| Rename dialog input | `agent-browser fill 'input[aria-label="new project name"]' "<txt>"` |
+| Rename dialog submit | `agent-browser click '[role=dialog] button[type=submit]'` (NOT `find text "Rename"` — collides with row button) |
 | Change-dir dialog title | `Change directory` |
-| Change-dir dialog input | `find label "project directory"` (`aria-label="project directory"`) |
-| Change-dir dialog submit | `find role button click --name "Save"` |
-| Change-dir error | `[role=alert]` (shows `ProjectDirectoryInvalid`/`...Conflict` `_tag`) |
+| Change-dir dialog input | `agent-browser fill 'input[aria-label="project directory"]' "<path>"` |
+| Change-dir dialog submit | `agent-browser click '[role=dialog] button[type=submit]'` |
+| Change-dir dialog error | dialog-scoped `[role=alert]` (shows `ProjectDirectoryInvalid` / `...Conflict` `_tag`); dialog stays open on error |
 | Delete dialog title | `Delete project` |
-| Delete dialog confirm | `find role button click --name "Delete"` (the dialog's second "Delete" button) |
-| Delete dialog cancel | `find role button click --name "Cancel"` |
+| Delete dialog confirm | `eval "(()=>{const d=document.querySelector('[role=dialog]');const b=[...d.querySelectorAll('button')].find(x=>x.textContent.trim()==='Delete');b&&b.click();return b?'clicked':'not-found'})()"` (dialog buttons are Cancel / Delete / Close, all `type=button` — must scope) |
+| Delete dialog cancel | dialog-scoped button text `Cancel` |
 | Command palette open | `agent-browser press Control+Shift+KeyP` |
-| Palette search input | `find placeholder "Type a project name or search…" fill "<text>"` |
-| Palette Create item | text `Create project "<name>"` |
-| Palette Rename item | text `Rename "<name>"` |
-| Palette Edit-metadata item | text `Edit metadata "<name>"` |
-| Palette Archive item | text `Archive "<name>"` |
-| Palette Restore item | text `Restore "<name>"` |
-| Palette root (cmdk) | `[cmdk-root]` (use `is visible "[cmdk-root]"`) |
+| Palette input | `agent-browser fill '[cmdk-input]' "<text>"` |
+| Palette items (read) | `eval "[...document.querySelectorAll('[cmdk-item]')].map(i=>i.textContent.trim())"` |
+| Palette Create item | text `Create project "<query>"` (value = live query; always shown while typing) |
+| Palette Rename item | text `Rename "<name>"` (value `rename <name>`) |
+| Palette Edit-metadata item | text `Edit metadata "<name>"` (value `edit <name>`) |
+| Palette Archive item | text `Archive "<name>"` (value `<name> archive`) |
+| Palette Restore item | text `Restore "<name>"` — NOT reachable (see Restore defect above) |
+| Palette select item | `agent-browser find text "<unique item text>" click` (e.g. `find text "Edit metadata" click`, `find text "Archive" click`) |
 | Metadata dialog title | `Edit metadata — <name>` |
-| Metadata description | `find label "description"` (`<textarea aria-label="description">`) |
-| Metadata tags | `find label "tags"` (`<input aria-label="tags">`, comma-separated) |
-| Metadata submit | `find role button click --name "Save"` |
+| Metadata description | `agent-browser fill 'textarea[aria-label="description"]' "<txt>"` |
+| Metadata tags | `agent-browser fill 'input[aria-label="tags"]' "<comma,separated>"` |
+| Metadata submit | `agent-browser find text "Save" click` (unique on page while dialog open) |
 
-Refs (`@eN`) are reassigned on every `snapshot` — re-snapshot after any UI change (dialog open, list re-render) before the next ref interaction. The Radix dialog renders into a portal at the end of `<body>`; it has role `dialog`, so `find role dialog` and the dialog's labelled inputs resolve once it is open.
-
-## Launch (operator/you, in a separate terminal)
-1. Isolate state, enable CDP, then start the dev app from the repo root:
-   ```bash
-   YODEA_HOME="$(mktemp -d)" YODEA_DEVTOOLS_CDP=1 bun run dev:desktop
-   ```
-   - `YODEA_DEVTOOLS_CDP=1` makes main append `--remote-debugging-port 9222` (see "Launch contract & isolation" below) — dev-only, gated.
-   - `YODEA_HOME` isolates the spawned backend's discovery file.
-2. Wait for the renderer window to render (`sleep 4`).
-3. Prepare a real directory for the change-directory step BEFORE launch and remember the path: `export YODEA_DESKTOP_DIR="$(mktemp -d)"`.
-
-## Connect & locate the renderer tab
+## Launch contract & isolation
+Build the desktop if you changed source: `bun run build:desktop` (from the worktree root). Launch the BUILT app (cwd = worktree root) in the BACKGROUND — do NOT block the shell:
 ```bash
-agent-browser connect 9222
-agent-browser tab                              # list targets; the renderer is the [page] (NOT a devtools target)
-agent-browser tab --url "*index.html*"         # or switch to the renderer page by URL (dev: ELECTRON_RENDERER_URL host)
-agent-browser --color-scheme dark snapshot -i  # discover refs; preserve dark mode
+WT=<worktree-root>
+rm -rf /tmp/cert-home /tmp/cert-dir && mkdir -p /tmp/cert-home /tmp/cert-dir
+YODEA_HOME=/tmp/cert-home YODEA_DEVTOOLS_CDP=1 \
+  YODEA_BACKEND_CMD="[\"bun\",\"$WT/apps/cli/cli/main.ts\",\"server\"]" \
+  node_modules/.bin/electron apps/desktop/out/main/index.mjs --no-sandbox > /tmp/cert.log 2>&1 &
 ```
-The dev renderer URL is the electron-vite dev server (`ELECTRON_RENDERER_URL`), so its tab title is "Yodea" and the hash route is `#/`. Confirm you are on the renderer page, not a `devtools://` target.
+- **:9222 is dev-only and double-gated.** `apps/desktop/src/main/index.ts:13-14` opens the port only when BOTH `!app.isPackaged` AND `process.env["YODEA_DEVTOOLS_CDP"] === "1"`. A packaged build NEVER exposes it. Loopback is not an auth boundary, hence the explicit env opt-in.
+- **Env contract:**
+  - `YODEA_DEVTOOLS_CDP=1` — turns on CDP :9222 (this harness's only way in).
+  - `YODEA_HOME=/tmp/cert-home` — isolates the spawned backend's discovery file so this harness never touches real state or another agent's backend. The CLI you assert with MUST use the SAME `YODEA_HOME`.
+  - `YODEA_BACKEND_CMD` — REQUIRED when launching the BUILT app (`out/main/index.mjs`): cwd ≠ `apps/desktop`, so the runtime's relative backend default fails. Set it to `["bun","<repo>/apps/cli/cli/main.ts","server"]`.
+- **Never collide with the Playwright e2e** (`apps/desktop/e2e/projects.spec.ts` drives its OWN `_electron.launch(...)`, not :9222). Do not run `bun run e2e:desktop` and this CDP harness against the same app simultaneously.
 
-## Procedure (drive each operation in order; screenshot on failure)
-1. **Create** — fill the name field, click Create, assert the list grows:
+After launch, wait for CDP then for the renderer to render past the "Connecting" gate:
+```bash
+for i in $(seq 1 30); do curl -s http://127.0.0.1:9222/json/list >/dev/null 2>&1 && break; sleep 1; done
+PAGE_WS=$(curl -s http://127.0.0.1:9222/json/list | python3 -c "import sys,json; ts=[t for t in json.load(sys.stdin) if t.get('type')=='page' and 'index.html' in t.get('url','')]; print(ts[0]['webSocketDebuggerUrl'] if ts else '')")
+agent-browser connect "$PAGE_WS"
+for i in $(seq 1 30); do agent-browser eval "document.body.innerText" 2>/dev/null | grep -q "Projects (" && break; sleep 1; done
+agent-browser eval "(document.querySelector('[role=alert]')||{}).textContent||'no-alert'"   # expect no-alert on load
+```
+
+## Procedure (drive each op in order; assert UI via eval AND backend via CLI; keep page-level alert == no-alert)
+Set `CLI() { YODEA_HOME=/tmp/cert-home <repo>/dist/yodea "$@"; }` (or build it) for backend reads.
+
+1. **Create** "cert-desktop":
    ```bash
-   agent-browser find label "project name" fill "cert-desktop"
-   agent-browser find role button click --name "Create"
-   agent-browser wait --text "cert-desktop"
-   agent-browser get text "[data-testid=project-list]"        # must contain cert-desktop
-   agent-browser get count "[data-testid=project-list] li"    # record list length
+   agent-browser fill 'input[aria-label="project name"]' "cert-desktop"
+   agent-browser find text "Create" click
+   # assert: header Projects (1), list contains cert-desktop, backend has it, no-alert
+   agent-browser eval "document.body.innerText.match(/Projects \\((\\d+)\\)/)?.[0]"
+   CLI project list --format json | python3 -c "import sys,json; print([p['name'] for p in json.load(sys.stdin)['data']])"
    ```
-2. **Rename** (per-row button → RenameDialog):
+2. **Create with directory** — NOT exposed in the desktop create form. SKIP at the UI (the CLI cert covers `--directory`). Record as SKIP.
+3. **Rename** "cert-desktop" → "cert-renamed":
    ```bash
-   agent-browser find text "Rename" click          # the cert-desktop row's Rename button
-   agent-browser snapshot -i                        # dialog open -> re-snapshot
-   agent-browser find label "new project name" fill "cert-renamed"
-   agent-browser find role button click --name "Rename"   # dialog submit (form button text)
-   agent-browser wait --text "cert-renamed"
-   agent-browser get text "[data-testid=project-list]"     # must show cert-renamed, not cert-desktop
+   agent-browser find text "Rename" click                                   # per-row button opens dialog
+   agent-browser fill 'input[aria-label="new project name"]' "cert-renamed"
+   agent-browser click '[role=dialog] button[type=submit]'                  # dialog-scoped submit
+   # assert: list shows cert-renamed (not cert-desktop), backend renamed, no-alert
    ```
-3. **Change directory** (per-row button → ChangeDirectoryDialog; use the dir you mktemp'd before launch):
+4. **Change directory** — valid then bad path:
    ```bash
+   # valid:
    agent-browser find text "Change directory" click
-   agent-browser snapshot -i
-   agent-browser find label "project directory" fill "$YODEA_DESKTOP_DIR"
-   agent-browser find role button click --name "Save"
-   agent-browser wait 500
-   # On a bad path the dialog stays open and [role=alert] shows the ProjectDirectoryInvalid _tag:
-   agent-browser is visible "[role=alert]"          # expect false for a valid existing dir
+   agent-browser fill 'input[aria-label="project directory"]' "/tmp/cert-dir"
+   agent-browser click '[role=dialog] button[type=submit]'
+   # assert: dialog closes, backend directory == /tmp/cert-dir, no page-level alert
+   # bad path:
+   agent-browser find text "Change directory" click
+   agent-browser fill 'input[aria-label="project directory"]' "/no/such/dir"
+   agent-browser click '[role=dialog] button[type=submit]'
+   # assert: dialog STAYS open, dialog-scoped [role=alert] == ProjectDirectoryInvalid, backend unchanged
+   agent-browser press Escape                                               # close the dialog
    ```
-4. **Set metadata** (COMMAND PALETTE only → EditMetadataDialog):
+5. **Set metadata** (command palette → EditMetadataDialog):
    ```bash
    agent-browser press Control+Shift+KeyP
-   agent-browser snapshot -i
-   agent-browser find placeholder "Type a project name or search…" fill "edit cert-renamed"
-   agent-browser find text "Edit metadata" click          # selects: Edit metadata "cert-renamed"
-   agent-browser snapshot -i                               # EditMetadataDialog open
-   agent-browser find label "description" fill "hello from desktop"
-   agent-browser find label "tags" fill "x, y"
-   agent-browser find role button click --name "Save"
-   agent-browser wait 500
+   agent-browser fill '[cmdk-input]' "edit cert-renamed"
+   agent-browser find text "Edit metadata" click
+   agent-browser fill 'textarea[aria-label="description"]' "hello from desktop"
+   agent-browser fill 'input[aria-label="tags"]' "x, y"
+   agent-browser find text "Save" click
+   # assert via backend: description + tags set, no-alert
+   CLI project list --format json | python3 -c "import sys,json; d=json.load(sys.stdin); print([(p['description'],p['tags']) for p in d['data']])"
    ```
-   (Open the project (`/p/$projectId`) or re-open the metadata dialog to read back description/tags, or assert via `snapshot --json`.)
-5. **Archive / Restore** (COMMAND PALETTE only — toggle item):
+6. **Archive** then **Restore**:
+   ```bash
+   # Archive (UI):
+   agent-browser press Control+Shift+KeyP
+   agent-browser fill '[cmdk-input]' "cert-renamed archive"
+   agent-browser find text "Archive" click          # palette closes itself
+   # assert: default list hidden (Projects (0)), CLI --archived shows it archived, no-alert
+   CLI project list --format json | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])"            # 0
+   CLI project list --archived --format json | python3 -c "import sys,json; print([(p['name'],p['archived']) for p in json.load(sys.stdin)['data']])"
+   # Restore: NOT reachable in the UI (see Restore defect). Workaround via CLI, then reload to reflect:
+   PID=$(CLI project list --archived --format json | python3 -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
+   CLI project restore "$PID" --format json
+   agent-browser eval "location.reload()"; sleep 2
+   # assert: backend default list shows it (archived false); renderer shows it after reload
+   ```
+7. **Delete** (per-row Delete → confirm dialog):
+   ```bash
+   agent-browser find text "Delete" click            # row button (no dialog open) opens the confirm dialog
+   agent-browser eval "(()=>{const d=document.querySelector('[role=dialog]');const b=[...d.querySelectorAll('button')].find(x=>x.textContent.trim()==='Delete');b&&b.click();return b?'clicked':'not-found'})()"
+   # assert: list shrinks (Projects (0)), backend --all count 0, no-alert
+   CLI project list --all --format json | python3 -c "import sys,json; print(json.load(sys.stdin)['count'])"      # 0
+   ```
+8. **Command palette reachability** — opens + offers a Create command:
    ```bash
    agent-browser press Control+Shift+KeyP
-   agent-browser snapshot -i
-   agent-browser find placeholder "Type a project name or search…" fill "cert-renamed archive"
-   agent-browser find text "Archive" click                # selects: Archive "cert-renamed"
-   agent-browser wait 500
-   # Re-open palette; the item now reads Restore "... (archived)":
-   agent-browser press Control+Shift+KeyP
-   agent-browser snapshot -i
-   agent-browser find placeholder "Type a project name or search…" fill "cert-renamed restore"
-   agent-browser find text "Restore" click                # selects: Restore "cert-renamed"
-   agent-browser wait 500
-   agent-browser press Escape                              # close palette
-   ```
-   Assert the palette item flips Archive↔Restore via `snapshot --json` / `get text` between the two presses.
-6. **Delete** (per-row button → DeleteProjectDialog; confirm button text is **"Delete"**, not "Confirm"):
-   ```bash
-   agent-browser find text "Delete" click          # the row's Delete button (opens the dialog)
-   agent-browser snapshot -i                         # confirm dialog open (title "Delete project")
-   agent-browser find role button click --name "Delete"   # the dialog's confirm button
-   agent-browser wait 500
-   agent-browser get text "[data-testid=project-list]"     # must NOT contain cert-renamed
-   agent-browser get count "[data-testid=project-list] li" # length decreased
-   ```
-7. **Command palette reachability** — open and assert it renders + a create command is reachable:
-   ```bash
-   agent-browser press Control+Shift+KeyP
-   agent-browser snapshot -i
-   agent-browser is visible "[cmdk-root]"            # palette opened
-   agent-browser find placeholder "Type a project name or search…" fill "palette-smoke"
-   agent-browser is visible "text=Create project"    # the Create action item is offered
+   agent-browser eval "document.querySelector('[cmdk-root]')?true:false"     # palette opened
+   agent-browser fill '[cmdk-input]' "palette-smoke"
+   agent-browser eval "[...document.querySelectorAll('[cmdk-item]')].some(i=>i.textContent.includes('Create project'))"  # true
    agent-browser press Escape
    ```
 
-## Assertions (use these agent-browser reads)
-- `agent-browser get text <selector|@ref>` — exact rendered text.
-- `agent-browser is visible <selector|@ref>` — element present + visible (returns true/false; `--json` for machine output).
-- `agent-browser get count "[data-testid=project-list] li"` — list length before/after create/delete.
-- `agent-browser snapshot -i --json` — machine-readable tree for diffing palette item labels (Archive↔Restore).
-- On any assertion miss: `agent-browser screenshot /tmp/desktop-cert-<step>-FAIL.png` and record FAIL with the observed value.
-- On pass: `agent-browser screenshot /tmp/desktop-cert-<step>.png`.
+## Assertions (use these agent-browser reads — evidence is the eval output itself)
+- UI header: `eval "document.body.innerText.match(/Projects \\((\\d+)\\)/)?.[0]"`.
+- List text / count: `eval "document.querySelector('[data-testid=project-list]').innerText"` / `eval "document.querySelectorAll('[data-testid=project-list] li').length"`.
+- Dialog open/closed: `eval "document.querySelector('[role=dialog]')?'dialog-open':'no-dialog'"`.
+- Page-level alert (EXCLUDE dialog alerts): `eval "(()=>{const a=[...document.querySelectorAll('[role=alert]')].filter(x=>!x.closest('[role=dialog]'));return a.length?a[0].textContent:'no-alert'})()"` — must be `no-alert` on load and throughout.
+- Dialog-scoped alert (expected dialog errors): `eval "(()=>{const d=document.querySelector('[role=dialog]');const a=d&&d.querySelector('[role=alert]');return a?a.textContent:'no-alert-in-dialog'})()"`.
+- Backend truth: `CLI project list [--archived|--all] --format json` (same `YODEA_HOME`).
+- Evidence per step: capture an `eval` JSON snapshot, e.g. `eval "JSON.stringify({header:..., count:..., alert:...})"`. Screenshots are best-effort only.
 
 ## Structured report (emit EXACTLY this JSON)
 ```json
@@ -156,27 +181,19 @@ The dev renderer URL is the electron-vite dev server (`ELECTRON_RENDERER_URL`), 
   "harness": "desktop-tester",
   "cdpPort": 9222,
   "checks": [
-    { "step": "create", "expect": "list contains cert-desktop", "observed": "<get text result>", "screenshot": "/tmp/desktop-cert-create.png", "result": "PASS" }
+    { "step": "create", "action": "fill 'input[aria-label=\"project name\"]' + find text Create click", "expected": "Projects (1); list contains cert-desktop; backend has it; no-alert", "observed": "<eval + CLI result>", "result": "PASS" }
   ],
-  "summary": { "total": 7, "passed": 7, "failed": 0 },
+  "summary": { "total": 8, "passed": 0, "failed": 0, "skipped": 0 },
   "verdict": "PASS"
 }
 ```
-One object per step (create, rename, change-directory, set-metadata, archive-restore, delete, command-palette). Set `verdict:"FAIL"` and attach the `-FAIL.png` screenshot path for any failing step.
-
-## Launch contract & isolation
-- **:9222 is dev-only and double-gated.** `apps/desktop/src/main/index.ts:13-14` opens the port only when BOTH hold:
-  ```ts
-  if (!app.isPackaged && process.env["YODEA_DEVTOOLS_CDP"] === "1") {
-    app.commandLine.appendSwitch("remote-debugging-port", "9222")
-  }
-  ```
-  A packaged build (`app.isPackaged`) NEVER exposes the port, and dev builds expose it only when `YODEA_DEVTOOLS_CDP=1`. Loopback is not an auth boundary, hence the explicit env opt-in on top of `!isPackaged`.
-- **Env contract:**
-  - `YODEA_DEVTOOLS_CDP=1` — turns on CDP :9222 (this harness's only way in).
-  - `YODEA_HOME="$(mktemp -d)"` — isolates the spawned backend's discovery file so this harness never touches real state or another agent's backend.
-  - `YODEA_BACKEND_CMD` — only needed when launching the BUILT app (cwd ≠ `apps/desktop`, so the runtime's relative backend default fails). For `bun run dev:desktop` (electron-vite dev, cwd = `apps/desktop`) it is NOT required. The e2e spec sets it to `["bun","<repo>/apps/cli/cli/main.ts","server"]`; mirror that if you ever attach to `out/main/index.mjs`.
-- **Never collide with the Playwright e2e.** `apps/desktop/e2e/projects.spec.ts` deliberately drives its OWN isolated Electron via Playwright's `_electron.launch(...)` (a separate, internally-managed debugging mechanism) — it does NOT use :9222. Do NOT run `bun run e2e:desktop` and this CDP harness against the same app simultaneously; they are intentionally separate so the AI agent (:9222) and Playwright never contend for the same instance. Each uses its own `mktemp -d` `YODEA_HOME`.
+One object per step (create, create-with-directory [SKIP], rename, change-directory, set-metadata, archive-restore, delete, command-palette). Each carries `name/action/expected/observed/result`. Set `verdict:"FAIL"` if any UI-drivable step genuinely fails; report the exact command + observed value. Note SKIP (create-with-directory) and any documented UI defect (Restore unreachable) precisely — do not paper over them.
 
 ## Cleanup
-`agent-browser close --all`; stop the dev app (Ctrl+C in its terminal); `rm -rf "$YODEA_HOME" "$YODEA_DESKTOP_DIR"`.
+```bash
+agent-browser close --all
+for p in $(pgrep -f "[o]ut/main/index.mjs"); do kill $p; done
+for p in $(pgrep -f "[c]li/main.ts server"); do kill $p; done
+rm -rf /tmp/cert-home /tmp/cert-dir
+curl -s http://127.0.0.1:9222/json/list >/dev/null 2>&1 && echo "CDP STILL UP" || echo "CDP down"
+```
