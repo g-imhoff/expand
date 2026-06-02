@@ -40,9 +40,9 @@ describe("main RpcServer <-> renderer RpcClient round-trip", () => {
         const server = yield* makeRpcServer((response) => toClient(response))
         const { client, write } = yield* buildClient((message) => server.write(0, message))
         toClient = write
-        const list0 = yield* client.ProjectList()
+        const list0 = yield* client.ProjectList({})
         const created = yield* client.ProjectCreate({ name: "omega", ensure: false })
-        const list1 = yield* client.ProjectList()
+        const list1 = yield* client.ProjectList({})
         return { list0, created, list1 }
       }).pipe(Effect.provide(fakeStoreLayer(ref, hub)), Effect.scoped)
     )

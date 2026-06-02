@@ -18,7 +18,7 @@ export class UseCases extends Context.Service<UseCases, {
     name: string,
     ensure: boolean
   ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | UseCaseError>
-  readonly listProjects: Effect.Effect<ReadonlyArray<Project>, UseCaseError>
+  readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
     const store = yield* EventStore
@@ -62,7 +62,11 @@ export class UseCases extends Context.Service<UseCases, {
         }
       })
 
-    const listProjects = projection.list
+    // Default false: filter out archived. Deleted are already absent from the
+    // fold. The full set (archived included) is reached with includeArchived:true,
+    // which slices use for uniqueness checks.
+    const listProjects = (includeArchived = false) =>
+      Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
     return { health, createProject, listProjects } as const
   })

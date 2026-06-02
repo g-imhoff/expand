@@ -20,8 +20,9 @@ export class YodeaRpcs extends RpcGroup.make(
     success: ProjectCreateResult,
     error: ProjectAlreadyExists
   }),
-  // Query: list all projects (projection).
-  Rpc.make("ProjectList", { success: Schema.Array(Project) }),
+  // Query: list projects (projection). `includeArchived` (default false) controls
+  // whether archived projects are returned; deleted are always excluded.
+  Rpc.make("ProjectList", { payload: { includeArchived: Schema.optionalKey(Schema.Boolean) }, success: Schema.Array(Project) }),
   // Presence channel (I-4): a frontend subscribes on connect and holds it for
   // the lifetime of its work. The server emits one `true` immediately so the
   // client can confirm it was registered, then keeps it open until the socket drops.

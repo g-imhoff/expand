@@ -46,7 +46,7 @@ describe.sequential("end-to-end lifecycle", () => {
         Effect.gen(function* () {
           const health = yield* client.Health()
           const created = yield* client.ProjectCreate({ name: "E2E", ensure: false })
-          const listed = yield* client.ProjectList()
+          const listed = yield* client.ProjectList({})
           return { health, created, listed }
         })
       )
