@@ -70,6 +70,41 @@ describe.sequential("end-to-end lifecycle", () => {
     expect(r.upAfter).toBe(false) // I-3/I-4: endpoint removed on zero-connection shutdown
   })
 
+  it("archive hides from default list, restore brings it back, ProjectNotFound on bogus id", async () => {
+    const program = Effect.gen(function* () {
+      const dbPath = join(dir, "events.db")
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const outcome = yield* withClient(bunAdapter, (client) =>
+        Effect.gen(function* () {
+          const { project } = yield* client.ProjectCreate({ name: "arch-e2e", ensure: false })
+          // Subscribe to Events, let the subscription attach, then archive so the
+          // live ProjectArchived is delivered (the PubSub only fans out post-subscribe).
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
+          yield* Effect.sleep("150 millis")
+          yield* client.ProjectArchive({ id: project.id })
+          const archivedEvent = yield* Fiber.join(head)
+          const all = yield* client.ProjectList({ includeArchived: true })
+          const def = yield* client.ProjectList({})
+          const restored = yield* client.ProjectRestore({ id: project.id })
+          const missing = yield* client.ProjectArchive({ id: "00000000-0000-4000-8000-000000000000" }).pipe(Effect.result)
+          return { project, archivedEvent, all, def, restored, missing }
+        })
+      )
+      yield* Fiber.interrupt(serverFiber)
+      return outcome
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    const r = await Effect.runPromise(program)
+    expect(Option.isSome(r.archivedEvent)).toBe(true)
+    if (Option.isSome(r.archivedEvent)) {
+      expect(r.archivedEvent.value._tag).toBe("ProjectArchived")
+    }
+    expect(r.all.find((p) => p.id === r.project.id)?.archived).toBe(true)
+    expect(r.def.some((p) => p.id === r.project.id)).toBe(false)
+    expect(r.restored.archived).toBe(false)
+    expect((r.missing as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+  })
+
   it("delivers live domain events over the Events stream", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
