@@ -39,6 +39,17 @@ export const DesktopRpcHandlers = YodeaRpcs.toLayer({
     Effect.flatMap(ProjectStore, (s) => s.restoreProject(id)).pipe(
       Effect.catchTag("RpcClientError", (e) => Effect.die(e))
     ),
+  // Surface the typed ProjectNotFound (replace-style metadata); discharge the
+  // store's transport-level RpcClientError as a defect (not part of the contract).
+  ProjectSetMetadata: ({ id, description, tags }) =>
+    Effect.flatMap(ProjectStore, (s) =>
+      s.setMetadata(id, {
+        ...(description !== undefined ? { description } : {}),
+        ...(tags !== undefined ? { tags } : {})
+      })
+    ).pipe(
+      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
+    ),
   ProjectList: ({ includeArchived }) =>
     Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)).pipe(
       Effect.map((ps) => includeArchived ? ps : ps.filter((p) => !p.archived))

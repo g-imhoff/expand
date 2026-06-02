@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 describe("foldEvent", () => {
@@ -47,5 +47,18 @@ describe("foldEvent — archive/restore", () => {
     const next = foldEvent(base, ProjectRestored.make({ projectId: "a", occurredAt: "t3" }))
     expect(next[0]?.archived).toBe(false)
     expect(next[0]?.updatedAt).toBe("t3")
+  })
+})
+
+
+describe("foldEvent — ProjectMetadataChanged", () => {
+  const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }]
+  it("merges provided fields and stamps updatedAt", () => {
+    const next = foldEvent(base, ProjectMetadataChanged.make({ projectId: "a", description: "d", tags: ["x", "x"], occurredAt: "t2" }))
+    expect(next[0]).toMatchObject({ description: "d", tags: ["x"], updatedAt: "t2" })
+  })
+  it("is a no-op for an unknown id", () => {
+    const next = foldEvent(base, ProjectMetadataChanged.make({ projectId: "ghost", tags: ["x"], occurredAt: "t2" }))
+    expect(next).toEqual(base)
   })
 })
