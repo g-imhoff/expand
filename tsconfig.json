@@ -31,6 +31,7 @@
     "apps/desktop/src/renderer",
     "test/desktop/rename-dialog.test.tsx",
     "test/desktop/change-directory-dialog.test.tsx",
-    "test/desktop/edit-metadata-dialog.test.tsx"
+    "test/desktop/edit-metadata-dialog.test.tsx",
+    "test/desktop/delete-project-dialog.test.tsx"
   ]
 }

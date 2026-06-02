@@ -83,3 +83,15 @@ export const useSetMetadata = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
   })
 }
+
+// Delete a project (soft tombstone). The resulting ProjectDeleted arrives via the
+// Events stream and folds out of the cache, so no manual setQueryData; invalidate
+// as a belt-and-braces refresh. The typed ProjectNotFound rejects the promise.
+export const useDeleteProject = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => runtime.runPromise(client.ProjectDelete({ id })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}
