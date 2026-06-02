@@ -19,5 +19,5 @@
   "exclude": [],
   // DOM-rendering renderer component tests live here so they are checked under the
   // DOM lib (the root tsconfig deliberately omits DOM and excludes this test).
-  "include": ["src", "../../test/desktop/rename-dialog.test.tsx", "../../test/desktop/change-directory-dialog.test.tsx", "../../test/desktop/edit-metadata-dialog.test.tsx", "../../test/desktop/delete-project-dialog.test.tsx"]
+  "include": ["src", "../../test/desktop/rename-dialog.test.tsx", "../../test/desktop/change-directory-dialog.test.tsx", "../../test/desktop/edit-metadata-dialog.test.tsx", "../../test/desktop/delete-project-dialog.test.tsx", "../../test/desktop/command-palette-restore.test.tsx"]
 }

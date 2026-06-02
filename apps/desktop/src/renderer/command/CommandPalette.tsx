@@ -10,7 +10,7 @@ import {
   CommandItem,
   CommandList
 } from "../components/ui/command"
-import { useArchiveProject, useCreateProject, useProjects, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/EditMetadataDialog"
 import { useCommandPalette } from "./store"
@@ -25,7 +25,10 @@ export const CommandPalette = () => {
   const open = useCommandPalette((state) => state.open)
   const setOpen = useCommandPalette((state) => state.setOpen)
   const navigate = useNavigate()
-  const { data: projects = [] } = useProjects()
+  // Includes archived projects so their Restore command is reachable — archive must
+  // not be a one-way trip. The main projects view keeps using useProjects() (archived
+  // hidden), so this does not change the default list semantics.
+  const { data: projects = [] } = useAllProjects()
   const createProject = useCreateProject()
   const renameProject = useRenameProject()
   const archiveProject = useArchiveProject()
