@@ -23,7 +23,16 @@ export const ProjectRenamed = Schema.TaggedStruct("ProjectRenamed", {
   occurredAt: Schema.String
 })
 
-export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed])
+// A project's working directory was changed. `directory` is always an absolute,
+// on-disk-validated path (validation happens server-side in the use-case);
+// `occurredAt` stamps `updatedAt` in the fold.
+export const ProjectDirectoryChanged = Schema.TaggedStruct("ProjectDirectoryChanged", {
+  projectId: Schema.String,
+  directory: Schema.String,
+  occurredAt: Schema.String
+})
+
+export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged])
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
