@@ -9,6 +9,13 @@ export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlready
   { name: Schema.String }
 ) {}
 
+// Typed RPC error: a project target (id or name) was not found. Shared by the
+// mutating operations and the CLI's resolveProjectTarget helper.
+export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
+  "ProjectNotFound",
+  { id: Schema.String }
+) {}
+
 export class YodeaRpcs extends RpcGroup.make(
   // Liveness query.
   Rpc.make("Health", { success: Schema.String }),
