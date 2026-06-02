@@ -1,11 +1,17 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 
 // One event type today. As the domain grows, replace the alias below with
 // `Schema.Union([ProjectCreated, ProjectRenamed, ...])`; the projection fold
 // already switches on `_tag`, so adding a case is the only other change.
+//
+// `directory` is optional on the encoded side (legacy persisted events lack it)
+// and decodes to null when absent — keeps the event log backward-compatible.
+// NOTE: the v4 beta `withDecodingDefaultKey` takes an Effect default value (not a
+// thunk) — the plan's `() => null` is spelled `Effect.succeed(null)` here.
 export const ProjectCreated = Schema.TaggedStruct("ProjectCreated", {
   projectId: Schema.String,
   name: Schema.String,
+  directory: Schema.optionalKey(Schema.NullOr(Schema.String)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   createdAt: Schema.String
 })
 
