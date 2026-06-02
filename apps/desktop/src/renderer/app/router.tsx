@@ -1,8 +1,9 @@
-import { createHashHistory, createRootRoute, createRoute, createRouter, Outlet } from "@tanstack/react-router"
+import { createHashHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router"
 import { ProjectsView } from "@yodea/desktop/renderer/features/projects/projects-view"
 import { Workspace } from "@yodea/desktop/renderer/app/shell/workspace"
+import { RootLayout } from "@yodea/desktop/renderer/app/shell/root-layout"
 
-const rootRoute = createRootRoute({ component: Outlet })
+const rootRoute = createRootRoute({ component: RootLayout })
 const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: ProjectsView })
 const projectRoute = createRoute({
   getParentRoute: () => rootRoute,
