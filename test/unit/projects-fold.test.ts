@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { projectsFromEvents } from "@yodea/domain/project"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("projectsFromEvents", () => {
   it("folds an empty log into no projects", () => {
@@ -70,5 +70,45 @@ describe("projectsFromEvents — archive/restore", () => {
   })
   it("ignores an archive for an unknown project (out-of-order tolerance)", () => {
     expect(projectsFromEvents([ProjectArchived.make({ projectId: "ghost", occurredAt: "t1" })])).toEqual([])
+  })
+})
+
+describe("projectsFromEvents — ProjectMetadataChanged", () => {
+  const created = ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
+
+  it("merges only provided fields and stamps updatedAt from occurredAt", () => {
+    const projects = projectsFromEvents([
+      created,
+      ProjectMetadataChanged.make({ projectId: "p1", description: "hello", occurredAt: "t2" })
+    ])
+    expect(projects).toEqual([
+      { id: "p1", name: "A", directory: null, description: "hello", tags: [], archived: false, createdAt: "t1", updatedAt: "t2" }
+    ])
+  })
+
+  it("dedupes tags and leaves description unchanged when absent", () => {
+    const projects = projectsFromEvents([
+      created,
+      ProjectMetadataChanged.make({ projectId: "p1", tags: ["x", "x", "y"], occurredAt: "t3" })
+    ])
+    expect(projects[0]?.tags).toEqual(["x", "y"])
+    expect(projects[0]?.description).toBe(null)
+    expect(projects[0]?.updatedAt).toBe("t3")
+  })
+
+  it("sets description to null when description:null is provided", () => {
+    const projects = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectMetadataChanged.make({ projectId: "p1", description: "x", occurredAt: "t2" }),
+      ProjectMetadataChanged.make({ projectId: "p1", description: null, occurredAt: "t3" })
+    ])
+    expect(projects[0]?.description).toBe(null)
+  })
+
+  it("is a no-op for an unknown project id (out-of-order tolerance)", () => {
+    const projects = projectsFromEvents([
+      ProjectMetadataChanged.make({ projectId: "ghost", tags: ["x"], occurredAt: "t2" })
+    ])
+    expect(projects).toEqual([])
   })
 })

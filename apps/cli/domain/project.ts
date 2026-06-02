@@ -46,6 +46,17 @@ export const projectsFromEvents = (
         byId.set(event.projectId, { ...existing, archived: false, updatedAt: event.occurredAt })
         break
       }
+      case "ProjectMetadataChanged": {
+        const existing = byId.get(event.projectId)
+        if (existing === undefined) break
+        byId.set(event.projectId, {
+          ...existing,
+          ...(event.description !== undefined ? { description: event.description } : {}),
+          ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
+          updatedAt: event.occurredAt
+        })
+        break
+      }
     }
   }
   return [...byId.values()]
