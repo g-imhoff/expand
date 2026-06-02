@@ -44,9 +44,15 @@ export class YodeaRpcs extends RpcGroup.make(
   // name already exists (returns the existing project, created:false). A strict
   // create on a duplicate name fails with ProjectAlreadyExists.
   Rpc.make("ProjectCreate", {
-    payload: { name: Schema.String, ensure: Schema.Boolean },
+    payload: {
+      name: Schema.String,
+      ensure: Schema.Boolean,
+      // (D2) directory is optional at create. When a non-null path is given the
+      // backend validates it server-side (absolute + on-disk + unique among live).
+      directory: Schema.optionalKey(Schema.NullOr(Schema.String))
+    },
     success: ProjectCreateResult,
-    error: ProjectAlreadyExists
+    error: Schema.Union([ProjectAlreadyExists, ProjectDirectoryInvalid, ProjectDirectoryConflict])
   }),
   // Command: rename a project (by id). Fails ProjectNotFound if the target is
   // gone, ProjectNameConflict if another live project already owns the name.
