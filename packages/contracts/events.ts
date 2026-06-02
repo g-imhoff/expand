@@ -15,7 +15,15 @@ export const ProjectCreated = Schema.TaggedStruct("ProjectCreated", {
   createdAt: Schema.String
 })
 
-export const DomainEvent = ProjectCreated
+// A project was renamed. `occurredAt` is the ISO event time the fold uses to
+// stamp `updatedAt`.
+export const ProjectRenamed = Schema.TaggedStruct("ProjectRenamed", {
+  projectId: Schema.String,
+  name: Schema.String,
+  occurredAt: Schema.String
+})
+
+export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed])
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
