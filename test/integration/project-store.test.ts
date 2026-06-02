@@ -62,4 +62,26 @@ describe("ProjectStore", () => {
       await rtB.dispose()
     }
   })
+
+  it("exposes a live events stream that emits ProjectCreated", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rt = ManagedRuntime.make(appLayer)
+    try {
+      const store = await rt.runPromise(ProjectStore)
+      // subscribe BEFORE the create so the live (post-subscription) event is seen
+      const seen = rt.runPromise(
+        store.events.pipe(
+          Stream.filter((e) => e._tag === "ProjectCreated" && e.name === "gamma"),
+          Stream.take(1),
+          Stream.runCollect
+        )
+      )
+      await new Promise((r) => setTimeout(r, 300))
+      await rt.runPromise(store.createProject("gamma"))
+      const events = await seen
+      expect(Array.from(events)[0]).toMatchObject({ _tag: "ProjectCreated", name: "gamma" })
+    } finally {
+      await rt.dispose()
+    }
+  })
 })

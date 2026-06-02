@@ -29,10 +29,11 @@ module.exports = {
       name: "renderer-must-not-import-client-core",
       severity: "error",
       comment:
-        "BOUNDARIES.md I-1: the Electron renderer is pure UI. It may import ONLY " +
-        "packages/contracts (+ npm UI libs) and talks to the backend solely via the " +
-        "preload bridge — never client-core or the Electron main process.",
-      from: { path: "^apps/desktop/src/renderer/" },
+        "BOUNDARIES.md I-1: the Electron renderer AND preload are pure. They may import " +
+        "ONLY packages/contracts + the typed effect/unstable/rpc contract client (+ npm " +
+        "UI libs) and reach the backend solely via the preload-brokered MessagePort — " +
+        "never client-core or the Electron main process.",
+      from: { path: "^apps/desktop/src/(renderer|preload)/" },
       to: { path: "^(packages/client-core|apps/desktop/src/main)(/|$)" }
     }
   ],
