@@ -34,6 +34,18 @@ export const projectsFromEvents = (
         byId.set(event.projectId, { ...existing, directory: event.directory, updatedAt: event.occurredAt })
         break
       }
+      case "ProjectArchived": {
+        const existing = byId.get(event.projectId)
+        if (existing === undefined) break
+        byId.set(event.projectId, { ...existing, archived: true, updatedAt: event.occurredAt })
+        break
+      }
+      case "ProjectRestored": {
+        const existing = byId.get(event.projectId)
+        if (existing === undefined) break
+        byId.set(event.projectId, { ...existing, archived: false, updatedAt: event.occurredAt })
+        break
+      }
     }
   }
   return [...byId.values()]
