@@ -17,5 +17,7 @@
   // `extends` and would (resolved relative to this dir) drop the very files this
   // config must typecheck — so override it back to empty here.
   "exclude": [],
-  "include": ["src"]
+  // DOM-rendering renderer component tests live here so they are checked under the
+  // DOM lib (the root tsconfig deliberately omits DOM and excludes this test).
+  "include": ["src", "../../test/desktop/rename-dialog.test.tsx"]
 }
