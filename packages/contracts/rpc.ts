@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
 import { DomainEvent } from "@yodea/contracts/events"
-import { Project, ProjectCreateResult } from "@yodea/contracts/project"
+import { Project, ProjectCreateResult, Tag } from "@yodea/contracts/project"
 
 // Typed RPC error: a name conflict on create. Schema-backed so it rides the wire.
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
@@ -68,6 +68,18 @@ export class YodeaRpcs extends RpcGroup.make(
   Rpc.make("ProjectArchive", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
   // Command: restore (un-archive) a project (by id). Fails ProjectNotFound if absent.
   Rpc.make("ProjectRestore", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
+  // Command: set a project's metadata (by id), replace-style. Only the provided
+  // fields change: present `description` (incl. null) and present `tags` replace;
+  // absent leaves that field unchanged. Fails ProjectNotFound if absent.
+  Rpc.make("ProjectSetMetadata", {
+    payload: {
+      id: Schema.String,
+      description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      tags: Schema.optionalKey(Schema.Array(Tag))
+    },
+    success: Project,
+    error: ProjectNotFound
+  }),
   // Query: list projects (projection). `includeArchived` (default false) controls
   // whether archived projects are returned; deleted are always excluded.
   Rpc.make("ProjectList", { payload: { includeArchived: Schema.optionalKey(Schema.Boolean) }, success: Schema.Array(Project) }),
