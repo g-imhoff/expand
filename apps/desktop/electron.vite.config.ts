@@ -41,9 +41,18 @@ export default defineConfig({
     build: { rollupOptions: { input: resolve(here, "src/main/index.ts"), external } }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // Sandboxed preloads on Electron 42 run as plain CommonJS with NO ESM context,
+    // so a `.mjs` preload silently breaks (top-level import fails -> window.yodea
+    // undefined). Emit a single self-contained `index.cjs`. `electron` + node
+    // builtins stay external (resolved by the runtime, never bundled).
     resolve: { alias },
-    build: { rollupOptions: { input: resolve(here, "src/preload/index.ts"), external } }
+    build: {
+      rollupOptions: {
+        input: resolve(here, "src/preload/index.ts"),
+        external: ["electron", ...nodeBuiltins],
+        output: { format: "cjs", entryFileNames: "index.cjs" }
+      }
+    }
   },
   renderer: {
     plugins: [react()],
