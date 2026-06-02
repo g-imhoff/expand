@@ -24,8 +24,17 @@ test("creates a project and shows it live", async () => {
     }
   })
   const win = await app.firstWindow()
+  // No error alert on initial load: the ProjectList query must succeed over the
+  // real MessageChannel seam. (A regression where the seam shipped raw
+  // makeNoSerialization envelopes died here with "Not a valid effect"; it was
+  // masked from the create assertion below only by the live Events-stream fold.)
+  await expect(win.getByText("Projects (")).toBeVisible()
+  await expect(win.locator("[role=alert]")).toHaveCount(0)
+
   await win.getByLabel("project name").fill("e2e-alpha")
   await win.getByRole("button", { name: "Create" }).click()
   await expect(win.getByTestId("project-list")).toContainText("e2e-alpha")
+  // Still no error alert after a round-tripped create+invalidate.
+  await expect(win.locator("[role=alert]")).toHaveCount(0)
   await app.close()
 })
