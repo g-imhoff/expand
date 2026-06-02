@@ -1,14 +1,16 @@
-import { Command, Flag } from "effect/unstable/cli"
-import { Console, Effect } from "effect"
-import { withClient } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { Effect } from "effect"
+import { API_VERSION } from "@yodea/contracts/cli"
+import { YodeaClient } from "@yodea/client-core"
+import { defineCommand } from "@yodea/cli/_command"
 
-const json = Flag.boolean("json").pipe(Flag.withDefault(false))
-
-export const healthCommand = Command.make("health", { json }, ({ json }) =>
-  withClient(bunAdapter, (client) =>
-    Effect.flatMap(client.Health(), (status) =>
-      Console.log(json ? JSON.stringify({ status }) : status)
-    )
-  )
+export const healthCommand = defineCommand(
+  "health",
+  {},
+  {
+    kind: "Health",
+    envelope: (status: string) => ({ apiVersion: API_VERSION, kind: "Health", data: { status } }),
+    text: (status: string) => status,
+    quiet: (status: string) => status
+  },
+  (): Effect.Effect<string, unknown, YodeaClient> => Effect.flatMap(YodeaClient, (c) => c.Health())
 )
