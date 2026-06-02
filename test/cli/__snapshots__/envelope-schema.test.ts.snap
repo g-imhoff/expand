@@ -22,6 +22,10 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
             "UNKNOWN_COMMAND",
             "PROJECT_EXISTS",
             "BACKEND_UNREACHABLE",
+            "PROJECT_NOT_FOUND",
+            "NAME_CONFLICT",
+            "DIRECTORY_INVALID",
+            "DIRECTORY_CONFLICT",
           ],
           "type": "string",
         },
@@ -105,6 +109,49 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "type": "object",
     },
   },
+  "ProjectDeleteEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "yodea/v1",
+          ],
+          "type": "string",
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "type": "boolean",
+            },
+            "id": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "id",
+            "deleted",
+          ],
+          "type": "object",
+        },
+        "kind": {
+          "enum": [
+            "ProjectDelete",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
   "ProjectEnvelope": {
     "definitions": {},
     "dialect": "draft-2020-12",
@@ -123,13 +170,50 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
         "data": {
           "additionalProperties": false,
           "properties": {
+            "archived": {
+              "type": "boolean",
+            },
             "createdAt": {
               "type": "string",
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
+            },
+            "directory": {
+              "anyOf": [
+                {
+                  "type": "string",
+                },
+                {
+                  "type": "null",
+                },
+              ],
             },
             "id": {
               "type": "string",
             },
             "name": {
+              "type": "string",
+            },
+            "tags": {
+              "items": {
+                "allOf": [
+                  {
+                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                  },
+                ],
+                "type": "string",
+              },
+              "type": "array",
+            },
+            "updatedAt": {
               "type": "string",
             },
           },
@@ -197,13 +281,50 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
           "items": {
             "additionalProperties": false,
             "properties": {
+              "archived": {
+                "type": "boolean",
+              },
               "createdAt": {
                 "type": "string",
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+              },
+              "directory": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
               },
               "id": {
                 "type": "string",
               },
               "name": {
+                "type": "string",
+              },
+              "tags": {
+                "items": {
+                  "allOf": [
+                    {
+                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                    },
+                  ],
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "updatedAt": {
                 "type": "string",
               },
             },
