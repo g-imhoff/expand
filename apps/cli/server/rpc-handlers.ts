@@ -15,12 +15,14 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
   // (keeping it typed), and the `orElse` branch dies on everything else
   // (Exclude<E, ProjectAlreadyExists> = SqlError | SchemaError). The resulting
   // error channel is exactly ProjectAlreadyExists, matching the RPC contract.
-  ProjectCreate: ({ name, ensure }) =>
-    Effect.flatMap(UseCases, (u) => u.createProject(name, ensure)).pipe(
+  ProjectCreate: ({ name, ensure, directory }) =>
+    Effect.flatMap(UseCases, (u) => u.createProject(name, ensure, directory)).pipe(
       Effect.catchIf(
-        (e): e is ProjectAlreadyExists =>
+        (e): e is ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict =>
           typeof e === "object" && e !== null && "_tag" in e &&
-          (e as { _tag: string })._tag === "ProjectAlreadyExists",
+          ((e as { _tag: string })._tag === "ProjectAlreadyExists" ||
+            (e as { _tag: string })._tag === "ProjectDirectoryInvalid" ||
+            (e as { _tag: string })._tag === "ProjectDirectoryConflict"),
         (e) => Effect.fail(e),
         (e) => Effect.die(e)
       )
@@ -110,7 +112,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
-    ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
+  ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
   // onDisconnect (via finalizer) when the stream's scope closes on socket drop.

@@ -10,10 +10,14 @@ import { ProjectStore } from "@yodea/client-core"
 // (the backend connection/presence is already held by main's ProjectStore).
 export const DesktopRpcHandlers = YodeaRpcs.toLayer({
   Health: () => Effect.succeed("ok"),
-  ProjectCreate: ({ name }) =>
-    Effect.flatMap(ProjectStore, (s) => s.createProject(name)).pipe(
+  // Pass the optional `directory` through (conditional spread). Surface the typed
+  // directory errors (ProjectDirectoryInvalid/ProjectDirectoryConflict) so the
+  // renderer's contract-derived RpcClient gets them; discharge the store's
+  // transport-level RpcClientError as a defect (it is not part of the contract).
+  ProjectCreate: ({ name, directory }) =>
+    Effect.flatMap(ProjectStore, (s) => s.createProject(name, directory)).pipe(
       Effect.map((project) => ({ created: true, project })),
-      Effect.orDie
+      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
     ),
   // Surface the typed domain errors (ProjectNotFound/ProjectNameConflict) so the
   // renderer's contract-derived RpcClient gets them; the store's transport-level

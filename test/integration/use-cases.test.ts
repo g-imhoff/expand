@@ -136,6 +136,62 @@ describe("UseCases.changeDirectory", () => {
   })
 })
 
+describe("UseCases.createProject with directory", () => {
+  it("creates with a valid absolute existing unique directory", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("crdir", false, tmp)
+      const listed = yield* u.listProjects()
+      return { project, listed }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    rmSync(tmp, { recursive: true, force: true })
+    expect(r.project.directory).toBe(tmp)
+    expect(r.listed[0]?.directory).toBe(tmp)
+  })
+  it("with no directory behaves as before (directory:null)", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      return (yield* u.createProject("crnodir", false)).project
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const project = await Effect.runPromise(program)
+    expect(project.directory).toBe(null)
+  })
+  it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      return yield* u.createProject("crrel", false, "relative/dir").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    const f = (exit as { failure: { _tag: string; reason: string } }).failure
+    expect(f._tag).toBe("ProjectDirectoryInvalid")
+    expect(f.reason).toBe("not-absolute")
+  })
+  it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      return yield* u.createProject("crmiss", false, "/this/does/not/exist/yodea").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    const f = (exit as { failure: { _tag: string; reason: string } }).failure
+    expect(f._tag).toBe("ProjectDirectoryInvalid")
+    expect(f.reason).toBe("not-found")
+  })
+  it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const a = (yield* u.createProject("crconfa", false, tmp)).project
+      void a
+      return yield* u.createProject("crconfb", false, tmp).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    rmSync(tmp, { recursive: true, force: true })
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
+  })
+})
+
 describe("UseCases.archiveProject / restoreProject", () => {
   it("archives then restores a project, toggling archived + bumping updatedAt", async () => {
     const program = Effect.gen(function* () {
