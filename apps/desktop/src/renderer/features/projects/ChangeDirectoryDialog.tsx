@@ -7,8 +7,6 @@ import {
   DialogTitle
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
-// Render a readable line from a rejected mutation. The typed directory errors
-// carry a `_tag` (e.g. ProjectDirectoryInvalid); fall back to the string form.
 const describeError = (error: unknown): string => {
   if (typeof error === "object" && error !== null && "_tag" in error) {
     return String((error as { _tag: unknown })._tag)
@@ -24,11 +22,6 @@ export interface ChangeDirectoryDialogProps {
   readonly error?: unknown
 }
 
-// Controlled change-directory dialog, prefilled with the project's current
-// directory. Decoupled from RPC via an injected `onChangeDirectory` so it is
-// unit-testable; the wiring components pass `useChangeDirectory().mutate`
-// adapted to (id, directory). The typed ProjectDirectoryInvalid/Conflict errors
-// (the rejected mutation) are surfaced in a role="alert" block.
 export const ChangeDirectoryDialog = ({
   open,
   project,

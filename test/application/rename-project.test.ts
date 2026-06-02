@@ -14,7 +14,6 @@ const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
-  // UseCases.make yields FileSystem+Path (for changeDirectory); supply them.
   return UseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
@@ -65,10 +64,6 @@ describe("UseCases.renameProject", () => {
     expect(r.name).toBe("alpha")
   })
 
-  // An ARCHIVED project stays live: its name remains reserved. Renaming a live
-  // project to an archived project's name must conflict (uniqueness checks the
-  // full non-deleted set, archived included). Deferred from the rename slice
-  // until archive existed; now exercised via the archiveProject use-case.
   it("an archived project's name stays reserved -> ProjectNameConflict", async () => {
     const exit = await run(Effect.gen(function* () {
       const u = yield* UseCases
@@ -81,8 +76,6 @@ describe("UseCases.renameProject", () => {
     expect((exit as { failure: { _tag: string; name: string } }).failure.name).toBe("archived-name")
   })
 
-  // Likewise an archived project's DIRECTORY stays reserved: changing a live
-  // project's directory to an archived project's directory must conflict.
   it("an archived project's directory stays reserved -> ProjectDirectoryConflict", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-arch-dir-"))
     try {

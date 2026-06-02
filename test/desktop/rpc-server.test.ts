@@ -46,13 +46,6 @@ const fakeStoreLayer = (
       )
   })
 
-// A back-to-back port pair that faithfully reproduces an Electron MessageChannel:
-// every postMessage delivers a STRUCTURED CLONE of the payload to the peer's
-// listener (async, like the real port). This is the crux of the regression guard
-// — it strips prototypes/symbols exactly as the real transport does, so a seam
-// that shipped raw Effect/Exit objects (the old makeNoSerialization wiring) would
-// die here with "Not a valid effect", while the serialized seam survives because
-// only encoded JSON strings cross.
 const makePortPair = (): { server: MainPortLike; renderer: RendererPortLike } => {
   let serverListener: ((e: { data: unknown }) => void) | null = null
   let rendererListener: ((e: { data: unknown }) => void) | null = null
@@ -81,12 +74,9 @@ describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cl
     const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
     const { server, renderer } = makePortPair()
 
-    // Run the serialized server for the lifetime of the test, scoped so it tears
-    // down cleanly at the end.
     const serverScope = await Effect.runPromise(Scope.make())
     runtime.runFork(runRpcServer(server).pipe(Scope.provide(serverScope)))
 
-    // The client's transport receive loop is owned by a connection scope.
     const clientScope = await Effect.runPromise(Scope.make())
     const client = await runtime.runPromise(buildClient(renderer).pipe(Scope.provide(clientScope)))
 

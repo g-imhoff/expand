@@ -5,7 +5,6 @@ import type { DomainEvent } from "@yodea/contracts/events"
 import { ProjectStore } from "@yodea/client-core"
 import { DesktopRpcHandlers } from "@yodea/desktop/main/rpc/handlers"
 
-// A fake ProjectStore: an in-memory ref + a hub we can publish into.
 const fakeStoreLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
   hub: PubSub.PubSub<DomainEvent>
@@ -57,7 +56,6 @@ describe("DesktopRpcHandlers", () => {
     const { created, list } = await Effect.runPromise(program)
     expect(created.name).toBe("omega")
     expect(list.map((p) => p.name)).toContain("omega")
-    // The handler layer must construct without error.
     expect(DesktopRpcHandlers).toBeDefined()
   })
 
@@ -93,7 +91,6 @@ describe("DesktopRpcHandlers", () => {
     const { archived, restored } = await Effect.runPromise(program)
     expect(archived.archived).toBe(true)
     expect(restored.archived).toBe(false)
-    // The handler layer must construct with the new ProjectArchive/ProjectRestore delegations.
     expect(DesktopRpcHandlers).toBeDefined()
   })
   it("ProjectSetMetadata delegates to the store (replace-style merge)", async () => {
@@ -109,7 +106,6 @@ describe("DesktopRpcHandlers", () => {
     const updated = await Effect.runPromise(program)
     expect(updated.description).toBe("hi")
     expect(updated.tags).toEqual(["x"])
-    // The handler layer must construct with the new ProjectSetMetadata delegation.
     expect(DesktopRpcHandlers).toBeDefined()
   })
 
@@ -125,7 +121,6 @@ describe("DesktopRpcHandlers", () => {
     const { res, list } = await Effect.runPromise(program)
     expect(res).toEqual({ id: "x", deleted: true })
     expect(list).toEqual([])
-    // The handler layer must construct with the new ProjectDelete delegation.
     expect(DesktopRpcHandlers).toBeDefined()
   })
 

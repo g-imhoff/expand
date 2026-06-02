@@ -6,7 +6,6 @@ import { ProjectStore } from "@yodea/client-core"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
 
-// Fake ProjectStore: an in-memory SubscriptionRef + a createProject that appends.
 const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
@@ -51,9 +50,8 @@ describe("useProjects bridge", () => {
           <App />
         </RuntimeContext.Provider>
       )
-      // Push a change through the SAME ref the store exposes; the bridge must re-render.
       await Effect.runPromise(SubscriptionRef.update(ref, () => [{ id: "x", name: "live-one", createdAt: "t" }]))
-      await new Promise((r) => setTimeout(r, 50)) // let the forked stream + React flush
+      await new Promise((r) => setTimeout(r, 50))
       expect(lastFrame()).toContain("live-one")
       expect(lastFrame()).toContain("Projects (1)")
     } finally {

@@ -3,8 +3,6 @@ import { render } from "ink-testing-library"
 import { RenameInput } from "@yodea/tui/components/rename-input"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
-// ink buffers a lone ESC for ~20ms (pendingInputFlushDelayMilliseconds) to let
-// chunked escape sequences complete before flushing it as the Escape key.
 const flushEscape = () => new Promise((resolve) => setTimeout(resolve, 40))
 
 describe("RenameInput", () => {
@@ -17,9 +15,9 @@ describe("RenameInput", () => {
     const onSubmit = vi.fn()
     const { stdin } = render(<RenameInput current="alpha" onSubmit={onSubmit} onCancel={() => {}} />)
     await flush()
-    stdin.write("2")        // -> "alpha2"
+    stdin.write("2")
     await flush()
-    stdin.write("\r")       // Enter
+    stdin.write("\r")
     await flush()
     expect(onSubmit).toHaveBeenCalledWith("alpha2")
   })
@@ -27,7 +25,7 @@ describe("RenameInput", () => {
     const onCancel = vi.fn()
     const { stdin } = render(<RenameInput current="alpha" onSubmit={() => {}} onCancel={onCancel} />)
     await flush()
-    stdin.write("")   // Escape
+    stdin.write("")
     await flushEscape()
     expect(onCancel).toHaveBeenCalled()
   })

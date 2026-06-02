@@ -33,15 +33,12 @@ describe.sequential("end-to-end set-metadata", () => {
   it("replaces metadata, broadcasts ProjectMetadataChanged, lists it, surfaces ProjectNotFound, and survives a re-fold", async () => {
     const dbPath = join(dir, "events.db")
 
-    // --- First server lifetime: mutate + observe the live event + list. ---
     const program = Effect.gen(function* () {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "e2emeta", ensure: false })
-          // Subscribe to Events, let the subscription attach, then mutate so the
-          // live ProjectMetadataChanged is delivered (PubSub is post-subscribe).
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
           yield* Effect.sleep("150 millis")
           const updated = yield* client.ProjectSetMetadata({ id: project.id, description: "e2e", tags: ["a", "a", "b"] })
@@ -57,22 +54,17 @@ describe.sequential("end-to-end set-metadata", () => {
 
     const r = await Effect.runPromise(program)
 
-    // (a) the returned Project reflects the replace-style merge (tags deduped).
     expect(r.updated.id).toBe(r.project.id)
     expect(r.updated.description).toBe("e2e")
     expect(r.updated.tags).toEqual(["a", "b"])
     expect(r.updated.updatedAt > r.updated.createdAt).toBe(true)
-    // (b) a ProjectMetadataChanged event arrived live.
     expect(Option.isSome(r.metaEvent)).toBe(true)
     if (Option.isSome(r.metaEvent)) {
       expect(r.metaEvent.value._tag).toBe("ProjectMetadataChanged")
     }
-    // (c) ProjectList reflects the merged metadata.
     expect(r.listed.find((p) => p.id === r.project.id)?.description).toBe("e2e")
-    // (d) the unknown-id path surfaces the typed ProjectNotFound.
     expect((r.notFound as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
 
-    // --- Second server lifetime on the SAME dbPath: the re-fold survives. ---
     const durable = Effect.gen(function* () {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp

@@ -14,10 +14,6 @@ export interface DeleteProjectDialogProps {
   readonly onConfirm: () => void
 }
 
-// Controlled confirm-before-delete dialog. Decoupled from RPC via injected
-// `onConfirm`/`onOpenChange` so it is unit-testable; the wiring component passes
-// `useDeleteProject().mutate`. Delete is destructive, so confirmation is a
-// frontend concern (the machine contract's `project delete` is immediate).
 export const DeleteProjectDialog = ({
   open,
   projectName,

@@ -5,12 +5,9 @@ import type { Project } from "@yodea/contracts/project"
 import { YodeaClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 
-// Stable order so an agent can diff list output across calls: (createdAt, id).
 const sorted = (ps: ReadonlyArray<Project>) =>
   [...ps].sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt.localeCompare(b.createdAt)))
 
-// `--archived`/`--all` both include archived projects (kept live: name/directory
-// reserved). Default (neither) hides them, matching the backend's read filter.
 const archived = Flag.boolean("archived").pipe(Flag.withDefault(false))
 const all = Flag.boolean("all").pipe(Flag.withDefault(false))
 

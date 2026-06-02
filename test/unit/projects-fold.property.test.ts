@@ -16,7 +16,6 @@ const idArb = fc.constantFrom("p1", "p2", "p3", "p4")
 const nameArb = fc.constantFrom("alpha", "beta", "gamma", "delta")
 const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStart(4, "0")}`)
 
-// One arbitrary event. ProjectCreated uses createdAt; the rest use occurredAt.
 const eventArb: fc.Arbitrary<DomainEvent> = fc.oneof(
   fc.record({ projectId: idArb, name: nameArb, createdAt: tsArb }).map((r) => ProjectCreated.make(r)),
   fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make(r)),

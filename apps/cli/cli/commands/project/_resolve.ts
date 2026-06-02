@@ -5,9 +5,6 @@ import { YodeaClient } from "@yodea/client-core"
 
 const isUuid = Schema.is(ProjectId)
 
-// Resolve a CLI target (project name OR UUID) to a project id. A UUID passes
-// through without a round-trip; a name is matched against the full project set
-// (archived included) so an archived project is still addressable.
 export const resolveProjectTarget = (token: string) =>
   isUuid(token)
     ? Effect.succeed(token)
@@ -15,8 +12,6 @@ export const resolveProjectTarget = (token: string) =>
         Effect.flatMap((ps) => {
           const matches = ps.filter((p) => p.name === token)
           if (matches.length > 1) {
-            // Names are unique among live projects (enforced at create/rename),
-            // so >1 match is a broken invariant, not a user error — fail as a defect.
             return Effect.die(
               new Error(`Ambiguous project name "${token}": ${matches.length} live projects share it`)
             )

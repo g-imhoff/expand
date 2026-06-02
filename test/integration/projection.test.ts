@@ -7,9 +7,6 @@ import { ProjectCreated } from "@yodea/contracts/events"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 
-// CRITICAL: provideMerge shares ONE EventStore instance with both the test's
-// append calls and the projection. Providing EventStoreLayer twice would
-// build two independent :memory: databases and the projection would see nothing.
 const TestLayer = Layer.provideMerge(
   ProjectProjectionLayer,
   EventStoreLayer

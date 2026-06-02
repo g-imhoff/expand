@@ -4,20 +4,12 @@ import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectStore } from "@yodea/client-core"
 import { DesktopRpcHandlers } from "@yodea/desktop/main/rpc/handlers"
 
-// EventEmitter-style port on the MAIN side (Electron MessagePortMain): .on('message'),
-// .postMessage, .start. Structural so this module stays electron-free + Bun-testable;
-// the in-memory test pairs two of these back-to-back.
 export interface MainPortLike {
   postMessage: (message: unknown) => void
   on: (event: "message", cb: (e: { data: unknown }) => void) => void
   start: () => void
 }
 
-// A serialized server Protocol over one MainPortLike (one server per window/port,
-// so a single client id 0). Mirrors RpcServer.makeProtocolStdio: inbound encoded
-// requests are decoded and fed to the RPC runtime; encoded responses are queued
-// and posted back over the port. See ../renderer/rpc/client.ts for why the seam
-// MUST be serialized (postMessage structured-clone strips Effect/Exit prototypes).
 const makePortProtocol = (port: MainPortLike) =>
   RpcServer.Protocol.make(
     Effect.fnUntraced(function* (writeRequest) {
@@ -28,7 +20,6 @@ const makePortProtocol = (port: MainPortLike) =>
         Queue.offerUnsafe(inbound, e.data as string | Uint8Array)
       })
       port.start()
-      // Decode each inbound message and feed every framed request to client 0.
       yield* Stream.fromQueue(inbound).pipe(
         Stream.runForEach((data) => {
           const requests = parser.decode(data) as ReadonlyArray<RpcMessage.FromClientEncoded>
@@ -37,9 +28,6 @@ const makePortProtocol = (port: MainPortLike) =>
         Effect.forkScoped
       )
       return {
-        // Single-client seam: teardown is interrupt-driven (transport.ts interrupts
-        // the connection fiber on port close), so this queue is intentionally never
-        // offered to — the server's disconnect loop just blocks on it until interrupt.
         disconnects: yield* Queue.make<number>(),
         send: (_clientId: number, response) => {
           const encoded = parser.encode(response)
@@ -55,10 +43,6 @@ const makePortProtocol = (port: MainPortLike) =>
     })
   )
 
-// Run a serialized RpcServer for the contract bound to one window's port. The
-// handler layer (which requires ProjectStore) is provided here; ProjectStore +
-// Scope come from the caller's runtime. RpcServer.make runs forever (never), so
-// the caller forks it into a scope it controls for teardown.
 export const runRpcServer = (
   port: MainPortLike
 ): Effect.Effect<never, never, ProjectStore | Scope.Scope> =>
