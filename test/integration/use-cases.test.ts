@@ -159,3 +159,36 @@ describe("UseCases.archiveProject / restoreProject", () => {
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
 })
+
+describe("UseCases.setMetadata", () => {
+  it("replaces only provided fields, stamps updatedAt, and persists/broadcasts", async () => {
+    const program = Effect.gen(function* () {
+      const useCases = yield* UseCases
+      const bus = yield* EventBus
+      const store = yield* EventStore
+      const { project } = yield* useCases.createProject("meta", false)
+      const sub = yield* bus.subscribe
+      const updated = yield* useCases.setMetadata(project.id, { description: "hi", tags: ["a", "a", "b"] })
+      const broadcast = yield* PubSub.take(sub)
+      const persisted = yield* store.readAll
+      return { project, updated, broadcast, persisted }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+
+    const r = await Effect.runPromise(program)
+    expect(r.updated.description).toBe("hi")
+    expect(r.updated.tags).toEqual(["a", "b"]) // deduped via the fold
+    expect(r.updated.id).toBe(r.project.id)
+    expect(r.broadcast._tag).toBe("ProjectMetadataChanged")
+    expect(r.persisted).toHaveLength(2) // ProjectCreated + ProjectMetadataChanged
+  })
+
+  it("fails with ProjectNotFound for an unknown id", async () => {
+    const program = Effect.gen(function* () {
+      const useCases = yield* UseCases
+      return yield* useCases.setMetadata("nope", { description: "x" }).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    expect((exit as { _tag: string; failure: { _tag: string } })._tag).toBe("Failure")
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+  })
+})

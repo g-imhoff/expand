@@ -5,7 +5,7 @@ import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -28,6 +28,10 @@ export class UseCases extends Context.Service<UseCases, {
   ) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
   readonly archiveProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
   readonly restoreProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  readonly setMetadata: (
+    id: string,
+    patch: { description?: string | null; tags?: ReadonlyArray<string> }
+  ) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
@@ -146,13 +150,36 @@ export class UseCases extends Context.Service<UseCases, {
     const restoreProject = (id: string) =>
       toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
 
+    // Set metadata (replace-style). Validate the target exists in the FULL
+    // non-deleted set, then build a ProjectMetadataChanged carrying only the
+    // provided fields (present description incl. null / present tags). Append THEN
+    // publish, and return the freshly re-folded project (the fold dedupes tags +
+    // stamps updatedAt).
+    const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+      Effect.gen(function* () {
+        const all = yield* projection.list
+        const existing = all.find((p) => p.id === id)
+        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        const occurredAt = new Date().toISOString()
+        const event = ProjectMetadataChanged.make({
+          projectId: id,
+          ...(patch.description !== undefined ? { description: patch.description } : {}),
+          ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
+          occurredAt
+        })
+        yield* store.append(id, event)
+        yield* bus.publish(event)
+        const updated = (yield* projection.list).find((p) => p.id === id)
+        return updated ?? existing
+      })
+
     // Default false: filter out archived. Deleted are already absent from the
     // fold. The full set (archived included) is reached with includeArchived:true,
     // which slices use for uniqueness checks.
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, listProjects } as const
+    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, listProjects } as const
   })
 }) {}
 
