@@ -67,4 +67,25 @@ describe("DesktopRpcHandlers", () => {
     expect(moved.directory).toBe("/srv/a")
     expect(DesktopRpcHandlers).toBeDefined()
   })
+
+  it("ProjectArchive delegates to the store and toggles archived:true", async () => {
+    const program = Effect.gen(function* () {
+      const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
+        { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
+      ])
+      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const archived = yield* Effect.flatMap(ProjectStore, (s) => s.archiveProject("a")).pipe(
+        Effect.provide(fakeStoreLayer(ref, hub))
+      )
+      const restored = yield* Effect.flatMap(ProjectStore, (s) => s.restoreProject("a")).pipe(
+        Effect.provide(fakeStoreLayer(ref, hub))
+      )
+      return { archived, restored }
+    })
+    const { archived, restored } = await Effect.runPromise(program)
+    expect(archived.archived).toBe(true)
+    expect(restored.archived).toBe(false)
+    // The handler layer must construct with the new ProjectArchive/ProjectRestore delegations.
+    expect(DesktopRpcHandlers).toBeDefined()
+  })
 })

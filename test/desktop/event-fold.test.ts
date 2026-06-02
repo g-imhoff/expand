@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 describe("foldEvent", () => {
@@ -32,5 +32,20 @@ describe("foldEvent", () => {
   it("ProjectDirectoryChanged for an unknown id is a no-op", () => {
     const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }]
     expect(foldEvent(base, ProjectDirectoryChanged.make({ projectId: "z", directory: "/x", occurredAt: "t2" }))).toEqual(base)
+  })
+})
+
+describe("foldEvent — archive/restore", () => {
+  it("sets archived:true on ProjectArchived and stamps updatedAt", () => {
+    const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }]
+    const next = foldEvent(base, ProjectArchived.make({ projectId: "a", occurredAt: "t2" }))
+    expect(next[0]?.archived).toBe(true)
+    expect(next[0]?.updatedAt).toBe("t2")
+  })
+  it("sets archived:false on ProjectRestored", () => {
+    const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: true, createdAt: "t1", updatedAt: "t2" }]
+    const next = foldEvent(base, ProjectRestored.make({ projectId: "a", occurredAt: "t3" }))
+    expect(next[0]?.archived).toBe(false)
+    expect(next[0]?.updatedAt).toBe("t3")
   })
 })
