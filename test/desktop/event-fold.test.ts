@@ -8,7 +8,7 @@ describe("foldEvent", () => {
     expect(next.map((p) => p.name)).toEqual(["alpha"])
   })
   it("is idempotent on project id (no duplicates)", () => {
-    const base = [{ id: "a", name: "alpha", createdAt: "t" }]
+    const base = [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }]
     const next = foldEvent(base, ProjectCreated.make({ projectId: "a", name: "alpha", createdAt: "t" }))
     expect(next).toHaveLength(1)
   })
