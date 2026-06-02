@@ -25,6 +25,9 @@ export const foldEvent = (
     case "ProjectRenamed":
       return list.map((p) =>
         p.id === event.projectId ? { ...p, name: event.name, updatedAt: event.occurredAt } : p)
+    case "ProjectDirectoryChanged":
+      return list.map((p) =>
+        p.id === event.projectId ? { ...p, directory: event.directory, updatedAt: event.occurredAt } : p)
     default:
       return list
   }
