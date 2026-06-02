@@ -39,5 +39,8 @@ export const useProjects = () => {
   const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
     runtime.runFork(Effect.flatMap(ProjectStore, (s) => s.setMetadata(id, patch)))
 
-  return { projects, create, rename, changeDirectory, archive, restore, setMetadata }
+  const deleteProject = (id: string) =>
+    runtime.runFork(Effect.flatMap(ProjectStore, (s) => s.deleteProject(id)))
+
+  return { projects, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject }
 }
