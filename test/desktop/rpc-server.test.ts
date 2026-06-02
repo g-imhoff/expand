@@ -23,7 +23,11 @@ const fakeStoreLayer = (
         PubSub.publish(hub, ProjectCreated.make({ projectId: project.id, name, createdAt: "t" })),
         SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
       )
-    }
+    },
+    renameProject: (id: string, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
+      )
   })
 
 describe("main RpcServer <-> renderer RpcClient round-trip", () => {

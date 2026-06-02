@@ -63,6 +63,22 @@ describe("ProjectStore", () => {
     }
   })
 
+  it("renameProject updates the reactive projects ref via the live fold", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rt = ManagedRuntime.make(appLayer)
+    try {
+      const store = await rt.runPromise(ProjectStore)
+      const created = await rt.runPromise(store.createProject("alpha"))
+      await rt.runPromise(store.renameProject(created.id, "alpha-renamed"))
+      // allow the Events fold loop to apply (mirror the settle the file uses)
+      await new Promise((r) => setTimeout(r, 300))
+      const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
+      expect(snapshot.find((p) => p.id === created.id)?.name).toBe("alpha-renamed")
+    } finally {
+      await rt.dispose()
+    }
+  })
+
   it("exposes a live events stream that emits ProjectCreated", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
     const rt = ManagedRuntime.make(appLayer)
