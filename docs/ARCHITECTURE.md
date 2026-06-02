@@ -1,22 +1,42 @@
 # Yodea — Architecture Walkthrough
 
-> **What this is.** A self-contained tour of the architecture delivered on
-> `feat/architectural-foundation`, written so a senior reviewer can understand
+> **What this is.** A self-contained tour of the architecture as-built on this
+> branch (`worktree-project-ops-and-certification`, stacked on
+> `feat/architectural-foundation`), written so a senior reviewer can understand
 > the whole design — and *why each choice was made* — before reading a line of
 > code. You should not need any other file to follow it.
 >
-> **What this branch is.** The complete **walking skeleton** of Yodea: one
-> backend process that many frontends talk to over WebSocket RPC, built on
-> **Effect v4 beta**, event-sourced at the core. It proves every architectural
-> seam end-to-end against one tiny feature (create + list "projects") and
-> **defers all real product features**. ~85 files, ~5,300 insertions over
-> `develop`.
+> **What this branch is.** It takes the **walking skeleton** (one backend, many
+> thin RPC frontends, event-sourced on **Effect v4 beta**) and grows it into the
+> **full `project` lifecycle, threaded through every seam**, plus a
+> **certification pass** that proves the base holds up:
 >
-> **As-built vs. plans.** This document describes only what is *implemented in
-> this branch*. The dated specs under `docs/superpowers/specs/2026-06-01-*` and
-> `…/research/2026-06-01-*` are **next-iteration plans** (a chat-first TUI, a
-> MessagePort/TanStack Electron redesign, an agent-first CLI output contract) —
-> they appear here only as rationale and in §10, never as built.
+> 1. **Phase A — operations.** Five mutating operations — **rename,
+>    change-directory, delete (soft tombstone), archive/restore, set-metadata** —
+>    each a vertical slice (domain event → projection fold → RPC method + typed
+>    error → use-case → handler → live client store → CLI + TUI + desktop). The
+>    `Project` read-model, the event log, and the RPC contract all grew with it.
+> 2. **Phase B — certification.** Test hardening (error paths, fast-check
+>    property tests, coverage tooling), cross-cutting integration tests
+>    (durability across restart, concurrency, cross-store live sync), and
+>    **agent-driven manual testing**: the `manual-tester` agent drives the
+>    compiled binary in a terminal, and a `desktop-tester` agent drives the real
+>    Electron app over Chrome DevTools Protocol with `agent-browser`.
+>
+> Certification did its job: it surfaced **two real, pre-existing desktop
+> defects** — the main↔renderer RPC seam was silently broken for one-shot
+> queries (structured-clone stripped the Effect `Exit` continuation; §5.4), and
+> archive was a one-way trip (Restore unreachable) — **both now fixed, tested,
+> and live-verified.** 84 commits over `feat/architectural-foundation`.
+>
+> **As-built vs. plans.** This document describes what is *implemented on this
+> branch*. Two items previously listed as next-iteration plans are now **built**:
+> the desktop **MessagePort + serialized-RPC** seam and the **agent-first CLI
+> output contract** (versioned `yodea/v1` envelopes + a tagged-error→exit-code
+> taxonomy). The dated specs under `docs/superpowers/specs/2026-06-01-*` /
+> `…/research/2026-06-01-*` remain rationale (the chat-first TUI redesign is
+> still forward-looking); the design + plans for *this* branch's work live under
+> `docs/superpowers/{specs,plans}/2026-06-02-project-operations-and-certification*`.
 >
 > **Where to go deeper.** [`docs/architecture/BOUNDARIES.md`](architecture/BOUNDARIES.md)
 > is the normative spec of the four invariants. [`docs/PR-REVIEW-GUIDE.md`](PR-REVIEW-GUIDE.md)
@@ -79,27 +99,36 @@ Everything else in this branch is the machinery that makes that one idea hold.
 
 ## 2. What's in this branch
 
-**Scope — one vertical slice, fully wired:**
+**Scope — the full `project` lifecycle, wired through every seam, certified:**
 
 | | |
 |---|---|
-| Domain events | **1** — `ProjectCreated` |
-| Read-models | **1** — `Project` |
-| RPC procedures | **5** — `Health`, `ProjectCreate`, `ProjectList`, `Connect` (stream), `Events` (stream) |
-| Frontends | **3** — CLI (`apps/cli`), Ink TUI (`apps/tui`), Electron desktop (`apps/desktop`) |
+| Domain events | **7** — `ProjectCreated` + `ProjectRenamed`, `ProjectDirectoryChanged`, `ProjectArchived`, `ProjectRestored`, `ProjectMetadataChanged`, `ProjectDeleted` (a `Schema.Union`) |
+| Read-models | **1** — `Project`, now 8 fields (`id`, `name`, `directory`, `description`, `tags`, `archived`, `createdAt`, `updatedAt`) with backward-compatible decoding |
+| RPC procedures | **11** — `Health`, `ProjectCreate` (+`directory`), `ProjectList` (+`includeArchived`), `ProjectRename`, `ProjectChangeDirectory`, `ProjectArchive`, `ProjectRestore`, `ProjectSetMetadata`, `ProjectDelete`, `Connect` (stream), `Events` (stream) |
+| Typed RPC errors | **5** — `ProjectAlreadyExists`, `ProjectNotFound`, `ProjectNameConflict`, `ProjectDirectoryInvalid`, `ProjectDirectoryConflict` |
+| Frontends | **3** — CLI (`apps/cli`), Ink TUI (`apps/tui`), Electron desktop (`apps/desktop`) — **all three wired for every operation** |
+| CLI output contract | frozen **`yodea/v1`** envelopes + an `ErrorCode` taxonomy → **exit codes** `0`/`1`/`2`/`5`/`6`/`7`/`8`/`9`/`10` (agent-first JSON) |
 | Enforced invariants | **4** — I-1..I-4 (I-1 mechanically, via `dependency-cruiser` + a fitness test) |
+| Tests & certification | **270 tests** (63 files; unit/property/contract/integration/e2e) + a `manual-tester` (CLI) and a `desktop-tester` (agent-browser/CDP) certification agent |
 
-Everything beyond that one slice is **structural scaffolding designed to flex
-as features are added** — not missing work. The deferred list (real backend
-services, the agent loop, packaging, …) is in [§10](#10-scope--deferred--forward-looking).
+Each operation is built **test-first** as one vertical slice and respects all
+four invariants (notably: directory validation is server-side, so no frontend
+gains a filesystem dependency — I-1 holds). What is *still* deferred (real
+backend services, the agent loop, packaging, …) is in
+[§10](#10-scope--deferred--forward-looking).
 
 **Pinned stack.** The Effect stack and core devtools are **exact-pinned** (Effect
 v4 is beta): `effect@4.0.0-beta.74` (+ `@effect/platform-bun`,
 `@effect/platform-node`, `@effect/sql-sqlite-bun`, all the same beta) ·
 TypeScript 6.0.3 · Vitest 4.1.7 · dependency-cruiser 17.4.2. The frontend libs
 are major-version specifiers — Ink 7, React 19, Electron 42, electron-vite 5 (a
-couple of dev deps carry carets). Runtime is **Bun**; the CLI/backend compiles
-to a single `dist/yodea` binary.
+couple of dev deps carry carets). The desktop renderer adds TanStack
+Query/Router + `cmdk` + Radix (command palette & dialogs). Test/cert tooling:
+`fast-check` (property tests) and Vitest coverage (istanbul — the v8 provider
+can't run under `bun --bun`); the desktop manual-test agent uses `agent-browser`
+0.27 over CDP. Runtime is **Bun**; the CLI/backend compiles to a single
+`dist/yodea` binary.
 
 > **Effect v4 ≠ Effect 3.x.** v4 ships *one* `effect` package: stable modules at
 > the top level (`Effect`, `Layer`, `Context`, `Schema`, `Stream`, …) and beta
@@ -219,22 +248,28 @@ internals (that is invariant **I-1**).
 ```
 packages/
   contracts/        @yodea/contracts     — the pure wire contract (Schemas only)
-    rpc.ts  events.ts  project.ts  endpoint.ts
+    rpc.ts  events.ts  project.ts  endpoint.ts  cli.ts (yodea/v1 envelopes + ErrorCode)
   client-core/      @yodea/client-core   — the runtime-agnostic connection brain
     adapter.ts            — RuntimeAdapter: the ONLY cross-runtime seam
     adapters/bun.ts       — BunSocket + Bun.spawn
     adapters/node.ts      — `ws` package + node:child_process
     discovery.ts          — find-or-spawn-under-lock (runtime-neutral)
     with-client.ts        — one-shot CLI ritual (connect → run → drop)
-    project-store.ts       — long-lived live store (SubscriptionRef ← Events)
+    project-store.ts       — live store: SubscriptionRef ← Events; one method per operation
     index.ts              — barrel; deliberately does NOT re-export adapters
 
 apps/
   cli/        BACKEND + thin CLI client
     server/ application/ domain/ db/ composition/   ← backend internals (I-1 forbidden)
-    cli/                                             ← thin client (uses client-core only)
-  tui/        Ink + React, on Bun
-  desktop/    Electron + electron-vite + React (main / preload / renderer)
+    cli/        ← thin client (client-core only): defineCommand seam,
+       commands/project/{create,list,rename,change-directory,archive,restore,set-metadata,delete}.ts
+       commands/project/_resolve.ts (name-or-UUID → id), errors.ts (tagged-error → exit-code)
+  tui/        Ink + React, on Bun — mode state-machine (r/d/a/m/x keys) + input components
+  desktop/    Electron + electron-vite + React
+    src/main/{index,runtime}.ts + main/rpc/{server,handlers,transport}.ts  ← owns the connection; RPC over a MessagePort
+    src/preload/index.ts        ← pure port broker (requestPort) — exposes NO per-feature API
+    src/renderer/rpc/{client,port,runtime}.ts            ← RpcClient over the MessagePort (serialized)
+    src/renderer/features/projects/* + command/* + app/* ← TanStack Query/Router, cmdk palette, Radix dialogs
 ```
 
 - **`apps/cli`** is *two things in one artifact*: the spawnable **backend**
@@ -256,9 +291,9 @@ The rendered container view (target topology — see §10 for what is deferred):
 > (LikeC4) with per-view D2 sources in [`docs/architecture/d2/`](architecture/d2/),
 > rendered to [`docs/architecture/out/`](architecture/out/). Those diagrams depict
 > the **target** system, including pieces deferred in this branch (the ACP agent
-> service layer in `services.png`; the desktop state store in `desktop.png` is
-> drawn as "Zustand" but the as-built renderer uses a hand-rolled hook — see §5.4).
-> Treat them as the destination; this document is the as-built.
+> service layer in `services.png`; the desktop renderer now uses **TanStack
+> Query** for server state plus a small Zustand store for command-palette
+> open/close — see §5.4). Treat them as the destination; this document is the as-built.
 
 ---
 
@@ -302,9 +337,18 @@ Queries re-read and re-fold the whole log on every call (no cache).
 - Query/command errors are discharged with `Effect.orDie` to match the
   contract's `Schema.Never` error channel — a SQL/codec failure is a *server
   defect*, not a typed client error.
-- Today `DomainEvent` is a single `TaggedStruct` aliased directly. **Growth
-  path** (documented in `events.ts`): make it a `Schema.Union([…])` and add a
-  `case` to the fold.
+- `DomainEvent` is now a **7-member `Schema.Union`** and `projectsFromEvents`
+  has a `case` per event — this branch walked the documented growth path. The
+  five mutating operations split two ways in the fold: **aggregate mutations**
+  (`ProjectRenamed`, `ProjectDirectoryChanged`, `ProjectArchived`/`Restored`,
+  `ProjectMetadataChanged`) look the project up by `projectId` and update it
+  in place (stamping `updatedAt`, no-op if absent); **delete** is a **soft
+  tombstone** — `ProjectDeleted` removes the id from the read-model so it never
+  reappears (the event log stays append-only). `ProjectList` then filters
+  archived projects out of the *default* view (`includeArchived` opts them back
+  in); deleted projects are absent from every view. Directory changes are
+  validated server-side (absolute + exists-on-disk + unique among live
+  projects) before the event is appended.
 
 ### 5.2 The lifetime dance — discover, spawn, connect, self-shutdown (I-2/I-3/I-4)
 
@@ -370,7 +414,7 @@ connects once and *stays* connected, folding the live `Events` stream into a
    fold ProjectCreated → SubscriptionRef               fold → SubscriptionRef (B)
         │                                                          │
         ▼  .changes → runForEach                                   ▼  .changes → runForEach
-   setState / IPC push                                  setState / IPC push (B sees "X")
+   setState / cache fold                               setState / cache fold (B sees "X")
 ```
 
 Two details a reviewer should know:
@@ -391,32 +435,79 @@ Two details a reviewer should know:
 
 ### 5.4 The three frontends (as built)
 
-- **CLI** (`apps/cli/cli`) — the simplest client: `withClient(bunAdapter, use)`
-  does the one-shot ritual (discover/spawn → hold presence → run → drop). No
-  store; commands are `health`, `project create`, `project ls`.
+All three surface **every** operation; each adds an op as a thin wrapper over
+the shared contract — no transport code changes per op.
+
+- **CLI** (`apps/cli/cli`) — the one-shot ritual (`withClient` → discover/spawn →
+  hold presence → run → drop), one command file per op under
+  `commands/project/` built on a shared `defineCommand` seam. Targets are
+  name-*or*-UUID (`_resolve.ts` resolves a name to its id; a UUID passes through).
+  Output is the frozen **`yodea/v1`** contract: success envelopes
+  (`Project`/`ProjectList`/`ProjectDelete`, `--format json|text`, `--quiet`) and,
+  on failure, a tagged-error envelope on stderr mapped to a stable **exit code**
+  (`5` exists · `7` not-found · `8` name-conflict · `9` dir-invalid ·
+  `10` dir-conflict · `6` backend-unreachable · `2` usage · `1` unexpected · `0` ok).
 - **TUI** (`apps/tui`) — Ink 7 + React 19 on Bun. One `ManagedRuntime` over
   `ProjectStoreLayer(makeBunAdapter(…))`; a `useProjects` hook bridges the store
-  by `runFork`-ing `Stream.runForEach(SubscriptionRef.changes, setState)` and
-  interrupting on unmount. Components are pure. It resolves the backend command
-  **relative to its own module** (not `Bun.main`, which would spawn a *second
-  TUI*). Tested with `ink-testing-library` against a fake store.
-- **Desktop** (`apps/desktop`) — Electron 42, three processes:
+  (`Stream.runForEach(SubscriptionRef.changes, setState)`, interrupt on unmount).
+  A small **mode state-machine** (`list → rename | directory | metadata |
+  confirmDelete`) keeps exactly one `useInput` active; keys `r`/`d`/`a`/`m`/`x`
+  drive the ops, archived projects render inline with an `[archived]` marker.
+  Resolves the backend cmd via its own module (not `Bun.main`). Tested with
+  `ink-testing-library`; you exercise it manually.
+- **Desktop** (`apps/desktop`) — Electron 42, three processes, now a **serialized
+  RPC seam over a MessagePort** (the redesign formerly in §10, now built):
   - **main** owns the single connection (Node adapter + `ProjectStore` under a
-    `ManagedRuntime`) and registers IPC.
-  - **preload** exposes a typed `contextBridge` → `window.yodea`
-    (`listProjects` / `createProject` / `onProjectsChanged`).
-  - **renderer** is pure React-DOM UI over `window.yodea` only — it imports the
-    *contract types* and `effect` core, but **never** `client-core` or `main`
-    (the `renderer-must-not-import-client-core` rule). IPC calls are wrapped in
-    `Effect.tryPromise` so a backend-down failure surfaces as a typed UI error.
+    `ManagedRuntime`) and runs an `RpcServer.make(YodeaRpcs)` over one end of a
+    `MessageChannelMain`, with `RpcSerialization.json`.
+  - **preload** is a **pure port broker**: it brokers the `MessagePort` to the
+    renderer (`requestPort`) and exposes *no* per-feature API.
+  - **renderer** builds an `RpcClient.make(YodeaRpcs)` over the port and drives a
+    **TanStack Query/Router** UI with a **cmdk command palette** and **Radix
+    dialogs**; the live `Events` stream folds into the query cache. It imports the
+    *contract types* + `effect` core but **never** `client-core` or `main` (the
+    `renderer-must-not-import-client-core` rule).
 
-  > **As-built note.** The desktop uses **ad-hoc IPC**: `ipcMain.handle` +
-  > `webContents.send("project:changed", …)`. It is **not** the
-  > MessagePort/`RpcServer.makeNoSerialization`/TanStack redesign in the
-  > `2026-06-01-desktop-architecture-design.md` spec — that is a next iteration
-  > (§10). Two known structural bugs the spec intends to fix are present today
-  > (duplicate `ipcMain.handle` on a second window; a forked push fiber the
-  > caller never interrupts) — see PR review guide §15.3 / §17.
+  > **The seam fix (a real defect certification caught).** This seam previously
+  > used `RpcClient/RpcServer.makeNoSerialization` — an **in-process** contract —
+  > yet shipped raw envelopes across the Electron `MessageChannel`. `postMessage`
+  > does a **structured clone**, which strips prototypes + Symbol-keyed props, so
+  > the Effect `Exit` response lost its `[evaluate]` continuation and resumed as
+  > `[object Object]` → `Fiber.runLoop: Not a valid effect`. One-shot RPCs
+  > (`ProjectList`…) silently failed; the live Events-fold masked it, so even the
+  > Playwright e2e passed. **Fix:** the schema-aware `RpcClient.make`/`RpcServer.make`
+  > + `RpcSerialization.json` (only JSON crosses the port), guarded by a
+  > regression test that `structuredClone`s every message and an e2e assertion
+  > that `[role=alert]` is empty. The renderer query path is sound end-to-end.
+
+### 5.5 Certifying the base (Phase B)
+
+Phase A is built test-first, so every operation ships with its unit + contract
+tests. Phase B then *certifies the whole base* and is itself part of the
+deliverable a reviewer should look at:
+
+- **Test hardening** — error-path tests for the fold and `EventStore`, CLI
+  parse/validation edges, EventBus subscription-timing, and **fast-check property
+  tests** for the fold (determinism, replay-idempotency, tombstone-always-absent,
+  id-uniqueness — verified to catch regressions via mutation testing). A
+  `test:coverage` script reports a baseline (~68% stmts / 70% lines).
+- **Cross-cutting integration** over a *real* WebSocket backend — per-op live
+  round-trip, **durability across a full backend restart**, **cross-store live
+  sync** (two clients), and **concurrency**. The concurrency tests honestly
+  characterize the documented **TOCTOU** window: under genuine concurrency the
+  list-then-check uniqueness guard does *not* hold (accepted under I-2; the
+  deferred `TxQueue` closes it), so the tests assert the invariants that *do*
+  hold (no crash, deterministic re-fold) and a separate *sequential* test proves
+  the guard.
+- **Agent-driven manual testing** — `.claude/agents/manual-tester.md` drives the
+  compiled `dist/yodea` in a terminal (every op, every exit code, I-2/I-3/I-4);
+  `.claude/agents/desktop-tester.md` drives the real Electron app over CDP with
+  `agent-browser` (palette + dialogs, asserting UI *and* backend). Both ran
+  green: **CLI 19/19**, **desktop 7 PASS / 1 SKIP (create-with-directory is
+  CLI-only) / 0 FAIL**. Beyond the seam fix, the desktop run also caught
+  **archive being a one-way trip** (the palette sourced the archived-hidden list,
+  so Restore was unreachable) — fixed by giving the palette an
+  `includeArchived` data source.
 
 ---
 
@@ -442,9 +533,9 @@ printf '\nimport "@yodea/server/http"\n' >> packages/client-core/discovery.ts
 bun run arch     # EXPECT: error "frontends-must-not-import-backend"
 git checkout packages/client-core/discovery.ts
 
-printf '\nimport "@yodea/client-core"\n' >> apps/desktop/src/renderer/use-projects.ts
+printf '\nimport "@yodea/client-core"\n' >> apps/desktop/src/renderer/features/projects/use-projects.ts
 bun run arch     # EXPECT: error "renderer-must-not-import-client-core"
-git checkout apps/desktop/src/renderer/use-projects.ts
+git checkout apps/desktop/src/renderer/features/projects/use-projects.ts
 
 bun run arch     # EXPECT: clean tree → 0 violations
 ```
@@ -506,6 +597,28 @@ testing of the compiled binary under an isolated `YODEA_HOME`.)
    timer, a config knob, and a class of lingering-server bugs; the pid+timestamp
    lock stops a crashed mid-spawn process from wedging the CLI permanently.
 
+*Added this branch (project lifecycle + certification):*
+
+9. **The operation set is a certification vehicle, not a product wishlist.**
+   Rename / change-directory / delete / archive-restore / set-metadata were
+   chosen to exercise *distinct* architectural paths — aggregate mutation,
+   schema evolution (the `directory` field) + filesystem-backed validation, soft
+   removal, filtered projections, and free-form mutable state — so that "the base
+   supports the full lifecycle" is *proven*, not asserted. **Delete is a soft
+   tombstone** (event log stays append-only; ids never resurrect) and **metadata
+   is replace-style** (only provided fields change).
+10. **The in-process RPC contract must not cross a serializing boundary.** The
+    desktop seam taught this the hard way (§5.4): `makeNoSerialization` ships live
+    Effect values, which a `postMessage` structured-clone destroys. The seam now
+    uses schema-aware `RpcClient.make`/`RpcServer.make` + `RpcSerialization.json`,
+    mirroring how `client-core` already talks to the backend over sockets — one
+    serialization model for every cross-process hop.
+11. **Certify with the same agents that will operate the product.** Rather than
+    only unit-testing, the base is certified by driving the *real* artifacts: the
+    compiled binary in a terminal (`manual-tester`) and the real Electron app over
+    CDP (`desktop-tester`/`agent-browser`). This is what surfaced the two desktop
+    defects unit tests + the Playwright e2e had missed.
+
 ---
 
 ## 8. Code → docs index
@@ -517,36 +630,39 @@ each. Paths are repo-relative.
 
 | File | Responsibility |
 |---|---|
-| `events.ts` | `ProjectCreated` `TaggedStruct` + `DomainEvent` (single-member alias, Union growth-path noted) + `DomainEventFromJson` codec (the JSON-string codec for the SQLite payload column — encode on append, decode on read). The `Events` RPC stream sends the plain `DomainEvent` schema via the RPC NDJSON layer, not this codec. |
-| `project.ts` | `Project` read-model schema — note `id`, not `projectId`. |
+| `events.ts` | The **7-member `DomainEvent` `Schema.Union`** (`ProjectCreated` + the five mutations' events) + `DomainEventFromJson` codec (JSON-string codec for the SQLite payload column — encode on append, decode on read). `ProjectCreated` gained an optional `directory`; legacy events decode to `null`. The `Events` RPC stream sends the plain `DomainEvent` schema via the RPC NDJSON layer, not this codec. |
+| `project.ts` | `Project` read-model (8 fields, `id` not `projectId`; new fields decode with defaults so legacy rows still parse) + `ProjectId` (UUID) / `Tag` (kebab) / `DESCRIPTION_MAX_LENGTH` (2048) + `ProjectCreateResult` / `ProjectDeleteResult`. |
 | `endpoint.ts` | `Endpoint` schema, `PROTOCOL_VERSION`, `endpointFilePath()` (I-3 path, overridable via `YODEA_ENDPOINT_FILE`/`YODEA_HOME`). |
-| `rpc.ts` | **`YodeaRpcs`** — the 5-procedure `RpcGroup`; streaming RPCs declare no error schema (`Schema.Never`). |
+| `cli.ts` | The frozen **`yodea/v1`** output contract: `API_VERSION`, success envelopes (`Project`/`ProjectList`/`ProjectDelete`), the `ErrorCode` literals, and the error envelope. Changes here are breaking; a snapshot test guards it. |
+| `rpc.ts` | **`YodeaRpcs`** — the 11-procedure `RpcGroup` + the 5 tagged error classes (`ProjectAlreadyExists`/`NotFound`/`NameConflict`/`DirectoryInvalid`/`DirectoryConflict`); multi-error methods union their errors; streaming RPCs declare no error schema. |
 
 ### `apps/cli` — backend core (storage → domain → application)
 
 | File | Responsibility |
 |---|---|
 | `db/event-store.ts` | Append-only SQLite log: DDL (`seq` PK = global order); `append` (the commit point); `readAll` (`ORDER BY seq ASC`, whole-log, no cache). |
-| `domain/project.ts` | `projectsFromEvents` — pure left-fold on `_tag`; maps `event.projectId → project.id`. |
+| `domain/project.ts` | `projectsFromEvents` — pure left-fold with a `case` per event: `ProjectCreated` builds the row; rename/dir/archive/restore/metadata mutate it by id (stamp `updatedAt`, no-op if absent); `ProjectDeleted` removes it (tombstone). Maps `event.projectId → project.id`. |
 | `application/projections.ts` | `ProjectProjection.list` = `readAll` ∘ fold — projection-on-read, no materialized table. |
 | `application/event-bus.ts` | `EventBus` over `PubSub.unbounded`: `publish` (best-effort), scoped `subscribe`, live-only `stream`. |
-| `application/use-cases.ts` | `createProject` (append **then** publish), `listProjects`, `health`. |
+| `application/use-cases.ts` | One method per operation — each *load → validate → append → publish*. `validateDirectory` (shared by `createProject` + `changeDirectory`) uses Effect `FileSystem`/`Path` (absolute + exists + unique among live); name-uniqueness re-checks the full non-deleted set (archived included). `listProjects(includeArchived?)` filters archived by default. The list-then-check **TOCTOU** is documented/accepted under I-2. |
 
 ### `apps/cli` — server transport & lifetime
 
 | File | Responsibility |
 |---|---|
 | `server/connection-tracker.ts` | I-4 state machine: `count`/`armed` `Ref`s + `shutdown` `Deferred`; arm-on-first-connect, fire-at-zero. |
-| `server/rpc-handlers.ts` | Maps `YodeaRpcs` → use-cases; the `Connect` presence handler (per-request finalizer drives I-4); `Events` relays `bus.stream`. |
+| `server/rpc-handlers.ts` | Maps all `YodeaRpcs` methods → use-cases, mapping domain-tagged errors onto each method's typed error channel (`catchIf`) and discharging infra errors as defects; the `Connect` presence handler (per-request finalizer drives I-4); `Events` relays `bus.stream`. |
 | `server/endpoint-file.ts` | I-3 `acquireRelease`: write `server.json` on acquire, remove on close. |
 | `server/http.ts` | NDJSON-over-WebSocket transport on an ephemeral port; the 499-demoting access logger. |
-| `composition/app.ts` | `coreLayer` (one shared graph = I-2) + `runServer` lifecycle (write-after-bind, await shutdown, eager remove, ~1s grace teardown). |
+| `composition/app.ts` | `coreLayer` (one shared graph = I-2) — now also provides `BunFileSystem` + `Path` for server-side directory validation (backend-side; I-1 holds) — + `runServer` lifecycle (write-after-bind, await shutdown, eager remove, ~1s grace teardown). |
 
 ### `apps/cli/cli` — the thin CLI client (I-1)
 
 | File | Responsibility |
 |---|---|
-| `cli/commands/{health,project}.ts` | The commands — each just `withClient(bunAdapter, client => …)`. |
+| `cli/_command.ts` | The `defineCommand` seam: each command declares args/flags + a `ResultSpec` (json/text/quiet renderers) + a handler Effect; success routes to stdout per the global `--format`/`--quiet` flags. |
+| `cli/commands/project/*.ts` | One file per op (`create` [`--directory`], `list` [`--archived`], `rename`, `change-directory`, `archive`, `restore`, `set-metadata`, `delete`); `_resolve.ts` resolves a name-or-UUID target to an id (a duplicate live name → defect). |
+| `cli/errors.ts` · `cli/run.ts` | Tagged-error → `YodeaCliError` subclass → stable exit code (`mapContractError`); top-level `renderErrors` writes the `yodea/v1` error envelope to stderr and sets the exit code. |
 | `cli/commands/server.ts` | The **sole** I-1 exception: imports `composition` to boot the backend; wraps `runServer` in `Effect.ensuring(process.exit(0))`. |
 | `cli/main.ts` | Entry point; wires subcommands; imports no server internals. |
 
@@ -558,7 +674,7 @@ each. Paths are repo-relative.
 | `adapters/bun.ts` · `adapters/node.ts` | Bun (`BunSocket`+`Bun.spawn`) and Node (`ws`+`child_process`) adapters, behind explicit subpaths. |
 | `discovery.ts` | `readEndpoint` (never fails → `Option`), `tryAcquireLock` (O_EXCL + stale recovery), `awaitEndpoint`, `findOrSpawnBackend(adapter)`. Runtime-neutral (`node:fs`). |
 | `with-client.ts` | The one-shot ritual: connect → hold presence → bounded readiness → run → retry on `StaleEndpoint` (≤3). |
-| `project-store.ts` | The live store: `SubscriptionRef<Project[]>` seeded from `ProjectList`, folded forward by `Events`; holds presence for the runtime's life. |
+| `project-store.ts` | The live store: `SubscriptionRef<Project[]>` seeded from `ProjectList({ includeArchived: true })` (so archived projects are present for Restore), folded forward by a `switch` over all 7 events; one thin method per operation; holds presence for the runtime's life. |
 | `index.ts` | Barrel — re-exports the brain + the `RuntimeAdapter` *type*, **never** the adapters. |
 
 ### `apps/tui` & `apps/desktop` — the frontends
@@ -566,11 +682,12 @@ each. Paths are repo-relative.
 | File | Responsibility |
 |---|---|
 | `apps/tui/runtime.ts` | One `ManagedRuntime` over `ProjectStoreLayer(makeBunAdapter)` + `BunServices`; resolves the backend cmd via `import.meta.url` (not `Bun.main`). |
-| `apps/tui/use-projects.ts` | Effect→React bridge: `SubscriptionRef.changes → setState`; `create()` forks `store.createProject`. |
-| `apps/tui/{main.tsx,components/*}` | Entry + lifecycle; pure presentational `ProjectList` / `CreateInput`. |
-| `apps/desktop/src/main/{runtime,ipc,index}.ts` | Node-adapter `ProjectStore`; DI'd (electron-free) IPC wiring; window + preload + dispose-on-close. |
-| `apps/desktop/src/preload/{index.ts,api.d.ts}` | Typed `contextBridge` → `window.yodea` + its `.d.ts` mirror. |
-| `apps/desktop/src/renderer/{App.tsx,use-projects.ts,main.tsx}` | Pure UI over `window.yodea`; `Effect.tryPromise`-wrapped IPC with seed+push race handling. |
+| `apps/tui/use-projects.ts` | Effect→React bridge: `SubscriptionRef.changes → setState`; one action per operation. |
+| `apps/tui/components/{app,project-list,*-input,confirm-delete}.tsx` | `app.tsx` holds the mode state-machine + `r`/`d`/`a`/`m`/`x` keybindings; `project-list` shows the `[archived]` marker; one input/confirm component per op. |
+| `apps/desktop/src/main/{index,runtime}.ts`, `main/rpc/{server,handlers,transport}.ts` | Node-adapter `ProjectStore` under a `ManagedRuntime`; an `RpcServer.make` + `RpcSerialization.json` over a `MessageChannelMain` port; window + preload + dispose-on-close. `index.ts:13-14` opens CDP `:9222` only when `!app.isPackaged && YODEA_DEVTOOLS_CDP=1`. |
+| `apps/desktop/src/preload/index.ts` | Pure port broker: `contextBridge` exposes `requestPort()` only; brokers the `MessagePort` to the renderer. No per-feature surface. |
+| `apps/desktop/src/renderer/rpc/{client,port,runtime}.ts` | Builds `RpcClient.make` over the port + `RpcSerialization.json` (the **serialized** seam — see §5.4); connection-scoped `Scope`. |
+| `apps/desktop/src/renderer/{app/*,features/projects/*,command/*}` | TanStack Query/Router app; `features/projects/` = hooks (`useProjects`/`useAllProjects` + a mutation per op), `cache.ts`/`event-fold.ts` (live `Events`→cache fold, dual keys), `projects-view.tsx` (archived hidden) + the Radix dialogs; `command/` = the cmdk palette (sources `useAllProjects` so Restore is reachable). |
 | `apps/desktop/electron.vite.config.ts` | 3 builds; externalizes `electron`/`effect`/`@effect/*`/`ws`/node-builtins from main+preload, inlines `@yodea/*` aliases. |
 
 ### Enforcement & config
@@ -590,7 +707,9 @@ each. Paths are repo-relative.
 | [`docs/PR-REVIEW-GUIDE.md`](PR-REVIEW-GUIDE.md) | ~1,670-line review companion: hotspots, file-by-file, runtime fixes, the five build-time bugs. |
 | [`STATUS.md`](../STATUS.md) | Build log: what was built, deviations, deferred scope, green verification commands. |
 | [`docs/architecture/yodea.c4`](architecture/yodea.c4) + [`d2/`](architecture/d2/) → [`out/`](architecture/out/) | LikeC4 model + D2 sources → rendered PNGs (target topology — regenerate, don't hand-edit). |
-| `docs/superpowers/specs/2026-06-01-*`, `…/research/2026-06-01-*` | **Forward-looking** next-iteration plans — see §10. |
+| `docs/superpowers/specs/2026-06-02-project-operations-and-certification-design.md` + `…/plans/2026-06-02-project-{operations,certification}.md` | **This branch's** design spec + the two implementation plans (Phase A operations · Phase B certification). |
+| `.claude/agents/{manual-tester,desktop-tester}.md` | The two certification agents: drive the compiled CLI in a terminal · drive the real desktop app over CDP with `agent-browser`. |
+| `docs/superpowers/specs/2026-06-01-*`, `…/research/2026-06-01-*` | The earlier next-iteration plans — the chat-first TUI is still forward-looking (the desktop/CLI redesigns are now built); see §10. |
 
 ---
 
@@ -613,25 +732,47 @@ bun run build:desktop        # → apps/desktop/out/{main,preload,renderer}
 > Vitest timeout is raised to 30s in `vitest.config.ts` (config only — the
 > guard itself is unchanged).
 
-**Manual smoke (compiled binary, isolated home):**
+**Manual smoke — the full lifecycle (compiled binary, isolated home):**
 
 ```bash
-export YODEA_HOME="$(mktemp -d)"
+export YODEA_HOME="$(mktemp -d)"; export D="$(mktemp -d)"
 ./dist/yodea health --json                                   # → {"status":"ok"}
-./dist/yodea project create alpha && ./dist/yodea project create beta \
-  && ./dist/yodea project ls --json                          # → lists BOTH (durability across self-terminating servers)
-for i in 1 2 3 4; do ./dist/yodea project create "c$i" & done; wait
-./dist/yodea project ls --json                               # → all four (4-way spawn converged on one backend)
+./dist/yodea project create alpha --format json              # kind:Project, created:true
+./dist/yodea project create alpha --format json; echo $?     # → exit 5 (PROJECT_EXISTS)
+./dist/yodea project rename alpha alpha-2 --format json       # kind:Project, name:alpha-2
+./dist/yodea project change-directory alpha-2 "$D" --format json   # directory set (absolute+exists+unique)
+./dist/yodea project change-directory alpha-2 /no/such --format json; echo $?  # → exit 9 (DIRECTORY_INVALID)
+./dist/yodea project set-metadata alpha-2 --description hi --tag x --tag y --format json
+./dist/yodea project archive alpha-2 && ./dist/yodea project ls --format json   # → empty (archived hidden)
+./dist/yodea project ls --archived --format json              # → shows alpha-2 (archived:true)
+./dist/yodea project restore alpha-2 && ./dist/yodea project delete alpha-2 --format json  # kind:ProjectDelete
+./dist/yodea project rename ghost x --format json; echo $?    # → exit 7 (PROJECT_NOT_FOUND)
+```
+
+**Agent-driven certification (Phase B):**
+
+```bash
+# CLI — drive the binary in a terminal (every op, exit codes, I-2/I-3/I-4):
+bun run cert:cli:build        # → dist/yodea ; then dispatch the `manual-tester` agent (.claude/agents/manual-tester.md)
+# Desktop — drive the real Electron app over CDP with agent-browser:
+bun run build:desktop
+YODEA_HOME="$(mktemp -d)" YODEA_DEVTOOLS_CDP=1 \
+  YODEA_BACKEND_CMD='["bun","apps/cli/cli/main.ts","server"]' \
+  node_modules/.bin/electron apps/desktop/out/main/index.mjs --no-sandbox &
+# then connect agent-browser to the renderer page target on :9222 and follow .claude/agents/desktop-tester.md
+bun run test:coverage         # baseline ~68% stmts / 70% lines (istanbul)
+bun run e2e:desktop           # Playwright on the built app (create + live list, asserts no error alert)
 ```
 
 **A 30-minute reading path** (dependency order — small files, you can read all of it):
 
-1. **Contract** — `packages/contracts/{rpc,events,project,endpoint}.ts`. Everything depends on these.
-2. **Core** — `db/event-store.ts` → `domain/project.ts` → `application/{projections,event-bus,use-cases}.ts` (§5.1).
+1. **Contract** — `packages/contracts/{rpc,events,project,cli,endpoint}.ts`. Everything depends on these.
+2. **Core** — `db/event-store.ts` → `domain/project.ts` (the 7-case fold) → `application/{projections,event-bus,use-cases}.ts` (§5.1).
 3. **Lifetime** — `server/connection-tracker.ts` → `rpc-handlers.ts` (`Connect`) → `composition/app.ts` (§5.2).
-4. **Brain** — `client-core/adapter.ts` → `adapters/*` → `discovery.ts` → `with-client.ts` → `project-store.ts` (read the subscribe-before-snapshot comment, §5.3).
-5. **Frontends** — `apps/tui/{runtime,use-projects}.ts`; `apps/desktop/src/main/* → preload/* → renderer/*` (§5.4).
-6. **Boundary** — `.dependency-cruiser.cjs` + the fitness test; **run the §6 non-vacuity proof**.
+4. **Brain** — `client-core/adapter.ts` → `adapters/*` → `discovery.ts` → `with-client.ts` → `project-store.ts` (subscribe-before-snapshot comment, §5.3).
+5. **One operation slice end-to-end** — pick *rename* (the template) and read it across the seams: `events.ts` → `domain/project.ts` → `rpc.ts` → `use-cases.ts` → `rpc-handlers.ts` → `project-store.ts` → `cli/commands/project/rename.ts` (§5.1, §5.5).
+6. **Frontends** — `apps/tui/components/app.tsx` (mode machine); desktop `main/rpc/server.ts` + `renderer/rpc/client.ts` (the serialized seam, §5.4) → `renderer/features/projects/*` + `command/CommandPalette.tsx`.
+7. **Boundary & certification** — `.dependency-cruiser.cjs` + the fitness test (**run the §6 non-vacuity proof**); then `test/integration/concurrency.test.ts` (the honest TOCTOU) + `.claude/agents/{manual-tester,desktop-tester}.md`.
 
 For *finding problems*, jump to **PR review guide §8 / §18a** (prioritized hotspots).
 
@@ -639,32 +780,44 @@ For *finding problems*, jump to **PR review guide §8 / §18a** (prioritized hot
 
 ## 10. Scope — deferred & forward-looking
 
-**Deliberately deferred in this branch** (scaffolding is in place; these are not
-missing work):
+**Landed on this branch** (previously listed here as deferred / forward-looking):
+
+- The **full `project` lifecycle** — rename, change-directory, delete, archive/
+  restore, set-metadata — and the **`Schema.Union` of event types** the growth
+  path anticipated.
+- The **desktop MessagePort + serialized-RPC redesign** (`RpcServer`/`RpcClient.make`
+  + `RpcSerialization.json` + TanStack Query/Router + cmdk palette + Radix) from
+  `2026-06-01-desktop-architecture-design.md` — now built (and its in-process
+  `makeNoSerialization` pitfall fixed; §5.4).
+- The **agent-first CLI output contract** (versioned `yodea/v1` envelopes +
+  tagged-error→exit-code taxonomy) from `…/research/2026-06-01-cli-architecture-research.md`.
+
+**Still deliberately deferred** (scaffolding is in place; not missing work):
 
 - Real backend services — Git, Terminal, FileWatcher, Highlighter, DiffParser,
-  the ACP client — and the per-project `TxQueue`.
+  the ACP client — and the per-project **`TxQueue`** (which also closes the
+  documented list-then-check TOCTOU window — see below).
 - The ACP agent loop (an agent invoking the `yodea` CLI as a tool).
 - OS-keychain secrets (only env config is built; the endpoint `token` is a
   no-op today).
 - Historical-event replay on the `Events` stream (live-only by contract).
-- Packaging / installers / code-signing; multiple event types (`Schema.Union`);
-  project rename/delete; auth beyond the token.
+- Packaging / installers / code-signing; auth beyond the token.
 
-**Forward-looking plans — specced, NOT in this PR** (cite for rationale only):
+**Still forward-looking — specced, NOT in this branch:**
 
 - `docs/superpowers/specs/2026-06-01-tui-architecture-design.md` — a chat-first
   TUI redesign (status line + swappable region + always-mounted `/command`
-  composer). The as-built TUI is the simpler `ProjectList`/`CreateInput` +
-  `useProjects` bridge.
-- `docs/superpowers/specs/2026-06-01-desktop-architecture-design.md` — an Electron
-  redesign (per-window `MessageChannelMain` + `RpcServer.makeNoSerialization` +
-  TanStack Query/Router + sandboxed CommonJS preload). The as-built desktop uses
-  the `contextBridge`/`ipcMain.handle` IPC described in §5.4.
-- `docs/superpowers/research/2026-06-01-cli-architecture-research.md` — an
-  agent-first CLI output contract (versioned JSON envelopes, tagged-error→exit-code
-  taxonomy). Today the CLI emits ad-hoc `--json`.
+  composer). The as-built TUI is the simpler project list + per-op input
+  components driven by the mode state-machine (§5.4).
 
-**Known limitation (not a decision):** last-client shutdown takes ~1s (the
-documented Bun graceful-stop grace window) — distinct from the I-4 "no grace
-*period*" decision; it's a Bun-deadlock workaround, not an idle timeout.
+**Known limitations (not decisions):**
+
+- **TOCTOU under concurrency.** The uniqueness guards (name, directory) use
+  list-then-check with no commit-path mutex, so two *genuinely concurrent*
+  conflicting RPCs can both commit. Accepted under I-2 (a single backend
+  serializes in practice); the deferred `TxQueue` closes it. The concurrency
+  integration tests assert this honestly (the invariants that *do* hold) rather
+  than a guard that doesn't.
+- **~1s last-client shutdown.** Reaping takes ~1s (the documented Bun
+  graceful-stop grace window) — distinct from the I-4 "no grace *period*"
+  decision; it's a Bun-deadlock workaround, not an idle timeout.
