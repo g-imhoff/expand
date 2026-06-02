@@ -14,6 +14,7 @@
     "test:watch": "bun --bun vitest",
     "arch": "depcruise apps packages --config .dependency-cruiser.cjs",
     "build": "bun build apps/cli/cli/main.ts --compile --outfile dist/yodea",
+    "cert:cli:build": "bun run build",
     "dev:cli": "bun apps/cli/cli/main.ts",
     "dev:server": "bun apps/cli/cli/main.ts server",
     "dev:tui": "bun apps/tui/main.tsx",
