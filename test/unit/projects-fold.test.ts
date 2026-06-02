@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { projectsFromEvents } from "@yodea/domain/project"
-import { ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("projectsFromEvents", () => {
   it("folds an empty log into no projects", () => {
@@ -46,5 +46,29 @@ describe("projectsFromEvents", () => {
     expect(projectsFromEvents([
       ProjectDirectoryChanged.make({ projectId: "ghost", directory: "/srv/x", occurredAt: "t9" })
     ])).toEqual([])
+  })
+})
+
+describe("projectsFromEvents — archive/restore", () => {
+  it("ProjectArchived sets archived:true and stamps updatedAt", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectArchived.make({ projectId: "p1", occurredAt: "t2" })
+    ])
+    expect(p?.archived).toBe(true)
+    expect(p?.updatedAt).toBe("t2")
+    expect(p?.createdAt).toBe("t1")
+  })
+  it("ProjectRestored sets archived:false and stamps updatedAt", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectArchived.make({ projectId: "p1", occurredAt: "t2" }),
+      ProjectRestored.make({ projectId: "p1", occurredAt: "t3" })
+    ])
+    expect(p?.archived).toBe(false)
+    expect(p?.updatedAt).toBe("t3")
+  })
+  it("ignores an archive for an unknown project (out-of-order tolerance)", () => {
+    expect(projectsFromEvents([ProjectArchived.make({ projectId: "ghost", occurredAt: "t1" })])).toEqual([])
   })
 })
