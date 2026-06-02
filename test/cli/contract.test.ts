@@ -3,9 +3,9 @@ import { Effect } from "effect"
 import { makeYodea } from "@yodea/cli/main"
 import { runCli, stubLayer } from "./harness"
 
-const FULL = (over: Partial<{ id: string; name: string; directory: string | null; archived: boolean }>) => ({
-  id: over.id ?? "01J", name: over.name ?? "alpha", directory: over.directory ?? null, description: null,
-  tags: [], archived: over.archived ?? false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+const FULL = (over: Partial<{ id: string; name: string; directory: string | null; description: string | null; tags: ReadonlyArray<string>; archived: boolean }>) => ({
+  id: over.id ?? "01J", name: over.name ?? "alpha", directory: over.directory ?? null, description: over.description ?? null,
+  tags: over.tags ?? [], archived: over.archived ?? false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
 })
 
 const UUID = "11111111-1111-4111-8111-111111111111"
@@ -171,4 +171,39 @@ describe("CLI contract", () => {
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
     expect(r.code).toBe(7)
   })
+  const metaClient = {
+    ...okClient,
+    ProjectList: () => Effect.succeed([FULL({ id: "01J", name: "alpha" })]),
+    ProjectSetMetadata: ({ id, description, tags }: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
+      Effect.succeed(FULL({ id, name: "alpha", description: description ?? null, tags: tags ?? [] }))
+  }
+
+  it("project set-metadata <name> --description --tag -> Project envelope created:false, exit 0", async () => {
+    const r = await runCli(tree(metaClient), ["project", "set-metadata", "alpha", "--description", "hi", "--tag", "x", "--tag", "y"])
+    expect(r.code).toBe(0)
+    expect(r.stderr).toEqual([])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: false, data: { id: "01J", description: "hi", tags: ["x", "y"] } })
+  })
+
+  it("project set-metadata --clear-tags -> empty tags", async () => {
+    const r = await runCli(tree(metaClient), ["project", "set-metadata", "alpha", "--clear-tags"])
+    expect(JSON.parse(r.stdout.join("")).data.tags).toEqual([])
+    expect(r.code).toBe(0)
+  })
+
+  it("project set-metadata --quiet -> bare id", async () => {
+    const r = await runCli(tree(metaClient), ["project", "set-metadata", "alpha", "--description", "hi", "--quiet"])
+    expect(r.stdout.join("")).toBe("01J"); expect(r.code).toBe(0)
+  })
+
+  it("project set-metadata unknown -> PROJECT_NOT_FOUND, exit 7", async () => {
+    const notFound = {
+      ...metaClient,
+      ProjectList: () => Effect.succeed([])
+    }
+    const r = await runCli(tree(notFound), ["project", "set-metadata", "ghost", "--description", "x"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
+    expect(r.code).toBe(7)
+  })
+
 })
