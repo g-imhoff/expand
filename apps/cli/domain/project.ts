@@ -22,6 +22,12 @@ export const projectsFromEvents = (
           updatedAt: event.createdAt
         })
         break
+      case "ProjectRenamed": {
+        const existing = byId.get(event.projectId)
+        if (existing === undefined) break
+        byId.set(event.projectId, { ...existing, name: event.name, updatedAt: event.occurredAt })
+        break
+      }
     }
   }
   return [...byId.values()]
