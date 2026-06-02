@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react"
 import { PlusIcon } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
+import type { Project } from "@yodea/contracts/project"
 import {
   CommandDialog,
   CommandEmpty,
@@ -9,8 +10,9 @@ import {
   CommandItem,
   CommandList
 } from "../components/ui/command"
-import { useArchiveProject, useCreateProject, useProjects, useRenameProject, useRestoreProject } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useArchiveProject, useCreateProject, useProjects, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
+import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/EditMetadataDialog"
 import { useCommandPalette } from "./store"
 import { useCommandPaletteHotkey } from "./use-command-palette-hotkey"
 
@@ -28,7 +30,9 @@ export const CommandPalette = () => {
   const renameProject = useRenameProject()
   const archiveProject = useArchiveProject()
   const restoreProject = useRestoreProject()
+  const setMetadata = useSetMetadata()
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const [editing, setEditing] = useState<Project | null>(null)
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
   const trimmed = query.trim()
@@ -85,6 +89,12 @@ export const CommandPalette = () => {
                   <span>Rename “{project.name}”</span>
                 </CommandItem>
                 <CommandItem
+                  value={`edit ${project.name}`}
+                  onSelect={() => { setOpen(false); setEditing(project) }}
+                >
+                  <span>Edit metadata “{project.name}”</span>
+                </CommandItem>
+                <CommandItem
                   value={`${project.name} ${project.archived ? "restore" : "archive"}`}
                   onSelect={() => {
                     const action = project.archived ? restoreProject : archiveProject
@@ -114,6 +124,14 @@ export const CommandPalette = () => {
       onOpenChange={(o) => { if (!o) setRenaming(null) }}
       onRename={(id, name) => renameProject.mutate({ id, name })}
     />
+    {editing !== null && (
+      <EditMetadataDialog
+        open
+        project={editing}
+        onOpenChange={(o) => { if (!o) setEditing(null) }}
+        onSubmit={(patch) => setMetadata.mutateAsync({ id: editing.id, ...patch })}
+      />
+    )}
     </>
   )
 }

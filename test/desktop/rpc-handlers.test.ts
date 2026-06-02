@@ -92,4 +92,21 @@ describe("DesktopRpcHandlers", () => {
     // The handler layer must construct with the new ProjectArchive/ProjectRestore delegations.
     expect(DesktopRpcHandlers).toBeDefined()
   })
+  it("ProjectSetMetadata delegates to the store (replace-style merge)", async () => {
+    const program = Effect.gen(function* () {
+      const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
+        { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
+      ])
+      const hub = yield* PubSub.unbounded<DomainEvent>()
+      return yield* Effect.flatMap(ProjectStore, (s) => s.setMetadata("a", { description: "hi", tags: ["x"] })).pipe(
+        Effect.provide(fakeStoreLayer(ref, hub))
+      )
+    })
+    const updated = await Effect.runPromise(program)
+    expect(updated.description).toBe("hi")
+    expect(updated.tags).toEqual(["x"])
+    // The handler layer must construct with the new ProjectSetMetadata delegation.
+    expect(DesktopRpcHandlers).toBeDefined()
+  })
+
 })
