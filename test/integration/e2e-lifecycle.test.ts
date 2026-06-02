@@ -94,7 +94,9 @@ describe.sequential("end-to-end lifecycle", () => {
     expect(Option.isSome(observed)).toBe(true)
     if (Option.isSome(observed)) {
       expect(observed.value._tag).toBe("ProjectCreated")
-      expect(observed.value.name).toBe("live")
+      if (observed.value._tag === "ProjectCreated") {
+        expect(observed.value.name).toBe("live")
+      }
     }
   })
 })
