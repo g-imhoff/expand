@@ -79,7 +79,16 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
               ? SubscriptionRef.update(projects, (cur) =>
                   cur.some((p) => p.id === event.projectId)
                     ? cur
-                    : [...cur, { id: event.projectId, name: event.name, createdAt: event.createdAt }])
+                    : [...cur, {
+                        id: event.projectId,
+                        name: event.name,
+                        directory: null,
+                        description: null,
+                        tags: [],
+                        archived: false,
+                        createdAt: event.createdAt,
+                        updatedAt: event.createdAt
+                      }])
               : Effect.void
           )
         ),

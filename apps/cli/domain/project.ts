@@ -14,7 +14,12 @@ export const projectsFromEvents = (
         byId.set(event.projectId, {
           id: event.projectId,
           name: event.name,
-          createdAt: event.createdAt
+          directory: null,
+          description: null,
+          tags: [],
+          archived: false,
+          createdAt: event.createdAt,
+          updatedAt: event.createdAt
         })
         break
     }

@@ -10,8 +10,8 @@ describe("ProjectList", () => {
   })
   it("renders project names and count", () => {
     const projects = [
-      { id: "p1", name: "alpha", createdAt: "t" },
-      { id: "p2", name: "beta", createdAt: "t" }
+      { id: "p1", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" },
+      { id: "p2", name: "beta", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
     ]
     const { lastFrame } = render(<ProjectList projects={projects} />)
     expect(lastFrame()).toContain("Projects (2)")

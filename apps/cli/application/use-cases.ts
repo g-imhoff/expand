@@ -47,7 +47,19 @@ export class UseCases extends Context.Service<UseCases, {
         const event = ProjectCreated.make({ projectId: id, name, createdAt })
         yield* store.append(id, event)
         yield* bus.publish(event)
-        return { created: true, project: { id, name, createdAt } }
+        return {
+          created: true,
+          project: {
+            id,
+            name,
+            directory: null,
+            description: null,
+            tags: [],
+            archived: false,
+            createdAt,
+            updatedAt: createdAt
+          }
+        }
       })
 
     const listProjects = projection.list

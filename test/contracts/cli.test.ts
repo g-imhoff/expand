@@ -11,12 +11,12 @@ describe("contracts/cli", () => {
   })
 
   it("ProjectEnvelope round-trips a created project", () => {
-    const v = { apiVersion: "yodea/v1", kind: "Project", created: true, data: { id: "01J", name: "foo", createdAt: "t" } }
+    const v = { apiVersion: "yodea/v1", kind: "Project", created: true, data: { id: "01J", name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } }
     expect(dec(ProjectEnvelope, v)).toEqual(v)
   })
 
   it("ProjectListEnvelope carries count + array", () => {
-    const v = { apiVersion: "yodea/v1", kind: "ProjectList", count: 1, data: [{ id: "01J", name: "foo", createdAt: "t" }] }
+    const v = { apiVersion: "yodea/v1", kind: "ProjectList", count: 1, data: [{ id: "01J", name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }] }
     expect(dec(ProjectListEnvelope, v)).toEqual(v)
   })
 
@@ -38,7 +38,7 @@ describe("contracts/cli", () => {
   })
 
   it("ProjectCreateResult pairs created + project", () => {
-    const v = { created: false, project: { id: "01J", name: "foo", createdAt: "t" } }
+    const v = { created: false, project: { id: "01J", name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } }
     expect(dec(ProjectCreateResult, v)).toEqual(v)
   })
 })

@@ -12,6 +12,15 @@ export const foldEvent = (
     case "ProjectCreated":
       return list.some((p) => p.id === event.projectId)
         ? list
-        : [...list, { id: event.projectId, name: event.name, createdAt: event.createdAt }]
+        : [...list, {
+            id: event.projectId,
+            name: event.name,
+            directory: null,
+            description: null,
+            tags: [],
+            archived: false,
+            createdAt: event.createdAt,
+            updatedAt: event.createdAt
+          }]
   }
 }

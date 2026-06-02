@@ -25,4 +25,12 @@ describe("Project schema", () => {
     expect(Schema.decodeUnknownSync(Tag)("web-app")).toBe("web-app")
     expect(() => Schema.decodeUnknownSync(Tag)("Web App")).toThrow()
   })
+
+  it("decodes a legacy project (no new fields) filling defaults", () => {
+    const p = Schema.decodeUnknownSync(Project)({ id: "p1", name: "First", createdAt: "2026-01-01T00:00:00.000Z" })
+    expect(p.directory).toBeNull()
+    expect(p.description).toBeNull()
+    expect(p.tags).toEqual([])
+    expect(p.archived).toBe(false)
+  })
 })

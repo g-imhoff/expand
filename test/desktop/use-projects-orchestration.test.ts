@@ -13,7 +13,7 @@ describe("projects cache orchestration", () => {
   })
   it("applyEventToCache is idempotent on id", () => {
     const qc = new QueryClient()
-    qc.setQueryData<ReadonlyArray<Project>>(PROJECTS_KEY, [{ id: "a", name: "alpha", createdAt: "t" }])
+    qc.setQueryData<ReadonlyArray<Project>>(PROJECTS_KEY, [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }])
     applyEventToCache(qc, ProjectCreated.make({ projectId: "a", name: "alpha", createdAt: "t" }))
     expect(qc.getQueryData<ReadonlyArray<Project>>(PROJECTS_KEY)).toHaveLength(1)
   })
