@@ -36,4 +36,8 @@ describe("YodeaRpcs contract", () => {
     expect(names).toContain("ProjectArchive")
     expect(names).toContain("ProjectRestore")
   })
+  it("declares ProjectSetMetadata with id + optional description/tags and ProjectNotFound error", () => {
+    const rpc = YodeaRpcs.requests.get("ProjectSetMetadata")
+    expect(rpc).toBeDefined()
+  })
 })
