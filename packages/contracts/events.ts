@@ -32,7 +32,20 @@ export const ProjectDirectoryChanged = Schema.TaggedStruct("ProjectDirectoryChan
   occurredAt: Schema.String
 })
 
-export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged])
+// A project was archived (hidden from the default list but still live — its name
+// and directory stay reserved). `occurredAt` stamps `updatedAt` in the fold.
+export const ProjectArchived = Schema.TaggedStruct("ProjectArchived", {
+  projectId: Schema.String,
+  occurredAt: Schema.String
+})
+
+// A project was restored (un-archived). `occurredAt` stamps `updatedAt`.
+export const ProjectRestored = Schema.TaggedStruct("ProjectRestored", {
+  projectId: Schema.String,
+  occurredAt: Schema.String
+})
+
+export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored])
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
