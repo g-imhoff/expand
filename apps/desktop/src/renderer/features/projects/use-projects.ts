@@ -8,7 +8,7 @@ export const useProjects = () => {
   const { runtime, client } = useRpc()
   return useQuery({
     queryKey: PROJECTS_KEY,
-    queryFn: () => runtime.runPromise(client.ProjectList()),
+    queryFn: () => runtime.runPromise(client.ProjectList({})),
     staleTime: Infinity
   })
 }

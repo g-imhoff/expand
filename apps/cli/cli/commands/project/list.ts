@@ -16,5 +16,5 @@ export const listCommand = defineCommand(
     text: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => `${p.id}  ${p.name}`).join("\n"),
     quiet: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => p.id).join("\n")
   },
-  (): Effect.Effect<ReadonlyArray<Project>, unknown, YodeaClient> => Effect.flatMap(YodeaClient, (c) => c.ProjectList())
+  (): Effect.Effect<ReadonlyArray<Project>, unknown, YodeaClient> => Effect.flatMap(YodeaClient, (c) => c.ProjectList({}))
 )
