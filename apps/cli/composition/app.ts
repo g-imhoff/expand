@@ -1,7 +1,7 @@
 import { Effect, Exit, FileSystem, Layer, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunServices } from "@effect/platform-bun"
+import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/db/event-store"
 import { EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/application/projections"
@@ -32,10 +32,16 @@ const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
+  // BunFileSystem supplies FileSystem; BunServices supplies Path. UseCases will
+  // yield these in the change-directory slice (server-side directory validation,
+  // D7); wiring them now keeps that slice purely additive. These stay backend-side
+  // — I-1 (no frontend imports backend internals) is unaffected.
   const useCases = UseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
-    Layer.provide(projection)
+    Layer.provide(projection),
+    Layer.provide(BunFileSystem.layer),
+    Layer.provide(BunServices.layer)
   )
   // The RPC handlers depend on exactly these three.
   return Layer.mergeAll(useCases, EventBusLayer, ConnectionTrackerLayer)
