@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect"
+import { Tag } from "@yodea/contracts/project"
 
 // One event type today. As the domain grows, replace the alias below with
 // `Schema.Union([ProjectCreated, ProjectRenamed, ...])`; the projection fold
@@ -45,7 +46,18 @@ export const ProjectRestored = Schema.TaggedStruct("ProjectRestored", {
   occurredAt: Schema.String
 })
 
-export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored])
+// A project's metadata was changed (replace-style). Only the fields the caller
+// intends to change are present; the fold merges those onto the existing Project
+// and stamps `updatedAt` from `occurredAt`. `description` may be set to null;
+// `tags` are deduped in the fold.
+export const ProjectMetadataChanged = Schema.TaggedStruct("ProjectMetadataChanged", {
+  projectId: Schema.String,
+  description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  tags: Schema.optionalKey(Schema.Array(Tag)),
+  occurredAt: Schema.String
+})
+
+export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored, ProjectMetadataChanged])
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
