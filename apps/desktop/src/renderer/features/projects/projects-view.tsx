@@ -21,9 +21,16 @@ export const ProjectsView = () => {
     if (!n) return
     create.mutate(n, { onSuccess: () => setName("") })
   }
+  // The default index view hides archived projects, matching the CLI/backend
+  // default and the useProjects()→ProjectList({}) refetch path. The live event
+  // fold keeps an archived project in PROJECTS_KEY with archived:true until the
+  // mutation's invalidation refetches it hidden; filtering here makes the view
+  // consistent immediately (no lingering just-archived row). Archived projects
+  // stay reachable via the command palette (useAllProjects()) and its Restore.
+  const visible = projects.filter((p) => !p.archived)
   return (
     <main style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>Yodea — Projects ({projects.length})</h1>
+      <h1>Yodea — Projects ({visible.length})</h1>
       <form onSubmit={submit}>
         <input
           aria-label="project name"
@@ -37,7 +44,7 @@ export const ProjectsView = () => {
         <p role="alert" style={{ color: "crimson" }}>{String(error ?? create.error)}</p>
       )}
       <ul data-testid="project-list">
-        {projects.map((p) => (
+        {visible.map((p) => (
           <li key={p.id}>
             <Link to="/p/$projectId" params={{ projectId: p.id }}>{p.name}</Link>{" "}
             <small style={{ opacity: 0.6 }}>{p.id}</small>{" "}
