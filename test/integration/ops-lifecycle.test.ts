@@ -39,8 +39,13 @@ describe.sequential("project operations over the wire", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           // Buffer the event stream as a queue BEFORE mutating (live-only PubSub).
+          // The live-only PubSub only delivers events emitted AFTER the subscription
+          // attaches, so we must let the queue's subscription register on the server
+          // before firing mutations. Use the proven 500ms settle that the sibling
+          // project-store subscription-attach race relies on; 150ms was a flakier
+          // fixed delay that could lose the race on a slow boot.
           const events = yield* client.Events(undefined, { asQueue: true })
-          yield* Effect.sleep("150 millis")
+          yield* Effect.sleep("500 millis")
 
           const { project } = yield* client.ProjectCreate({ name: "ops", ensure: false })
           const renamed = yield* client.ProjectRename({ id: project.id, name: "ops-renamed" })

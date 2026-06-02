@@ -28,14 +28,70 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-// The list-then-check TOCTOU window is documented as acceptable under I-2 (a single
-// backend serializes mutations on one ordered socket per client). These tests assert
-// the committed-model invariants that DO hold under that window — unique names,
-// at most one live holder of a contested directory, and tombstone permanence — not
-// which concurrent request "wins". They also prove the backend does not crash and
-// the projection stays deterministic under concurrent load.
+// The list-then-check commit path in use-cases.ts is a TOCTOU window documented as
+// acceptable under I-2 (the source comment names the deferred TxQueue as the future
+// serialized-commit fix). The uniqueness guards (name + directory) genuinely hold for
+// the SEQUENTIAL case — those are the certified guarantees, asserted by the two
+// "rejects a SEQUENTIAL re-use ..." tests below. Under GENUINE concurrency neither
+// uniqueness is enforced: both contenders can list-then-check, observe the value as
+// free, and both append. So the concurrent tests assert ONLY what truly holds under
+// that window — the backend does NOT crash, both requests resolve, and the projection
+// re-folds deterministically with no id duplication and full internal consistency
+// (every project id appears exactly once) — NOT which request "wins" and NOT a
+// "no duplicate names/directories" guarantee, which the concurrent path does not make.
+// (Tombstone permanence — a deleted project never resurrects — is a separate, real
+// invariant asserted on its own below.)
 describe.sequential("project operations under concurrency", () => {
-  it("concurrent rename to the same name keeps names unique in the committed model", async () => {
+  // name-uniqueness guard, SEQUENTIAL case — the legitimately certified invariant.
+  // Mirror of the SEQUENTIAL directory test: rename A->"merged", THEN rename B->
+  // "merged"; absent a race the guard sees "merged" already taken and rejects the
+  // second with ProjectNameConflict. This is what proves the uniqueness guard works.
+  it("name-uniqueness guard rejects a SEQUENTIAL re-use with ProjectNameConflict", async () => {
+    const program = Effect.gen(function* () {
+      const dbPath = join(dir, "events.db")
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const out = yield* withClient(bunAdapter, (client) =>
+        Effect.gen(function* () {
+          const a = (yield* client.ProjectCreate({ name: "alpha", ensure: false })).project
+          const b = (yield* client.ProjectCreate({ name: "beta", ensure: false })).project
+          // Sequential: A takes "merged" first, THEN B contends for the same name.
+          const first = yield* client.ProjectRename({ id: a.id, name: "merged" }).pipe(Effect.result)
+          const second = yield* client.ProjectRename({ id: b.id, name: "merged" }).pipe(Effect.result)
+          const listed = yield* client.ProjectList({ includeArchived: true })
+          return { first, second, listed, aId: a.id }
+        })
+      )
+      yield* Fiber.interrupt(serverFiber)
+      return out
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    const r = (await Effect.runPromise(program)) as {
+      first: { _tag: string }
+      second: { _tag: string; failure?: { _tag: string } }
+      listed: ReadonlyArray<{ id: string; name: string }>
+      aId: string
+    }
+    expect(r.first._tag).toBe("Success")
+    expect(r.second._tag).toBe("Failure")
+    expect(r.second.failure?._tag).toBe("ProjectNameConflict")
+    // Without a race the invariant DOES hold: exactly one (A) carries "merged".
+    const holders = r.listed.filter((p) => p.name === "merged")
+    expect(holders).toHaveLength(1)
+    expect(holders[0]!.id).toBe(r.aId)
+  })
+
+  // CONCURRENT rename to the same name — documented TOCTOU window (same I-2 limitation
+  // as directory-uniqueness). name-uniqueness is NOT a guarantee under genuine
+  // concurrency: both renames list-then-check, both can observe "merged" as free, and
+  // both can append. This test asserts only what truly holds — both requests resolve
+  // with at least one Success, the backend does not crash, and the read-model re-folds
+  // deterministically (every project id appears exactly once). It deliberately does
+  // NOT assert "names are unique"; that is the same accepted TOCTOU window as
+  // directory-uniqueness (I-2), to be closed by the deferred TxQueue. (renameProject
+  // happens to have no async step between list and append today, so the window rarely
+  // opens — but that is a microtask-ordering artifact, not an enforced invariant, so
+  // we do not certify it.)
+  it("concurrent rename to the same name converges deterministically without a crash (documented TOCTOU)", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
@@ -50,7 +106,7 @@ describe.sequential("project operations under concurrency", () => {
             { concurrency: "unbounded" }
           )
           const listed = yield* client.ProjectList({ includeArchived: true })
-          return { results, listed }
+          return { results, listed, aId: a.id, bId: b.id }
         })
       )
       yield* Fiber.interrupt(serverFiber)
@@ -58,11 +114,22 @@ describe.sequential("project operations under concurrency", () => {
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string }>
-      listed: ReadonlyArray<{ name: string }>
+      listed: ReadonlyArray<{ id: string; name: string }>
+      aId: string
+      bId: string
     }
+    // No crash: both requests resolve, at least one renamed successfully.
+    expect(r.results).toHaveLength(2)
     expect(r.results.some((x) => x._tag === "Success")).toBe(true)
-    const names = r.listed.map((p) => p.name)
-    expect(new Set(names).size).toBe(names.length) // committed model: names unique
+    // Determinism / consistency: the projection re-folds cleanly — both projects
+    // still exist by id with NO id duplication (every project id appears once).
+    expect(r.listed).toHaveLength(2)
+    const ids = r.listed.map((p) => p.id)
+    expect(new Set(ids).size).toBe(ids.length) // no id duplication in the read-model
+    expect(new Set(ids)).toEqual(new Set([r.aId, r.bId]))
+    // NOTE: we intentionally do NOT assert name-uniqueness here — under the documented
+    // TOCTOU window both renames may commit "merged". That is the accepted I-2 race,
+    // identical to directory-uniqueness, to be closed by the deferred TxQueue.
   })
 
   it("a deleted (tombstoned) project never resurrects: restore fails ProjectNotFound", async () => {
