@@ -10,6 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun --bun vitest run",
+    "test:coverage": "bun --bun vitest run --coverage",
     "test:watch": "bun --bun vitest",
     "arch": "depcruise apps packages --config .dependency-cruiser.cjs",
     "build": "bun build apps/cli/cli/main.ts --compile --outfile dist/yodea",
@@ -50,6 +51,8 @@
     "@types/react-dom": "19",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-istanbul": "4.1.7",
+    "@vitest/coverage-v8": "4.1.7",
     "dependency-cruiser": "17.4.2",
     "electron": "42",
     "electron-playwright-helpers": "^1.7.1",
