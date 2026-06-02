@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron"
 
+// The preload's ONLY job: broker the MessagePort. The renderer calls requestPort()
+// on mount; main replies with a transferred port which we forward to the page via
+// window.postMessage (a live MessagePort cannot cross contextBridge — only plain
+// values can — so it is transferred natively here). Sandbox-safe (CommonJS preload).
+ipcRenderer.on("yodea:port", (event) => {
+  window.postMessage("yodea:port", "*", event.ports)
+})
+
 contextBridge.exposeInMainWorld("yodea", {
-  listProjects: () => ipcRenderer.invoke("project:list"),
-  createProject: (name: string) => ipcRenderer.invoke("project:create", name),
-  onProjectsChanged: (cb: (projects: unknown) => void) => {
-    const listener = (_e: unknown, projects: unknown) => cb(projects)
-    ipcRenderer.on("project:changed", listener)
-    return () => ipcRenderer.removeListener("project:changed", listener)
-  }
+  requestPort: () => ipcRenderer.send("yodea:port-request")
 })
