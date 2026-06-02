@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { PlusIcon } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import {
@@ -9,7 +9,8 @@ import {
   CommandItem,
   CommandList
 } from "../components/ui/command"
-import { useCreateProject, useProjects } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useCreateProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 import { useCommandPalette } from "./store"
 import { useCommandPaletteHotkey } from "./use-command-palette-hotkey"
 
@@ -24,6 +25,8 @@ export const CommandPalette = () => {
   const navigate = useNavigate()
   const { data: projects = [] } = useProjects()
   const createProject = useCreateProject()
+  const renameProject = useRenameProject()
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
   const trimmed = query.trim()
@@ -51,6 +54,7 @@ export const CommandPalette = () => {
   }
 
   return (
+    <>
     <CommandDialog open={open} onOpenChange={onOpenChange}>
       <CommandInput value={query} onValueChange={setQuery} placeholder="Type a project name or search…" />
       <CommandList>
@@ -68,9 +72,17 @@ export const CommandPalette = () => {
         {projects.length > 0 && (
           <CommandGroup heading="Projects">
             {projects.map((project) => (
-              <CommandItem key={project.id} value={project.name} onSelect={() => openProject(project.id)}>
-                {project.name}
-              </CommandItem>
+              <Fragment key={project.id}>
+                <CommandItem value={project.name} onSelect={() => openProject(project.id)}>
+                  {project.name}
+                </CommandItem>
+                <CommandItem
+                  value={`rename ${project.name}`}
+                  onSelect={() => { setOpen(false); setRenaming({ id: project.id, name: project.name }) }}
+                >
+                  <span>Rename “{project.name}”</span>
+                </CommandItem>
+              </Fragment>
             ))}
           </CommandGroup>
         )}
@@ -81,5 +93,12 @@ export const CommandPalette = () => {
         </div>
       )}
     </CommandDialog>
+    <RenameDialog
+      open={renaming !== null}
+      project={renaming}
+      onOpenChange={(o) => { if (!o) setRenaming(null) }}
+      onRename={(id, name) => renameProject.mutate({ id, name })}
+    />
+    </>
   )
 }
