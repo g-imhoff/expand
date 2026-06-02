@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, PubSub, Queue, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
-import type { Project } from "@yodea/contracts/project"
+import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
@@ -36,6 +36,9 @@ export interface ProjectStoreShape {
     id: string,
     patch: { description?: string | null; tags?: ReadonlyArray<string> }
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  // Soft-delete a project (server emits ProjectDeleted, folded out of the ref).
+  // Surfaces the typed ProjectNotFound so TUI/desktop can react (unlike create).
+  readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
   // Live stream of every DomainEvent the backend commits, for additional
   // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
   // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
@@ -144,6 +147,10 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                             updatedAt: event.occurredAt
                           }
                         : p))
+                case "ProjectDeleted":
+                  // Tombstone: drop the project from the ref (filter on an absent
+                  // id is a no-op — out-of-order tolerance, matching the server fold).
+                  return SubscriptionRef.update(projects, (cur) => cur.filter((p) => p.id !== event.projectId))
                 default:
                   return Effect.void
               }
@@ -182,7 +189,10 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
           id,
           ...(patch.description !== undefined ? { description: patch.description } : {}),
           ...(patch.tags !== undefined ? { tags: patch.tags } : {})
-        })
+        }),
+      // Soft-delete. Surfaces ProjectNotFound (does NOT Effect.die it); the
+      // ProjectDeleted event folds the project out of the ref via the loop above.
+      deleteProject: (id: string) => client.ProjectDelete({ id })
     }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —
