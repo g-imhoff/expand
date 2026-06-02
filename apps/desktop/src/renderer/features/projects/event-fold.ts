@@ -44,6 +44,10 @@ export const foldEvent = (
               updatedAt: event.occurredAt
             }
           : p)
+    case "ProjectDeleted":
+      // Tombstone: drop the project (filter on an absent id is a no-op — mirrors
+      // the server + client-core folds; a deleted id never reappears).
+      return list.filter((p) => p.id !== event.projectId)
     default:
       return list
   }
