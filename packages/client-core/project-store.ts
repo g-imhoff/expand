@@ -82,7 +82,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                     : [...cur, {
                         id: event.projectId,
                         name: event.name,
-                        directory: null,
+                        directory: event.directory ?? null,
                         description: null,
                         tags: [],
                         archived: false,
