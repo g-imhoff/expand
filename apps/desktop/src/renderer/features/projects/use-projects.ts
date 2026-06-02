@@ -35,3 +35,16 @@ export const useRenameProject = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
   })
 }
+
+// Change a project's directory. The resulting ProjectDirectoryChanged arrives via
+// the Events stream and folds into the cache; invalidate as a belt-and-braces
+// refresh. The typed ProjectDirectoryInvalid/Conflict errors reject the promise.
+export const useChangeDirectory = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, directory }: { id: string; directory: string }) =>
+      runtime.runPromise(client.ProjectChangeDirectory({ id, directory })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}
