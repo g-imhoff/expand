@@ -26,6 +26,10 @@ export interface ProjectStoreShape {
     id: string,
     directory: string
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict>
+  // Archive/restore over the held connection. SURFACE the typed ProjectNotFound
+  // (does NOT Effect.die it) so TUI/desktop can react.
+  readonly archiveProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  readonly restoreProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   // Live stream of every DomainEvent the backend commits, for additional
   // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
   // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
@@ -115,6 +119,14 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                   return SubscriptionRef.update(projects, (cur) =>
                     cur.map((p) =>
                       p.id === event.projectId ? { ...p, directory: event.directory, updatedAt: event.occurredAt } : p))
+                case "ProjectArchived":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.map((p) =>
+                      p.id === event.projectId ? { ...p, archived: true, updatedAt: event.occurredAt } : p))
+                case "ProjectRestored":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.map((p) =>
+                      p.id === event.projectId ? { ...p, archived: false, updatedAt: event.occurredAt } : p))
                 default:
                   return Effect.void
               }
@@ -141,7 +153,10 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       renameProject: (id: string, name: string) => client.ProjectRename({ id, name }),
       // Surfaces ProjectNotFound/ProjectDirectoryInvalid/ProjectDirectoryConflict
       // (does NOT Effect.die them).
-      changeDirectory: (id: string, directory: string) => client.ProjectChangeDirectory({ id, directory })
+      changeDirectory: (id: string, directory: string) => client.ProjectChangeDirectory({ id, directory }),
+      // Surface ProjectNotFound (does NOT Effect.die it).
+      archiveProject: (id: string) => client.ProjectArchive({ id }),
+      restoreProject: (id: string) => client.ProjectRestore({ id })
     }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —

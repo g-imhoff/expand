@@ -24,6 +24,14 @@ const fakeStoreLayer = (
     changeDirectory: (id: string, directory: string) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, directory } : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    archiveProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, archived: true } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    restoreProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, archived: false } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
       )
   })
 
