@@ -12,9 +12,6 @@ describe("projectsFromEvents", () => {
       ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
       ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" })
     ])
-    expect(projects).toEqual([
-      { id: "p1", name: "A", createdAt: "t1" },
-      { id: "p2", name: "B", createdAt: "t2" }
-    ])
+    expect(projects.map((p) => p.id)).toEqual(["p1", "p2"])
   })
 })

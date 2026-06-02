@@ -31,6 +31,6 @@ describe("ProjectProjection", () => {
         return yield* projection.list
       })
     )
-    expect(projects).toEqual([{ id: "p1", name: "A", createdAt: "t1" }])
+    expect(projects).toEqual([{ id: "p1", name: "A", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }])
   })
 })
