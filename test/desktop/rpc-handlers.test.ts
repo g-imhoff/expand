@@ -44,4 +44,19 @@ describe("DesktopRpcHandlers", () => {
     // The handler layer must construct without error.
     expect(DesktopRpcHandlers).toBeDefined()
   })
+
+  it("ProjectChangeDirectory delegates to the store", async () => {
+    const program = Effect.gen(function* () {
+      const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
+        { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
+      ])
+      const hub = yield* PubSub.unbounded<DomainEvent>()
+      return yield* Effect.flatMap(ProjectStore, (s) => s.changeDirectory("a", "/srv/a")).pipe(
+        Effect.provide(fakeStoreLayer(ref, hub))
+      )
+    })
+    const moved = await Effect.runPromise(program)
+    expect(moved.directory).toBe("/srv/a")
+    expect(DesktopRpcHandlers).toBeDefined()
+  })
 })
