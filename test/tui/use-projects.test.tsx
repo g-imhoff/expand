@@ -14,7 +14,11 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     createProject: (name: string) => {
       const project = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
-    }
+    },
+    renameProject: (id: string, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
+      )
   })
 
 describe("useProjects bridge", () => {

@@ -33,7 +33,11 @@ const fakeStoreLayer = (
     createProject: (name: string) => {
       const p = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (c) => [...c, p]).pipe(Effect.as(p))
-    }
+    },
+    renameProject: (id: string, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
+        Effect.map((c) => c.find((p) => p.id === id)!)
+      )
   })
 
 describe("connectPort", () => {

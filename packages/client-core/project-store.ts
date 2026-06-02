@@ -4,6 +4,7 @@ import type { FileSystem, Scope } from "effect"
 import type { Project } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
+import type { ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
 
@@ -12,6 +13,12 @@ export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   // Issue a create over the held connection (server emits the event we fold).
   readonly createProject: (name: string) => Effect.Effect<Project, RpcClientError.RpcClientError>
+  // Rename over the held connection. Unlike createProject, this SURFACES the typed
+  // domain errors (ProjectNotFound/ProjectNameConflict) so TUI/desktop can react.
+  readonly renameProject: (
+    id: string,
+    name: string
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict>
   // Live stream of every DomainEvent the backend commits, for additional
   // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
   // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
@@ -69,27 +76,38 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     // without competing for the single `events` queue. Bound to the ambient scope.
     const hub = yield* PubSub.unbounded<DomainEvent>()
 
-    // Fold every future ProjectCreated into the ref AND re-publish to the hub.
+    // Fold every future event into the ref AND re-publish to the hub. Mirrors the
+    // server (apps/cli/domain/project.ts) and desktop renderer folds: each arm
+    // stamps updatedAt from the event time; unknown tags are a no-op.
     yield* Effect.forkScoped(
       Queue.take(events).pipe(
         Effect.flatMap((event) =>
           Effect.andThen(
             PubSub.publish(hub, event),
-            event._tag === "ProjectCreated"
-              ? SubscriptionRef.update(projects, (cur) =>
-                  cur.some((p) => p.id === event.projectId)
-                    ? cur
-                    : [...cur, {
-                        id: event.projectId,
-                        name: event.name,
-                        directory: event.directory ?? null,
-                        description: null,
-                        tags: [],
-                        archived: false,
-                        createdAt: event.createdAt,
-                        updatedAt: event.createdAt
-                      }])
-              : Effect.void
+            (() => {
+              switch (event._tag) {
+                case "ProjectCreated":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.some((p) => p.id === event.projectId)
+                      ? cur
+                      : [...cur, {
+                          id: event.projectId,
+                          name: event.name,
+                          directory: event.directory ?? null,
+                          description: null,
+                          tags: [],
+                          archived: false,
+                          createdAt: event.createdAt,
+                          updatedAt: event.createdAt
+                        }])
+                case "ProjectRenamed":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.map((p) =>
+                      p.id === event.projectId ? { ...p, name: event.name, updatedAt: event.occurredAt } : p))
+                default:
+                  return Effect.void
+              }
+            })()
           )
         ),
         Effect.forever
@@ -107,7 +125,9 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
         client.ProjectCreate({ name, ensure: true }).pipe(
           Effect.map((r) => r.project),
           Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e))
-        )
+        ),
+      // Surfaces ProjectNotFound/ProjectNameConflict (does NOT Effect.die them).
+      renameProject: (id: string, name: string) => client.ProjectRename({ id, name })
     }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —
