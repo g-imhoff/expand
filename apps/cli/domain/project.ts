@@ -14,7 +14,7 @@ export const projectsFromEvents = (
         byId.set(event.projectId, {
           id: event.projectId,
           name: event.name,
-          directory: null,
+          directory: event.directory ?? null,
           description: null,
           tags: [],
           archived: false,
