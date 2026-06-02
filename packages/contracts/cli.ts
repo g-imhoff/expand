@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { Project } from "@yodea/contracts/project"
+import { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 
 // The agent-facing contract version. Bump ONLY on a breaking change to any
 // envelope shape (the snapshot test guards this).
@@ -13,7 +13,10 @@ export const ErrorCode = Schema.Literals([
   "UNKNOWN_COMMAND",
   "PROJECT_EXISTS",
   "BACKEND_UNREACHABLE",
-  "PROJECT_NOT_FOUND"
+  "PROJECT_NOT_FOUND",
+  "NAME_CONFLICT",
+  "DIRECTORY_INVALID",
+  "DIRECTORY_CONFLICT"
 ])
 export type ErrorCode = typeof ErrorCode.Type
 
@@ -43,6 +46,13 @@ export const ProjectListEnvelope = Schema.Struct({
   data: Schema.Array(Project)
 })
 export type ProjectListEnvelope = typeof ProjectListEnvelope.Type
+
+export const ProjectDeleteEnvelope = Schema.Struct({
+  apiVersion: Schema.Literal(API_VERSION),
+  kind: Schema.Literal("ProjectDelete"),
+  data: ProjectDeleteResult
+})
+export type ProjectDeleteEnvelope = typeof ProjectDeleteEnvelope.Type
 
 export const HealthEnvelope = Schema.Struct({
   apiVersion: Schema.Literal(API_VERSION),

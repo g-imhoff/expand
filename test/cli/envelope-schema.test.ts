@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { ErrorEnvelope, HealthEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@yodea/contracts/cli"
+import { ErrorEnvelope, HealthEnvelope, ProjectDeleteEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@yodea/contracts/cli"
 
 // Freeze the yodea/v1 envelope shapes. A change here is a CONTRACT change: it must
 // be intentional, bump API_VERSION, and update this snapshot in the same commit.
@@ -17,6 +17,7 @@ describe("envelope contract (yodea/v1)", () => {
     expect({
       ProjectEnvelope: shapeOf(ProjectEnvelope),
       ProjectListEnvelope: shapeOf(ProjectListEnvelope),
+      ProjectDeleteEnvelope: shapeOf(ProjectDeleteEnvelope),
       HealthEnvelope: shapeOf(HealthEnvelope),
       ErrorEnvelope: shapeOf(ErrorEnvelope)
     }).toMatchSnapshot()
