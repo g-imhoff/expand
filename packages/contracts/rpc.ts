@@ -23,6 +23,20 @@ export class ProjectNameConflict extends Schema.TaggedErrorClass<ProjectNameConf
   { name: Schema.String }
 ) {}
 
+// Typed RPC error: a change-directory target path failed server-side validation.
+// `reason` is "not-absolute" (relative path) or "not-found" (not on disk).
+export class ProjectDirectoryInvalid extends Schema.TaggedErrorClass<ProjectDirectoryInvalid>()(
+  "ProjectDirectoryInvalid",
+  { directory: Schema.String, reason: Schema.String }
+) {}
+
+// Typed RPC error: another live project already uses the requested directory
+// (archived included — an archived directory stays reserved).
+export class ProjectDirectoryConflict extends Schema.TaggedErrorClass<ProjectDirectoryConflict>()(
+  "ProjectDirectoryConflict",
+  { directory: Schema.String }
+) {}
+
 export class YodeaRpcs extends RpcGroup.make(
   // Liveness query.
   Rpc.make("Health", { success: Schema.String }),
@@ -40,6 +54,14 @@ export class YodeaRpcs extends RpcGroup.make(
     payload: { id: Schema.String, name: Schema.String },
     success: Project,
     error: Schema.Union([ProjectNotFound, ProjectNameConflict])
+  }),
+  // Command: change a project's working directory (by id). Validated server-side:
+  // ProjectNotFound (missing target), ProjectDirectoryInvalid (relative or not on
+  // disk), ProjectDirectoryConflict (used by another live project).
+  Rpc.make("ProjectChangeDirectory", {
+    payload: { id: Schema.String, directory: Schema.String },
+    success: Project,
+    error: Schema.Union([ProjectNotFound, ProjectDirectoryInvalid, ProjectDirectoryConflict])
   }),
   // Query: list projects (projection). `includeArchived` (default false) controls
   // whether archived projects are returned; deleted are always excluded.
