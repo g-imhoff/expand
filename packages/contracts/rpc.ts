@@ -16,6 +16,13 @@ export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
   { id: Schema.String }
 ) {}
 
+// Typed RPC error: a rename target the requested name is already taken by another
+// live project (archived included — an archived name stays reserved).
+export class ProjectNameConflict extends Schema.TaggedErrorClass<ProjectNameConflict>()(
+  "ProjectNameConflict",
+  { name: Schema.String }
+) {}
+
 export class YodeaRpcs extends RpcGroup.make(
   // Liveness query.
   Rpc.make("Health", { success: Schema.String }),
@@ -26,6 +33,13 @@ export class YodeaRpcs extends RpcGroup.make(
     payload: { name: Schema.String, ensure: Schema.Boolean },
     success: ProjectCreateResult,
     error: ProjectAlreadyExists
+  }),
+  // Command: rename a project (by id). Fails ProjectNotFound if the target is
+  // gone, ProjectNameConflict if another live project already owns the name.
+  Rpc.make("ProjectRename", {
+    payload: { id: Schema.String, name: Schema.String },
+    success: Project,
+    error: Schema.Union([ProjectNotFound, ProjectNameConflict])
   }),
   // Query: list projects (projection). `includeArchived` (default false) controls
   // whether archived projects are returned; deleted are always excluded.
