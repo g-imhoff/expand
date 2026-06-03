@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
+import { DomainEventFromJson, ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
@@ -69,6 +69,24 @@ describe("ProjectDirectoryChanged", () => {
       directory: "/home/u/p1",
       occurredAt: "2026-01-02T00:00:00.000Z"
     })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+})
+
+describe("ProjectArchived / ProjectRestored", () => {
+  it("constructs ProjectArchived with an auto-filled _tag", () => {
+    const e = ProjectArchived.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
+    expect(e._tag).toBe("ProjectArchived")
+    expect(e.projectId).toBe("p1")
+  })
+  it("roundtrips ProjectArchived through JSON text", () => {
+    const e = ProjectArchived.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
+    const json = Schema.encodeSync(DomainEventFromJson)(e)
+    expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+  it("roundtrips ProjectRestored through JSON text", () => {
+    const e = ProjectRestored.make({ projectId: "p1", occurredAt: "2026-06-02T00:00:00.000Z" })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
   })
