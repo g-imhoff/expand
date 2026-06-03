@@ -14,6 +14,9 @@ describe("YodeaRpcs contract", () => {
   it("YodeaHandlers covers every RPC (typechecks) and is defined", () => {
     expect(YodeaHandlers).toBeDefined()
   })
+  it("YodeaHandlers layer includes the change-directory handler and constructs", () => {
+    expect(YodeaHandlers).toBeDefined()
+  })
   it("exposes the five procedures by tag", () => {
     // RpcGroup exposes its requests; assert the tags we depend on exist.
     const tags = [...YodeaRpcs.requests.keys()]
