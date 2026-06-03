@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { ProjectEvent } from "@yodea/contracts/events/project"
 
-export { domainEvent, DomainEventMeta } from "@yodea/contracts/events/meta"
+export { DomainEventMeta } from "@yodea/contracts/events/meta"
 
 export const DomainEvent = ProjectEvent
 export type DomainEvent = typeof DomainEvent.Type
