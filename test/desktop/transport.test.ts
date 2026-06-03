@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, ManagedRuntime, PubSub, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 import { ProjectStore } from "@yodea/client-core"
 import { connectPort } from "@yodea/desktop/main/rpc/transport"
 

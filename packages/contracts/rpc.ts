@@ -1,6 +1,6 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
-import { DomainEvent } from "@yodea/contracts/events"
+import { DomainEvent } from "@yodea/contracts/events/domain"
 import { DESCRIPTION_MAX_LENGTH, Project, ProjectCreateResult, ProjectDeleteResult, Tag } from "@yodea/contracts/project"
 
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(

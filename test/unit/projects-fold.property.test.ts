@@ -9,8 +9,8 @@ import {
   ProjectMetadataChanged,
   ProjectRenamed,
   ProjectRestored
-} from "@yodea/contracts/events"
-import type { DomainEvent } from "@yodea/contracts/events"
+} from "@yodea/contracts/events/project"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 
 const idArb = fc.constantFrom("p1", "p2", "p3", "p4")
 const nameArb = fc.constantFrom("alpha", "beta", "gamma", "delta")
