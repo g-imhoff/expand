@@ -3,6 +3,11 @@ import { Effect } from "effect"
 import { makeYodea } from "@yodea/cli/main"
 import { runCli, stubLayer } from "./harness"
 
+const FULL = (over: Partial<{ id: string; name: string }>) => ({
+  id: over.id ?? "01J", name: over.name ?? "alpha", directory: null, description: null,
+  tags: [], archived: false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+})
+
 const okClient = {
   Health: () => Effect.succeed("ok"),
   ProjectCreate: ({ name, ensure }: { name: string; ensure: boolean }) =>
@@ -10,9 +15,15 @@ const okClient = {
       ? Effect.fail({ _tag: "ProjectAlreadyExists", name })
       : Effect.succeed({ created: !(name === "dup"), project: { id: "01J", name, createdAt: "2026-01-01T00:00:00.000Z" } }),
   ProjectList: () => Effect.succeed([
-    { id: "01K", name: "beta", createdAt: "2026-01-02T00:00:00.000Z" },
-    { id: "01J", name: "alpha", createdAt: "2026-01-01T00:00:00.000Z" }
-  ])
+    FULL({ id: "01K", name: "beta" }),
+    FULL({ id: "01J", name: "alpha" })
+  ]),
+  ProjectRename: ({ id, name }: { id: string; name: string }) =>
+    name === "taken"
+      ? Effect.fail({ _tag: "ProjectNameConflict", name })
+      : id === "00000000-0000-4000-8000-000000000000" || id === "01J"
+        ? Effect.succeed(FULL({ id, name }))
+        : Effect.fail({ _tag: "ProjectNotFound", id })
 }
 const downClient = {
   Health: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" }),
@@ -68,5 +79,27 @@ describe("CLI contract", () => {
     const r = await runCli(tree(okClient), ["health"])
     expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Health", data: { status: "ok" } })
     expect(r.code).toBe(0)
+  })
+  it("project rename <uuid> <new> -> Project envelope created:false, exit 0", async () => {
+    const r = await runCli(tree(okClient), ["project", "rename", "00000000-0000-4000-8000-000000000000", "renamed"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: false, data: { name: "renamed" } })
+  })
+  it("project rename <name> <new> resolves via ProjectList, exit 0", async () => {
+    const r = await runCli(tree(okClient), ["project", "rename", "alpha", "renamed"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join("")).data.id).toBe("01J")
+  })
+  it("project rename to a taken name -> NAME_CONFLICT, exit 8", async () => {
+    // target "alpha" resolves (via ProjectList) to id 01J; the stub fails the
+    // rename with ProjectNameConflict because the new name "taken" is reserved.
+    const r = await runCli(tree(okClient), ["project", "rename", "alpha", "taken"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "NAME_CONFLICT", retryable: false })
+    expect(r.code).toBe(8)
+  })
+  it("project rename of unknown name -> PROJECT_NOT_FOUND, exit 7", async () => {
+    const r = await runCli(tree(okClient), ["project", "rename", "ghost", "x"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
+    expect(r.code).toBe(7)
   })
 })

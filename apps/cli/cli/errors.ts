@@ -39,6 +39,17 @@ export class ProjectNotFoundCli extends Data.TaggedError("ProjectNotFoundCli")<{
   }
 }
 
+export class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ readonly name: string }> {
+  readonly [Runtime.errorExitCode] = 8
+  readonly [Runtime.errorReported] = false
+  toEnvelope(): ErrorEnvelope {
+    return make("NAME_CONFLICT", `project name '${this.name}' is already taken`, false, {
+      input: { name: this.name },
+      hint: "choose a different name"
+    })
+  }
+}
+
 export class BackendUnreachable extends Data.TaggedError("BackendUnreachable")<{ readonly reason: string }> {
   readonly [Runtime.errorExitCode] = 6
   readonly [Runtime.errorReported] = false
@@ -57,7 +68,7 @@ export class Unexpected extends Data.TaggedError("Unexpected")<{ readonly detail
   }
 }
 
-export type YodeaCliError = ProjectExists | ProjectNotFoundCli | BackendUnreachable | Unexpected
+export type YodeaCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli | BackendUnreachable | Unexpected
 
 const tagOf = (e: unknown): string | undefined =>
   typeof e === "object" && e !== null && "_tag" in e ? (e as { _tag: string })._tag : undefined
@@ -69,6 +80,8 @@ export const mapContractError = (e: unknown): YodeaCliError => {
       return new ProjectExists({ name: (e as { name: string }).name })
     case "ProjectNotFound":
       return new ProjectNotFoundCli({ id: (e as { id: string }).id })
+    case "ProjectNameConflict":
+      return new NameConflictCli({ name: (e as { name: string }).name })
     case "BackendUnavailable":
       return new BackendUnreachable({ reason: (e as { reason: string }).reason })
     case "RpcClientError":
