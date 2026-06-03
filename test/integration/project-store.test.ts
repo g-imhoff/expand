@@ -158,5 +158,37 @@ describe("ProjectStore", () => {
       await rt.dispose()
     }
   })
+  it("delete shrinks the live ref and propagates cross-store", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rtA = ManagedRuntime.make(appLayer)
+    const rtB = ManagedRuntime.make(appLayer)
+    try {
+      const storeA = await rtA.runPromise(ProjectStore)
+      const storeB = await rtB.runPromise(ProjectStore)
+      await new Promise((r) => setTimeout(r, 500))
+      const created = await rtA.runPromise(storeA.createProject("toremove"))
+      // Wait until B sees the create, then delete via A and wait for B to lose it.
+      await rtB.runPromise(
+        SubscriptionRef.changes(storeB.projects).pipe(
+          Stream.filter((ps) => ps.some((p) => p.id === created.id)),
+          Stream.take(1), Stream.runCollect
+        )
+      )
+      const gone = rtB.runPromise(
+        SubscriptionRef.changes(storeB.projects).pipe(
+          Stream.filter((ps) => !ps.some((p) => p.id === created.id)),
+          Stream.take(1), Stream.runCollect
+        )
+      )
+      const result = await rtA.runPromise(storeA.deleteProject(created.id))
+      expect(result).toEqual({ id: created.id, deleted: true })
+      await gone
+      const listB = await rtB.runPromise(SubscriptionRef.get(storeB.projects))
+      expect(listB.some((p) => p.id === created.id)).toBe(false)
+    } finally {
+      await rtA.dispose(); await rtB.dispose()
+    }
+  })
 })
+
 
