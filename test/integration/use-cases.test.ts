@@ -135,3 +135,27 @@ describe("UseCases.changeDirectory", () => {
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
   })
 })
+
+describe("UseCases.archiveProject / restoreProject", () => {
+  it("archives then restores a project, toggling archived + bumping updatedAt", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("toarch", false)
+      const archived = yield* u.archiveProject(project.id)
+      const restored = yield* u.restoreProject(project.id)
+      return { project, archived, restored }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    expect(r.archived.archived).toBe(true)
+    expect(r.archived.id).toBe(r.project.id)
+    expect(r.restored.archived).toBe(false)
+  })
+  it("fails ProjectNotFound when the id is absent", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      return yield* u.archiveProject("00000000-0000-4000-8000-000000000000").pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+  })
+})
