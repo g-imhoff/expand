@@ -34,7 +34,11 @@ const okClient = {
       ? Effect.fail({ _tag: "ProjectNameConflict", name })
       : id === "00000000-0000-4000-8000-000000000000" || id === "01J"
         ? Effect.succeed(FULL({ id, name }))
-        : Effect.fail({ _tag: "ProjectNotFound", id })
+        : Effect.fail({ _tag: "ProjectNotFound", id }),
+  ProjectArchive: ({ id }: { id: string }) =>
+    Effect.succeed(FULL({ id, name: "alpha", archived: true })),
+  ProjectRestore: ({ id }: { id: string }) =>
+    Effect.succeed(FULL({ id, name: "alpha", archived: false }))
 }
 const downClient = {
   Health: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" }),
@@ -86,6 +90,20 @@ describe("CLI contract", () => {
     expect(env).toMatchObject({ kind: "ProjectList", count: 2 })
     expect(env.data.map((p: { name: string }) => p.name)).toEqual(["alpha", "beta"])
   })
+  it("project list --archived passes includeArchived:true (shows archived projects)", async () => {
+    const listClient = {
+      ProjectList: ({ includeArchived }: { includeArchived?: boolean } = {}) =>
+        Effect.succeed(includeArchived
+          ? [FULL({ id: "01J", name: "alpha" }), FULL({ id: "01K", name: "beta", archived: true })]
+          : [FULL({ id: "01J", name: "alpha" })])
+    }
+    const def = await runCli(tree(listClient), ["project", "list"])
+    expect(JSON.parse(def.stdout.join("")).count).toBe(1)
+    const arch = await runCli(tree(listClient), ["project", "list", "--archived"])
+    expect(JSON.parse(arch.stdout.join("")).count).toBe(2)
+    const all = await runCli(tree(listClient), ["project", "list", "--all"])
+    expect(JSON.parse(all.stdout.join("")).count).toBe(2)
+  })
   it("health -> Health envelope", async () => {
     const r = await runCli(tree(okClient), ["health"])
     expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Health", data: { status: "ok" } })
@@ -131,5 +149,26 @@ describe("CLI contract", () => {
     const r = await runCli(tree(cdClient), ["project", "change-directory", "alpha", "/dup"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "DIRECTORY_CONFLICT", retryable: false })
     expect(r.code).toBe(10)
+  })
+  it("project archive <uuid> -> Project envelope created:false, archived:true, exit 0", async () => {
+    const r = await runCli(tree(okClient), ["project", "archive", "00000000-0000-4000-8000-000000000000"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: false, data: { archived: true } })
+  })
+  it("project restore <uuid> -> Project envelope archived:false", async () => {
+    const r = await runCli(tree(okClient), ["project", "restore", "00000000-0000-4000-8000-000000000000"])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: false, data: { archived: false } })
+  })
+  it("project archive alpha (name target) resolves via ProjectList then archives", async () => {
+    const r = await runCli(tree(okClient), ["project", "archive", "alpha"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join("")).data.archived).toBe(true)
+  })
+  it("project archive missing -> PROJECT_NOT_FOUND on stderr, exit 7", async () => {
+    const notFound = { ...okClient, ProjectList: () => Effect.succeed([]),
+      ProjectArchive: ({ id }: { id: string }) => Effect.fail({ _tag: "ProjectNotFound", id }) }
+    const r = await runCli(tree(notFound), ["project", "archive", "00000000-0000-4000-8000-000000000000"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
+    expect(r.code).toBe(7)
   })
 })
