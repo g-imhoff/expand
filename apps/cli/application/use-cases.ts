@@ -1,11 +1,11 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import type { Project, ProjectCreateResult } from "@yodea/contracts/project"
-import { ProjectAlreadyExists, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events"
+import { ProjectCreated, ProjectDirectoryChanged, ProjectRenamed } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -22,12 +22,21 @@ export class UseCases extends Context.Service<UseCases, {
     id: string,
     name: string
   ) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | UseCaseError>
+  readonly changeDirectory: (
+    id: string,
+    directory: string
+  ) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
     const store = yield* EventStore
     const bus = yield* EventBus
     const projection = yield* ProjectProjection
+    // FileSystem + Path are provided by coreLayer (BunFileSystem supplies
+    // FileSystem, BunServices supplies Path) — used by changeDirectory to
+    // validate the target path server-side.
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
 
     const health = Effect.succeed("ok")
 
@@ -84,13 +93,39 @@ export class UseCases extends Context.Service<UseCases, {
         return { ...target, name, updatedAt: occurredAt }
       })
 
+    // Change a project's directory. Validation order: target exists -> path is
+    // absolute -> path exists on disk -> not used by another live project (full
+    // non-deleted set, archived included). fs.exists' PlatformError is discharged
+    // as a defect (orDie) since the contract declares no infra error.
+    const changeDirectory = (id: string, directory: string) =>
+      Effect.gen(function* () {
+        const all = yield* projection.list
+        const existing = all.find((p) => p.id === id)
+        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (!path.isAbsolute(directory)) {
+          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
+        }
+        const onDisk = yield* fs.exists(directory).pipe(Effect.orDie)
+        if (!onDisk) {
+          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+        }
+        if (all.some((p) => p.id !== id && p.directory === directory)) {
+          return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
+        }
+        const occurredAt = new Date().toISOString()
+        const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
+        yield* store.append(id, event)
+        yield* bus.publish(event)
+        return { ...existing, directory, updatedAt: occurredAt }
+      })
+
     // Default false: filter out archived. Deleted are already absent from the
     // fold. The full set (archived included) is reached with includeArchived:true,
     // which slices use for uniqueness checks.
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, renameProject, listProjects } as const
+    return { health, createProject, renameProject, changeDirectory, listProjects } as const
   })
 }) {}
 
