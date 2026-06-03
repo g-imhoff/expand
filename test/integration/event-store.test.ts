@@ -3,7 +3,7 @@ import { Cause, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
-import { ProjectCreated } from "@yodea/contracts/events"
+import { ProjectCreated } from "@yodea/contracts/events/project"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestStore = EventStoreLayer.pipe(Layer.provide(TestSql))

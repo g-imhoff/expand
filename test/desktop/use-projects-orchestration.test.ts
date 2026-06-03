@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { QueryClient } from "@tanstack/react-query"
-import { ProjectCreated } from "@yodea/contracts/events"
+import { ProjectCreated } from "@yodea/contracts/events/project"
 import type { Project } from "@yodea/contracts/project"
 import { PROJECTS_KEY, applyEventToCache } from "@yodea/desktop/renderer/features/projects/cache"
 

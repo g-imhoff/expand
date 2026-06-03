@@ -1,4 +1,4 @@
-import type { DomainEvent } from "@yodea/contracts/events"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 import type { Project } from "@yodea/contracts/project"
 
 export const projectsFromEvents = (
