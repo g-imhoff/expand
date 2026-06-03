@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { Tag } from "@yodea/contracts/project"
+import { DESCRIPTION_MAX_LENGTH, Tag } from "@yodea/contracts/project"
 
 // One event type today. As the domain grows, replace the alias below with
 // `Schema.Union([ProjectCreated, ProjectRenamed, ...])`; the projection fold
@@ -52,7 +52,9 @@ export const ProjectRestored = Schema.TaggedStruct("ProjectRestored", {
 // `tags` are deduped in the fold.
 export const ProjectMetadataChanged = Schema.TaggedStruct("ProjectMetadataChanged", {
   projectId: Schema.String,
-  description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  // description is capped at DESCRIPTION_MAX_LENGTH (2048) at the schema boundary;
+  // an over-long value is rejected when the event encodes (store.append).
+  description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
   tags: Schema.optionalKey(Schema.Array(Tag)),
   occurredAt: Schema.String
 })
