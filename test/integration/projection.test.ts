@@ -23,7 +23,7 @@ describe("ProjectProjection", () => {
         const projection = yield* ProjectProjection
         yield* store.append(
           "p1",
-          ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
+          ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" })
         )
         return yield* projection.list
       })

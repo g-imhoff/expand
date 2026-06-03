@@ -8,13 +8,13 @@ describe("projects cache orchestration", () => {
   it("applyEventToCache folds a ProjectCreated into the projects query", () => {
     const qc = new QueryClient()
     qc.setQueryData<ReadonlyArray<Project>>(PROJECTS_KEY, [])
-    applyEventToCache(qc, ProjectCreated.make({ projectId: "a", name: "alpha", createdAt: "t" }))
+    applyEventToCache(qc, ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t" }))
     expect(qc.getQueryData<ReadonlyArray<Project>>(PROJECTS_KEY)?.map((p) => p.name)).toEqual(["alpha"])
   })
   it("applyEventToCache is idempotent on id", () => {
     const qc = new QueryClient()
     qc.setQueryData<ReadonlyArray<Project>>(PROJECTS_KEY, [{ id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }])
-    applyEventToCache(qc, ProjectCreated.make({ projectId: "a", name: "alpha", createdAt: "t" }))
+    applyEventToCache(qc, ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t" }))
     expect(qc.getQueryData<ReadonlyArray<Project>>(PROJECTS_KEY)).toHaveLength(1)
   })
 })

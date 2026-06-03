@@ -16,8 +16,8 @@ export const foldEvent = (
             description: null,
             tags: [],
             archived: false,
-            createdAt: event.createdAt,
-            updatedAt: event.createdAt
+            createdAt: event.occurredAt,
+            updatedAt: event.occurredAt
           }]
     case "ProjectRenamed":
       return list.map((p) =>

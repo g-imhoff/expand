@@ -17,7 +17,7 @@ const nameArb = fc.constantFrom("alpha", "beta", "gamma", "delta")
 const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStart(4, "0")}`)
 
 const eventArb: fc.Arbitrary<DomainEvent> = fc.oneof(
-  fc.record({ projectId: idArb, name: nameArb, createdAt: tsArb }).map((r) => ProjectCreated.make(r)),
+  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make(r)),
   fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make(r)),
   fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make(r)),
   fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make(r)),
@@ -44,7 +44,7 @@ describe("projectsFromEvents — properties", () => {
   it("a tombstoned id never appears, even if mutated afterwards", () => {
     fc.assert(fc.property(logArb, idArb, tsArb, (log, id, ts) => {
       const withDelete = [
-        ProjectCreated.make({ projectId: id, name: "alpha", createdAt: "t0001" }),
+        ProjectCreated.make({ projectId: id, name: "alpha", occurredAt: "t0001" }),
         ...log,
         ProjectDeleted.make({ projectId: id, occurredAt: ts }),
         ProjectRenamed.make({ projectId: id, name: "beta", occurredAt: `${ts}z` })

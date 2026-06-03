@@ -15,8 +15,8 @@ export const projectsFromEvents = (
           description: null,
           tags: [],
           archived: false,
-          createdAt: event.createdAt,
-          updatedAt: event.createdAt
+          createdAt: event.occurredAt,
+          updatedAt: event.occurredAt
         })
         break
       case "ProjectRenamed": {

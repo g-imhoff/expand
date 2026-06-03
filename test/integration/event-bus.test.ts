@@ -9,7 +9,7 @@ describe("EventBus", () => {
       const bus = yield* EventBus
       const sub = yield* bus.subscribe
       yield* bus.publish(
-        ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
+        ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" })
       )
       return yield* PubSub.take(sub)
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
@@ -24,9 +24,9 @@ describe("EventBus — subscription timing", () => {
   it("does NOT deliver events published before a subscription attaches (live-only)", async () => {
     const program = Effect.gen(function* () {
       const bus = yield* EventBus
-      yield* bus.publish(ProjectCreated.make({ projectId: "early", name: "early", createdAt: "t0" }))
+      yield* bus.publish(ProjectCreated.make({ projectId: "early", name: "early", occurredAt: "t0" }))
       const sub = yield* bus.subscribe
-      yield* bus.publish(ProjectCreated.make({ projectId: "late", name: "late", createdAt: "t1" }))
+      yield* bus.publish(ProjectCreated.make({ projectId: "late", name: "late", occurredAt: "t1" }))
       return yield* PubSub.take(sub)
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
     const event = await Effect.runPromise(program)
@@ -38,7 +38,7 @@ describe("EventBus — subscription timing", () => {
       const bus = yield* EventBus
       const subA = yield* bus.subscribe
       const subB = yield* bus.subscribe
-      yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", createdAt: "t1" }))
+      yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", occurredAt: "t1" }))
       const a = yield* PubSub.take(subA)
       const b = yield* PubSub.take(subB)
       return { a, b }
@@ -55,12 +55,12 @@ describe("EventBus — subscription timing", () => {
       yield* Effect.scoped(
         Effect.gen(function* () {
           const transient = yield* bus.subscribe
-          yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", createdAt: "t1" }))
+          yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", occurredAt: "t1" }))
           const first = yield* PubSub.take(transient)
           expect(first.projectId).toBe("p1")
         })
       )
-      yield* bus.publish(ProjectCreated.make({ projectId: "p2", name: "y", createdAt: "t2" }))
+      yield* bus.publish(ProjectCreated.make({ projectId: "p2", name: "y", occurredAt: "t2" }))
       const a1 = yield* PubSub.take(survivor)
       const a2 = yield* PubSub.take(survivor)
       return [a1.projectId, a2.projectId]

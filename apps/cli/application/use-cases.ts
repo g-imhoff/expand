@@ -75,7 +75,7 @@ export class UseCases extends Context.Service<UseCases, {
         const dir = typeof directory === "string" ? directory : null
         const id = newId()
         const createdAt = new Date().toISOString()
-        const event = ProjectCreated.make({ projectId: id, name, directory: dir, createdAt })
+        const event = ProjectCreated.make({ projectId: id, name, directory: dir, occurredAt: createdAt })
         yield* store.append(id, event)
         yield* bus.publish(event)
         return {
