@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, PubSub, Stream, SubscriptionRef } from "effect"
+import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectCreated, type DomainEvent } from "@yodea/contracts/events"
-import { type RpcGroup, type RpcMessage } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectStore } from "@yodea/client-core"
-import { makeRpcServer } from "@yodea/desktop/main/rpc/server"
-import { buildClient } from "@yodea/desktop/renderer/rpc/client"
-
-type Rpcs = RpcGroup.Rpcs<typeof YodeaRpcs>
+import { buildClient, type RendererPortLike } from "@yodea/desktop/renderer/rpc/client"
+import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
 
 const fakeStoreLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
@@ -50,28 +46,62 @@ const fakeStoreLayer = (
       )
   })
 
-describe("main RpcServer <-> renderer RpcClient round-trip", () => {
+// A back-to-back port pair that faithfully reproduces an Electron MessageChannel:
+// every postMessage delivers a STRUCTURED CLONE of the payload to the peer's
+// listener (async, like the real port). This is the crux of the regression guard
+// — it strips prototypes/symbols exactly as the real transport does, so a seam
+// that shipped raw Effect/Exit objects (the old makeNoSerialization wiring) would
+// die here with "Not a valid effect", while the serialized seam survives because
+// only encoded JSON strings cross.
+const makePortPair = (): { server: MainPortLike; renderer: RendererPortLike } => {
+  let serverListener: ((e: { data: unknown }) => void) | null = null
+  let rendererListener: ((e: { data: unknown }) => void) | null = null
+  const deliver = (listener: (() => ((e: { data: unknown }) => void) | null), message: unknown) => {
+    const cloned = structuredClone(message)
+    queueMicrotask(() => listener()?.({ data: cloned }))
+  }
+  const server: MainPortLike = {
+    postMessage: (message) => deliver(() => rendererListener, message),
+    on: (_event, cb) => { serverListener = cb },
+    start: () => {}
+  }
+  const renderer: RendererPortLike = {
+    postMessage: (message) => deliver(() => serverListener, message),
+    get onmessage() { return rendererListener },
+    set onmessage(cb) { rendererListener = cb },
+    start: () => {}
+  }
+  return { server, renderer }
+}
+
+describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cloning port)", () => {
   it("ProjectList/ProjectCreate cross the seam and decode to typed values", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
     const hub = await Effect.runPromise(PubSub.unbounded<DomainEvent>())
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        // In-memory wiring of the two halves: the client's onFromClient feeds
-        // server.write(0, …); the server's onFromServer feeds the client's write.
-        // `toClient` is mutable because the two are mutually referential (the
-        // server is built before the client's `write` exists).
-        let toClient: (m: RpcMessage.FromServer<Rpcs>) => Effect.Effect<void> = () => Effect.void
-        const server = yield* makeRpcServer((response) => toClient(response))
-        const { client, write } = yield* buildClient((message) => server.write(0, message))
-        toClient = write
-        const list0 = yield* client.ProjectList({})
-        const created = yield* client.ProjectCreate({ name: "omega", ensure: false })
-        const list1 = yield* client.ProjectList({})
-        return { list0, created, list1 }
-      }).pipe(Effect.provide(fakeStoreLayer(ref, hub)), Effect.scoped)
-    )
-    expect(result.list0).toEqual([])
-    expect(result.created).toMatchObject({ created: true, project: { name: "omega" } })
-    expect(result.list1.map((p) => p.name)).toEqual(["omega"])
+    const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
+    const { server, renderer } = makePortPair()
+
+    // Run the serialized server for the lifetime of the test, scoped so it tears
+    // down cleanly at the end.
+    const serverScope = await Effect.runPromise(Scope.make())
+    runtime.runFork(runRpcServer(server).pipe(Scope.provide(serverScope)))
+
+    // The client's transport receive loop is owned by a connection scope.
+    const clientScope = await Effect.runPromise(Scope.make())
+    const client = await runtime.runPromise(buildClient(renderer).pipe(Scope.provide(clientScope)))
+
+    try {
+      const list0 = await runtime.runPromise(client.ProjectList({}))
+      const created = await runtime.runPromise(client.ProjectCreate({ name: "omega", ensure: false }))
+      const list1 = await runtime.runPromise(client.ProjectList({}))
+
+      expect(list0).toEqual([])
+      expect(created).toMatchObject({ created: true, project: { name: "omega" } })
+      expect(list1.map((p) => p.name)).toEqual(["omega"])
+    } finally {
+      await Effect.runPromise(Scope.close(clientScope, Exit.void))
+      await Effect.runPromise(Scope.close(serverScope, Exit.void))
+      await runtime.dispose()
+    }
   })
 })
