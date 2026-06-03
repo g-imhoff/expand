@@ -8,7 +8,7 @@ describe("DomainEvent", () => {
     const e = ProjectCreated.make({
       projectId: "p1",
       name: "First",
-      createdAt: "2026-01-01T00:00:00.000Z"
+      occurredAt: "2026-01-01T00:00:00.000Z"
     })
     expect(e._tag).toBe("ProjectCreated")
     expect(e.name).toBe("First")
@@ -18,7 +18,7 @@ describe("DomainEvent", () => {
     const e = ProjectCreated.make({
       projectId: "p1",
       name: "First",
-      createdAt: "2026-01-01T00:00:00.000Z"
+      occurredAt: "2026-01-01T00:00:00.000Z"
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(typeof json).toBe("string")
@@ -26,14 +26,14 @@ describe("DomainEvent", () => {
   })
 
   it("decodes a legacy ProjectCreated JSON without directory to directory:null", () => {
-    const legacy = JSON.stringify({ _tag: "ProjectCreated", projectId: "p1", name: "First", createdAt: "2026-01-01T00:00:00.000Z" })
+    const legacy = JSON.stringify({ _tag: "ProjectCreated", projectId: "p1", name: "First", occurredAt: "2026-01-01T00:00:00.000Z" })
     const decoded = Schema.decodeUnknownSync(DomainEventFromJson)(legacy)
     expect(decoded._tag).toBe("ProjectCreated")
     expect((decoded as { directory: string | null }).directory).toBeNull()
   })
 
   it("roundtrips ProjectCreated WITH a directory", () => {
-    const e = ProjectCreated.make({ projectId: "p1", name: "First", directory: "/tmp/x", createdAt: "t" })
+    const e = ProjectCreated.make({ projectId: "p1", name: "First", directory: "/tmp/x", occurredAt: "t" })
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(Schema.encodeSync(DomainEventFromJson)(e))).toEqual(e)
   })
 })

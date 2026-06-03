@@ -75,8 +75,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                           description: null,
                           tags: [],
                           archived: false,
-                          createdAt: event.createdAt,
-                          updatedAt: event.createdAt
+                          createdAt: event.occurredAt,
+                          updatedAt: event.occurredAt
                         }])
                 case "ProjectRenamed":
                   return SubscriptionRef.update(projects, (cur) =>
