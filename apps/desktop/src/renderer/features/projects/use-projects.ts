@@ -70,3 +70,16 @@ export const useRestoreProject = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
   })
 }
+
+// Set a project's metadata (replace-style). The resulting ProjectMetadataChanged
+// arrives via the Events stream and folds into the cache; invalidate as a
+// belt-and-braces refresh. The typed ProjectNotFound rejects the promise.
+export const useSetMetadata = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
+      runtime.runPromise(client.ProjectSetMetadata(args)),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}

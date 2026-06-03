@@ -34,6 +34,16 @@ export const foldEvent = (
     case "ProjectRestored":
       return list.map((p) =>
         p.id === event.projectId ? { ...p, archived: false, updatedAt: event.occurredAt } : p)
+    case "ProjectMetadataChanged":
+      return list.map((p) =>
+        p.id === event.projectId
+          ? {
+              ...p,
+              ...(event.description !== undefined ? { description: event.description } : {}),
+              ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
+              updatedAt: event.occurredAt
+            }
+          : p)
     default:
       return list
   }
