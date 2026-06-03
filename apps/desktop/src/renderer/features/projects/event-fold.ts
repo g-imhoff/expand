@@ -1,5 +1,5 @@
 import type { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 
 export const foldEvent = (
   list: ReadonlyArray<Project>,

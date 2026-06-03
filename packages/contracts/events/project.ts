@@ -42,8 +42,13 @@ export const ProjectDeleted = Schema.TaggedStruct("ProjectDeleted", {
   occurredAt: Schema.String
 })
 
-export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored, ProjectMetadataChanged, ProjectDeleted])
-export type DomainEvent = typeof DomainEvent.Type
-export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
-
-export const DomainEventFromJson = Schema.fromJsonString(DomainEvent)
+export const ProjectEvent = Schema.Union([
+  ProjectCreated,
+  ProjectRenamed,
+  ProjectDirectoryChanged,
+  ProjectArchived,
+  ProjectRestored,
+  ProjectMetadataChanged,
+  ProjectDeleted
+])
+export type ProjectEvent = typeof ProjectEvent.Type

@@ -1,6 +1,6 @@
 import { type QueryClient } from "@tanstack/react-query"
 import type { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 export const PROJECTS_KEY = ["projects"] as const
