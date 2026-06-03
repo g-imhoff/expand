@@ -34,7 +34,11 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
       SubscriptionRef.modify(ref, (c) => {
         const next = c.map((p: any) => p.id === id ? { ...p, ...patch } : p)
         return [next.find((p: any) => p.id === id), next] as const
-      })
+      }),
+    deleteProject: (id: string) =>
+      SubscriptionRef.update(ref, (c) => c.filter((p: any) => p.id !== id)).pipe(
+        Effect.as({ id, deleted: true } as const)
+      )
   })
 
 describe("App archive keybinding", () => {
