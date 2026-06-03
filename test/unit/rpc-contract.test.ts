@@ -31,4 +31,9 @@ describe("YodeaRpcs contract", () => {
     expect(new ProjectDirectoryInvalid({ directory: "/x", reason: "not-absolute" }).directory).toBe("/x")
     expect(new ProjectDirectoryConflict({ directory: "/x" }).directory).toBe("/x")
   })
+  it("declares ProjectArchive and ProjectRestore methods", () => {
+    const names = [...YodeaRpcs.requests.keys()]
+    expect(names).toContain("ProjectArchive")
+    expect(names).toContain("ProjectRestore")
+  })
 })
