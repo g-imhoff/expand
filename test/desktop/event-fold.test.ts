@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 describe("foldEvent", () => {
@@ -60,5 +60,22 @@ describe("foldEvent — ProjectMetadataChanged", () => {
   it("is a no-op for an unknown id", () => {
     const next = foldEvent(base, ProjectMetadataChanged.make({ projectId: "ghost", tags: ["x"], occurredAt: "t2" }))
     expect(next).toEqual(base)
+  })
+})
+
+const full = (id: string, name: string) => ({
+  id, name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t"
+})
+
+describe("foldEvent — ProjectDeleted", () => {
+  it("drops the project from the list", () => {
+    const base = [full("a", "alpha"), full("b", "beta")]
+    const next = foldEvent(base, ProjectDeleted.make({ projectId: "a", occurredAt: "t2" }))
+    expect(next.map((p) => p.id)).toEqual(["b"])
+  })
+  it("delete of an absent id is a no-op", () => {
+    const base = [full("a", "alpha")]
+    const next = foldEvent(base, ProjectDeleted.make({ projectId: "z", occurredAt: "t2" }))
+    expect(next.map((p) => p.id)).toEqual(["a"])
   })
 })
