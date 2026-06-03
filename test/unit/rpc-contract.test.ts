@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNotFound, YodeaRpcs } from "@yodea/contracts/rpc"
+import { ProjectDeleteResult } from "@yodea/contracts/project"
+import { ProjectDeleteEnvelope } from "@yodea/contracts/cli"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
 describe("YodeaRpcs contract", () => {
@@ -39,5 +41,15 @@ describe("YodeaRpcs contract", () => {
   it("declares ProjectSetMetadata with id + optional description/tags and ProjectNotFound error", () => {
     const rpc = YodeaRpcs.requests.get("ProjectSetMetadata")
     expect(rpc).toBeDefined()
+  })
+})
+
+describe("ProjectDelete contract", () => {
+  it("exposes the ProjectDelete procedure by tag", () => {
+    expect([...YodeaRpcs.requests.keys()]).toEqual(expect.arrayContaining(["ProjectDelete"]))
+  })
+  it("ProjectDeleteResult and ProjectDeleteEnvelope are defined schemas", () => {
+    expect(ProjectDeleteResult).toBeDefined()
+    expect(ProjectDeleteEnvelope).toBeDefined()
   })
 })

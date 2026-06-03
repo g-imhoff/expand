@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
 import { DomainEvent } from "@yodea/contracts/events"
-import { Project, ProjectCreateResult, Tag } from "@yodea/contracts/project"
+import { Project, ProjectCreateResult, ProjectDeleteResult, Tag } from "@yodea/contracts/project"
 
 // Typed RPC error: a name conflict on create. Schema-backed so it rides the wire.
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
@@ -78,6 +78,14 @@ export class YodeaRpcs extends RpcGroup.make(
       tags: Schema.optionalKey(Schema.Array(Tag))
     },
     success: Project,
+    error: ProjectNotFound
+  }),
+  // Command: delete a project (by id) — soft tombstone. Succeeds with
+  // { id, deleted: true }; the project is removed from every read-model and never
+  // reappears. Fails ProjectNotFound if the target is absent.
+  Rpc.make("ProjectDelete", {
+    payload: { id: Schema.String },
+    success: ProjectDeleteResult,
     error: ProjectNotFound
   }),
   // Query: list projects (projection). `includeArchived` (default false) controls
