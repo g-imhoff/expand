@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
 
 describe("foldEvent", () => {

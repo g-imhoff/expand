@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import { DomainEvent, DomainEventFromJson } from "@yodea/contracts/events"
+import { DomainEvent, DomainEventFromJson } from "@yodea/contracts/events/domain"
 
 // The store's effects can fail when SQL execution errors (`SqlError`) or when a
 // payload fails to (de)serialize through the schema codec (`SchemaError`).

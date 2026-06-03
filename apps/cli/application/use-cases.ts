@@ -5,7 +5,7 @@ import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
 import { newId } from "@yodea/lib/ids"
 
 type UseCaseError = SqlError | Schema.SchemaError
