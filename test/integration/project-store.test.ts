@@ -98,6 +98,28 @@ describe("ProjectStore", () => {
     }
   })
 
+  it("archive toggles archived in the live ref via the Events fold", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rt = ManagedRuntime.make(appLayer)
+    try {
+      const store = await rt.runPromise(ProjectStore)
+      await new Promise((r) => setTimeout(r, 300))
+      const created = await rt.runPromise(store.createProject("toggleme"))
+      const seenArchived = rt.runPromise(
+        SubscriptionRef.changes(store.projects).pipe(
+          Stream.filter((ps) => ps.some((p) => p.id === created.id && p.archived === true)),
+          Stream.take(1),
+          Stream.runCollect
+        )
+      )
+      const archived = await rt.runPromise(store.archiveProject(created.id))
+      expect(archived.archived).toBe(true)
+      await seenArchived
+    } finally {
+      await rt.dispose()
+    }
+  })
+
   it("exposes a live events stream that emits ProjectCreated", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
     const rt = ManagedRuntime.make(appLayer)
