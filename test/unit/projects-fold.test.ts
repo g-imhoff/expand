@@ -9,8 +9,8 @@ describe("projectsFromEvents", () => {
 
   it("folds ProjectCreated events into the read-model", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
-      ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" })
+      ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }),
+      ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" })
     ])
     expect(projects).toEqual([
       { id: "p1", name: "A", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" },
@@ -20,7 +20,7 @@ describe("projectsFromEvents", () => {
 
   it("ProjectRenamed updates name and stamps updatedAt from occurredAt", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", directory: null, createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", directory: null, occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: "p1", name: "A2", occurredAt: "t2" })
     ])
     expect(projects).toEqual([
@@ -34,7 +34,7 @@ describe("projectsFromEvents", () => {
 
   it("ProjectDirectoryChanged sets directory + updatedAt on an existing project", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", directory: null, createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", directory: null, occurredAt: "t1" }),
       ProjectDirectoryChanged.make({ projectId: "p1", directory: "/srv/p1", occurredAt: "t2" })
     ])
     expect(projects).toEqual([
@@ -52,7 +52,7 @@ describe("projectsFromEvents", () => {
 describe("projectsFromEvents — archive/restore", () => {
   it("ProjectArchived sets archived:true and stamps updatedAt", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }),
       ProjectArchived.make({ projectId: "p1", occurredAt: "t2" })
     ])
     expect(p?.archived).toBe(true)
@@ -61,7 +61,7 @@ describe("projectsFromEvents — archive/restore", () => {
   })
   it("ProjectRestored sets archived:false and stamps updatedAt", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }),
       ProjectArchived.make({ projectId: "p1", occurredAt: "t2" }),
       ProjectRestored.make({ projectId: "p1", occurredAt: "t3" })
     ])
@@ -74,7 +74,7 @@ describe("projectsFromEvents — archive/restore", () => {
 })
 
 describe("projectsFromEvents — ProjectMetadataChanged", () => {
-  const created = ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
+  const created = ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" })
 
   it("merges only provided fields and stamps updatedAt from occurredAt", () => {
     const projects = projectsFromEvents([
@@ -98,7 +98,7 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
 
   it("sets description to null when description:null is provided", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }),
       ProjectMetadataChanged.make({ projectId: "p1", description: "x", occurredAt: "t2" }),
       ProjectMetadataChanged.make({ projectId: "p1", description: null, occurredAt: "t3" })
     ])
@@ -116,8 +116,8 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
 describe("projectsFromEvents — ProjectDeleted", () => {
   it("removes a project from the read-model (tombstone)", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
-      ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" }),
+      ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }),
+      ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }),
       ProjectDeleted.make({ projectId: "p1", occurredAt: "t3" })
     ])
     expect(projects.map((p) => p.id)).toEqual(["p2"])
@@ -137,7 +137,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("drops on ProjectDeleted and a later mutation for the tombstoned id is a no-op", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectDeleted.make({ projectId: "p1", occurredAt: "t2" }),
       ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t3" })
     ])
@@ -146,7 +146,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("stamps updatedAt from each event's time and keeps createdAt fixed", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t5" })
     ])
     expect(p).toMatchObject({ id: "p1", name: "b", createdAt: "t1", updatedAt: "t5" })
@@ -154,14 +154,14 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("ProjectCreated without a directory folds directory to null (event-versioning)", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" })
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" })
     ])
     expect(p?.directory).toBeNull()
   })
 
   it("metadata is replace-style per field and dedupes tags", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectMetadataChanged.make({ projectId: "p1", description: "first", tags: ["x", "x", "y"], occurredAt: "t2" }),
       ProjectMetadataChanged.make({ projectId: "p1", tags: ["z"], occurredAt: "t3" })
     ])
@@ -170,7 +170,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("archive then restore toggles archived back to false", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectArchived.make({ projectId: "p1", occurredAt: "t2" }),
       ProjectRestored.make({ projectId: "p1", occurredAt: "t3" })
     ])
@@ -179,16 +179,16 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("a duplicate ProjectCreated for the same id does not duplicate or reset the aggregate", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t2" }),
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t9" })
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t9" })
     ])
     expect(projects).toHaveLength(1)
   })
 
   it("directory-changed updates directory and stamps updatedAt", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", occurredAt: "t1" }),
       ProjectDirectoryChanged.make({ projectId: "p1", directory: "/tmp/x", occurredAt: "t2" })
     ])
     expect(p).toMatchObject({ directory: "/tmp/x", updatedAt: "t2" })
@@ -196,7 +196,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("folds a full realistic lifecycle: create -> rename -> change-dir -> archive -> restore -> set-metadata", () => {
     const [p] = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "alpha", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "alpha", occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: "p1", name: "beta", occurredAt: "t2" }),
       ProjectDirectoryChanged.make({ projectId: "p1", directory: "/srv/beta", occurredAt: "t3" }),
       ProjectArchived.make({ projectId: "p1", occurredAt: "t4" }),
@@ -217,9 +217,9 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
 
   it("a tombstoned id never reappears even when re-created and mutated afterwards", () => {
     const projects = projectsFromEvents([
-      ProjectCreated.make({ projectId: "p1", name: "alpha", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p1", name: "alpha", occurredAt: "t1" }),
       ProjectDeleted.make({ projectId: "p1", occurredAt: "t2" }),
-      ProjectCreated.make({ projectId: "p1", name: "alpha-again", createdAt: "t3" }),
+      ProjectCreated.make({ projectId: "p1", name: "alpha-again", occurredAt: "t3" }),
       ProjectRenamed.make({ projectId: "p1", name: "renamed", occurredAt: "t4" })
     ])
     expect(projects.filter((p) => p.id === "p1")).toHaveLength(1)
