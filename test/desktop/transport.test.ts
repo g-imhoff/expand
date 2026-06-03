@@ -37,6 +37,10 @@ const fakeStoreLayer = (
     renameProject: (id: string, name: string) =>
       SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
+      ),
+    changeDirectory: (id: string, directory: string) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, directory } : p))).pipe(
+        Effect.map((c) => c.find((p) => p.id === id)!)
       )
   })
 

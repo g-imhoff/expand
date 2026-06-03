@@ -18,6 +18,10 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     renameProject: (id: string, name: string) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    changeDirectory: (id: string, directory: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, directory } : p))).pipe(
+        Effect.map((cur) => cur.find((p) => p.id === id)!)
       )
   })
 

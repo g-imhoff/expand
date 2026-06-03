@@ -4,7 +4,7 @@ import type { FileSystem, Scope } from "effect"
 import type { Project } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
-import type { ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
 
@@ -19,6 +19,13 @@ export interface ProjectStoreShape {
     id: string,
     name: string
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict>
+  // Change-directory over the held connection. SURFACES the typed domain errors
+  // (ProjectNotFound/ProjectDirectoryInvalid/ProjectDirectoryConflict) so
+  // TUI/desktop can react.
+  readonly changeDirectory: (
+    id: string,
+    directory: string
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict>
   // Live stream of every DomainEvent the backend commits, for additional
   // subscribers (e.g. each Electron window's RpcServer). Live-only, like the
   // backend's own Events stream: a subscriber sees events emitted AFTER it attaches.
@@ -104,6 +111,10 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
                   return SubscriptionRef.update(projects, (cur) =>
                     cur.map((p) =>
                       p.id === event.projectId ? { ...p, name: event.name, updatedAt: event.occurredAt } : p))
+                case "ProjectDirectoryChanged":
+                  return SubscriptionRef.update(projects, (cur) =>
+                    cur.map((p) =>
+                      p.id === event.projectId ? { ...p, directory: event.directory, updatedAt: event.occurredAt } : p))
                 default:
                   return Effect.void
               }
@@ -127,7 +138,10 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
           Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e))
         ),
       // Surfaces ProjectNotFound/ProjectNameConflict (does NOT Effect.die them).
-      renameProject: (id: string, name: string) => client.ProjectRename({ id, name })
+      renameProject: (id: string, name: string) => client.ProjectRename({ id, name }),
+      // Surfaces ProjectNotFound/ProjectDirectoryInvalid/ProjectDirectoryConflict
+      // (does NOT Effect.die them).
+      changeDirectory: (id: string, directory: string) => client.ProjectChangeDirectory({ id, directory })
     }
     // Store CONSTRUCTION failures (backend unreachable, snapshot RPC error) are
     // unrecoverable startup conditions, not part of the running store's surface —

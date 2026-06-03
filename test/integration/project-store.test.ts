@@ -79,6 +79,25 @@ describe("ProjectStore", () => {
     }
   })
 
+  it("changeDirectory updates the reactive projects ref", async () => {
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rt = ManagedRuntime.make(appLayer)
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cds-"))
+    try {
+      const store = await rt.runPromise(ProjectStore)
+      const created = await rt.runPromise(store.createProject("cdstore"))
+      const moved = await rt.runPromise(store.changeDirectory(created.id, tmp))
+      // allow the Events fold loop to apply (mirror the settle the file uses)
+      await new Promise((r) => setTimeout(r, 300))
+      const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
+      expect(moved.directory).toBe(tmp)
+      expect(snapshot.find((p) => p.id === created.id)?.directory).toBe(tmp)
+    } finally {
+      await rt.dispose()
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
   it("exposes a live events stream that emits ProjectCreated", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
     const rt = ManagedRuntime.make(appLayer)
