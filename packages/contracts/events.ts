@@ -57,7 +57,15 @@ export const ProjectMetadataChanged = Schema.TaggedStruct("ProjectMetadataChange
   occurredAt: Schema.String
 })
 
-export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored, ProjectMetadataChanged])
+// A project was deleted (soft tombstone). The fold removes the project from every
+// read-model and a tombstoned id never reappears (excluded from all lists
+// regardless of includeArchived). `occurredAt` is the ISO event time.
+export const ProjectDeleted = Schema.TaggedStruct("ProjectDeleted", {
+  projectId: Schema.String,
+  occurredAt: Schema.String
+})
+
+export const DomainEvent = Schema.Union([ProjectCreated, ProjectRenamed, ProjectDirectoryChanged, ProjectArchived, ProjectRestored, ProjectMetadataChanged, ProjectDeleted])
 export type DomainEvent = typeof DomainEvent.Type
 export type DomainEventEncoded = Schema.Codec.Encoded<typeof DomainEvent>
 
