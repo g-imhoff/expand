@@ -23,3 +23,15 @@ export const useCreateProject = () => {
     onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
   })
 }
+
+// Rename a project. The resulting ProjectRenamed arrives via the Events stream and
+// folds into the cache; invalidate as a belt-and-braces refresh.
+export const useRenameProject = () => {
+  const { runtime, client } = useRpc()
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      runtime.runPromise(client.ProjectRename({ id, name })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: PROJECTS_KEY }) }
+  })
+}

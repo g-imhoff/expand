@@ -25,5 +25,10 @@
     }
   },
   "include": ["apps/cli", "apps/tui", "packages", "test", "migrations", "vitest.config.ts"],
-  "exclude": ["apps/desktop/src/main/index.ts", "apps/desktop/src/preload", "apps/desktop/src/renderer"]
+  "exclude": [
+    "apps/desktop/src/main/index.ts",
+    "apps/desktop/src/preload",
+    "apps/desktop/src/renderer",
+    "test/desktop/rename-dialog.test.tsx"
+  ]
 }
