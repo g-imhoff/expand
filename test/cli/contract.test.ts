@@ -38,7 +38,10 @@ const okClient = {
   ProjectArchive: ({ id }: { id: string }) =>
     Effect.succeed(FULL({ id, name: "alpha", archived: true })),
   ProjectRestore: ({ id }: { id: string }) =>
-    Effect.succeed(FULL({ id, name: "alpha", archived: false }))
+    Effect.succeed(FULL({ id, name: "alpha", archived: false })),
+  // ProjectDelete resolves for known ids (alpha=01J, or a UUID), fails ProjectNotFound otherwise.
+  ProjectDelete: ({ id }: { id: string }) =>
+    Effect.succeed({ id, deleted: true })
 }
 const downClient = {
   Health: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" }),
@@ -203,6 +206,26 @@ describe("CLI contract", () => {
     }
     const r = await runCli(tree(notFound), ["project", "set-metadata", "ghost", "--description", "x"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
+    expect(r.code).toBe(7)
+  })
+
+  it("project delete <uuid> -> ProjectDelete envelope, exit 0", async () => {
+    const uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+    const stub = { ...okClient, ProjectDelete: ({ id }: { id: string }) => Effect.succeed({ id, deleted: true }) }
+    const r = await runCli(tree(stub), ["project", "delete", uuid])
+    expect(r.code).toBe(0)
+    expect(r.stderr).toEqual([])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "ProjectDelete", data: { id: uuid, deleted: true } })
+  })
+  it("project delete <name> -> resolves via ProjectList then deletes, exit 0", async () => {
+    const r = await runCli(tree(okClient), ["project", "delete", "alpha"])
+    expect(r.code).toBe(0)
+    expect(JSON.parse(r.stdout.join("")).data.deleted).toBe(true)
+  })
+  it("project delete <unknown name> -> PROJECT_NOT_FOUND on stderr, exit 7", async () => {
+    const r = await runCli(tree(okClient), ["project", "delete", "ghost"])
+    expect(r.stdout).toEqual([])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND", retryable: false })
     expect(r.code).toBe(7)
   })
 
