@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
 import { DomainEvent } from "@yodea/contracts/events"
-import { Project, ProjectCreateResult, ProjectDeleteResult, Tag } from "@yodea/contracts/project"
+import { DESCRIPTION_MAX_LENGTH, Project, ProjectCreateResult, ProjectDeleteResult, Tag } from "@yodea/contracts/project"
 
 // Typed RPC error: a name conflict on create. Schema-backed so it rides the wire.
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
@@ -80,7 +80,8 @@ export class YodeaRpcs extends RpcGroup.make(
   Rpc.make("ProjectSetMetadata", {
     payload: {
       id: Schema.String,
-      description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      // description capped at DESCRIPTION_MAX_LENGTH (2048) at the wire boundary.
+      description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
       tags: Schema.optionalKey(Schema.Array(Tag))
     },
     success: Project,

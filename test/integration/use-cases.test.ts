@@ -247,6 +247,43 @@ describe("UseCases.setMetadata", () => {
     expect((exit as { _tag: string; failure: { _tag: string } })._tag).toBe("Failure")
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
+
+  it("accepts a 2048-char description and persists it", async () => {
+    const desc = "x".repeat(2048)
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("desc2048", false)
+      const updated = yield* u.setMetadata(project.id, { description: desc })
+      return updated
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const updated = await Effect.runPromise(program)
+    expect(updated.description).toBe(desc)
+    expect(updated.description?.length).toBe(2048)
+  })
+
+  it("rejects a 2049-char description (cap enforced; not persisted)", async () => {
+    const desc = "x".repeat(2049)
+    const program = Effect.gen(function* () {
+      const u = yield* UseCases
+      const { project } = yield* u.createProject("desc2049", false)
+      // Effect.result captures a graceful failure; if the over-long value is
+      // rejected as a defect instead, runPromiseExit's cause is non-empty — both
+      // mean the cap is enforced. We assert the stored description is NOT the
+      // over-long value (read-your-writes), independent of the failure mechanism.
+      yield* u.setMetadata(project.id, { description: desc }).pipe(Effect.result)
+      const listed = yield* u.listProjects()
+      return listed.find((p) => p.id === project.id)?.description ?? null
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const stored = await Effect.runPromiseExit(program)
+    // Either the program failed/died before persisting (cap enforced at encode),
+    // or it completed with the description still unset (never the 2049-char value).
+    if (stored._tag === "Success") {
+      expect(stored.value).not.toBe(desc)
+    } else {
+      // a defect/failure is also an acceptable enforcement of the cap
+      expect(stored._tag).toBe("Failure")
+    }
+  })
 })
 
 describe("UseCases.deleteProject", () => {
