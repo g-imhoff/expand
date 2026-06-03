@@ -1,11 +1,11 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import type { Project, ProjectCreateResult } from "@yodea/contracts/project"
-import { ProjectAlreadyExists } from "@yodea/contracts/rpc"
+import { ProjectAlreadyExists, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectCreated } from "@yodea/contracts/events"
+import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -18,6 +18,10 @@ export class UseCases extends Context.Service<UseCases, {
     name: string,
     ensure: boolean
   ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | UseCaseError>
+  readonly renameProject: (
+    id: string,
+    name: string
+  ) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
@@ -62,13 +66,31 @@ export class UseCases extends Context.Service<UseCases, {
         }
       })
 
+    // Rename: validate the target exists, then check name-uniqueness against the
+    // FULL non-deleted set (archived included, via projection.list) so an archived
+    // project's name stays reserved. Append THEN publish, mirroring createProject.
+    const renameProject = (id: string, name: string) =>
+      Effect.gen(function* () {
+        const all = yield* projection.list
+        const target = all.find((p) => p.id === id)
+        if (target === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (all.some((p) => p.id !== id && p.name === name)) {
+          return yield* Effect.fail(new ProjectNameConflict({ name }))
+        }
+        const occurredAt = new Date().toISOString()
+        const event = ProjectRenamed.make({ projectId: id, name, occurredAt })
+        yield* store.append(id, event)
+        yield* bus.publish(event)
+        return { ...target, name, updatedAt: occurredAt }
+      })
+
     // Default false: filter out archived. Deleted are already absent from the
     // fold. The full set (archived included) is reached with includeArchived:true,
     // which slices use for uniqueness checks.
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, listProjects } as const
+    return { health, createProject, renameProject, listProjects } as const
   })
 }) {}
 
