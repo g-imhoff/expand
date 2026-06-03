@@ -1,46 +1,37 @@
 import { Effect, Schema } from "effect"
 import { DESCRIPTION_MAX_LENGTH, Tag } from "@yodea/contracts/project"
 
-export const ProjectCreated = Schema.TaggedStruct("ProjectCreated", {
+const ProjectEventMeta = {
   projectId: Schema.String,
+  occurredAt: Schema.String
+}
+
+const projectEvent = <const T extends string, const F extends Schema.Struct.Fields>(tag: T, fields: F) =>
+  Schema.TaggedStruct(tag, { ...ProjectEventMeta, ...fields })
+
+export const ProjectCreated = projectEvent("ProjectCreated", {
   name: Schema.String,
-  directory: Schema.optionalKey(Schema.NullOr(Schema.String)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  createdAt: Schema.String
+  directory: Schema.optionalKey(Schema.NullOr(Schema.String)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)))
 })
 
-export const ProjectRenamed = Schema.TaggedStruct("ProjectRenamed", {
-  projectId: Schema.String,
-  name: Schema.String,
-  occurredAt: Schema.String
+export const ProjectRenamed = projectEvent("ProjectRenamed", {
+  name: Schema.String
 })
 
-export const ProjectDirectoryChanged = Schema.TaggedStruct("ProjectDirectoryChanged", {
-  projectId: Schema.String,
-  directory: Schema.String,
-  occurredAt: Schema.String
+export const ProjectDirectoryChanged = projectEvent("ProjectDirectoryChanged", {
+  directory: Schema.String
 })
 
-export const ProjectArchived = Schema.TaggedStruct("ProjectArchived", {
-  projectId: Schema.String,
-  occurredAt: Schema.String
-})
+export const ProjectArchived = projectEvent("ProjectArchived", {})
 
-export const ProjectRestored = Schema.TaggedStruct("ProjectRestored", {
-  projectId: Schema.String,
-  occurredAt: Schema.String
-})
+export const ProjectRestored = projectEvent("ProjectRestored", {})
 
-export const ProjectMetadataChanged = Schema.TaggedStruct("ProjectMetadataChanged", {
-  projectId: Schema.String,
+export const ProjectMetadataChanged = projectEvent("ProjectMetadataChanged", {
   description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
-  tags: Schema.optionalKey(Schema.Array(Tag)),
-  occurredAt: Schema.String
+  tags: Schema.optionalKey(Schema.Array(Tag))
 })
 
-export const ProjectDeleted = Schema.TaggedStruct("ProjectDeleted", {
-  projectId: Schema.String,
-  occurredAt: Schema.String
-})
+export const ProjectDeleted = projectEvent("ProjectDeleted", {})
 
 export const ProjectEvent = Schema.Union([
   ProjectCreated,

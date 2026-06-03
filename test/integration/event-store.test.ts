@@ -26,11 +26,11 @@ describe("EventStore", () => {
         const store = yield* EventStore
         yield* store.append(
           "p1",
-          ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" })
+          ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" })
         )
         yield* store.append(
           "p2",
-          ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" })
+          ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" })
         )
         return yield* store.readAll
       })
@@ -51,7 +51,7 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }))
+        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
         yield* sql`INSERT INTO events ${sql.insert({ stream_id: "p2", event_type: "ProjectCreated", payload: "{ not json" })}`
         return yield* store.readAll
       })
@@ -67,7 +67,7 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }))
+        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
         yield* sql`DROP TABLE events`
         return yield* store.readAll
       })
