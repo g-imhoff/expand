@@ -20,3 +20,59 @@ describe("EventBus", () => {
     expect(event.projectId).toBe("p1")
   })
 })
+
+describe("EventBus — subscription timing", () => {
+  it("does NOT deliver events published before a subscription attaches (live-only)", async () => {
+    const program = Effect.gen(function* () {
+      const bus = yield* EventBus
+      // publish BEFORE anyone subscribes -> dropped by the unbounded PubSub.
+      yield* bus.publish(ProjectCreated.make({ projectId: "early", name: "early", createdAt: "t0" }))
+      const sub = yield* bus.subscribe
+      yield* bus.publish(ProjectCreated.make({ projectId: "late", name: "late", createdAt: "t1" }))
+      return yield* PubSub.take(sub)
+    }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
+    const event = await Effect.runPromise(program)
+    // first take is the post-subscription event, never the pre-subscription one.
+    expect(event.projectId).toBe("late")
+  })
+
+  it("fans one publish out to two independent subscribers", async () => {
+    const program = Effect.gen(function* () {
+      const bus = yield* EventBus
+      const subA = yield* bus.subscribe
+      const subB = yield* bus.subscribe
+      yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", createdAt: "t1" }))
+      const a = yield* PubSub.take(subA)
+      const b = yield* PubSub.take(subB)
+      return { a, b }
+    }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
+    const { a, b } = await Effect.runPromise(program)
+    expect(a.projectId).toBe("p1")
+    expect(b.projectId).toBe("p1")
+  })
+
+  it("dropping one subscriber mid-stream does not block delivery to the survivor", async () => {
+    const program = Effect.gen(function* () {
+      const bus = yield* EventBus
+      const survivor = yield* bus.subscribe
+      // A second subscriber attaches inside a nested scope, takes one event, then
+      // its scope closes (subscription dropped) without draining the rest.
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const transient = yield* bus.subscribe
+          yield* bus.publish(ProjectCreated.make({ projectId: "p1", name: "x", createdAt: "t1" }))
+          const first = yield* PubSub.take(transient)
+          expect(first.projectId).toBe("p1")
+        })
+      )
+      // After the transient subscriber is gone, the survivor still receives a new
+      // publish — a dropped subscriber never wedges the unbounded PubSub.
+      yield* bus.publish(ProjectCreated.make({ projectId: "p2", name: "y", createdAt: "t2" }))
+      const a1 = yield* PubSub.take(survivor)
+      const a2 = yield* PubSub.take(survivor)
+      return [a1.projectId, a2.projectId]
+    }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
+    const got = await Effect.runPromise(program)
+    expect(got).toEqual(["p1", "p2"])
+  })
+})
