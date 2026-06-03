@@ -97,7 +97,20 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
-  ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
+  // Delete maps the single allowed domain tag (ProjectNotFound) to the typed RPC
+  // error channel; everything else (SqlError/SchemaError) dies. Same shape as
+  // ProjectArchive, refined on one tag.
+  ProjectDelete: ({ id }) =>
+    Effect.flatMap(UseCases, (u) => u.deleteProject(id)).pipe(
+      Effect.catchIf(
+        (e): e is ProjectNotFound =>
+          typeof e === "object" && e !== null && "_tag" in e &&
+          (e as { _tag: string })._tag === "ProjectNotFound",
+        (e) => Effect.fail(e),
+        (e) => Effect.die(e)
+      )
+    ),
+    ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
   // Presence channel = the I-4 connection. onConnect when the subscription is
   // established; emit one `true` so the client can confirm before doing work;
   // onDisconnect (via finalizer) when the stream's scope closes on socket drop.
