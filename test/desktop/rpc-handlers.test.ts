@@ -36,6 +36,10 @@ const fakeStoreLayer = (
     setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    deleteProject: (id: string) =>
+      SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
+        Effect.as({ id, deleted: true } as const)
       )
   })
 
@@ -106,6 +110,22 @@ describe("DesktopRpcHandlers", () => {
     expect(updated.description).toBe("hi")
     expect(updated.tags).toEqual(["x"])
     // The handler layer must construct with the new ProjectSetMetadata delegation.
+    expect(DesktopRpcHandlers).toBeDefined()
+  })
+
+  it("ProjectDelete delegates to store.deleteProject and shrinks the ref", async () => {
+    const program = Effect.gen(function* () {
+      const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([{ id: "x", name: "x", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }])
+      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const run = <A, E>(eff: Effect.Effect<A, E, ProjectStore>) => eff.pipe(Effect.provide(fakeStoreLayer(ref, hub)))
+      const res = yield* run(Effect.flatMap(ProjectStore, (s) => s.deleteProject("x")))
+      const list = yield* run(Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)))
+      return { res, list }
+    })
+    const { res, list } = await Effect.runPromise(program)
+    expect(res).toEqual({ id: "x", deleted: true })
+    expect(list).toEqual([])
+    // The handler layer must construct with the new ProjectDelete delegation.
     expect(DesktopRpcHandlers).toBeDefined()
   })
 

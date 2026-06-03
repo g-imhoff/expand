@@ -34,6 +34,10 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
+      ),
+    deleteProject: (id: string) =>
+      SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
+        Effect.as({ id, deleted: true } as const)
       )
   })
 
