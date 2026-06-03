@@ -1,13 +1,13 @@
 import { Effect, Schema } from "effect"
 import { DESCRIPTION_MAX_LENGTH, Tag } from "@yodea/contracts/project"
+import { domainEvent } from "@yodea/contracts/events/meta"
 
 const ProjectEventMeta = {
-  projectId: Schema.String,
-  occurredAt: Schema.String
+  projectId: Schema.String
 }
 
 const projectEvent = <const T extends string, const F extends Schema.Struct.Fields>(tag: T, fields: F) =>
-  Schema.TaggedStruct(tag, { ...ProjectEventMeta, ...fields })
+  domainEvent(tag, { ...ProjectEventMeta, ...fields })
 
 export const ProjectCreated = projectEvent("ProjectCreated", {
   name: Schema.String,
