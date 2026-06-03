@@ -120,6 +120,36 @@ describe("ProjectStore", () => {
     }
   })
 
+  it("seeds the startup snapshot with archived projects (restore stays reachable)", async () => {
+    // Regression: the snapshot must call ProjectList({ includeArchived: true }) so a
+    // project archived in a prior session is present when a fresh store attaches —
+    // otherwise it vanishes from the TUI/desktop list and its restore is unreachable.
+    // Archive via store A, then attach store B (fresh snapshot) and assert B sees it.
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const rtA = ManagedRuntime.make(appLayer)
+    try {
+      const storeA = await rtA.runPromise(ProjectStore)
+      const created = await rtA.runPromise(storeA.createProject("archived-at-rest"))
+      await rtA.runPromise(storeA.archiveProject(created.id))
+      // let A's fold settle so the server has persisted the ProjectArchived event
+      await new Promise((r) => setTimeout(r, 300))
+
+      // Fresh store: its snapshot is a brand-new ProjectList round-trip.
+      const rtB = ManagedRuntime.make(appLayer)
+      try {
+        const storeB = await rtB.runPromise(ProjectStore)
+        const snapshot = await rtB.runPromise(SubscriptionRef.get(storeB.projects))
+        const seen = snapshot.find((p) => p.id === created.id)
+        expect(seen).toBeDefined()
+        expect(seen?.archived).toBe(true)
+      } finally {
+        await rtB.dispose()
+      }
+    } finally {
+      await rtA.dispose()
+    }
+  })
+
   it("exposes a live events stream that emits ProjectCreated", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
     const rt = ManagedRuntime.make(appLayer)

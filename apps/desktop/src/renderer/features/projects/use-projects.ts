@@ -1,14 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { PROJECTS_KEY } from "@yodea/desktop/renderer/features/projects/cache"
+import { ALL_PROJECTS_KEY, PROJECTS_KEY } from "@yodea/desktop/renderer/features/projects/cache"
 import { useRpc } from "@yodea/desktop/renderer/rpc/runtime"
 
-// Read the project list. staleTime Infinity: the Events stream keeps the cache
-// fresh (folded via applyEventToCache at the root), so no refetch poll is needed.
+// Read the default project list (archived hidden, matching the CLI default).
+// staleTime Infinity: the Events stream keeps the cache fresh (folded via
+// applyEventToCache at the root), so no refetch poll is needed. Backs the main
+// projects view + workspace.
 export const useProjects = () => {
   const { runtime, client } = useRpc()
   return useQuery({
     queryKey: PROJECTS_KEY,
     queryFn: () => runtime.runPromise(client.ProjectList({})),
+    staleTime: Infinity
+  })
+}
+
+// Read the FULL project list including archived (ProjectList includeArchived:true).
+// Backs the command palette so an archived project stays reachable and its Restore
+// command can be selected — archive must not be a one-way trip. Kept live by the
+// same root Events fold (applyEventToCache writes both keys); archive/restore
+// mutations also invalidate this key as a belt-and-braces refresh.
+export const useAllProjects = () => {
+  const { runtime, client } = useRpc()
+  return useQuery({
+    queryKey: ALL_PROJECTS_KEY,
+    queryFn: () => runtime.runPromise(client.ProjectList({ includeArchived: true })),
     staleTime: Infinity
   })
 }
