@@ -65,6 +65,16 @@ describe("CLI contract", () => {
     const r = await runCli(tree(okClient), ["project", "create", "foo", "--format", "text"])
     expect(r.stdout.join("")).toContain("foo")
   })
+  it("project create --directory passes the directory through to ProjectCreate", async () => {
+    const dirClient = {
+      ProjectCreate: ({ name, directory }: { name: string; ensure: boolean; directory?: string | null }) =>
+        Effect.succeed({ created: true, project: { id: "01J", name, directory: directory ?? null, createdAt: "2026-01-01T00:00:00.000Z" } })
+    }
+    const r = await runCli(tree(dirClient), ["project", "create", "foo", "--directory", "/srv/foo"])
+    expect(r.code).toBe(0)
+    expect(r.stderr).toEqual([])
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Project", created: true, data: { name: "foo", directory: "/srv/foo" } })
+  })
   it("project create dup -> PROJECT_EXISTS on stderr, stdout empty, exit 5", async () => {
     const r = await runCli(tree(okClient), ["project", "create", "dup"])
     expect(r.stdout).toEqual([])
