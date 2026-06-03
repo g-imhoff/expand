@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { projectsFromEvents } from "@yodea/domain/project"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 
 describe("projectsFromEvents", () => {
   it("folds an empty log into no projects", () => {
@@ -110,5 +110,19 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
       ProjectMetadataChanged.make({ projectId: "ghost", tags: ["x"], occurredAt: "t2" })
     ])
     expect(projects).toEqual([])
+  })
+})
+
+describe("projectsFromEvents — ProjectDeleted", () => {
+  it("removes a project from the read-model (tombstone)", () => {
+    const projects = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "A", createdAt: "t1" }),
+      ProjectCreated.make({ projectId: "p2", name: "B", createdAt: "t2" }),
+      ProjectDeleted.make({ projectId: "p1", occurredAt: "t3" })
+    ])
+    expect(projects.map((p) => p.id)).toEqual(["p2"])
+  })
+  it("a delete with no prior Created is a no-op (out-of-order tolerance)", () => {
+    expect(projectsFromEvents([ProjectDeleted.make({ projectId: "ghost", occurredAt: "t1" })])).toEqual([])
   })
 })

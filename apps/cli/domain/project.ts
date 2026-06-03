@@ -57,6 +57,12 @@ export const projectsFromEvents = (
         })
         break
       }
+      case "ProjectDeleted":
+        // Soft tombstone: drop the project entirely. Map.delete on an absent key
+        // is a no-op (out-of-order/duplicate tolerance). A deleted id never
+        // reappears and is excluded from every list regardless of includeArchived.
+        byId.delete(event.projectId)
+        break
     }
   }
   return [...byId.values()]
