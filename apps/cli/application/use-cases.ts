@@ -1,11 +1,11 @@
 import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import type { Project, ProjectCreateResult } from "@yodea/contracts/project"
+import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { EventStore } from "@yodea/db/event-store"
 import { EventBus } from "@yodea/application/event-bus"
 import { ProjectProjection } from "@yodea/application/projections"
-import { ProjectArchived, ProjectCreated, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events"
 import { newId } from "@yodea/lib/ids"
 
 // The commit path appends to the EventStore and the read path rebuilds the
@@ -32,6 +32,7 @@ export class UseCases extends Context.Service<UseCases, {
     id: string,
     patch: { description?: string | null; tags?: ReadonlyArray<string> }
   ) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/UseCases", {
   make: Effect.gen(function* () {
@@ -173,13 +174,27 @@ export class UseCases extends Context.Service<UseCases, {
         return updated ?? existing
       })
 
+    // Delete (soft tombstone). Validate the target exists in the FULL non-deleted
+    // set (projection.list), append a ProjectDeleted event, publish, and return
+    // { id, deleted: true }. The fold drops the id from every read-model and it
+    // never reappears. A delete of an absent id fails ProjectNotFound.
+    const deleteProject = (id: string) =>
+      Effect.gen(function* () {
+        const existing = (yield* projection.list).find((p) => p.id === id)
+        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        const event = ProjectDeleted.make({ projectId: id, occurredAt: new Date().toISOString() })
+        yield* store.append(id, event)
+        yield* bus.publish(event)
+        return { id, deleted: true } as const
+      })
+
     // Default false: filter out archived. Deleted are already absent from the
     // fold. The full set (archived included) is reached with includeArchived:true,
     // which slices use for uniqueness checks.
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, listProjects } as const
+    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, deleteProject, listProjects } as const
   })
 }) {}
 
