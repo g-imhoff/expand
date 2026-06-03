@@ -12,7 +12,11 @@ export interface ProjectStoreShape {
   // Reactive list: current snapshot + every future ProjectCreated, folded in.
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   // Issue a create over the held connection (server emits the event we fold).
-  readonly createProject: (name: string) => Effect.Effect<Project, RpcClientError.RpcClientError>
+  // `directory` is optional (D2); when given it is validated server-side.
+  readonly createProject: (
+    name: string,
+    directory?: string | null
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectDirectoryInvalid | ProjectDirectoryConflict>
   // Rename over the held connection. Unlike createProject, this SURFACES the typed
   // domain errors (ProjectNotFound/ProjectNameConflict) so TUI/desktop can react.
   readonly renameProject: (
@@ -168,8 +172,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     return {
       projects,
       events: Stream.fromPubSub(hub),
-      createProject: (name: string) =>
-        client.ProjectCreate({ name, ensure: true }).pipe(
+      createProject: (name: string, directory?: string | null) =>
+        client.ProjectCreate({ name, ensure: true, ...(directory !== undefined ? { directory } : {}) }).pipe(
           Effect.map((r) => r.project),
           Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e))
         ),

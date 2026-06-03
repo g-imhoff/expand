@@ -16,8 +16,9 @@ export class UseCases extends Context.Service<UseCases, {
   readonly health: Effect.Effect<string>
   readonly createProject: (
     name: string,
-    ensure: boolean
-  ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | UseCaseError>
+    ensure: boolean,
+    directory?: string | null
+  ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
   readonly renameProject: (
     id: string,
     name: string
@@ -47,6 +48,28 @@ export class UseCases extends Context.Service<UseCases, {
 
     const health = Effect.succeed("ok")
 
+    // Shared directory validation (used by createProject + changeDirectory):
+    // absolute -> exists on disk -> unique among live, non-deleted projects
+    // (archived included), excluding `selfId`. fs.exists' PlatformError is
+    // discharged as a defect (orDie) since the contract declares no infra error.
+    const validateDirectory = (
+      directory: string,
+      projects: ReadonlyArray<Project>,
+      selfId?: string
+    ): Effect.Effect<void, ProjectDirectoryInvalid | ProjectDirectoryConflict> =>
+      Effect.gen(function* () {
+        if (!path.isAbsolute(directory)) {
+          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
+        }
+        const onDisk = yield* fs.exists(directory).pipe(Effect.orDie)
+        if (!onDisk) {
+          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+        }
+        if (projects.some((p) => p.id !== selfId && p.directory === directory)) {
+          return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
+        }
+      })
+
     // Commit path: durable append (source of truth) THEN live publish.
     // Append is the commit point; publish is best-effort live fan-out.
     //
@@ -55,16 +78,23 @@ export class UseCases extends Context.Service<UseCases, {
     // creates of the same name could both observe "absent" and both append.
     // Acceptable under I-2 (single backend instance, effectively serialized);
     // the deferred TxQueue closes the window with a serialized commit path.
-    const createProject = (name: string, ensure: boolean) =>
+    const createProject = (name: string, ensure: boolean, directory?: string | null) =>
       Effect.gen(function* () {
-        const existing = (yield* projection.list).find((p) => p.name === name)
+        const all = yield* projection.list
+        const existing = all.find((p) => p.name === name)
         if (existing !== undefined) {
           if (ensure) return { created: false, project: existing }
           return yield* Effect.fail(new ProjectAlreadyExists({ name }))
         }
+        // (D2) directory is optional at create; validate it server-side (absolute
+        // + on-disk + unique among live projects) only when a non-null path is given.
+        if (typeof directory === "string") {
+          yield* validateDirectory(directory, all)
+        }
+        const dir = typeof directory === "string" ? directory : null
         const id = newId()
         const createdAt = new Date().toISOString()
-        const event = ProjectCreated.make({ projectId: id, name, createdAt })
+        const event = ProjectCreated.make({ projectId: id, name, directory: dir, createdAt })
         yield* store.append(id, event)
         yield* bus.publish(event)
         return {
@@ -72,7 +102,7 @@ export class UseCases extends Context.Service<UseCases, {
           project: {
             id,
             name,
-            directory: null,
+            directory: dir,
             description: null,
             tags: [],
             archived: false,
@@ -109,16 +139,7 @@ export class UseCases extends Context.Service<UseCases, {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
-        if (!path.isAbsolute(directory)) {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
-        }
-        const onDisk = yield* fs.exists(directory).pipe(Effect.orDie)
-        if (!onDisk) {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
-        }
-        if (all.some((p) => p.id !== id && p.directory === directory)) {
-          return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
-        }
+        yield* validateDirectory(directory, all, id)
         const occurredAt = new Date().toISOString()
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
         yield* store.append(id, event)
