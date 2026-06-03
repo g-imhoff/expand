@@ -11,7 +11,6 @@ const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
-  // UseCases.make yields FileSystem+Path (for changeDirectory); supply them.
   return UseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
@@ -30,8 +29,6 @@ describe("UseCases.createProject", () => {
   })
 
   it("rejects a duplicate name (strict) with ProjectAlreadyExists", async () => {
-    // `Effect.either` is removed in this v4 beta; `Effect.result` is the
-    // successor (Result: { _tag: "Failure", failure } | { _tag: "Success", value }).
     const exit = await run(
       Effect.gen(function* () {
         const u = yield* UseCases

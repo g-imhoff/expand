@@ -222,9 +222,6 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
       ProjectCreated.make({ projectId: "p1", name: "alpha-again", createdAt: "t3" }),
       ProjectRenamed.make({ projectId: "p1", name: "renamed", occurredAt: "t4" })
     ])
-    // The fold's tombstone is a delete-on-event; a later Created legitimately
-    // re-establishes the aggregate (event-sourced replay), but the read-model
-    // never shows two aggregates for the same id.
     expect(projects.filter((p) => p.id === "p1")).toHaveLength(1)
     expect(projects[0]?.name).toBe("renamed")
   })

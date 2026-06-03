@@ -3,9 +3,6 @@ import { render } from "ink-testing-library"
 import { DirectoryInput } from "@yodea/tui/components/directory-input"
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
-// ink buffers a lone ESC (pendingInputFlushDelayMilliseconds, ~20ms) before
-// flushing it as the Escape key; wait comfortably past that so the cancel
-// handler runs (a tight ~40ms wait was flaky in this environment).
 const flushEscape = () => new Promise((resolve) => setTimeout(resolve, 80))
 
 describe("DirectoryInput", () => {

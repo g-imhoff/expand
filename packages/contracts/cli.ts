@@ -1,11 +1,8 @@
 import { Schema } from "effect"
 import { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 
-// The agent-facing contract version. Bump ONLY on a breaking change to any
-// envelope shape (the snapshot test guards this).
 export const API_VERSION = "yodea/v1" as const
 
-// Active error codes — frozen as part of yodea/v1; growth is additive only.
 export const ErrorCode = Schema.Literals([
   "UNEXPECTED",
   "INVALID_ARGUMENT",

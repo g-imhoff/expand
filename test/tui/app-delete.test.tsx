@@ -54,12 +54,10 @@ describe("App delete keybinding", () => {
       await new Promise((r) => setTimeout(r, 50))
       stdin.write("x")
       await new Promise((r) => setTimeout(r, 80))
-      // ConfirmDelete is now mounted for the selected project.
       expect(lastFrame()).toContain("delete")
       expect(lastFrame()).toContain("alpha")
       stdin.write("y")
       await new Promise((r) => setTimeout(r, 80))
-      // Delete removed the project from the store-backed list.
       const remaining = await Effect.runPromise(SubscriptionRef.get(ref))
       expect(remaining).toHaveLength(0)
     } finally {
@@ -80,7 +78,7 @@ describe("App delete keybinding", () => {
       stdin.write("x")
       await new Promise((r) => setTimeout(r, 80))
       expect(lastFrame()).toContain("delete")
-      stdin.write("\x1b") // Escape
+      stdin.write("\x1b")
       await new Promise((r) => setTimeout(r, 80))
       const remaining = await Effect.runPromise(SubscriptionRef.get(ref))
       expect(remaining).toHaveLength(1)

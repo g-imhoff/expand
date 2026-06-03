@@ -54,7 +54,7 @@ describe.sequential("change-directory end-to-end", () => {
     const r = await Effect.runPromise(program)
     expect(r.moved.directory).toBe(r.listed[0]?.directory)
     expect(Option.isSome(r.event) && r.event.value._tag === "ProjectDirectoryChanged").toBe(true)
-    expect(r.listed[0]?.directory).toBe(r.moved.directory) // re-fold over the wire
+    expect(r.listed[0]?.directory).toBe(r.moved.directory)
   })
 
   it("change-directory to a relative path fails with ProjectDirectoryInvalid over the wire", async () => {

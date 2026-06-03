@@ -13,10 +13,6 @@ let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-xstore-"))
   process.env.YODEA_HOME = dir
-  // Under vitest, Bun.main is the vitest worker, so the Bun adapter's
-  // from-source spawn would launch the worker instead of the backend. Point it
-  // at the real CLI entry so spawnBackend boots a working `yodea server` exactly
-  // as it does in dev-from-source. Restored in afterEach.
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/cli/cli/main.ts")
 })
@@ -26,10 +22,6 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-// Two independent ProjectStores attach to the SAME backend. A non-Created mutation
-// (rename / archive / delete) through store A must propagate to store B's reactive
-// `projects` SubscriptionRef via the live Events fold — proving the client store's
-// fold mirrors the server fold for every event tag, not just ProjectCreated.
 describe("cross-store live sync", () => {
   it("a rename through store A appears in store B via the live event-fold", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
@@ -38,10 +30,9 @@ describe("cross-store live sync", () => {
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
-      await new Promise((r) => setTimeout(r, 500)) // let B's Events subscription attach
+      await new Promise((r) => setTimeout(r, 500))
 
       const created = await rtA.runPromise(storeA.createProject("sync-me"))
-      // wait until B sees the create, THEN rename via A and wait for the rename.
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id)),
@@ -81,7 +72,6 @@ describe("cross-store live sync", () => {
           Stream.take(1), Stream.runCollect
         )
       )
-      // archive via A -> B observes archived:true
       const sawArchived = rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id && p.archived === true)),
@@ -91,7 +81,6 @@ describe("cross-store live sync", () => {
       await rtA.runPromise(storeA.archiveProject(created.id))
       await sawArchived
 
-      // delete via A -> B observes the project gone from its ref
       const sawGone = rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => !ps.some((p) => p.id === created.id)),

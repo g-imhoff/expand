@@ -21,8 +21,6 @@ describe("DomainEvent", () => {
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(typeof json).toBe("string")
-    // `directory` is omitted on encode (optionalKey) and decodes back to the
-    // null default — the roundtrip materializes the additive field.
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual({ ...e, directory: null })
   })
 

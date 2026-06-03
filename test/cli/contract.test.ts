@@ -39,7 +39,6 @@ const okClient = {
     Effect.succeed(FULL({ id, name: "alpha", archived: true })),
   ProjectRestore: ({ id }: { id: string }) =>
     Effect.succeed(FULL({ id, name: "alpha", archived: false })),
-  // ProjectDelete resolves for known ids (alpha=01J, or a UUID), fails ProjectNotFound otherwise.
   ProjectDelete: ({ id }: { id: string }) =>
     Effect.succeed({ id, deleted: true })
 }
@@ -90,7 +89,6 @@ describe("CLI contract", () => {
     const r = await runCli(tree(okClient), ["project", "create", "My Proj"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })
     expect(r.code).toBe(2)
-    // NOTE: stdout is NOT asserted empty here — the framework prints help to stdout on a parse error.
   })
   it("backend unreachable -> BACKEND_UNREACHABLE, retryable, exit 6", async () => {
     const r = await runCli(tree(downClient), ["health"])
@@ -133,8 +131,6 @@ describe("CLI contract", () => {
     expect(JSON.parse(r.stdout.join("")).data.id).toBe("01J")
   })
   it("project rename to a taken name -> NAME_CONFLICT, exit 8", async () => {
-    // target "alpha" resolves (via ProjectList) to id 01J; the stub fails the
-    // rename with ProjectNameConflict because the new name "taken" is reserved.
     const r = await runCli(tree(okClient), ["project", "rename", "alpha", "taken"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "NAME_CONFLICT", retryable: false })
     expect(r.code).toBe(8)
@@ -242,8 +238,6 @@ describe("CLI contract", () => {
 })
 
 describe("CLI parse/validation edge cases", () => {
-  // A full-Project stub (all 8 fields via FULL) plus every mutating method, so
-  // resolveProjectTarget's name lookup (ProjectList, includeArchived) resolves.
   const opsClient = {
     ...okClient,
     ProjectList: () => Effect.succeed([FULL({ id: "01J", name: "alpha" })]),
@@ -260,7 +254,6 @@ describe("CLI parse/validation edge cases", () => {
     ProjectSetMetadata: ({ id }: { id: string }) => Effect.succeed(FULL({ id })),
     ProjectDelete: ({ id }: { id: string }) => Effect.succeed({ id, deleted: true })
   }
-  // No project in the list -> resolveProjectTarget reports PROJECT_NOT_FOUND.
   const missingClient = {
     ...opsClient,
     ProjectList: () => Effect.succeed([] as ReadonlyArray<ReturnType<typeof FULL>>),

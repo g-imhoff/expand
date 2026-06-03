@@ -38,12 +38,6 @@ describe.sequential("project operations over the wire", () => {
 
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          // Buffer the event stream as a queue BEFORE mutating (live-only PubSub).
-          // The live-only PubSub only delivers events emitted AFTER the subscription
-          // attaches, so we must let the queue's subscription register on the server
-          // before firing mutations. Use the proven 500ms settle that the sibling
-          // project-store subscription-attach race relies on; 150ms was a flakier
-          // fixed delay that could lose the race on a slow boot.
           const events = yield* client.Events(undefined, { asQueue: true })
           yield* Effect.sleep("500 millis")
 
@@ -55,7 +49,6 @@ describe.sequential("project operations over the wire", () => {
           const meta = yield* client.ProjectSetMetadata({ id: project.id, description: "desc", tags: ["a", "b"] })
           const deleted = yield* client.ProjectDelete({ id: project.id })
 
-          // 7 events: Created, Renamed, DirectoryChanged, Archived, Restored, MetadataChanged, Deleted
           const tags: string[] = []
           for (let i = 0; i < 7; i++) tags.push((yield* Queue.take(events))._tag)
 
@@ -79,7 +72,7 @@ describe.sequential("project operations over the wire", () => {
       "ProjectCreated", "ProjectRenamed", "ProjectDirectoryChanged",
       "ProjectArchived", "ProjectRestored", "ProjectMetadataChanged", "ProjectDeleted"
     ])
-    expect(r.listed).toEqual([]) // deleted -> read-model empty
+    expect(r.listed).toEqual([])
     rmSync(workdir, { recursive: true, force: true })
   })
 

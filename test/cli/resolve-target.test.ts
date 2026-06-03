@@ -23,9 +23,6 @@ describe("resolveProjectTarget", () => {
     expect((r as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
   it("dies (ambiguous, not ProjectNotFound) when multiple live projects share the name", async () => {
-    // Names are unique among live projects, so >1 match is an invariant violation,
-    // not a user-facing "not found". It must surface as an Unexpected defect, which
-    // Effect.result does NOT catch — so the promise rejects rather than resolving.
     await expect(run("dup", [{ id: "a", name: "dup" }, { id: "b", name: "dup" }])).rejects.toThrow()
   })
 })

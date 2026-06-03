@@ -6,11 +6,6 @@ import { YodeaClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
-// target accepts a project NAME or UUID (no withSchema); resolveProjectTarget
-// turns it into an id (passing a UUID straight through, resolving a name via list).
-// Delete is IMMEDIATE in the machine contract — no interactive prompt (confirmation
-// is a TUI/desktop concern). Uses the distinct ProjectDeleteEnvelope (kind
-// "ProjectDelete"), not ProjectEnvelope, since it returns a ProjectDeleteResult.
 const target = Argument.string("project")
 
 export const deleteCommand = defineCommand(

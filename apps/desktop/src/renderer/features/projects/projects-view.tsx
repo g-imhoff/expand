@@ -21,12 +21,6 @@ export const ProjectsView = () => {
     if (!n) return
     create.mutate(n, { onSuccess: () => setName("") })
   }
-  // The default index view hides archived projects, matching the CLI/backend
-  // default and the useProjects()→ProjectList({}) refetch path. The live event
-  // fold keeps an archived project in PROJECTS_KEY with archived:true until the
-  // mutation's invalidation refetches it hidden; filtering here makes the view
-  // consistent immediately (no lingering just-archived row). Archived projects
-  // stay reachable via the command palette (useAllProjects()) and its Restore.
   const visible = projects.filter((p) => !p.archived)
   return (
     <main style={{ fontFamily: "system-ui", padding: 24 }}>

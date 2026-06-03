@@ -20,7 +20,6 @@ describe("YodeaRpcs contract", () => {
     expect(YodeaHandlers).toBeDefined()
   })
   it("exposes the five procedures by tag", () => {
-    // RpcGroup exposes its requests; assert the tags we depend on exist.
     const tags = [...YodeaRpcs.requests.keys()]
     expect(tags).toEqual(
       expect.arrayContaining(["Health", "ProjectCreate", "ProjectList", "Connect", "Events", "ProjectRename"])
