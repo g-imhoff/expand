@@ -7,8 +7,9 @@ import { YodeaRpcs } from "@yodea/contracts/rpc"
 // from client-core, which I-1 forbids). Mirrors packages/client-core/with-client.ts.
 export type YodeaClient = RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>
 
-// A tiny runtime supplying no services (the makeNoSerialization client needs no
-// platform layer — it is wired purely via callbacks). Effect core runs in the browser.
+// A tiny runtime supplying no services: the RpcClient is built in client.ts with
+// its own connection-scoped Scope + RpcSerialization.json provided locally, so the
+// runtime itself needs no platform layer. Effect core runs in the browser.
 export const makeRendererRuntime = () => ManagedRuntime.make(Layer.empty)
 export type RendererRuntime = ReturnType<typeof makeRendererRuntime>
 
