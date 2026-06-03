@@ -50,6 +50,28 @@ export class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ reado
   }
 }
 
+export class DirectoryInvalidCli extends Data.TaggedError("DirectoryInvalidCli")<{ readonly directory: string; readonly reason: string }> {
+  readonly [Runtime.errorExitCode] = 9
+  readonly [Runtime.errorReported] = false
+  toEnvelope(): ErrorEnvelope {
+    return make("DIRECTORY_INVALID", `directory '${this.directory}' is invalid: ${this.reason}`, false, {
+      input: { directory: this.directory, reason: this.reason },
+      hint: "pass an absolute path that exists on disk"
+    })
+  }
+}
+
+export class DirectoryConflictCli extends Data.TaggedError("DirectoryConflictCli")<{ readonly directory: string }> {
+  readonly [Runtime.errorExitCode] = 10
+  readonly [Runtime.errorReported] = false
+  toEnvelope(): ErrorEnvelope {
+    return make("DIRECTORY_CONFLICT", `directory '${this.directory}' is already used by another project`, false, {
+      input: { directory: this.directory },
+      hint: "choose a different directory"
+    })
+  }
+}
+
 export class BackendUnreachable extends Data.TaggedError("BackendUnreachable")<{ readonly reason: string }> {
   readonly [Runtime.errorExitCode] = 6
   readonly [Runtime.errorReported] = false
@@ -68,7 +90,7 @@ export class Unexpected extends Data.TaggedError("Unexpected")<{ readonly detail
   }
 }
 
-export type YodeaCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli | BackendUnreachable | Unexpected
+export type YodeaCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli | DirectoryInvalidCli | DirectoryConflictCli | BackendUnreachable | Unexpected
 
 const tagOf = (e: unknown): string | undefined =>
   typeof e === "object" && e !== null && "_tag" in e ? (e as { _tag: string })._tag : undefined
@@ -82,6 +104,10 @@ export const mapContractError = (e: unknown): YodeaCliError => {
       return new ProjectNotFoundCli({ id: (e as { id: string }).id })
     case "ProjectNameConflict":
       return new NameConflictCli({ name: (e as { name: string }).name })
+    case "ProjectDirectoryInvalid":
+      return new DirectoryInvalidCli({ directory: (e as { directory: string }).directory, reason: (e as { reason: string }).reason })
+    case "ProjectDirectoryConflict":
+      return new DirectoryConflictCli({ directory: (e as { directory: string }).directory })
     case "BackendUnavailable":
       return new BackendUnreachable({ reason: (e as { reason: string }).reason })
     case "RpcClientError":
