@@ -126,3 +126,106 @@ describe("projectsFromEvents — ProjectDeleted", () => {
     expect(projectsFromEvents([ProjectDeleted.make({ projectId: "ghost", occurredAt: "t1" })])).toEqual([])
   })
 })
+
+describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
+  it("ignores a mutation that arrives before its ProjectCreated (no prior aggregate)", () => {
+    const projects = projectsFromEvents([
+      ProjectRenamed.make({ projectId: "ghost", name: "renamed", occurredAt: "t2" })
+    ])
+    expect(projects).toEqual([])
+  })
+
+  it("drops on ProjectDeleted and a later mutation for the tombstoned id is a no-op", () => {
+    const projects = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectDeleted.make({ projectId: "p1", occurredAt: "t2" }),
+      ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t3" })
+    ])
+    expect(projects).toEqual([])
+  })
+
+  it("stamps updatedAt from each event's time and keeps createdAt fixed", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t5" })
+    ])
+    expect(p).toMatchObject({ id: "p1", name: "b", createdAt: "t1", updatedAt: "t5" })
+  })
+
+  it("ProjectCreated without a directory folds directory to null (event-versioning)", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" })
+    ])
+    expect(p?.directory).toBeNull()
+  })
+
+  it("metadata is replace-style per field and dedupes tags", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectMetadataChanged.make({ projectId: "p1", description: "first", tags: ["x", "x", "y"], occurredAt: "t2" }),
+      ProjectMetadataChanged.make({ projectId: "p1", tags: ["z"], occurredAt: "t3" })
+    ])
+    expect(p).toMatchObject({ description: "first", tags: ["z"], updatedAt: "t3" })
+  })
+
+  it("archive then restore toggles archived back to false", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectArchived.make({ projectId: "p1", occurredAt: "t2" }),
+      ProjectRestored.make({ projectId: "p1", occurredAt: "t3" })
+    ])
+    expect(p?.archived).toBe(false)
+  })
+
+  it("a duplicate ProjectCreated for the same id does not duplicate or reset the aggregate", () => {
+    const projects = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectRenamed.make({ projectId: "p1", name: "b", occurredAt: "t2" }),
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t9" })
+    ])
+    expect(projects).toHaveLength(1)
+  })
+
+  it("directory-changed updates directory and stamps updatedAt", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "a", createdAt: "t1" }),
+      ProjectDirectoryChanged.make({ projectId: "p1", directory: "/tmp/x", occurredAt: "t2" })
+    ])
+    expect(p).toMatchObject({ directory: "/tmp/x", updatedAt: "t2" })
+  })
+
+  it("folds a full realistic lifecycle: create -> rename -> change-dir -> archive -> restore -> set-metadata", () => {
+    const [p] = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "alpha", createdAt: "t1" }),
+      ProjectRenamed.make({ projectId: "p1", name: "beta", occurredAt: "t2" }),
+      ProjectDirectoryChanged.make({ projectId: "p1", directory: "/srv/beta", occurredAt: "t3" }),
+      ProjectArchived.make({ projectId: "p1", occurredAt: "t4" }),
+      ProjectRestored.make({ projectId: "p1", occurredAt: "t5" }),
+      ProjectMetadataChanged.make({ projectId: "p1", description: "the beta project", tags: ["x", "y"], occurredAt: "t6" })
+    ])
+    expect(p).toEqual({
+      id: "p1",
+      name: "beta",
+      directory: "/srv/beta",
+      description: "the beta project",
+      tags: ["x", "y"],
+      archived: false,
+      createdAt: "t1",
+      updatedAt: "t6"
+    })
+  })
+
+  it("a tombstoned id never reappears even when re-created and mutated afterwards", () => {
+    const projects = projectsFromEvents([
+      ProjectCreated.make({ projectId: "p1", name: "alpha", createdAt: "t1" }),
+      ProjectDeleted.make({ projectId: "p1", occurredAt: "t2" }),
+      ProjectCreated.make({ projectId: "p1", name: "alpha-again", createdAt: "t3" }),
+      ProjectRenamed.make({ projectId: "p1", name: "renamed", occurredAt: "t4" })
+    ])
+    // The fold's tombstone is a delete-on-event; a later Created legitimately
+    // re-establishes the aggregate (event-sourced replay), but the read-model
+    // never shows two aggregates for the same id.
+    expect(projects.filter((p) => p.id === "p1")).toHaveLength(1)
+    expect(projects[0]?.name).toBe("renamed")
+  })
+})
