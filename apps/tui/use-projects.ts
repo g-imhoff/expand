@@ -24,5 +24,8 @@ export const useProjects = () => {
   const create = (name: string) =>
     runtime.runFork(Effect.flatMap(ProjectStore, (s) => s.createProject(name)))
 
-  return { projects, create }
+  const rename = (id: string, name: string) =>
+    runtime.runFork(Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name)))
+
+  return { projects, create, rename }
 }
