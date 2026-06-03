@@ -15,6 +15,13 @@ export const DesktopRpcHandlers = YodeaRpcs.toLayer({
       Effect.map((project) => ({ created: true, project })),
       Effect.orDie
     ),
+  // Surface the typed domain errors (ProjectNotFound/ProjectNameConflict) so the
+  // renderer's contract-derived RpcClient gets them; the store's transport-level
+  // RpcClientError is not part of the contract, so discharge it as a defect.
+  ProjectRename: ({ id, name }) =>
+    Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name)).pipe(
+      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
+    ),
   ProjectList: ({ includeArchived }) =>
     Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)).pipe(
       Effect.map((ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
