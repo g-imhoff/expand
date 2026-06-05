@@ -9,9 +9,6 @@ export interface ResultSpec<R> {
   readonly quiet: (r: R) => string
 }
 
-// Renders SUCCESS to stdout per --format/--quiet. Errors propagate UNCAUGHT to the
-// top-level renderErrors seam (run.ts), which renders handler-domain AND
-// layer-acquisition failures in one place.
 export const defineCommand = <const Name extends string, Config extends Command.Command.Config, R, E, Deps>(
   name: Name,
   config: Config,

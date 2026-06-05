@@ -17,7 +17,6 @@ export const Providers = ({ children }: { children: ReactNode }) => {
       .then((c) => {
         if (!live) return
         setClient(c)
-        // One root subscription: fold every live event into the query cache.
         runtime.runFork(
           Stream.runForEach(c.Events(), (event) =>
             Effect.sync(() => applyEventToCache(queryClient, event))
@@ -26,7 +25,6 @@ export const Providers = ({ children }: { children: ReactNode }) => {
       })
     return () => {
       live = false
-      // Disposing the runtime interrupts the forked Events subscription fiber.
       void runtime.dispose()
     }
   }, [runtime, queryClient])

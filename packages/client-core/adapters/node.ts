@@ -5,9 +5,6 @@ import { WebSocket as WS } from "ws"
 import { spawn } from "node:child_process"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 
-// Node has no global WebSocket: provide the constructor from the `ws` package.
-// The ws WebSocket is wire-compatible with the browser WebSocket the Socket layer
-// expects; the cast bridges the slightly-different TS types.
 const wsConstructor = Layer.succeed(
   Socket.WebSocketConstructor,
   (url: string, protocols?: string | ReadonlyArray<string>) =>
@@ -21,8 +18,6 @@ const protocolLayer = (url: string) =>
   )
 
 export interface NodeAdapterOptions {
-  // How to launch the backend. Dev: ["bun", "<repo>/apps/cli/cli/main.ts", "server"].
-  // Packaged: [pathToCompiledYodea, "server"].
   readonly backendCommand: ReadonlyArray<string>
 }
 

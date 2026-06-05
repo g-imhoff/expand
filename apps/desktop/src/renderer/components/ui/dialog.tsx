@@ -1,6 +1,4 @@
 import * as React from "react"
-// Unified Radix package (current shadcn new-york-v4). `Dialog` is the namespace:
-// DialogPrimitive.Root / .Portal / .Overlay / .Content / .Close / .Title / .Description.
 import { Dialog as DialogPrimitive } from "radix-ui"
 import { XIcon } from "lucide-react"
 import { cn } from "../../lib/utils"

@@ -10,8 +10,8 @@ test("creates a project and shows it live", async () => {
     args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs")],
     env: {
       ...process.env,
-      YODEA_HOME: mkdtempSync(resolve(tmpdir(), "yodea-e2e-")),
-      YODEA_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/cli/cli/main.ts"), "server"])
+      YODEA_DB: resolve(mkdtempSync(resolve(tmpdir(), "yodea-e2e-")), "events.db"),
+      YODEA_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
     }
   })
   const win = await app.firstWindow()

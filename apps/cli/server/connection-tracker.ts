@@ -28,7 +28,6 @@ export class ConnectionTracker extends Context.Service<ConnectionTracker, {
     return {
       onConnect,
       onDisconnect,
-      // Composition blocks on this; resolves once armed && count returns to 0.
       awaitShutdown: Deferred.await(shutdown),
       isShuttingDown: Deferred.isDone(shutdown),
       count: Ref.get(count)
@@ -36,5 +35,4 @@ export class ConnectionTracker extends Context.Service<ConnectionTracker, {
   })
 }) {}
 
-// v4 has no auto `.Default` layer — wire it manually from the stored `make`.
 export const ConnectionTrackerLayer = Layer.effect(ConnectionTracker, ConnectionTracker.make)

@@ -8,13 +8,13 @@ import { join } from "node:path"
 import { EventStoreLayer } from "@yodea/db/event-store"
 import { EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/application/projections"
-import { UseCases, UseCasesLayer } from "@yodea/application/use-cases"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/application/projects/use-cases"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
-  return UseCasesLayer.pipe(
+  return ProjectUseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
@@ -22,12 +22,12 @@ const layer = () => {
     Layer.provide(BunServices.layer)
   )
 }
-const run = <A, E>(eff: Effect.Effect<A, E, UseCases>) => Effect.runPromise(Effect.provide(eff, layer()))
+const run = <A, E>(eff: Effect.Effect<A, E, ProjectUseCases>) => Effect.runPromise(Effect.provide(eff, layer()))
 
-describe("UseCases.renameProject", () => {
+describe("ProjectUseCases.renameProject", () => {
   it("renames a project and bumps updatedAt", async () => {
     const r = await run(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("alpha", false)
       const renamed = yield* u.renameProject(project.id, "alpha-2")
       return { project, renamed }
@@ -38,7 +38,7 @@ describe("UseCases.renameProject", () => {
 
   it("fails ProjectNotFound for an unknown id", async () => {
     const exit = await run(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return yield* u.renameProject("missing", "whatever").pipe(Effect.result)
     }))
     expect(exit._tag).toBe("Failure")
@@ -47,7 +47,7 @@ describe("UseCases.renameProject", () => {
 
   it("fails ProjectNameConflict when the new name is taken by another live project", async () => {
     const exit = await run(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const a = yield* u.createProject("alpha", false)
       yield* u.createProject("beta", false)
       return yield* u.renameProject(a.project.id, "beta").pipe(Effect.result)
@@ -57,7 +57,7 @@ describe("UseCases.renameProject", () => {
 
   it("allows renaming a project to its own current name (no self-conflict)", async () => {
     const r = await run(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const a = yield* u.createProject("alpha", false)
       return yield* u.renameProject(a.project.id, "alpha")
     }))
@@ -66,7 +66,7 @@ describe("UseCases.renameProject", () => {
 
   it("an archived project's name stays reserved -> ProjectNameConflict", async () => {
     const exit = await run(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const archived = yield* u.createProject("archived-name", false)
       yield* u.archiveProject(archived.project.id)
       const live = yield* u.createProject("live-name", false)
@@ -80,7 +80,7 @@ describe("UseCases.renameProject", () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-arch-dir-"))
     try {
       const exit = await run(Effect.gen(function* () {
-        const u = yield* UseCases
+        const u = yield* ProjectUseCases
         const a = yield* u.createProject("archived-dir", false)
         yield* u.changeDirectory(a.project.id, tmp)
         yield* u.archiveProject(a.project.id)

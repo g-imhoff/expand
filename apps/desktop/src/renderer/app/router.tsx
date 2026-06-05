@@ -12,8 +12,6 @@ const projectRoute = createRoute({
 })
 
 const routeTree = rootRoute.addChildren([indexRoute, projectRoute])
-// Hash history: works under both the dev server (http://localhost) and the packaged
-// file:// load, where pushState to arbitrary paths would fail.
 export const router = createRouter({ routeTree, history: createHashHistory() })
 
 declare module "@tanstack/react-router" {
