@@ -2,7 +2,7 @@ import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
 import { ProjectName } from "@yodea/contracts/project"
 import { API_VERSION } from "@yodea/contracts/cli"
-import { YodeaClient } from "@yodea/client-core"
+import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 
 const name = Argument.string("name").pipe(Argument.withSchema(ProjectName))
@@ -19,7 +19,7 @@ export const createCommand = defineCommand(
     text: (r: CreateResult) => `created ${r.project.id}  ${r.project.name}`,
     quiet: (r: CreateResult) => r.project.id
   },
-  ({ name, ensure, directory }): Effect.Effect<CreateResult, unknown, YodeaClient> =>
-    Effect.flatMap(YodeaClient, (c) =>
-      c.ProjectCreate({ name, ensure, ...(Option.isSome(directory) ? { directory: directory.value } : {}) }))
+  ({ name, ensure, directory }): Effect.Effect<CreateResult, unknown, ProjectClient> =>
+    Effect.flatMap(ProjectClient, (c) =>
+      c.create({ name, ensure, ...(Option.isSome(directory) ? { directory: directory.value } : {}) }))
 )

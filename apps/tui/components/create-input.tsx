@@ -1,7 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import { useState } from "react"
 
-// A tiny controlled input — avoids the extra ink-text-input dependency.
 export const CreateInput = ({ onSubmit }: { onSubmit: (name: string) => void }) => {
   const [value, setValue] = useState("")
   useInput((input, key) => {

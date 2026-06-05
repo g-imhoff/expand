@@ -10,8 +10,7 @@ import { newId } from "@yodea/lib/ids"
 
 type UseCaseError = SqlError | Schema.SchemaError
 
-export class UseCases extends Context.Service<UseCases, {
-  readonly health: Effect.Effect<string>
+export class ProjectUseCases extends Context.Service<ProjectUseCases, {
   readonly createProject: (
     name: string,
     ensure: boolean,
@@ -33,15 +32,13 @@ export class UseCases extends Context.Service<UseCases, {
   ) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
-}>()("yodea/UseCases", {
+}>()("yodea/ProjectUseCases", {
   make: Effect.gen(function* () {
     const store = yield* EventStore
     const bus = yield* EventBus
     const projection = yield* ProjectProjection
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-
-    const health = Effect.succeed("ok")
 
     const validateDirectory = (
       directory: string,
@@ -172,8 +169,8 @@ export class UseCases extends Context.Service<UseCases, {
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
 
-    return { health, createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, deleteProject, listProjects } as const
+    return { createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, deleteProject, listProjects } as const
   })
 }) {}
 
-export const UseCasesLayer = Layer.effect(UseCases, UseCases.make)
+export const ProjectUseCasesLayer = Layer.effect(ProjectUseCases, ProjectUseCases.make)

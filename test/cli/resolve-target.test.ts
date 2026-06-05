@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { YodeaClient, type YodeaClientApi } from "@yodea/client-core"
+import { ProjectClient, type ProjectClientApi } from "@yodea/client-core"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
 const stub = (projects: ReadonlyArray<{ id: string; name: string }>) =>
-  Layer.succeed(YodeaClient, { ProjectList: () => Effect.succeed(projects) } as unknown as YodeaClientApi)
+  Layer.succeed(ProjectClient, { list: () => Effect.succeed(projects) } as unknown as ProjectClientApi)
 
 const run = (token: string, projects: ReadonlyArray<{ id: string; name: string }>) =>
   Effect.runPromise(resolveProjectTarget(token).pipe(Effect.provide(stub(projects)), Effect.result))

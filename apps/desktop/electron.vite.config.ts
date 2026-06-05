@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite"
 import { builtinModules } from "node:module"
 import { resolve } from "node:path"
 
-// Native ESM (type:module): use import.meta.dirname rather than CJS __dirname.
 const here = import.meta.dirname
 const repo = resolve(here, "../..")
 const alias = {
@@ -13,15 +12,6 @@ const alias = {
   "@yodea/desktop": resolve(here, "src")
 }
 
-// npm deps that must NOT be bundled into the main/preload ESM output. Bundling
-// them inlines CJS shims (e.g. electron's index.js calls path.join(__dirname,…),
-// which throws in an ESM scope) and native loaders. These are resolved from
-// node_modules by the Electron/Node runtime at launch instead.
-//
-// Workspace aliases (@yodea/contracts, @yodea/client-core, @yodea/desktop) are
-// tsconfig/vite PATH ALIASES, not npm packages — there is nothing on disk to
-// require() at runtime — so they are intentionally left OUT of this list and
-// get inlined via resolve.alias above.
 const nodeBuiltins = [
   ...builtinModules,
   ...builtinModules.map((m) => `node:${m}`)
@@ -42,10 +32,6 @@ export default defineConfig({
     build: { rollupOptions: { input: resolve(here, "src/main/index.ts"), external } }
   },
   preload: {
-    // Sandboxed preloads on Electron 42 run as plain CommonJS with NO ESM context,
-    // so a `.mjs` preload silently breaks (top-level import fails -> window.yodea
-    // undefined). Emit a single self-contained `index.cjs`. `electron` + node
-    // builtins stay external (resolved by the runtime, never bundled).
     resolve: { alias },
     build: {
       rollupOptions: {

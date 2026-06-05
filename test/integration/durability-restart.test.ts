@@ -33,7 +33,7 @@ describe.sequential("durability across a backend restart", () => {
     const dbPath = join(dir, "events.db")
     const boot = (
       use: (
-        c: import("@yodea/client-core/yodea-client").YodeaClientApi
+        c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
@@ -75,7 +75,7 @@ describe.sequential("durability across a backend restart", () => {
     const workdir = mkdtempSync(join(tmpdir(), "yodea-durable-dir-"))
     const boot = (
       use: (
-        c: import("@yodea/client-core/yodea-client").YodeaClientApi
+        c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {

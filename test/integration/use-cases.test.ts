@@ -8,22 +8,23 @@ import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
 import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
-import { UseCases, UseCasesLayer } from "@yodea/application/use-cases"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/application/projects/use-cases"
+import { ServerUseCases, ServerUseCasesLayer } from "@yodea/application/server/use-cases"
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const Store = EventStoreLayer.pipe(Layer.provide(Sql))
 const Projection = ProjectProjectionLayer.pipe(Layer.provide(Store))
-const TestLayer = UseCasesLayer.pipe(
+const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provide(Projection),
   Layer.provideMerge(Store),
   Layer.provideMerge(EventBusLayer)
 )
 const TestLayerFs = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
 
-describe("UseCases.createProject", () => {
+describe("ProjectUseCases.createProject", () => {
   it("appends a durable event, broadcasts it live, and reflects it in the projection", async () => {
     const program = Effect.gen(function* () {
-      const useCases = yield* UseCases
+      const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
       const store = yield* EventStore
 
@@ -45,16 +46,16 @@ describe("UseCases.createProject", () => {
     expect(r.listed).toEqual([r.project])
   })
 
-  it("health returns ok", async () => {
+  it("server health returns ok", async () => {
     const ok = await Effect.runPromise(
-      Effect.provide(Effect.flatMap(UseCases, (u) => u.health), TestLayerFs)
+      Effect.provide(Effect.flatMap(ServerUseCases, (u) => u.health), ServerUseCasesLayer)
     )
     expect(ok).toBe("ok")
   })
 
   it("listProjects(includeArchived) accepts the flag and returns non-deleted projects", async () => {
     const r = await Effect.runPromise(Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       yield* u.createProject("alpha", false)
       return { def: yield* u.listProjects(false), all: yield* u.listProjects(true) }
     }).pipe(Effect.provide(TestLayerFs)))
@@ -62,18 +63,18 @@ describe("UseCases.createProject", () => {
     expect(r.all.map((p) => p.name)).toEqual(["alpha"])
   })
 
-  it("UseCases resolves with FileSystem+Path provided", async () => {
+  it("ProjectUseCases resolves with FileSystem+Path provided", async () => {
     const FsTestLayer = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
-    const ok = await Effect.runPromise(Effect.provide(Effect.flatMap(UseCases, (u) => u.health), FsTestLayer))
-    expect(ok).toBe("ok")
+    const projects = await Effect.runPromise(Effect.provide(Effect.flatMap(ProjectUseCases, (u) => u.listProjects()), FsTestLayer))
+    expect(projects).toEqual([])
   })
 })
 
-describe("UseCases.changeDirectory", () => {
+describe("ProjectUseCases.changeDirectory", () => {
   it("sets a valid absolute existing directory and reflects it in the projection", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdok", false)
       const updated = yield* u.changeDirectory(project.id, tmp)
       const listed = yield* u.listProjects()
@@ -86,7 +87,7 @@ describe("UseCases.changeDirectory", () => {
   })
   it("fails ProjectNotFound for an unknown id", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return yield* u.changeDirectory("nope", "/").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
@@ -94,7 +95,7 @@ describe("UseCases.changeDirectory", () => {
   })
   it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdrel", false)
       return yield* u.changeDirectory(project.id, "relative/dir").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
@@ -105,7 +106,7 @@ describe("UseCases.changeDirectory", () => {
   })
   it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdmiss", false)
       return yield* u.changeDirectory(project.id, "/this/does/not/exist/yodea").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
@@ -117,7 +118,7 @@ describe("UseCases.changeDirectory", () => {
   it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const a = (yield* u.createProject("cda", false)).project
       const b = (yield* u.createProject("cdb", false)).project
       yield* u.changeDirectory(a.id, tmp)
@@ -129,11 +130,11 @@ describe("UseCases.changeDirectory", () => {
   })
 })
 
-describe("UseCases.createProject with directory", () => {
+describe("ProjectUseCases.createProject with directory", () => {
   it("creates with a valid absolute existing unique directory", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("crdir", false, tmp)
       const listed = yield* u.listProjects()
       return { project, listed }
@@ -145,7 +146,7 @@ describe("UseCases.createProject with directory", () => {
   })
   it("with no directory behaves as before (directory:null)", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return (yield* u.createProject("crnodir", false)).project
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const project = await Effect.runPromise(program)
@@ -153,7 +154,7 @@ describe("UseCases.createProject with directory", () => {
   })
   it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return yield* u.createProject("crrel", false, "relative/dir").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
@@ -163,7 +164,7 @@ describe("UseCases.createProject with directory", () => {
   })
   it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return yield* u.createProject("crmiss", false, "/this/does/not/exist/yodea").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
@@ -174,7 +175,7 @@ describe("UseCases.createProject with directory", () => {
   it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const a = (yield* u.createProject("crconfa", false, tmp)).project
       void a
       return yield* u.createProject("crconfb", false, tmp).pipe(Effect.result)
@@ -185,10 +186,10 @@ describe("UseCases.createProject with directory", () => {
   })
 })
 
-describe("UseCases.archiveProject / restoreProject", () => {
+describe("ProjectUseCases.archiveProject / restoreProject", () => {
   it("archives then restores a project, toggling archived + bumping updatedAt", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("toarch", false)
       const archived = yield* u.archiveProject(project.id)
       const restored = yield* u.restoreProject(project.id)
@@ -201,7 +202,7 @@ describe("UseCases.archiveProject / restoreProject", () => {
   })
   it("fails ProjectNotFound when the id is absent", async () => {
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       return yield* u.archiveProject("00000000-0000-4000-8000-000000000000").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
@@ -209,10 +210,10 @@ describe("UseCases.archiveProject / restoreProject", () => {
   })
 })
 
-describe("UseCases.setMetadata", () => {
+describe("ProjectUseCases.setMetadata", () => {
   it("replaces only provided fields, stamps updatedAt, and persists/broadcasts", async () => {
     const program = Effect.gen(function* () {
-      const useCases = yield* UseCases
+      const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
       const store = yield* EventStore
       const { project } = yield* useCases.createProject("meta", false)
@@ -233,7 +234,7 @@ describe("UseCases.setMetadata", () => {
 
   it("fails with ProjectNotFound for an unknown id", async () => {
     const program = Effect.gen(function* () {
-      const useCases = yield* UseCases
+      const useCases = yield* ProjectUseCases
       return yield* useCases.setMetadata("nope", { description: "x" }).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
@@ -244,7 +245,7 @@ describe("UseCases.setMetadata", () => {
   it("accepts a 2048-char description and persists it", async () => {
     const desc = "x".repeat(2048)
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("desc2048", false)
       const updated = yield* u.setMetadata(project.id, { description: desc })
       return updated
@@ -257,7 +258,7 @@ describe("UseCases.setMetadata", () => {
   it("rejects a 2049-char description (cap enforced; not persisted)", async () => {
     const desc = "x".repeat(2049)
     const program = Effect.gen(function* () {
-      const u = yield* UseCases
+      const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("desc2049", false)
       yield* u.setMetadata(project.id, { description: desc }).pipe(Effect.result)
       const listed = yield* u.listProjects()
@@ -272,10 +273,10 @@ describe("UseCases.setMetadata", () => {
   })
 })
 
-describe("UseCases.deleteProject", () => {
+describe("ProjectUseCases.deleteProject", () => {
   it("tombstones the project: removed from the projection, event broadcast", async () => {
     const program = Effect.gen(function* () {
-      const useCases = yield* UseCases
+      const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
       const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("doomed", false)
@@ -292,7 +293,7 @@ describe("UseCases.deleteProject", () => {
   })
   it("fails with ProjectNotFound for an unknown id", async () => {
     const program = Effect.gen(function* () {
-      const useCases = yield* UseCases
+      const useCases = yield* ProjectUseCases
       return yield* useCases.deleteProject("missing").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)

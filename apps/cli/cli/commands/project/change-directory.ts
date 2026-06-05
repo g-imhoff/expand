@@ -2,7 +2,7 @@ import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
 import { API_VERSION } from "@yodea/contracts/cli"
 import type { Project } from "@yodea/contracts/project"
-import { YodeaClient } from "@yodea/client-core"
+import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
@@ -17,10 +17,10 @@ export const changeDirectoryCommand = defineCommand(
     text: (p: Project) => `${p.id}  ${p.name}`,
     quiet: (p: Project) => p.id
   },
-  ({ project, directory }): Effect.Effect<Project, unknown, YodeaClient> =>
+  ({ project, directory }): Effect.Effect<Project, unknown, ProjectClient> =>
     Effect.gen(function* () {
-      const c = yield* YodeaClient
+      const c = yield* ProjectClient
       const id = yield* resolveProjectTarget(project)
-      return yield* c.ProjectChangeDirectory({ id, directory })
+      return yield* c.changeDirectory({ id, directory })
     })
 )
