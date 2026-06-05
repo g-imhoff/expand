@@ -17,7 +17,7 @@ export const archiveCommand = defineCommand(
     quiet: (p: Project) => p.id
   },
   ({ project }): Effect.Effect<Project, unknown, YodeaClient> =>
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const c = yield* YodeaClient
       const id = yield* resolveProjectTarget(project)
       return yield* c.ProjectArchive({ id })
