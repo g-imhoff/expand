@@ -1,15 +1,14 @@
 import { Effect, Schema } from "effect"
 import { ProjectId } from "@yodea/contracts/project"
 import { ProjectNotFound } from "@yodea/contracts/rpc"
-import { YodeaClient } from "@yodea/client-core"
+import { ProjectClient } from "@yodea/client-core"
 
 const isUuid = Schema.is(ProjectId)
 
-// Token can be either name or id
 export const resolveProjectTarget = (token: string) =>
   isUuid(token)
     ? Effect.succeed(token)
-    : Effect.flatMap(YodeaClient, (c) => c.ProjectList({ includeArchived: true })).pipe(
+    : Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: true })).pipe(
       Effect.flatMap((ps) => {
         const matches = ps.filter((p) => p.name === token)
         if (matches.length > 1) {

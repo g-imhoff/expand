@@ -5,7 +5,8 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/db/event-store"
 import { EventBusLayer } from "@yodea/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/application/projections"
-import { UseCasesLayer } from "@yodea/application/use-cases"
+import { ProjectUseCasesLayer } from "@yodea/application/projects/use-cases"
+import { ServerUseCasesLayer } from "@yodea/application/server/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 import { httpServerLayer } from "@yodea/server/http"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
@@ -23,14 +24,14 @@ const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
-  const useCases = UseCasesLayer.pipe(
+  const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
     Layer.provide(BunFileSystem.layer),
     Layer.provide(BunServices.layer)
   )
-  return Layer.mergeAll(useCases, EventBusLayer, ConnectionTrackerLayer)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer)
 }
 
 export const runServer = (options: RunServerOptions) => {

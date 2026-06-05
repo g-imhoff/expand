@@ -3,7 +3,7 @@ import { Argument, Command, GlobalFlag } from "effect/unstable/cli"
 import { Effect } from "effect"
 import { defineCommand } from "@yodea/cli/_command"
 import { Format, Quiet } from "@yodea/cli/global-flags"
-import { YodeaClient } from "@yodea/client-core"
+import { ProjectClient } from "@yodea/client-core"
 import { runCli, stubLayer } from "./harness"
 
 const create = defineCommand(
@@ -16,11 +16,10 @@ const create = defineCommand(
     text: (r) => `created ${r.project.id}  ${r.project.name}`,
     quiet: (r) => r.project.id
   },
-  ({ name }): Effect.Effect<{ created: boolean; project: { id: string; name: string; createdAt: string } }, unknown, YodeaClient> =>
-    Effect.flatMap(YodeaClient, (c) => c.ProjectCreate({ name, ensure: false }))
+  ({ name }): Effect.Effect<{ created: boolean; project: { id: string; name: string; createdAt: string } }, unknown, ProjectClient> =>
+    Effect.flatMap(ProjectClient, (c) => c.create({ name, ensure: false }))
 )
 
-// Mirror production: a root with the command as a subcommand, stub baked per-command.
 const tree = (stub: object) =>
   Command.make("t").pipe(
     Command.withSubcommands([create.pipe(Command.provide(stubLayer(stub)))]),

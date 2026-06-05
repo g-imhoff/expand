@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Runtime } from "effect"
-import { BackendUnreachable, ProjectExists, ProjectNotFoundCli, Unexpected, mapContractError } from "@yodea/cli/errors"
+import { ProjectExists, ProjectNotFoundCli, mapProjectError } from "@yodea/cli/errors/project-errors"
+import { BackendUnreachable, Unexpected, mapServerError } from "@yodea/cli/errors/server-errors"
+import { mapContractError } from "@yodea/cli/errors"
 import { ProjectAlreadyExists, ProjectNotFound } from "@yodea/contracts/rpc"
 import { BackendUnavailable } from "@yodea/client-core"
 
@@ -28,9 +30,9 @@ describe("cli errors", () => {
   })
 
   it("maps contract errors by tag", () => {
-    expect(mapContractError(new ProjectAlreadyExists({ name: "foo" }))).toBeInstanceOf(ProjectExists)
-    expect(mapContractError(new ProjectNotFound({ id: "ghost" }))).toBeInstanceOf(ProjectNotFoundCli)
-    expect(mapContractError(new BackendUnavailable({ reason: "down" }))).toBeInstanceOf(BackendUnreachable)
+    expect(mapProjectError(new ProjectAlreadyExists({ name: "foo" }))).toBeInstanceOf(ProjectExists)
+    expect(mapProjectError(new ProjectNotFound({ id: "ghost" }))).toBeInstanceOf(ProjectNotFoundCli)
+    expect(mapServerError(new BackendUnavailable({ reason: "down" }))).toBeInstanceOf(BackendUnreachable)
     expect(mapContractError(new Error("???"))).toBeInstanceOf(Unexpected)
   })
 })

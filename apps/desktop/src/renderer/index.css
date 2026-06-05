@@ -44,8 +44,6 @@
 }
 
 @layer base {
-  /* Tailwind v4's default border color is now currentColor, so set the theme
-     border token as the base so a bare `border` utility uses it. */
   *,
   ::after,
   ::before {

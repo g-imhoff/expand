@@ -8,5 +8,4 @@ const { waitUntilExit } = render(
     <App />
   </RuntimeContext.Provider>
 )
-// Dispose the runtime (closes presence -> backend may self-shut-down) on exit.
 waitUntilExit().then(() => runtime.dispose())

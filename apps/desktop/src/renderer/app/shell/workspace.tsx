@@ -10,7 +10,6 @@ export const Workspace = () => {
       <Link to="/">← Projects</Link>
       <h1>{project ? project.name : "Unknown project"}</h1>
       <p style={{ opacity: 0.6 }}>{projectId}</p>
-      {/* Feature panels slot in here as the app grows. */}
     </main>
   )
 }

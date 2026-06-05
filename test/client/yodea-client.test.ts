@@ -1,20 +1,34 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { YodeaClient } from "@yodea/client-core"
+import { ProjectClient, ServerClient } from "@yodea/client-core"
 
-const stub = Layer.succeed(YodeaClient, {
-  Health: () => Effect.succeed("ok"),
-  ProjectCreate: ({ name }: { name: string; ensure: boolean }) =>
+const projectStub = Layer.succeed(ProjectClient, {
+  create: ({ name }: { name: string; ensure: boolean }) =>
     Effect.succeed({ created: true, project: { id: "01J", name, createdAt: "t" } }),
-  ProjectList: () => Effect.succeed([]),
-  Connect: () => { throw new Error("unused") },
-  Events: () => { throw new Error("unused") }
-} as unknown as typeof YodeaClient["Service"])
+  list: () => Effect.succeed([]),
+  rename: () => Effect.die("unused"),
+  changeDirectory: () => Effect.die("unused"),
+  archive: () => Effect.die("unused"),
+  restore: () => Effect.die("unused"),
+  setMetadata: () => Effect.die("unused"),
+  delete: () => Effect.die("unused")
+} as unknown as typeof ProjectClient["Service"])
 
-describe("YodeaClient service", () => {
-  it("is yieldable and exposes the RPC method surface", async () => {
+const serverStub = Layer.succeed(ServerClient, {
+  health: () => Effect.succeed("ok")
+})
+
+describe("client services", () => {
+  it("exposes project operations through ProjectClient", async () => {
+    const created = await Effect.runPromise(
+      Effect.flatMap(ProjectClient, (c) => c.create({ name: "alpha", ensure: true })).pipe(Effect.provide(projectStub))
+    )
+    expect(created.project.name).toBe("alpha")
+  })
+
+  it("exposes server operations through ServerClient", async () => {
     const health = await Effect.runPromise(
-      Effect.flatMap(YodeaClient, (c) => c.Health()).pipe(Effect.provide(stub))
+      Effect.flatMap(ServerClient, (c) => c.health()).pipe(Effect.provide(serverStub))
     )
     expect(health).toBe("ok")
   })

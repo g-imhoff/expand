@@ -12,12 +12,6 @@
     },
     "noEmit": true
   },
-  // The root tsconfig excludes apps/desktop's src/main|preload|renderer to keep
-  // electron/DOM-only files out of the ROOT graph. That exclude is inherited via
-  // `extends` and would (resolved relative to this dir) drop the very files this
-  // config must typecheck — so override it back to empty here.
   "exclude": [],
-  // DOM-rendering renderer component tests live here so they are checked under the
-  // DOM lib (the root tsconfig deliberately omits DOM and excludes this test).
   "include": ["src", "../../test/desktop/rename-dialog.test.tsx", "../../test/desktop/change-directory-dialog.test.tsx", "../../test/desktop/edit-metadata-dialog.test.tsx", "../../test/desktop/delete-project-dialog.test.tsx", "../../test/desktop/command-palette-restore.test.tsx", "../../test/desktop/projects-view-hides-archived.test.tsx"]
 }

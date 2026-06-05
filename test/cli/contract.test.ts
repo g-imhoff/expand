@@ -115,9 +115,9 @@ describe("CLI contract", () => {
     const all = await runCli(tree(listClient), ["project", "list", "--all"])
     expect(JSON.parse(all.stdout.join("")).count).toBe(2)
   })
-  it("health -> Health envelope", async () => {
+  it("health -> ServerHealth envelope", async () => {
     const r = await runCli(tree(okClient), ["health"])
-    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "Health", data: { status: "ok" } })
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ kind: "ServerHealth", data: { status: "ok" } })
     expect(r.code).toBe(0)
   })
   it("project rename <uuid> <new> -> Project envelope created:false, exit 0", async () => {
