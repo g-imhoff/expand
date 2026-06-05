@@ -1,7 +1,7 @@
 import { Cause, Console, Effect, Layer, Runtime } from "effect"
 import { CliOutput, Command } from "effect/unstable/cli"
 import { BunServices } from "@effect/platform-bun"
-import { YodeaClient, type YodeaClientApi } from "@yodea/client-core"
+import { ProjectClient, ServerClient, type ProjectClientApi, type ServerClientApi } from "@yodea/client-core"
 import { jsonCliErrorFormatter } from "@yodea/cli/errors"
 import { renderErrors } from "@yodea/cli/run"
 
@@ -17,11 +17,25 @@ const capturingConsole = (stdout: string[], stderr: string[]): Console.Console =
   table: () => {}, time: () => {}, timeEnd: () => {}, timeLog: () => {}, trace: () => {}
 } as unknown as Console.Console)
 
-// Bake a stub YodeaClient into a command (mirrors production Command.provide(YodeaClientLive)).
-export const stubLayer = (stub: object): Layer.Layer<YodeaClient> => Layer.succeed(YodeaClient, stub as YodeaClientApi)
+export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClient> => {
+  const s = stub as Record<string, any>
+  return Layer.mergeAll(
+    Layer.succeed(ProjectClient, {
+      create: s.ProjectCreate,
+      list: s.ProjectList,
+      rename: s.ProjectRename,
+      changeDirectory: s.ProjectChangeDirectory,
+      archive: s.ProjectArchive,
+      restore: s.ProjectRestore,
+      setMetadata: s.ProjectSetMetadata,
+      delete: s.ProjectDelete
+    } as ProjectClientApi),
+    Layer.succeed(ServerClient, {
+      health: s.Health
+    } as ServerClientApi)
+  )
+}
 
-// Drive a command tree with explicit argv, capturing stdout/stderr + exit code.
-// Applies the SAME renderErrors + CliOutput JSON formatter as production main.ts.
 export const runCli = async (
   command: Command.Command.Any,
   argv: ReadonlyArray<string>

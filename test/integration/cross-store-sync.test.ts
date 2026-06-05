@@ -13,12 +13,14 @@ let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-xstore-"))
   process.env.YODEA_HOME = dir
+  process.env.YODEA_DB = join(dir, "events.db")
   bunMainBefore = (Bun as unknown as { main: string }).main
-  ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/cli/cli/main.ts")
+  ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
   ;(Bun as unknown as { main: string }).main = bunMainBefore
   delete process.env.YODEA_HOME
+  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 

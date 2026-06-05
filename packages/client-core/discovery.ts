@@ -10,15 +10,13 @@ export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
 
 const isProcessAlive = (pid: number): boolean => {
   try {
-    process.kill(pid, 0) // signal 0 = liveness probe, doesn't actually signal
+    process.kill(pid, 0)
     return true
   } catch {
     return false
   }
 }
 
-// Read + validate the discovery file. None if missing, malformed, wrong
-// protocol, or owned by a dead pid (stale).
 export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -37,32 +35,18 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
 
 const lockPath = () => `${endpointFilePath()}.lock`
 
-// A spawn lock older than this is treated as stale even if its pid is still
-// alive — a safety net against pid reuse (a long-dead spawner's pid may have
-// been recycled by an unrelated live process). A real spawner advertises
-// `server.json` within ~5s (awaitEndpoint's window), so 30s is comfortably
-// past any legitimate concurrent spawn.
 const LOCK_STALE_AFTER_MS = 30_000
 
-// Lock contents: who holds it (pid) and when (startedAt, epoch millis). The pid
-// drives liveness; startedAt is a clock-independent backup that does not rely on
-// the filesystem mtime (and lets a future reader reason about age directly).
 interface LockInfo {
   readonly pid: number
   readonly startedAt: number
 }
 
-// A held lock is STALE if its owner pid is dead OR it is older than
-// LOCK_STALE_AFTER_MS (mtime-based; mirrors readEndpoint's pid-liveness check
-// but adds an age fence against pid reuse). Unreadable/garbage lock contents
-// (dead spawner that crashed mid-write) are treated as stale too. This mirrors
-// the staleness handling readEndpoint applies to `server.json`.
 const isLockStale = (): boolean => {
   let mtimeMs: number
   try {
     mtimeMs = statSync(lockPath()).mtimeMs
   } catch {
-    // The lock vanished between the failed acquire and now — not stale, just gone.
     return false
   }
   if (Date.now() - mtimeMs > LOCK_STALE_AFTER_MS) return true
@@ -71,20 +55,12 @@ const isLockStale = (): boolean => {
     if (typeof info.pid !== "number") return true
     return !isProcessAlive(info.pid)
   } catch {
-    // Empty/garbage/missing contents => a spawner that died mid-write. Stale.
     return true
   }
 }
 
-// One exclusive create attempt (O_EXCL). Stamps our pid + start time into the
-// lock so a later acquirer can judge its staleness. Returns true iff WE created
-// it; false on EEXIST (someone else holds it) or any other error.
 const createLockOnce = (): boolean => {
   try {
-    // "wx" => create + fail if exists. Directory is ensured by the server, but
-    // for the spawn race we create it here too. Use node:fs (not Bun.spawnSync)
-    // so this stays runtime-neutral — discovery is shared client-core and runs in
-    // the Electron Node main process too, where the Bun global does not exist.
     mkdirSync(dirname(lockPath()), { recursive: true })
     const fd = openSync(lockPath(), "wx")
     try {
@@ -99,21 +75,9 @@ const createLockOnce = (): boolean => {
   }
 }
 
-// Best-effort exclusive spawn lock. Returns true if WE acquired it.
-//
-// On EEXIST we inspect the existing lock (mirroring readEndpoint's stale-file
-// handling): if it is STALE (dead/garbage/aged-out owner) we delete it and retry
-// the create exactly ONCE — recovering from a spawner that was SIGKILLed after
-// acquiring the lock but before advertising `server.json` (otherwise the lock
-// wedges every future command forever). If the lock is held by a LIVE, recent
-// pid we leave it alone and return false: that is a legitimate concurrent
-// spawner, and the caller falls through to awaitEndpoint to wait for it.
 const tryAcquireLock = Effect.sync(() => {
   if (createLockOnce()) return true
   if (!isLockStale()) return false
-  // Stale lock from a crashed spawner — clear it and retry the acquire once.
-  // If a fresh spawner won the race between our staleness check and the delete,
-  // the retry's EEXIST returns false and we fall through to awaitEndpoint.
   try {
     rmSync(lockPath(), { force: true })
   } catch {}
@@ -125,7 +89,6 @@ const releaseLock = Effect.sync(() => {
   } catch {}
 })
 
-// Poll the discovery file until a live endpoint appears or we time out.
 const awaitEndpoint = readEndpoint.pipe(
   Effect.flatMap((o) =>
     Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const)
@@ -137,17 +100,12 @@ const awaitEndpoint = readEndpoint.pipe(
   })
 )
 
-// Remove a stale discovery file (best-effort). Used by the client when a
-// discovered endpoint turns out to point at a dead/dying server: deleting it
-// forces the next find-or-spawn to spawn a fresh backend instead of re-reading
-// the same stale entry and hanging again.
 export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     yield* fs.remove(endpointFilePath()).pipe(Effect.ignore)
   })
 
-// I-2/I-4 step 1: find a running backend or spawn exactly one (via the adapter).
 export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
   Effect.gen(function* () {
     const existing = yield* readEndpoint

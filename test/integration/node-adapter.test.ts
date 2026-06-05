@@ -12,25 +12,22 @@ let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-node-"))
   process.env.YODEA_HOME = dir
+  process.env.YODEA_DB = join(dir, "events.db")
 })
 afterEach(() => {
   delete process.env.YODEA_HOME
+  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 
-// The Node adapter must spawn the backend via child_process and connect over the
-// ws-package WebSocket. We point its backendCommand at the source entry run by bun.
 describe("Node adapter", () => {
   it("spawns + connects + creates via ws transport", async () => {
     const adapter = makeNodeAdapter({
-      backendCommand: ["bun", join(process.cwd(), "apps/cli/cli/main.ts"), "server"]
+      backendCommand: ["bun", join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer)))
     try {
       const store = await rt.runPromise(ProjectStore)
-      // Begin watching the ref BEFORE the create, so we can't miss the update: the
-      // ref is eventually-consistent and only reflects "via-node" once the live
-      // Events fold receives the server-pushed ProjectCreated over the ws transport.
       const seen = rt.runPromise(
         SubscriptionRef.changes(store.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.name === "via-node")),
@@ -41,7 +38,7 @@ describe("Node adapter", () => {
       )
       const created = await rt.runPromise(store.createProject("via-node"))
       expect(created.name).toBe("via-node")
-      await seen // resolves only once the live Events fold updated the ref over ws
+      await seen
 
       const list = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(list.map((p) => p.name)).toContain("via-node")

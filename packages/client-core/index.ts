@@ -1,8 +1,8 @@
-// Runtime-agnostic core. Adapters are imported explicitly from their own paths
-// (@yodea/client-core/adapters/bun | /node) so a Node build never pulls the Bun
-// adapter (which imports @effect/platform-bun) and vice-versa.
 export type { RuntimeAdapter } from "@yodea/client-core/adapter"
 export { findOrSpawnBackend, deleteEndpoint, readEndpoint, BackendUnavailable } from "@yodea/client-core/discovery"
-export { YodeaClient, YodeaClientLive, type YodeaClientApi } from "@yodea/client-core/yodea-client"
+export { YodeaRpcClient, YodeaRpcClientLive, type YodeaRpcClientApi } from "@yodea/client-core/rpc-client"
+export { ProjectClient, ProjectClientLive, ProjectClientLayer, type ProjectClientApi } from "@yodea/client-core/project-client"
+export { ServerClient, ServerClientLive, ServerClientLayer, type ServerClientApi } from "@yodea/client-core/server-client"
+export { ClientLayer } from "@yodea/client-core/client-layer"
 export { withClient } from "@yodea/client-core/with-client"
 export { ProjectStore } from "@yodea/client-core/project-store"

@@ -1,13 +1,14 @@
 import { Effect, Stream } from "effect"
 import { YodeaRpcs, ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import { UseCases } from "@yodea/application/use-cases"
+import { ProjectUseCases } from "@yodea/application/projects/use-cases"
+import { ServerUseCases } from "@yodea/application/server/use-cases"
 import { EventBus } from "@yodea/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
 
 export const YodeaHandlers = YodeaRpcs.toLayer({
-  Health: () => Effect.flatMap(UseCases, (u) => u.health),
+  Health: () => Effect.flatMap(ServerUseCases, (u) => u.health),
   ProjectCreate: ({ name, ensure, directory }) =>
-    Effect.flatMap(UseCases, (u) => u.createProject(name, ensure, directory)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.createProject(name, ensure, directory)).pipe(
       Effect.catchIf(
         (e): e is ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -19,7 +20,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectRename: ({ id, name }) =>
-    Effect.flatMap(UseCases, (u) => u.renameProject(id, name)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.renameProject(id, name)).pipe(
       Effect.catchIf(
         (e): e is ProjectNotFound | ProjectNameConflict =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -30,7 +31,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectChangeDirectory: ({ id, directory }) =>
-    Effect.flatMap(UseCases, (u) => u.changeDirectory(id, directory)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.changeDirectory(id, directory)).pipe(
       Effect.catchIf(
         (e): e is ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -42,7 +43,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectArchive: ({ id }) =>
-    Effect.flatMap(UseCases, (u) => u.archiveProject(id)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.archiveProject(id)).pipe(
       Effect.catchIf(
         (e): e is ProjectNotFound =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -52,7 +53,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectRestore: ({ id }) =>
-    Effect.flatMap(UseCases, (u) => u.restoreProject(id)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.restoreProject(id)).pipe(
       Effect.catchIf(
         (e): e is ProjectNotFound =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -62,7 +63,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectSetMetadata: ({ id, description, tags }) =>
-    Effect.flatMap(UseCases, (u) =>
+    Effect.flatMap(ProjectUseCases, (u) =>
       u.setMetadata(id, {
         ...(description !== undefined ? { description } : {}),
         ...(tags !== undefined ? { tags } : {})
@@ -77,7 +78,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       )
     ),
   ProjectDelete: ({ id }) =>
-    Effect.flatMap(UseCases, (u) => u.deleteProject(id)).pipe(
+    Effect.flatMap(ProjectUseCases, (u) => u.deleteProject(id)).pipe(
       Effect.catchIf(
         (e): e is ProjectNotFound =>
           typeof e === "object" && e !== null && "_tag" in e &&
@@ -86,7 +87,7 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
-  ProjectList: ({ includeArchived }) => Effect.flatMap(UseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
+  ProjectList: ({ includeArchived }) => Effect.flatMap(ProjectUseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
   Connect: () =>
     Stream.unwrap(
       Effect.gen(function* () {
