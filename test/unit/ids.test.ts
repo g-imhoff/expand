@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { newId } from "@yodea/lib/ids"
+import { newId } from "@yodea/server/lib/ids"
 
 describe("newId", () => {
   it("returns a uuid-shaped string", () => {

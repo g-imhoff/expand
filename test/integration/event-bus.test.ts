@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, PubSub } from "effect"
-import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
+import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 
 describe("EventBus", () => {
