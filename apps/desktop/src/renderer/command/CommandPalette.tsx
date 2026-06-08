@@ -10,7 +10,7 @@ import {
   CommandItem,
   CommandList
 } from "../components/ui/command"
-import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/data/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/EditMetadataDialog"
 import { useCommandPalette } from "./store"
