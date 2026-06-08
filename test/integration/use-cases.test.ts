@@ -5,11 +5,11 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
-import { EventBus, EventBusLayer } from "@yodea/application/event-bus"
-import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
-import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/application/projects/use-cases"
-import { ServerUseCases, ServerUseCasesLayer } from "@yodea/application/server/use-cases"
+import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
+import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
+import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
+import { ServerUseCases, ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const Store = EventStoreLayer.pipe(Layer.provide(Sql))

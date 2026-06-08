@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { projectsFromEvents } from "@yodea/domain/project"
+import { projectsFromEvents } from "@yodea/server/domain/project"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
 
 describe("projectsFromEvents", () => {
