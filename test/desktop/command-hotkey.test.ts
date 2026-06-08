@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isCommandPaletteHotkey } from "../../apps/desktop/src/renderer/command/hotkey"
+import { isCommandPaletteHotkey } from "../../apps/desktop/src/renderer/features/command/model/hotkey"
 
 const event = (
   over: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; code: string }>
