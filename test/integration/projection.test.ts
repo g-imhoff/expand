@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore, EventStoreLayer } from "@yodea/db/event-store"
-import { ProjectProjection, ProjectProjectionLayer } from "@yodea/application/projections"
+import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
+import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
