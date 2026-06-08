@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import { render, fireEvent } from "@testing-library/react"
-import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/ChangeDirectoryDialog"
+import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
 
 describe("ChangeDirectoryDialog", () => {
   it("prefills the current directory and submits the new path", () => {

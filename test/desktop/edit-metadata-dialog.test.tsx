@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
-import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/EditMetadataDialog"
+import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/components/EditMetadataDialog"
 
 const project = { id: "a", name: "alpha", directory: null, description: "old", tags: ["t1"], archived: false, createdAt: "t", updatedAt: "t" }
 
