@@ -1,5 +1,6 @@
 import { Scope } from "effect"
-import { buildClient, type RendererPortLike } from "@yodea/desktop/renderer/rpc/client"
+import { buildClient } from "@yodea/desktop/renderer/rpc/client"
+import { makeRendererPort } from "@yodea/desktop/renderer/rpc/renderer-port"
 import type { RendererRuntime, YodeaClient } from "@yodea/desktop/renderer/rpc/runtime"
 
 export const awaitPort = (): Promise<MessagePort> =>
@@ -20,5 +21,5 @@ export const connectClient = async (
   runtime: RendererRuntime
 ): Promise<YodeaClient> => {
   const scope = Scope.makeUnsafe()
-  return runtime.runPromise(buildClient(port as unknown as RendererPortLike).pipe(Scope.provide(scope)))
+  return runtime.runPromise(buildClient(makeRendererPort(port)).pipe(Scope.provide(scope)))
 }
