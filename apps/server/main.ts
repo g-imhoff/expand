@@ -2,7 +2,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Effect } from "effect"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { runServer } from "@yodea/composition/app"
+import { runServer } from "@yodea/server/composition/app"
 
 const dbPath = Effect.sync(() => process.env.YODEA_DB ?? join(homedir(), ".yodea", "events.db"))
 
