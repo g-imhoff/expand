@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/data/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
 import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/ChangeDirectoryDialog"
 import { DeleteProjectDialog } from "@yodea/desktop/renderer/features/projects/DeleteProjectDialog"
@@ -34,7 +34,7 @@ export const ProjectsView = () => {
         />
         <button type="submit">Create</button>
       </form>
-      {(error || create.error) && (
+      {Boolean(error ?? create.error) && (
         <p role="alert" style={{ color: "crimson" }}>{String(error ?? create.error)}</p>
       )}
       <ul data-testid="project-list">
