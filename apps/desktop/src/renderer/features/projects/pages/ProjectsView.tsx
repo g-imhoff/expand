@@ -1,9 +1,9 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/data/use-projects"
-import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
-import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/ChangeDirectoryDialog"
-import { DeleteProjectDialog } from "@yodea/desktop/renderer/features/projects/DeleteProjectDialog"
+import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
+import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
+import { DeleteProjectDialog } from "@yodea/desktop/renderer/features/projects/components/DeleteProjectDialog"
 
 export const ProjectsView = () => {
   const { data: projects = [], error } = useProjects()

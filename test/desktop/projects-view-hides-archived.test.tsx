@@ -7,7 +7,7 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>
 }))
 
-const { ProjectsView } = await import("@yodea/desktop/renderer/features/projects/projects-view")
+const { ProjectsView } = await import("@yodea/desktop/renderer/features/projects/pages/ProjectsView")
 
 const renderView = (projects: ReadonlyArray<Project>) =>
   renderWithHandle(<ProjectsView />, makeFakeAppHandle(projects))

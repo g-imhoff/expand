@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
-import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
+import { foldEvent } from "@yodea/desktop/renderer/features/projects/model/event-fold"
 
 describe("foldEvent", () => {
   it("appends a ProjectCreated to the list with the full read-model shape", () => {

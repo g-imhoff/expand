@@ -8,7 +8,7 @@ import type {
   ProjectNotFound
 } from "@yodea/contracts/rpc"
 import { ProjectRpc } from "@yodea/desktop/renderer/rpc/project-rpc"
-import { foldEvent } from "@yodea/desktop/renderer/features/projects/event-fold"
+import { foldEvent } from "@yodea/desktop/renderer/features/projects/model/event-fold"
 
 export interface RendererProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>

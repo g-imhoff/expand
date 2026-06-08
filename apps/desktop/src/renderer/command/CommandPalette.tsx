@@ -11,8 +11,8 @@ import {
   CommandList
 } from "../components/ui/command"
 import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/data/use-projects"
-import { RenameDialog } from "@yodea/desktop/renderer/features/projects/RenameDialog"
-import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/EditMetadataDialog"
+import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
+import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/components/EditMetadataDialog"
 import { useCommandPalette } from "./store"
 import { useCommandPaletteHotkey } from "./use-command-palette-hotkey"
 
