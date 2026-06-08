@@ -2,11 +2,11 @@ import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import { EventStore } from "@yodea/db/event-store"
-import { EventBus } from "@yodea/application/event-bus"
-import { ProjectProjection } from "@yodea/application/projections"
+import { EventStore } from "@yodea/server/db/event-store"
+import { EventBus } from "@yodea/server/application/event-bus"
+import { ProjectProjection } from "@yodea/server/application/projections"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
-import { newId } from "@yodea/lib/ids"
+import { newId } from "@yodea/server/lib/ids"
 
 type UseCaseError = SqlError | Schema.SchemaError
 
