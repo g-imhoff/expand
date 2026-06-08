@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import type { Project } from "@yodea/contracts/project"
-import { useCommandPalette } from "@yodea/desktop/renderer/command/store"
+import { useCommandPalette } from "@yodea/desktop/renderer/features/command/model/command-store"
 import { fakeProject, makeFakeAppHandle, renderWithHandle } from "./_harness"
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => {} }))
 
-const { CommandPalette } = await import("@yodea/desktop/renderer/command/CommandPalette")
+const { CommandPalette } = await import("@yodea/desktop/renderer/features/command/components/CommandPalette")
 
 const renderPalette = (projects: ReadonlyArray<Project>) => {
   useCommandPalette.setState({ open: true })
