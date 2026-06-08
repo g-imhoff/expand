@@ -30,6 +30,7 @@ export default defineConfig({
       "@yodea/client-core": new URL("./packages/client-core", import.meta.url).pathname,
       "@yodea/tui": new URL("./apps/tui", import.meta.url).pathname,
       "@yodea/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
+      "@yodea/server": new URL("./apps/server", import.meta.url).pathname,
       "@yodea": new URL("./apps/cli", import.meta.url).pathname
     }
   }
