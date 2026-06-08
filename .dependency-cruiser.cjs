@@ -6,7 +6,7 @@ module.exports = {
       comment:
         "BOUNDARIES.md I-1: no frontend or packages/client-core may import backend-only modules.",
       from: { path: "^(apps/cli/cli|apps/tui|apps/desktop/src|packages/client-core)/" },
-      to: { path: "^apps/(cli/(server|application|domain|features|infrastructure|db|services|composition)|server)(/|$)" }
+      to: { path: "^apps/server(/|$)" }
     },
     {
       name: "renderer-must-not-import-client-core",

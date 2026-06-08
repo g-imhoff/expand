@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as fc from "fast-check"
-import { projectsFromEvents } from "@yodea/domain/project"
+import { projectsFromEvents } from "@yodea/server/domain/project"
 import {
   ProjectArchived,
   ProjectCreated,
