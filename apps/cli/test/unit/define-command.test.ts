@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import { defineCommand } from "@yodea/cli/_command"
 import { Format, Quiet } from "@yodea/cli/global-flags"
 import { ProjectClient } from "@yodea/client-core"
-import { runCli, stubLayer } from "./harness"
+import { runCli, stubLayer } from "../harness"
 
 const create = defineCommand(
   "make",

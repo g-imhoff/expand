@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { makeYodea } from "@yodea/cli/main"
-import { runCli, stubLayer } from "./harness"
+import { runCli, stubLayer } from "../harness"
 
 const FULL = (over: Partial<{ id: string; name: string; directory: string | null; description: string | null; tags: ReadonlyArray<string>; archived: boolean }>) => ({
   id: over.id ?? "01J", name: over.name ?? "alpha", directory: over.directory ?? null, description: over.description ?? null,
