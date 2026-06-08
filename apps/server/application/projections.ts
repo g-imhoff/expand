@@ -1,8 +1,8 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import type { Project } from "@yodea/contracts/project"
-import { EventStore } from "@yodea/db/event-store"
-import { projectsFromEvents } from "@yodea/domain/project"
+import { EventStore } from "@yodea/server/db/event-store"
+import { projectsFromEvents } from "@yodea/server/domain/project"
 
 type ProjectionError = SqlError | Schema.SchemaError
 
