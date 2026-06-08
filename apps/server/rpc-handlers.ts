@@ -1,8 +1,8 @@
 import { Effect, Stream } from "effect"
 import { YodeaRpcs, ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import { ProjectUseCases } from "@yodea/application/projects/use-cases"
-import { ServerUseCases } from "@yodea/application/server/use-cases"
-import { EventBus } from "@yodea/application/event-bus"
+import { ProjectUseCases } from "@yodea/server/application/projects/use-cases"
+import { ServerUseCases } from "@yodea/server/application/server/use-cases"
+import { EventBus } from "@yodea/server/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
 
 export const YodeaHandlers = YodeaRpcs.toLayer({
