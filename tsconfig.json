@@ -36,6 +36,8 @@
     "test/desktop/delete-project-dialog.test.tsx",
     "test/desktop/command-palette-restore.test.tsx",
     "test/desktop/projects-view-hides-archived.test.tsx",
-    "test/desktop/renderer-port.test.ts"
+    "test/desktop/renderer-port.test.ts",
+    "test/desktop/project-rpc.test.ts",
+    "test/desktop/renderer-project-store.test.ts"
   ]
 }
