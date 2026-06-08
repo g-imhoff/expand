@@ -27,7 +27,10 @@ const backendCommand = (): ReadonlyArray<string> => {
 }
 
 export const makeYodea = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerClient, E, R>) => {
-  const health = healthCommand.pipe(Command.provide(clientLayer))
+  const health = healthCommand.pipe(
+    Command.withDescription("check that a Yodea backend is reachable (auto-spawns one if needed)"),
+    Command.provide(clientLayer)
+  )
   const project = projectCommand.pipe(Command.provide(clientLayer))
   return Command.make("yodea").pipe(
     Command.withDescription("Yodea — agent-first project CLI"),

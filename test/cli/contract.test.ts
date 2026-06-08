@@ -307,3 +307,17 @@ describe("CLI parse/validation edge cases", () => {
     expect(r.code).toBe(0)
   })
 })
+
+describe("CLI help (#3)", () => {
+  it("health --help explains it is a backend reachability probe", async () => {
+    const r = await runCli(tree(okClient), ["health", "--help"])
+    const out = r.stdout.join("\n")
+    expect(out).toContain("check that a Yodea backend is reachable")
+  })
+
+  it("yodea --help lists health with its description", async () => {
+    const r = await runCli(tree(okClient), ["--help"])
+    const out = r.stdout.join("\n")
+    expect(out).toMatch(/health\s+check that a Yodea backend is reachable/)
+  })
+})
