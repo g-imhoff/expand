@@ -35,6 +35,7 @@
     "test/desktop/edit-metadata-dialog.test.tsx",
     "test/desktop/delete-project-dialog.test.tsx",
     "test/desktop/command-palette-restore.test.tsx",
-    "test/desktop/projects-view-hides-archived.test.tsx"
+    "test/desktop/projects-view-hides-archived.test.tsx",
+    "test/desktop/renderer-port.test.ts"
   ]
 }
