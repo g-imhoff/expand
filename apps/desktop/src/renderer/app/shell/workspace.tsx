@@ -1,5 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router"
-import { useProjects } from "@yodea/desktop/renderer/features/projects/use-projects"
+import { useProjects } from "@yodea/desktop/renderer/features/projects/data/use-projects"
 
 export const Workspace = () => {
   const { projectId } = useParams({ from: "/p/$projectId" })

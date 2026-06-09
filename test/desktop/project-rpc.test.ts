@@ -4,7 +4,9 @@ import type { Project } from "@yodea/contracts/project"
 import { RendererRpcClient, type RendererRpcClientApi } from "@yodea/desktop/renderer/rpc/transport"
 import { ProjectRpc, ProjectRpcLayer } from "@yodea/desktop/renderer/rpc/project-rpc"
 
-const fakeClient = (over: Partial<RendererRpcClientApi>): RendererRpcClientApi =>
+type RpcOverrides = { readonly [K in keyof RendererRpcClientApi]?: (payload: Parameters<RendererRpcClientApi[K]>[0]) => unknown }
+
+const fakeClient = (over: RpcOverrides): RendererRpcClientApi =>
   ({
     Health: () => Effect.succeed("ok"),
     ProjectCreate: () => Effect.die("unused"),

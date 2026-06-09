@@ -13,5 +13,5 @@
     "noEmit": true
   },
   "exclude": [],
-  "include": ["src", "../../test/desktop/rename-dialog.test.tsx", "../../test/desktop/change-directory-dialog.test.tsx", "../../test/desktop/edit-metadata-dialog.test.tsx", "../../test/desktop/delete-project-dialog.test.tsx", "../../test/desktop/command-palette-restore.test.tsx", "../../test/desktop/projects-view-hides-archived.test.tsx", "../../test/desktop/renderer-port.test.ts"]
+  "include": ["src", "../../test/desktop/rename-dialog.test.tsx", "../../test/desktop/change-directory-dialog.test.tsx", "../../test/desktop/edit-metadata-dialog.test.tsx", "../../test/desktop/delete-project-dialog.test.tsx", "../../test/desktop/command-palette-restore.test.tsx", "../../test/desktop/projects-view-hides-archived.test.tsx", "../../test/desktop/renderer-port.test.ts", "../../test/desktop/_harness.tsx", "../../test/desktop/project-rpc.test.ts", "../../test/desktop/renderer-project-store.test.ts", "../../test/desktop/app-handle.test.ts", "../../test/desktop/use-mutation-state.test.tsx"]
 }

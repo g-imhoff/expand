@@ -4,7 +4,8 @@ import type { Project } from "@yodea/contracts/project"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 import { ProjectStore } from "@yodea/client-core"
-import { buildClient, type RendererPortLike } from "@yodea/desktop/renderer/rpc/client"
+import { buildRendererClient } from "@yodea/desktop/renderer/rpc/transport"
+import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
 import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
 
 const fakeStoreLayer = (
@@ -79,7 +80,7 @@ describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cl
     runtime.runFork(runRpcServer(server).pipe(Scope.provide(serverScope)))
 
     const clientScope = await Effect.runPromise(Scope.make())
-    const client = await runtime.runPromise(buildClient(renderer).pipe(Scope.provide(clientScope)))
+    const client = await runtime.runPromise(buildRendererClient(renderer).pipe(Scope.provide(clientScope)))
 
     try {
       const list0 = await runtime.runPromise(client.ProjectList({}))
