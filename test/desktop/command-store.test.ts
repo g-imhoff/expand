@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest"
-import { useCommandPalette } from "../../apps/desktop/src/renderer/command/store"
+import { useCommandPalette } from "../../apps/desktop/src/renderer/features/command/model/command-store"
 
 describe("command palette store", () => {
   beforeEach(() => {

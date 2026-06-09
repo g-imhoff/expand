@@ -1,6 +1,6 @@
 import { useEffect } from "react"
-import { isCommandPaletteHotkey } from "./hotkey"
-import { useCommandPalette } from "./store"
+import { isCommandPaletteHotkey } from "@yodea/desktop/renderer/features/command/model/hotkey"
+import { useCommandPalette } from "@yodea/desktop/renderer/features/command/model/command-store"
 
 export const useCommandPaletteHotkey = (): void => {
   const toggle = useCommandPalette((state) => state.toggle)
