@@ -58,6 +58,10 @@ export const runServer = (options: RunServerOptions) => {
     const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
     const url = `ws://127.0.0.1:${boundPort}/rpc`
 
+    yield* Effect.ignore(fs.chmod(options.dbPath, 0o600))
+    yield* Effect.ignore(fs.chmod(`${options.dbPath}-wal`, 0o600))
+    yield* Effect.ignore(fs.chmod(`${options.dbPath}-shm`, 0o600))
+
     const endpointFile = yield* writeEndpointFile({
       url,
       token,
