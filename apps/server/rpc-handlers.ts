@@ -97,5 +97,5 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         return Stream.make(true).pipe(Stream.concat(Stream.never))
       })
     ),
-  Events: () => Stream.unwrap(Effect.map(EventBus, (bus) => bus.stream))
+  Events: () => Stream.unwrap(Effect.map(EventBus, (bus) => Stream.map(bus.stream, (se) => se.event)))
 })

@@ -30,4 +30,21 @@ describe("ProjectProjection", () => {
     )
     expect(projects).toEqual([{ id: "p1", name: "A", directory: null, description: null, tags: [], archived: false, createdAt: "t1", updatedAt: "t1" }])
   })
+
+  it("snapshot returns the fold plus the high-water seq (0 when empty)", async () => {
+    const out = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        const projection = yield* ProjectProjection
+        const empty = yield* projection.snapshot
+        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
+        yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
+        const full = yield* projection.snapshot
+        return { empty, full }
+      })
+    )
+    expect(out.empty).toEqual({ projects: [], seq: 0 })
+    expect(out.full.seq).toBe(2)
+    expect(out.full.projects.map((p) => p.name)).toEqual(["A", "B"])
+  })
 })
