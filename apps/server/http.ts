@@ -1,7 +1,8 @@
 import { Effect, Layer, Option } from "effect"
-import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest } from "effect/unstable/http"
+import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer } from "@effect/platform-bun"
+import { timingSafeEqual } from "node:crypto"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
@@ -38,11 +39,38 @@ const accessLogger = HttpMiddleware.make((httpApp) =>
   })
 )
 
-export const httpServerLayer = (port: number) => {
+const timingSafeEqualStrings = (a: string, b: string): boolean => {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  return left.length === right.length && timingSafeEqual(left, right)
+}
+
+const guardedRpcWebsocket = (token: string) =>
+  Layer.effect(RpcServer.Protocol)(
+    Effect.gen(function* () {
+      const { httpEffect, protocol } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket
+      const router = yield* HttpRouter.HttpRouter
+      yield* router.add(
+        "GET",
+        "/rpc",
+        Effect.gen(function* () {
+          const params = yield* HttpServerRequest.ParsedSearchParams
+          const presented = params.token
+          if (typeof presented !== "string" || !timingSafeEqualStrings(presented, token)) {
+            return HttpServerResponse.empty({ status: 401 })
+          }
+          return yield* httpEffect
+        })
+      )
+      return protocol
+    })
+  )
+
+export const httpServerLayer = (port: number, token: string) => {
   const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
   const rpc = RpcServer.layer(YodeaRpcs).pipe(
     Layer.provide(YodeaHandlers),
-    Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
+    Layer.provide(guardedRpcWebsocket(token)),
     Layer.provide(RpcSerialization.layerNdjson)
   )
   return Layer.mergeAll(
