@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, Stream, SubscriptionRef } from "effect"
 import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectRpc, type ProjectRpcApi } from "@yodea/desktop/renderer/rpc/project-rpc"
 import { RendererProjectStore, RendererProjectStoreLayer } from "@yodea/desktop/renderer/features/projects/data/project-store"
 
-const stubRpc = (initial: ReadonlyArray<Project>, events: ReadonlyArray<DomainEvent>): Layer.Layer<ProjectRpc> =>
+const stubRpc = (initial: ReadonlyArray<Project>, events: ReadonlyArray<SequencedEvent>): Layer.Layer<ProjectRpc> =>
   Layer.succeed(ProjectRpc, {
     create: () => Effect.die("unused"),
     rename: () => Effect.die("unused"),
@@ -15,15 +15,15 @@ const stubRpc = (initial: ReadonlyArray<Project>, events: ReadonlyArray<DomainEv
     restore: () => Effect.die("unused"),
     setMetadata: () => Effect.die("unused"),
     delete: () => Effect.die("unused"),
-    list: () => Effect.succeed(initial),
+    list: () => Effect.succeed({ projects: initial, seq: 0 }),
     events: () => Stream.fromIterable(events)
   } satisfies ProjectRpcApi)
 
 describe("RendererProjectStore", () => {
   it("seeds from list and folds the event stream into the SubscriptionRef", async () => {
-    const events: ReadonlyArray<DomainEvent> = [
-      ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t1" }),
-      ProjectRenamed.make({ projectId: "a", name: "alpha-2", occurredAt: "t2" })
+    const events: ReadonlyArray<SequencedEvent> = [
+      { seq: 1, event: ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t1" }) },
+      { seq: 2, event: ProjectRenamed.make({ projectId: "a", name: "alpha-2", occurredAt: "t2" }) }
     ]
     const program = Effect.gen(function* () {
       const store = yield* RendererProjectStore

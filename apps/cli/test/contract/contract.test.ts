@@ -10,7 +10,7 @@ const FULL = (over: Partial<{ id: string; name: string; directory: string | null
 
 const UUID = "11111111-1111-4111-8111-111111111111"
 const cdClient = {
-  ProjectList: () => Effect.succeed([FULL({ id: UUID, name: "alpha" })]),
+  ProjectList: () => Effect.succeed({ projects: [FULL({ id: UUID, name: "alpha" })], seq: 0 }),
   ProjectChangeDirectory: ({ id, directory }: { id: string; directory: string }) =>
     directory === "/bad"
       ? Effect.fail({ _tag: "ProjectDirectoryInvalid", directory, reason: "not-found" })
@@ -25,10 +25,13 @@ const okClient = {
     name === "dup" && !ensure
       ? Effect.fail({ _tag: "ProjectAlreadyExists", name })
       : Effect.succeed({ created: !(name === "dup"), project: { id: "01J", name, createdAt: "2026-01-01T00:00:00.000Z" } }),
-  ProjectList: () => Effect.succeed([
-    FULL({ id: "01K", name: "beta" }),
-    FULL({ id: "01J", name: "alpha" })
-  ]),
+  ProjectList: () => Effect.succeed({
+    projects: [
+      FULL({ id: "01K", name: "beta" }),
+      FULL({ id: "01J", name: "alpha" })
+    ],
+    seq: 0
+  }),
   ProjectRename: ({ id, name }: { id: string; name: string }) =>
     name === "taken"
       ? Effect.fail({ _tag: "ProjectNameConflict", name })
@@ -104,9 +107,12 @@ describe("CLI contract", () => {
   it("project list --archived passes includeArchived:true (shows archived projects)", async () => {
     const listClient = {
       ProjectList: ({ includeArchived }: { includeArchived?: boolean } = {}) =>
-        Effect.succeed(includeArchived
-          ? [FULL({ id: "01J", name: "alpha" }), FULL({ id: "01K", name: "beta", archived: true })]
-          : [FULL({ id: "01J", name: "alpha" })])
+        Effect.succeed({
+          projects: includeArchived
+            ? [FULL({ id: "01J", name: "alpha" }), FULL({ id: "01K", name: "beta", archived: true })]
+            : [FULL({ id: "01J", name: "alpha" })],
+          seq: 0
+        })
     }
     const def = await runCli(tree(listClient), ["project", "list"])
     expect(JSON.parse(def.stdout.join("")).count).toBe(1)
@@ -174,7 +180,7 @@ describe("CLI contract", () => {
     expect(JSON.parse(r.stdout.join("")).data.archived).toBe(true)
   })
   it("project archive missing -> PROJECT_NOT_FOUND on stderr, exit 7", async () => {
-    const notFound = { ...okClient, ProjectList: () => Effect.succeed([]),
+    const notFound = { ...okClient, ProjectList: () => Effect.succeed({ projects: [], seq: 0 }),
       ProjectArchive: ({ id }: { id: string }) => Effect.fail({ _tag: "ProjectNotFound", id }) }
     const r = await runCli(tree(notFound), ["project", "archive", "00000000-0000-4000-8000-000000000000"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
@@ -182,7 +188,7 @@ describe("CLI contract", () => {
   })
   const metaClient = {
     ...okClient,
-    ProjectList: () => Effect.succeed([FULL({ id: "01J", name: "alpha" })]),
+    ProjectList: () => Effect.succeed({ projects: [FULL({ id: "01J", name: "alpha" })], seq: 0 }),
     ProjectSetMetadata: ({ id, description, tags }: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
       Effect.succeed(FULL({ id, name: "alpha", description: description ?? null, tags: tags ?? [] }))
   }
@@ -208,7 +214,7 @@ describe("CLI contract", () => {
   it("project set-metadata unknown -> PROJECT_NOT_FOUND, exit 7", async () => {
     const notFound = {
       ...metaClient,
-      ProjectList: () => Effect.succeed([])
+      ProjectList: () => Effect.succeed({ projects: [], seq: 0 })
     }
     const r = await runCli(tree(notFound), ["project", "set-metadata", "ghost", "--description", "x"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "PROJECT_NOT_FOUND" })
@@ -240,7 +246,7 @@ describe("CLI contract", () => {
 describe("CLI parse/validation edge cases", () => {
   const opsClient = {
     ...okClient,
-    ProjectList: () => Effect.succeed([FULL({ id: "01J", name: "alpha" })]),
+    ProjectList: () => Effect.succeed({ projects: [FULL({ id: "01J", name: "alpha" })], seq: 0 }),
     ProjectRename: ({ id, name }: { id: string; name: string }) =>
       name === "taken"
         ? Effect.fail({ _tag: "ProjectNameConflict", name })
@@ -256,7 +262,7 @@ describe("CLI parse/validation edge cases", () => {
   }
   const missingClient = {
     ...opsClient,
-    ProjectList: () => Effect.succeed([] as ReadonlyArray<ReturnType<typeof FULL>>),
+    ProjectList: () => Effect.succeed({ projects: [] as ReadonlyArray<ReturnType<typeof FULL>>, seq: 0 }),
     ProjectRename: ({ id }: { id: string }) => Effect.fail({ _tag: "ProjectNotFound", id })
   }
 

@@ -16,7 +16,7 @@ const fakeClient = (over: RpcOverrides): RendererRpcClientApi =>
     ProjectRestore: () => Effect.die("unused"),
     ProjectSetMetadata: () => Effect.die("unused"),
     ProjectDelete: () => Effect.die("unused"),
-    ProjectList: () => Effect.succeed([]),
+    ProjectList: () => Effect.succeed({ projects: [], seq: 0 }),
     Connect: () => Effect.die("unused"),
     Events: () => Effect.die("unused"),
     ...over
@@ -64,7 +64,7 @@ describe("ProjectRpcLayer", () => {
     const client = fakeClient({
       ProjectList: (payload) => {
         expect(payload).toEqual({ includeArchived: true })
-        return Effect.succeed([])
+        return Effect.succeed({ projects: [], seq: 0 })
       }
     })
     const result = await ProjectRpc.pipe(
@@ -73,6 +73,6 @@ describe("ProjectRpcLayer", () => {
       Effect.provideService(RendererRpcClient, client),
       Effect.runPromise
     )
-    expect(result).toEqual([])
+    expect(result).toEqual({ projects: [], seq: 0 })
   })
 })

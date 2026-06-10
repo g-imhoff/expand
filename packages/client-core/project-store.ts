@@ -1,8 +1,8 @@
-import { Context, Effect, Layer, PubSub, Queue, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, PubSub, Queue, Ref, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { DomainEvent, SequencedEvent } from "@yodea/contracts/events/domain"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
@@ -12,6 +12,7 @@ import { supervised } from "@yodea/client-core/supervise"
 
 export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
+  readonly snapshot: Effect.Effect<{ readonly projects: ReadonlyArray<Project>; readonly seq: number }>
   readonly createProject: (
     name: string,
     directory?: string | null
@@ -31,7 +32,7 @@ export interface ProjectStoreShape {
     patch: { description?: string | null; tags?: ReadonlyArray<string> }
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly events: Stream.Stream<DomainEvent>
+  readonly events: Stream.Stream<SequencedEvent>
 }
 
 export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreShape>()(
@@ -52,76 +53,87 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
 
     yield* Effect.forkScoped(supervised("project-store connect drain", Stream.runDrain(client.Connect())))
 
-    const events = yield* client.Events(undefined, { asQueue: true })
+    const events = yield* client.Events({}, { asQueue: true })
 
     const initial = yield* client.ProjectList({ includeArchived: true })
-    yield* SubscriptionRef.set(projects, initial)
+    yield* SubscriptionRef.set(projects, initial.projects)
+    const lastSeq = yield* Ref.make(initial.seq)
 
-    const hub = yield* PubSub.unbounded<DomainEvent>()
+    const hub = yield* PubSub.unbounded<SequencedEvent>()
+
+    const applyEvent = (event: DomainEvent): Effect.Effect<void> => {
+      switch (event._tag) {
+        case "ProjectCreated":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.some((p) => p.id === event.projectId)
+              ? cur
+              : [...cur, {
+                  id: event.projectId,
+                  name: event.name,
+                  directory: event.directory ?? null,
+                  description: null,
+                  tags: [],
+                  archived: false,
+                  createdAt: event.occurredAt,
+                  updatedAt: event.occurredAt
+                }])
+        case "ProjectRenamed":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.map((p) =>
+              p.id === event.projectId ? { ...p, name: event.name, updatedAt: event.occurredAt } : p))
+        case "ProjectDirectoryChanged":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.map((p) =>
+              p.id === event.projectId ? { ...p, directory: event.directory, updatedAt: event.occurredAt } : p))
+        case "ProjectArchived":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.map((p) =>
+              p.id === event.projectId ? { ...p, archived: true, updatedAt: event.occurredAt } : p))
+        case "ProjectRestored":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.map((p) =>
+              p.id === event.projectId ? { ...p, archived: false, updatedAt: event.occurredAt } : p))
+        case "ProjectMetadataChanged":
+          return SubscriptionRef.update(projects, (cur) =>
+            cur.map((p) =>
+              p.id === event.projectId
+                ? {
+                    ...p,
+                    ...(event.description !== undefined ? { description: event.description } : {}),
+                    ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
+                    updatedAt: event.occurredAt
+                  }
+                : p))
+        case "ProjectDeleted":
+          return SubscriptionRef.update(projects, (cur) => cur.filter((p) => p.id !== event.projectId))
+        default:
+          return Effect.void
+      }
+    }
 
     yield* Effect.forkScoped(
-      Queue.take(events).pipe(
-        Effect.flatMap((event) =>
-          Effect.andThen(
-            PubSub.publish(hub, event),
-            (() => {
-              switch (event._tag) {
-                case "ProjectCreated":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.some((p) => p.id === event.projectId)
-                      ? cur
-                      : [...cur, {
-                          id: event.projectId,
-                          name: event.name,
-                          directory: event.directory ?? null,
-                          description: null,
-                          tags: [],
-                          archived: false,
-                          createdAt: event.occurredAt,
-                          updatedAt: event.occurredAt
-                        }])
-                case "ProjectRenamed":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.map((p) =>
-                      p.id === event.projectId ? { ...p, name: event.name, updatedAt: event.occurredAt } : p))
-                case "ProjectDirectoryChanged":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.map((p) =>
-                      p.id === event.projectId ? { ...p, directory: event.directory, updatedAt: event.occurredAt } : p))
-                case "ProjectArchived":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.map((p) =>
-                      p.id === event.projectId ? { ...p, archived: true, updatedAt: event.occurredAt } : p))
-                case "ProjectRestored":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.map((p) =>
-                      p.id === event.projectId ? { ...p, archived: false, updatedAt: event.occurredAt } : p))
-                case "ProjectMetadataChanged":
-                  return SubscriptionRef.update(projects, (cur) =>
-                    cur.map((p) =>
-                      p.id === event.projectId
-                        ? {
-                            ...p,
-                            ...(event.description !== undefined ? { description: event.description } : {}),
-                            ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
-                            updatedAt: event.occurredAt
-                          }
-                        : p))
-                case "ProjectDeleted":
-                  return SubscriptionRef.update(projects, (cur) => cur.filter((p) => p.id !== event.projectId))
-                default:
-                  return Effect.void
-              }
-            })()
-          )
-        ),
-        Effect.forever,
-        (eff) => supervised("project-store event fold", eff)
+      supervised("project-store event fold",
+        Queue.take(events).pipe(
+          Effect.flatMap((se) =>
+            PubSub.publish(hub, se).pipe(
+              Effect.andThen(applyEvent(se.event)),
+              Effect.andThen(Ref.update(lastSeq, (n) => Math.max(n, se.seq)))
+            )
+          ),
+          Effect.forever
+        )
       )
     )
 
+    const snapshot = Effect.gen(function* () {
+      const seq = yield* Ref.get(lastSeq)
+      const ps = yield* SubscriptionRef.get(projects)
+      return { projects: ps, seq }
+    })
+
     return {
       projects,
+      snapshot,
       events: Stream.fromPubSub(hub),
       createProject: (name: string, directory?: string | null) =>
         client.ProjectCreate({ name, ensure: true, ...(directory !== undefined ? { directory } : {}) }).pipe(

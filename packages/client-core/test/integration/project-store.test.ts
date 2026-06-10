@@ -140,7 +140,7 @@ describe("ProjectStore", () => {
       const store = await rt.runPromise(ProjectStore)
       const seen = rt.runPromise(
         store.events.pipe(
-          Stream.filter((e) => e._tag === "ProjectCreated" && e.name === "gamma"),
+          Stream.filter((se) => se.event._tag === "ProjectCreated" && se.event.name === "gamma"),
           Stream.take(1),
           Stream.runCollect
         )
@@ -148,7 +148,7 @@ describe("ProjectStore", () => {
       await new Promise((r) => setTimeout(r, 300))
       await rt.runPromise(store.createProject("gamma"))
       const events = await seen
-      expect(Array.from(events)[0]).toMatchObject({ _tag: "ProjectCreated", name: "gamma" })
+      expect(Array.from(events)[0]).toMatchObject({ event: { _tag: "ProjectCreated", name: "gamma" } })
     } finally {
       await rt.dispose()
     }
