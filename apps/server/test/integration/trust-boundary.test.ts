@@ -20,6 +20,7 @@ import { ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 import { readEndpoint } from "@yodea/client-core/discovery"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { endpointWsUrl } from "@yodea/client-core/rpc-client"
 
 let dir: string
 beforeEach(() => {
@@ -237,5 +238,25 @@ describe.sequential("trust boundary", () => {
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
     expect(await Effect.runPromise(program)).toBe(0o600)
+  })
+
+  it("rejects a same-length wrong token and accepts the real token on a raw socket", async () => {
+    const program = Effect.gen(function* () {
+      const dbPath = join(dir, "events.db")
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const endpoint = yield* currentEndpoint
+      const flipped = `${endpoint.token.slice(0, -1)}${endpoint.token.endsWith("0") ? "1" : "0"}`
+      const sameLengthWrong = yield* Effect.promise(() =>
+        probeWs(`${endpoint.url}?token=${encodeURIComponent(flipped)}`)
+      )
+      const realToken = yield* Effect.promise(() => probeWs(endpointWsUrl(endpoint)))
+      yield* Fiber.interrupt(serverFiber)
+      return { sameLengthWrong, realToken }
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+
+    const r = await Effect.runPromise(program)
+    expect(r.sameLengthWrong).toBe("closed")
+    expect(r.realToken).toBe("open")
   })
 })
