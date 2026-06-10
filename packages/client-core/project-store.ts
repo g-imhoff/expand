@@ -115,9 +115,13 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       supervised("project-store event fold",
         Queue.take(events).pipe(
           Effect.flatMap((se) =>
-            PubSub.publish(hub, se).pipe(
-              Effect.andThen(applyEvent(se.event)),
-              Effect.andThen(Ref.update(lastSeq, (n) => Math.max(n, se.seq)))
+            Effect.flatMap(Ref.get(lastSeq), (last) =>
+              se.seq <= last
+                ? Effect.void
+                : PubSub.publish(hub, se).pipe(
+                    Effect.andThen(applyEvent(se.event)),
+                    Effect.andThen(Ref.set(lastSeq, se.seq))
+                  )
             )
           ),
           Effect.forever
