@@ -7,5 +7,10 @@ type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof YodeaRpcs>>
 
 export const connectionHandlers: Pick<Handlers, "Connect" | "Events"> = {
   Connect: () => Stream.make(true).pipe(Stream.concat(Stream.never)),
-  Events: () => Stream.unwrap(Effect.map(ProjectStore, (s) => s.events))
+  Events: ({ fromSeq }) =>
+    Stream.unwrap(
+      Effect.map(ProjectStore, (s) =>
+        fromSeq === undefined ? s.events : Stream.filter(s.events, (se) => se.seq > fromSeq)
+      )
+    )
 }

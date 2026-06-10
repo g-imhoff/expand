@@ -47,14 +47,13 @@ export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never,
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
 
     const initial = yield* rpc.list({ includeArchived: true }).pipe(Effect.orDie)
-    yield* SubscriptionRef.set(projects, initial)
+    yield* SubscriptionRef.set(projects, initial.projects)
 
-    // The store's ONLY background fiber: fold the event stream into the ref.
     yield* Effect.forkScoped(
       supervised(
         "renderer project-store event fold",
-        Stream.runForEach(rpc.events(), (event) =>
-          SubscriptionRef.update(projects, (cur) => foldEvent(cur, event))
+        Stream.runForEach(rpc.events(), (se) =>
+          SubscriptionRef.update(projects, (cur) => foldEvent(cur, se.event))
         ).pipe(Effect.orDie)
       )
     )

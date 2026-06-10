@@ -23,7 +23,10 @@ export interface ProjectClientApi {
     readonly tags?: ReadonlyArray<string>
   }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   readonly delete: (payload: { readonly id: string }) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly list: (payload?: { readonly includeArchived?: boolean }) => Effect.Effect<ReadonlyArray<Project>, RpcClientError.RpcClientError>
+  readonly list: (payload?: { readonly includeArchived?: boolean }) => Effect.Effect<
+    { readonly projects: ReadonlyArray<Project>; readonly seq: number },
+    RpcClientError.RpcClientError
+  >
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientApi>()(

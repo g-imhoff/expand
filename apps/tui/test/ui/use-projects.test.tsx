@@ -10,6 +10,7 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
     events: Stream.empty,
+    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
       const project = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
