@@ -73,8 +73,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const id = newId()
         const createdAt = new Date().toISOString()
         const event = ProjectCreated.make({ projectId: id, name, directory: dir, occurredAt: createdAt })
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         return {
           created: true,
           project: {
@@ -100,8 +100,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         }
         const occurredAt = new Date().toISOString()
         const event = ProjectRenamed.make({ projectId: id, name, occurredAt })
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         return { ...target, name, updatedAt: occurredAt }
       })
 
@@ -113,8 +113,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         yield* validateDirectory(directory, all, id)
         const occurredAt = new Date().toISOString()
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         return { ...existing, directory, updatedAt: occurredAt }
       })
 
@@ -127,8 +127,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = makeEvent(new Date().toISOString())
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         const updated = (yield* projection.list).find((p) => p.id === id)
         return updated ?? existing
       })
@@ -150,8 +150,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
           occurredAt
         })
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         const updated = (yield* projection.list).find((p) => p.id === id)
         return updated ?? existing
       })
@@ -161,8 +161,8 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = (yield* projection.list).find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = ProjectDeleted.make({ projectId: id, occurredAt: new Date().toISOString() })
-        yield* store.append(id, event)
-        yield* bus.publish(event)
+        const seq = yield* store.append(id, event)
+        yield* bus.publish({ seq, event })
         return { id, deleted: true } as const
       })
 
