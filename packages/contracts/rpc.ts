@@ -1,6 +1,6 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
-import { DomainEvent } from "@yodea/contracts/events/domain"
+import { SequencedEvent } from "@yodea/contracts/events/domain"
 import { DESCRIPTION_MAX_LENGTH, Project, ProjectCreateResult, ProjectDeleteResult, Tag } from "@yodea/contracts/project"
 
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
@@ -65,7 +65,14 @@ export class YodeaRpcs extends RpcGroup.make(
     success: ProjectDeleteResult,
     error: ProjectNotFound
   }),
-  Rpc.make("ProjectList", { payload: { includeArchived: Schema.optionalKey(Schema.Boolean) }, success: Schema.Array(Project) }),
+  Rpc.make("ProjectList", {
+    payload: { includeArchived: Schema.optionalKey(Schema.Boolean) },
+    success: Schema.Struct({ projects: Schema.Array(Project), seq: Schema.Int })
+  }),
   Rpc.make("Connect", { success: Schema.Boolean, stream: true }),
-  Rpc.make("Events", { success: DomainEvent, stream: true })
+  Rpc.make("Events", {
+    payload: { fromSeq: Schema.optionalKey(Schema.Int) },
+    success: SequencedEvent,
+    stream: true
+  })
 ) {}
