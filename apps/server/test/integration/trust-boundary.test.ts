@@ -1,13 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Layer, Option, Schedule } from "effect"
+import { Effect, Exit, Fiber, FileSystem, Layer, Option, Schedule, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { connect } from "node:net"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@yodea/server/composition/app"
+import { writeEndpointFile } from "@yodea/server/endpoint-file"
+import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import { httpServerLayer } from "@yodea/server/http"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
@@ -170,5 +172,70 @@ describe.sequential("trust boundary", () => {
     expect(r.noToken).toBe("closed")
     expect(r.wrongToken).toBe("closed")
     expect(r.health).toBe("ok")
+  })
+
+  it("writes the endpoint file 0600 inside a 0700 directory", async () => {
+    process.env.YODEA_ENDPOINT_FILE = join(dir, "yodea-home", "server.json")
+    const file = endpointFilePath()
+    const program = Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const scope = yield* Scope.make()
+      yield* Effect.provideService(
+        writeEndpointFile({
+          url: "ws://127.0.0.1:51789/rpc",
+          token: "tok",
+          pid: 4242,
+          protocolVersion: PROTOCOL_VERSION
+        }),
+        Scope.Scope,
+        scope
+      )
+      const fileInfo = yield* fs.stat(file)
+      const dirInfo = yield* fs.stat(join(dir, "yodea-home"))
+      yield* Scope.close(scope, Exit.void)
+      return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
+    }).pipe(Effect.provide(BunServices.layer))
+
+    const r = await Effect.runPromise(program)
+    expect(r.fileMode).toBe(0o600)
+    expect(r.dirMode).toBe(0o700)
+  })
+
+  it("tightens a pre-existing endpoint file to 0600", async () => {
+    const file = endpointFilePath()
+    writeFileSync(file, "stale", { mode: 0o644 })
+    const program = Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const scope = yield* Scope.make()
+      yield* Effect.provideService(
+        writeEndpointFile({
+          url: "ws://127.0.0.1:51789/rpc",
+          token: "tok",
+          pid: 4242,
+          protocolVersion: PROTOCOL_VERSION
+        }),
+        Scope.Scope,
+        scope
+      )
+      const info = yield* fs.stat(file)
+      yield* Scope.close(scope, Exit.void)
+      return Number(info.mode & 0o777)
+    }).pipe(Effect.provide(BunServices.layer))
+
+    expect(await Effect.runPromise(program)).toBe(0o600)
+  })
+
+  it("chmods the database file to 0600 after boot", async () => {
+    const program = Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const dbPath = join(dir, "events.db")
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const info = yield* fs.stat(dbPath)
+      yield* Fiber.interrupt(serverFiber)
+      return Number(info.mode & 0o777)
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+
+    expect(await Effect.runPromise(program)).toBe(0o600)
   })
 })
