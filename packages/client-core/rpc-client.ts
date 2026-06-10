@@ -4,6 +4,7 @@ import type { FileSystem, Scope } from "effect"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { Endpoint } from "@yodea/contracts/endpoint"
 import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@yodea/client-core/discovery"
+import { supervised } from "@yodea/client-core/supervise"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 
 export type YodeaRpcClientApi = RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>
@@ -36,8 +37,11 @@ const acquire = (
         const client = yield* RpcClient.make(YodeaRpcs).pipe(Effect.provideContext(protocol))
         const ready = yield* Deferred.make<void>()
         yield* Effect.forkScoped(
-          Stream.runDrain(
-            Stream.tap(client.Connect(), () => Deferred.succeed(ready, undefined))
+          supervised(
+            "rpc-client connect drain",
+            Stream.runDrain(
+              Stream.tap(client.Connect(), () => Deferred.succeed(ready, undefined))
+            )
           )
         )
         yield* Deferred.await(ready).pipe(

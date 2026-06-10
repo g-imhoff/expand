@@ -9,6 +9,7 @@ import type {
 } from "@yodea/contracts/rpc"
 import { ProjectRpc } from "@yodea/desktop/renderer/rpc/project-rpc"
 import { foldEvent } from "@yodea/desktop/renderer/features/projects/model/event-fold"
+import { supervised } from "@yodea/desktop/renderer/lib/supervised"
 
 export interface RendererProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
@@ -50,9 +51,12 @@ export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never,
 
     // The store's ONLY background fiber: fold the event stream into the ref.
     yield* Effect.forkScoped(
-      Stream.runForEach(rpc.events(), (event) =>
-        SubscriptionRef.update(projects, (cur) => foldEvent(cur, event))
-      ).pipe(Effect.orDie)
+      supervised(
+        "renderer project-store event fold",
+        Stream.runForEach(rpc.events(), (event) =>
+          SubscriptionRef.update(projects, (cur) => foldEvent(cur, event))
+        ).pipe(Effect.orDie)
+      )
     )
 
     return {
