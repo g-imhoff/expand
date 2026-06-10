@@ -14,6 +14,7 @@ export type Endpoint = typeof Endpoint.Type
 
 export const EndpointFromJson = Schema.fromJsonString(Endpoint)
 
+export const yodeaHomeDir = (): string => process.env.YODEA_HOME ?? join(homedir(), ".yodea")
+
 export const endpointFilePath = (): string =>
-  process.env.YODEA_ENDPOINT_FILE ??
-  join(process.env.YODEA_HOME ?? join(homedir(), ".yodea"), "server.json")
+  process.env.YODEA_ENDPOINT_FILE ?? join(yodeaHomeDir(), "server.json")
