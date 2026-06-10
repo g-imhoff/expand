@@ -16,6 +16,8 @@ import { ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cas
 import { ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 import { readEndpoint } from "@yodea/client-core/discovery"
+import { withClient } from "@yodea/client-core"
+import { bunAdapter } from "@yodea/client-core/adapters/bun"
 
 let dir: string
 beforeEach(() => {
@@ -77,12 +79,34 @@ const offLoopbackTargets = (): ReadonlyArray<string> => [
   )
 ]
 
+const probeWs = (url: string): Promise<"open" | "closed"> =>
+  new Promise((resolve) => {
+    const ws = new WebSocket(url)
+    const timer = setTimeout(() => {
+      resolve("closed")
+      ws.close()
+    }, 2000)
+    ws.addEventListener("open", () => {
+      clearTimeout(timer)
+      resolve("open")
+      ws.close()
+    })
+    ws.addEventListener("error", () => {
+      clearTimeout(timer)
+      resolve("closed")
+    })
+    ws.addEventListener("close", () => {
+      clearTimeout(timer)
+      resolve("closed")
+    })
+  })
+
 describe.sequential("trust boundary", () => {
   it("binds to a 127.0.0.1 TcpAddress", async () => {
     const program = Effect.gen(function* () {
       const transport = yield* Layer.build(
         Layer.mergeAll(
-          httpServerLayer(0).pipe(Layer.provide(testCore(join(dir, "bind.db")))),
+          httpServerLayer(0, "trust-boundary-token").pipe(Layer.provide(testCore(join(dir, "bind.db")))),
           BunServices.layer
         )
       )
@@ -122,5 +146,29 @@ describe.sequential("trust boundary", () => {
         result: "closed"
       })
     }
+  })
+
+  it("rejects ws upgrades without or with a wrong token and serves an authenticated client", async () => {
+    const program = Effect.gen(function* () {
+      const dbPath = join(dir, "events.db")
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const endpoint = yield* currentEndpoint
+      const noToken = yield* Effect.promise(() => probeWs(endpoint.url))
+      const wrongToken = yield* Effect.promise(() => probeWs(`${endpoint.url}?token=wrong-token`))
+      const health = yield* withClient(bunAdapter, (client) => client.Health())
+      yield* Fiber.join(serverFiber).pipe(
+        Effect.timeoutOrElse({
+          duration: "5 seconds",
+          orElse: () => Effect.fail(new Error("server did not shut down after last client left (I-4)"))
+        })
+      )
+      return { noToken, wrongToken, health }
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+
+    const r = await Effect.runPromise(program)
+    expect(r.noToken).toBe("closed")
+    expect(r.wrongToken).toBe("closed")
+    expect(r.health).toBe("ok")
   })
 })

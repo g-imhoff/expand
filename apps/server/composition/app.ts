@@ -37,9 +37,10 @@ const coreLayer = (dbPath: string) => {
 export const runServer = (options: RunServerOptions) => {
   const core = coreLayer(options.dbPath)
   const portHint = options.port ?? 0
+  const token = newId()
 
   const transportLayer = Layer.mergeAll(
-    httpServerLayer(portHint).pipe(Layer.provide(core)),
+    httpServerLayer(portHint, token).pipe(Layer.provide(core)),
     BunServices.layer
   )
 
@@ -59,7 +60,7 @@ export const runServer = (options: RunServerOptions) => {
 
     const endpointFile = yield* writeEndpointFile({
       url,
-      token: newId(),
+      token,
       pid: process.pid,
       protocolVersion: PROTOCOL_VERSION
     })
