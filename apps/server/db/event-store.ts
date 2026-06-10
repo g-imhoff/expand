@@ -43,7 +43,7 @@ export class EventStore extends Context.Service<EventStore, {
         if (Exit.isSuccess(exit)) {
           events.push(exit.value)
         } else {
-          yield* Effect.logWarning(`skipping undecodable event row seq=${row.seq} stream_id=${row.stream_id}`)
+          yield* Effect.logWarning(`skipping undecodable event row seq=${row.seq} stream_id=${row.stream_id} cause=${exit.cause}`)
         }
       }
       return events as ReadonlyArray<DomainEvent>
