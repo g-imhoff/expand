@@ -1,6 +1,7 @@
-import { Context, Effect, Layer, Stream, SubscriptionRef } from "effect"
+import { Context, Effect, Layer, Queue, Ref, Stream, SubscriptionRef } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type {
   ProjectDirectoryConflict,
   ProjectDirectoryInvalid,
@@ -46,15 +47,34 @@ export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never,
     const rpc = yield* ProjectRpc
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
 
+    const buffer = yield* Queue.unbounded<SequencedEvent>()
+
+    yield* Effect.forkScoped(
+      supervised(
+        "renderer project-store events pump",
+        Stream.runForEach(rpc.events(), (se) => Queue.offer(buffer, se)).pipe(Effect.orDie)
+      )
+    )
+
     const initial = yield* rpc.list({ includeArchived: true }).pipe(Effect.orDie)
     yield* SubscriptionRef.set(projects, initial.projects)
+    const lastSeq = yield* Ref.make(initial.seq)
 
     yield* Effect.forkScoped(
       supervised(
         "renderer project-store event fold",
-        Stream.runForEach(rpc.events(), (se) =>
-          SubscriptionRef.update(projects, (cur) => foldEvent(cur, se.event))
-        ).pipe(Effect.orDie)
+        Queue.take(buffer).pipe(
+          Effect.flatMap((se) =>
+            Effect.flatMap(Ref.get(lastSeq), (last) =>
+              se.seq <= last
+                ? Effect.void
+                : SubscriptionRef.update(projects, (cur) => foldEvent(cur, se.event)).pipe(
+                    Effect.andThen(Ref.set(lastSeq, se.seq))
+                  )
+            )
+          ),
+          Effect.forever
+        )
       )
     )
 
