@@ -1,6 +1,6 @@
 import { useContext, useEffect, useState } from "react"
 import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
-import { ProjectStore } from "@yodea/client-core"
+import { ProjectStore, supervised } from "@yodea/client-core"
 import type { Project } from "@yodea/contracts/project"
 import { RuntimeContext } from "@yodea/tui/runtime"
 
@@ -11,9 +11,12 @@ export const useProjects = () => {
 
   useEffect(() => {
     const fiber = runtime.runFork(
-      Effect.flatMap(ProjectStore, (store) =>
-        Stream.runForEach(SubscriptionRef.changes(store.projects), (ps) =>
-          Effect.sync(() => setProjects(ps))))
+      supervised(
+        "tui projects subscription",
+        Effect.flatMap(ProjectStore, (store) =>
+          Stream.runForEach(SubscriptionRef.changes(store.projects), (ps) =>
+            Effect.sync(() => setProjects(ps))))
+      )
     )
     return () => {
       runtime.runFork(Fiber.interrupt(fiber))
