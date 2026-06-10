@@ -39,7 +39,7 @@ const accessLogger = HttpMiddleware.make((httpApp) =>
 )
 
 export const httpServerLayer = (port: number) => {
-  const bun = BunHttpServer.layer({ port })
+  const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
   const rpc = RpcServer.layer(YodeaRpcs).pipe(
     Layer.provide(YodeaHandlers),
     Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
