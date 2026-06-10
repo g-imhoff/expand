@@ -8,6 +8,7 @@ import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConf
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
 import { endpointWsUrl } from "@yodea/client-core/rpc-client"
+import { supervised } from "@yodea/client-core/supervise"
 
 export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
@@ -49,7 +50,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))
     const client = yield* RpcClient.make(YodeaRpcs).pipe(Effect.provideContext(protocol))
 
-    yield* Effect.forkScoped(Stream.runDrain(client.Connect()))
+    yield* Effect.forkScoped(supervised("project-store connect drain", Stream.runDrain(client.Connect())))
 
     const events = yield* client.Events(undefined, { asQueue: true })
 
@@ -114,7 +115,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
             })()
           )
         ),
-        Effect.forever
+        Effect.forever,
+        (eff) => supervised("project-store event fold", eff)
       )
     )
 
