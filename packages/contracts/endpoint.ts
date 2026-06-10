@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { homedir } from "node:os"
 import { join } from "node:path"
 
-export const PROTOCOL_VERSION = 1
+export const PROTOCOL_VERSION = 2
 
 export const Endpoint = Schema.Struct({
   url: Schema.String,

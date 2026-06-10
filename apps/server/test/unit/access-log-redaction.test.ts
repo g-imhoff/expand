@@ -26,7 +26,7 @@ const testCore = (dbPath: string) => {
     Layer.provide(BunFileSystem.layer),
     Layer.provide(BunServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, store)
 }
 
 const probeWs = (url: string): Promise<"open" | "closed"> =>
