@@ -1,4 +1,4 @@
-import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
@@ -39,6 +39,12 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
     const projection = yield* ProjectProjection
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+    const mutex = yield* Semaphore.make(1)
+
+    const commit = (id: string, event: Parameters<typeof store.append>[1]) =>
+      Effect.uninterruptible(
+        Effect.flatMap(store.append(id, event), (seq) => bus.publish({ seq, event }))
+      )
 
     const validateDirectory = (
       directory: string,
@@ -59,7 +65,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       })
 
     const createProject = (name: string, ensure: boolean, directory?: string | null) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.name === name)
         if (existing !== undefined) {
@@ -73,8 +79,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const id = newId()
         const createdAt = new Date().toISOString()
         const event = ProjectCreated.make({ projectId: id, name, directory: dir, occurredAt: createdAt })
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         return {
           created: true,
           project: {
@@ -88,10 +93,10 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
             updatedAt: createdAt
           }
         }
-      })
+      }))
 
     const renameProject = (id: string, name: string) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const target = all.find((p) => p.id === id)
         if (target === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
@@ -100,38 +105,35 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         }
         const occurredAt = new Date().toISOString()
         const event = ProjectRenamed.make({ projectId: id, name, occurredAt })
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         return { ...target, name, updatedAt: occurredAt }
-      })
+      }))
 
     const changeDirectory = (id: string, directory: string) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         yield* validateDirectory(directory, all, id)
         const occurredAt = new Date().toISOString()
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         return { ...existing, directory, updatedAt: occurredAt }
-      })
+      }))
 
     const toggleArchived = (
       id: string,
       makeEvent: (occurredAt: string) => typeof ProjectArchived.Type | typeof ProjectRestored.Type
     ) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = makeEvent(new Date().toISOString())
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         const updated = (yield* projection.list).find((p) => p.id === id)
         return updated ?? existing
-      })
+      }))
 
     const archiveProject = (id: string) =>
       toggleArchived(id, (occurredAt) => ProjectArchived.make({ projectId: id, occurredAt }))
@@ -139,7 +141,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
 
     const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
@@ -150,21 +152,19 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           ...(patch.tags !== undefined ? { tags: patch.tags } : {}),
           occurredAt
         })
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         const updated = (yield* projection.list).find((p) => p.id === id)
         return updated ?? existing
-      })
+      }))
 
     const deleteProject = (id: string) =>
-      Effect.gen(function* () {
+      mutex.withPermit(Effect.gen(function* () {
         const existing = (yield* projection.list).find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = ProjectDeleted.make({ projectId: id, occurredAt: new Date().toISOString() })
-        const seq = yield* store.append(id, event)
-        yield* bus.publish({ seq, event })
+        yield* commit(id, event)
         return { id, deleted: true } as const
-      })
+      }))
 
     const listProjects = (includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
