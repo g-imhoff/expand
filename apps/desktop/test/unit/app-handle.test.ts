@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, Stream } from "effect"
 import { ProjectCreated } from "@yodea/contracts/events/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectRpc, type ProjectRpcApi } from "@yodea/desktop/renderer/rpc/project-rpc"
 import { RendererProjectStore, RendererProjectStoreLayer } from "@yodea/desktop/renderer/features/projects/data/project-store"
@@ -12,7 +12,7 @@ const project: Project = {
   archived: false, createdAt: "t", updatedAt: "t"
 }
 
-const stub = (events: ReadonlyArray<DomainEvent>): Layer.Layer<ProjectRpc> =>
+const stub = (events: ReadonlyArray<SequencedEvent>): Layer.Layer<ProjectRpc> =>
   Layer.succeed(ProjectRpc, {
     create: () => Effect.succeed({ created: true, project }),
     rename: () => Effect.die("unused"),
@@ -21,13 +21,13 @@ const stub = (events: ReadonlyArray<DomainEvent>): Layer.Layer<ProjectRpc> =>
     restore: () => Effect.die("unused"),
     setMetadata: () => Effect.die("unused"),
     delete: () => Effect.die("unused"),
-    list: () => Effect.succeed([]),
+    list: () => Effect.succeed({ projects: [], seq: 0 }),
     events: () => Stream.fromIterable(events)
   } satisfies ProjectRpcApi)
 
 describe("makeAppHandle", () => {
   it("mirrors store.projects into a sync snapshot and notifies subscribers; command resolves via the runtime", async () => {
-    const events = [ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t" })]
+    const events = [{ seq: 1, event: ProjectCreated.make({ projectId: "a", name: "alpha", occurredAt: "t" }) }]
     await Effect.gen(function* () {
       const store = yield* RendererProjectStore
       const context = yield* Effect.context<never>()

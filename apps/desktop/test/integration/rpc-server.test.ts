@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectCreated } from "@yodea/contracts/events/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectStore } from "@yodea/client-core"
 import { buildRendererClient } from "@yodea/desktop/renderer/rpc/transport"
 import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
@@ -10,15 +10,16 @@ import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
 
 const fakeStoreLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
-  hub: PubSub.PubSub<DomainEvent>
+  hub: PubSub.PubSub<SequencedEvent>
 ) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
     events: Stream.fromPubSub(hub),
+    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
       const project = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return Effect.andThen(
-        PubSub.publish(hub, ProjectCreated.make({ projectId: project.id, name, occurredAt: "t" })),
+        PubSub.publish(hub, { seq: 1, event: ProjectCreated.make({ projectId: project.id, name, occurredAt: "t" }) }),
         SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
       )
     },
@@ -72,7 +73,7 @@ const makePortPair = (): { server: MainPortLike; renderer: RendererPortLike } =>
 describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cloning port)", () => {
   it("ProjectList/ProjectCreate cross the seam and decode to typed values", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
-    const hub = await Effect.runPromise(PubSub.unbounded<DomainEvent>())
+    const hub = await Effect.runPromise(PubSub.unbounded<SequencedEvent>())
     const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
     const { server, renderer } = makePortPair()
 
@@ -87,9 +88,9 @@ describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cl
       const created = await runtime.runPromise(client.ProjectCreate({ name: "omega", ensure: false }))
       const list1 = await runtime.runPromise(client.ProjectList({}))
 
-      expect(list0).toEqual([])
+      expect(list0).toEqual({ projects: [], seq: 0 })
       expect(created).toMatchObject({ created: true, project: { name: "omega" } })
-      expect(list1.map((p) => p.name)).toEqual(["omega"])
+      expect(list1.projects.map((p) => p.name)).toEqual(["omega"])
     } finally {
       await Effect.runPromise(Scope.close(clientScope, Exit.void))
       await Effect.runPromise(Scope.close(serverScope, Exit.void))

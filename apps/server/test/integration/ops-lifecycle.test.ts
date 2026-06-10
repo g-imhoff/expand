@@ -38,7 +38,7 @@ describe.sequential("project operations over the wire", () => {
 
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const events = yield* client.Events(undefined, { asQueue: true })
+          const events = yield* client.Events({}, { asQueue: true })
           yield* Effect.sleep("500 millis")
 
           const { project } = yield* client.ProjectCreate({ name: "ops", ensure: false })
@@ -50,7 +50,7 @@ describe.sequential("project operations over the wire", () => {
           const deleted = yield* client.ProjectDelete({ id: project.id })
 
           const tags: string[] = []
-          for (let i = 0; i < 7; i++) tags.push((yield* Queue.take(events))._tag)
+          for (let i = 0; i < 7; i++) tags.push((yield* Queue.take(events)).event._tag)
 
           const listed = yield* client.ProjectList({})
           return { renamed, dirSet, archived, restored, meta, deleted, tags, listed }
@@ -72,7 +72,7 @@ describe.sequential("project operations over the wire", () => {
       "ProjectCreated", "ProjectRenamed", "ProjectDirectoryChanged",
       "ProjectArchived", "ProjectRestored", "ProjectMetadataChanged", "ProjectDeleted"
     ])
-    expect(r.listed).toEqual([])
+    expect(r.listed.projects).toEqual([])
     rmSync(workdir, { recursive: true, force: true })
   })
 
