@@ -27,7 +27,7 @@ const resolveBackendCommand = (): ReadonlyArray<string> => {
 
 export const makeProductionRuntime = (): YodeaRuntime =>
   ManagedRuntime.make(
-    ProjectStoreLayer(makeBunAdapter({ backendCommand: resolveBackendCommand() })).pipe(
+    ProjectStoreLayer(makeBunAdapter({ backendCommand: resolveBackendCommand })).pipe(
       Layer.provide(BunServices.layer)
     )
   )

@@ -39,7 +39,7 @@ export const makeYodea = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerC
   )
 }
 
-export const yodea = makeYodea(ClientLayer(makeBunAdapter({ backendCommand: backendCommand() })))
+export const yodea = makeYodea(ClientLayer(makeBunAdapter({ backendCommand })))
 
 if (import.meta.main) {
   renderErrors(Command.run(yodea, { version: "0.0.0" })).pipe(
