@@ -8,7 +8,7 @@ import { YodeaHandlers } from "@yodea/server/rpc-handlers"
 
 const accessLogger = HttpMiddleware.make((httpApp) =>
   Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
-    const path = request.url
+    const path = request.url.split("?")[0]
     return Effect.withLogSpan(
       Effect.flatMap(Effect.exit(httpApp), (exit) => {
         if (exit._tag === "Failure") {
