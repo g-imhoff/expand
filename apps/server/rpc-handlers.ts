@@ -4,6 +4,8 @@ import { ProjectUseCases } from "@yodea/server/application/projects/use-cases"
 import { ServerUseCases } from "@yodea/server/application/server/use-cases"
 import { EventBus } from "@yodea/server/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
+import { EventStore } from "@yodea/server/db/event-store"
+import { ProjectProjection } from "@yodea/server/application/projections"
 
 export const YodeaHandlers = YodeaRpcs.toLayer({
   Health: () => Effect.flatMap(ServerUseCases, (u) => u.health),
@@ -87,7 +89,14 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         (e) => Effect.die(e)
       )
     ),
-  ProjectList: ({ includeArchived }) => Effect.flatMap(ProjectUseCases, (u) => u.listProjects(includeArchived)).pipe(Effect.orDie),
+  ProjectList: ({ includeArchived }) =>
+    Effect.flatMap(ProjectProjection, (p) => p.snapshot).pipe(
+      Effect.map(({ projects, seq }) => ({
+        projects: includeArchived ? projects : projects.filter((x) => !x.archived),
+        seq
+      })),
+      Effect.orDie
+    ),
   Connect: () =>
     Stream.unwrap(
       Effect.gen(function* () {
@@ -97,5 +106,20 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
         return Stream.make(true).pipe(Stream.concat(Stream.never))
       })
     ),
-  Events: () => Stream.unwrap(Effect.map(EventBus, (bus) => Stream.map(bus.stream, (se) => se.event)))
+  Events: ({ fromSeq }) =>
+    fromSeq === undefined
+      ? Stream.unwrap(Effect.map(EventBus, (bus) => bus.stream))
+      : Stream.unwrap(
+          Effect.gen(function* () {
+            const bus = yield* EventBus
+            const store = yield* EventStore
+            const sub = yield* bus.subscribe
+            const backlog = yield* store.readFrom(fromSeq).pipe(Effect.orDie)
+            const lastReplayed = backlog.length > 0 ? backlog[backlog.length - 1]!.seq : fromSeq
+            return Stream.concat(
+              Stream.fromIterable(backlog),
+              Stream.filter(Stream.fromSubscription(sub), (se) => se.seq > lastReplayed)
+            )
+          })
+        )
 })
