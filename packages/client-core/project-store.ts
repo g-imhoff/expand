@@ -7,6 +7,7 @@ import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
+import { endpointWsUrl } from "@yodea/client-core/rpc-client"
 
 export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
@@ -45,7 +46,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     const endpoint = yield* findOrSpawnBackend(adapter)
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
 
-    const protocol = yield* Layer.build(adapter.protocolLayer(endpoint.url))
+    const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))
     const client = yield* RpcClient.make(YodeaRpcs).pipe(Effect.provideContext(protocol))
 
     yield* Effect.forkScoped(Stream.runDrain(client.Connect()))
