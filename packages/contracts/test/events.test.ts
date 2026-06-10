@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { DomainEventFromJson } from "@yodea/contracts/events/domain"
+import { DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
 
 describe("DomainEvent", () => {
@@ -136,5 +136,22 @@ describe("ProjectDeleted", () => {
     const json = Schema.encodeSync(DomainEventFromJson)(e)
     expect(typeof json).toBe("string")
     expect(Schema.decodeUnknownSync(DomainEventFromJson)(json)).toEqual(e)
+  })
+})
+
+describe("SequencedEvent", () => {
+  it("decodes a { seq, event } envelope and rejects a non-integer seq", () => {
+    const decoded = Schema.decodeUnknownSync(SequencedEvent)({
+      seq: 7,
+      event: { _tag: "ProjectCreated", projectId: "p1", name: "a", directory: null, occurredAt: "t1" }
+    })
+    expect(decoded.seq).toBe(7)
+    expect(decoded.event._tag).toBe("ProjectCreated")
+    expect(() =>
+      Schema.decodeUnknownSync(SequencedEvent)({
+        seq: 1.5,
+        event: { _tag: "ProjectDeleted", projectId: "p1", occurredAt: "t1" }
+      })
+    ).toThrow()
   })
 })

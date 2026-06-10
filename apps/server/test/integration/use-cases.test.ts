@@ -40,8 +40,9 @@ describe("ProjectUseCases.createProject", () => {
 
     const r = await Effect.runPromise(program)
     expect(r.project.name).toBe("Hello")
-    expect(r.broadcast._tag).toBe("ProjectCreated")
-    expect(r.broadcast.projectId).toBe(r.project.id)
+    expect(r.broadcast.seq).toBe(1)
+    expect(r.broadcast.event._tag).toBe("ProjectCreated")
+    expect(r.broadcast.event.projectId).toBe(r.project.id)
     expect(r.persisted).toHaveLength(1)
     expect(r.listed).toEqual([r.project])
   })
@@ -228,7 +229,7 @@ describe("ProjectUseCases.setMetadata", () => {
     expect(r.updated.description).toBe("hi")
     expect(r.updated.tags).toEqual(["a", "b"])
     expect(r.updated.id).toBe(r.project.id)
-    expect(r.broadcast._tag).toBe("ProjectMetadataChanged")
+    expect(r.broadcast.event._tag).toBe("ProjectMetadataChanged")
     expect(r.persisted).toHaveLength(2)
   })
 
@@ -288,7 +289,7 @@ describe("ProjectUseCases.deleteProject", () => {
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const r = await Effect.runPromise(program)
     expect(r.result).toEqual({ id: r.id, deleted: true })
-    expect(r.broadcast._tag).toBe("ProjectDeleted")
+    expect(r.broadcast.event._tag).toBe("ProjectDeleted")
     expect(r.listed).toEqual([])
   })
   it("fails with ProjectNotFound for an unknown id", async () => {
