@@ -8,10 +8,13 @@ import { fileURLToPath } from "node:url"
 
 export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, never>
 
+export const defaultBackendEntry = (moduleUrl: string): string =>
+  join(fileURLToPath(moduleUrl), "..", "..", "..", "..", "server", "main.ts")
+
 const backendCommand = (): ReadonlyArray<string> => {
   const override = process.env.YODEA_BACKEND_CMD
   if (override) return JSON.parse(override) as ReadonlyArray<string>
-  return ["bun", join(fileURLToPath(import.meta.url), "..", "..", "..", "..", "..", "server", "main.ts")]
+  return ["bun", defaultBackendEntry(import.meta.url)]
 }
 
 export const makeRuntime = (): YodeaRuntime =>
