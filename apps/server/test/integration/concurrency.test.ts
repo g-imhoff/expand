@@ -61,7 +61,7 @@ describe.sequential("project operations under concurrency", () => {
     expect(holders[0]!.id).toBe(r.aId)
   })
 
-  it("concurrent rename to the same name converges deterministically without a crash (documented TOCTOU)", async () => {
+  it("concurrent rename to the same name has exactly one winner", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
@@ -83,17 +83,21 @@ describe.sequential("project operations under concurrency", () => {
       return out
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
     const r = (await Effect.runPromise(program)) as {
-      results: ReadonlyArray<{ _tag: string }>
+      results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
       aId: string
       bId: string
     }
     expect(r.results).toHaveLength(2)
-    expect(r.results.some((x) => x._tag === "Success")).toBe(true)
+    expect(r.results.filter((x) => x._tag === "Success")).toHaveLength(1)
     expect(r.listed.projects).toHaveLength(2)
     const ids = r.listed.projects.map((p) => p.id)
     expect(new Set(ids).size).toBe(ids.length)
     expect(new Set(ids)).toEqual(new Set([r.aId, r.bId]))
+    const holders = r.listed.projects.filter((p) => p.name === "merged")
+    expect(holders).toHaveLength(1)
+    const loser = r.results.find((x) => x._tag === "Failure")
+    expect(loser?.failure?._tag).toBe("ProjectNameConflict")
   })
 
   it("a deleted (tombstoned) project never resurrects: restore fails ProjectNotFound", async () => {
@@ -157,7 +161,7 @@ describe.sequential("project operations under concurrency", () => {
     rmSync(shared, { recursive: true, force: true })
   })
 
-  it("concurrent ChangeDirectory on the same dir converges deterministically without a crash (documented TOCTOU)", async () => {
+  it("concurrent ChangeDirectory on the same dir has exactly one winner", async () => {
     const shared = mkdtempSync(join(tmpdir(), "yodea-shared-"))
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")
@@ -187,13 +191,10 @@ describe.sequential("project operations under concurrency", () => {
     }
     expect(r.results).toHaveLength(2)
     expect(r.listed.projects).toHaveLength(2)
-    const byId = new Map(r.listed.projects.map((p) => [p.id, p.directory]))
-    expect(byId.size).toBe(2)
     const committed = r.results.filter((x) => x._tag === "Success")
-    expect(committed.length).toBeGreaterThanOrEqual(1)
-    for (const p of r.listed.projects) {
-      if (p.directory !== null) expect(p.directory).toBe(shared)
-    }
+    expect(committed).toHaveLength(1)
+    const holders = r.listed.projects.filter((p) => p.directory === shared)
+    expect(holders).toHaveLength(1)
     rmSync(shared, { recursive: true, force: true })
   })
 })
