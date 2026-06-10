@@ -39,7 +39,7 @@ describe.sequential("end-to-end set-metadata", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "e2emeta", ensure: false })
-          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           const updated = yield* client.ProjectSetMetadata({ id: project.id, description: "e2e", tags: ["a", "a", "b"] })
           const metaEvent = yield* Fiber.join(head)
@@ -60,9 +60,9 @@ describe.sequential("end-to-end set-metadata", () => {
     expect(r.updated.updatedAt > r.updated.createdAt).toBe(true)
     expect(Option.isSome(r.metaEvent)).toBe(true)
     if (Option.isSome(r.metaEvent)) {
-      expect(r.metaEvent.value._tag).toBe("ProjectMetadataChanged")
+      expect(r.metaEvent.value.event._tag).toBe("ProjectMetadataChanged")
     }
-    expect(r.listed.find((p) => p.id === r.project.id)?.description).toBe("e2e")
+    expect(r.listed.projects.find((p) => p.id === r.project.id)?.description).toBe("e2e")
     expect((r.notFound as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
 
     const durable = Effect.gen(function* () {
@@ -74,7 +74,7 @@ describe.sequential("end-to-end set-metadata", () => {
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
     const listed2 = await Effect.runPromise(durable)
-    const survived = listed2.find((p) => p.id === r.project.id)
+    const survived = listed2.projects.find((p) => p.id === r.project.id)
     expect(survived?.description).toBe("e2e")
     expect(survived?.tags).toEqual(["a", "b"])
   })
