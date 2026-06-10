@@ -46,19 +46,20 @@ describe("EventStore", () => {
 })
 
 describe("EventStore — error paths", () => {
-  it("fails with a SchemaError when a persisted payload is corrupt JSON", async () => {
+  it("skips a corrupt-JSON payload row and returns the decodable events (tolerant read)", async () => {
     const r = await runResult(
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
         yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
         yield* sql`INSERT INTO events ${sql.insert({ stream_id: "p2", event_type: "ProjectCreated", payload: "{ not json" })}`
+        yield* store.append("p3", ProjectCreated.make({ projectId: "p3", name: "C", occurredAt: "t3" }))
         return yield* store.readAll
       })
     )
-    expect(r._tag).toBe("Failure")
-    if (r._tag === "Failure") {
-      expect(String(r.failure)).toMatch(/Schema|parse|JSON/i)
+    expect(r._tag).toBe("Success")
+    if (r._tag === "Success") {
+      expect(r.success.map((e) => e.projectId)).toEqual(["p1", "p3"])
     }
   })
 
