@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Effect, Exit, Layer, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { DomainEvent, DomainEventFromJson } from "@yodea/contracts/events/domain"
@@ -34,12 +34,19 @@ export class EventStore extends Context.Service<EventStore, {
       })
 
     const readAll = Effect.gen(function* () {
-      const rows = yield* sql<{ readonly payload: string }>`
-        SELECT payload FROM events ORDER BY seq ASC
+      const rows = yield* sql<{ readonly seq: number; readonly stream_id: string; readonly payload: string }>`
+        SELECT seq, stream_id, payload FROM events ORDER BY seq ASC
       `
-      return yield* Effect.forEach(rows, (r) =>
-        Schema.decodeUnknownEffect(DomainEventFromJson)(r.payload)
-      )
+      const events: Array<DomainEvent> = []
+      for (const row of rows) {
+        const exit = Schema.decodeUnknownExit(DomainEventFromJson)(row.payload)
+        if (Exit.isSuccess(exit)) {
+          events.push(exit.value)
+        } else {
+          yield* Effect.logWarning(`skipping undecodable event row seq=${row.seq} stream_id=${row.stream_id}`)
+        }
+      }
+      return events as ReadonlyArray<DomainEvent>
     })
 
     return { append, readAll } as const
