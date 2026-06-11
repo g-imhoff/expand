@@ -23,9 +23,15 @@ test("edits project metadata via the command palette", async () => {
   await expect(win.getByRole("dialog")).toHaveCount(0)
   await expect(win.locator("[role=alert]")).toHaveCount(0)
 
-  // The project still resolves in the palette afterwards (stream stayed healthy).
+  // Reopen the dialog via the palette: the persisted values must round-trip.
   await openPalette(win)
-  await win.getByPlaceholder("Type a project name or search…").fill("e2e-meta")
-  await expect(win.getByRole("option", { name: "e2e-meta", exact: true })).toBeVisible()
+  await win.getByPlaceholder("Type a project name or search…").fill("edit e2e-meta")
+  const reopened = win.getByRole("option", { name: /Edit metadata “e2e-meta”/ })
+  await reopened.scrollIntoViewIfNeeded()
+  await reopened.click()
+  const reopenedDialog = win.getByRole("dialog")
+  await expect(reopenedDialog.getByLabel("description")).toHaveValue("an e2e project")
+  await expect(reopenedDialog.getByLabel("tags")).toHaveValue("alpha, beta")
+  await expect(win.locator("[role=alert]")).toHaveCount(0)
   await app.close()
 })
