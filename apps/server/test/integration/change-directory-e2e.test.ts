@@ -39,7 +39,7 @@ describe.sequential("change-directory end-to-end", () => {
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const created = yield* client.ProjectCreate({ name: "cde2e", ensure: false })
-          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           const moved = yield* client.ProjectChangeDirectory({ id: created.project.id, directory: target })
           const event = yield* Fiber.join(head)
@@ -52,9 +52,9 @@ describe.sequential("change-directory end-to-end", () => {
       return out
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
     const r = await Effect.runPromise(program)
-    expect(r.moved.directory).toBe(r.listed[0]?.directory)
-    expect(Option.isSome(r.event) && r.event.value._tag === "ProjectDirectoryChanged").toBe(true)
-    expect(r.listed[0]?.directory).toBe(r.moved.directory)
+    expect(r.moved.directory).toBe(r.listed.projects[0]?.directory)
+    expect(Option.isSome(r.event) && r.event.value.event._tag === "ProjectDirectoryChanged").toBe(true)
+    expect(r.listed.projects[0]?.directory).toBe(r.moved.directory)
   })
 
   it("change-directory to a relative path fails with ProjectDirectoryInvalid over the wire", async () => {

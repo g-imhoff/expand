@@ -2,14 +2,16 @@ import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import { ProjectStore } from "@yodea/client-core"
+import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
 
 const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
+    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.empty,
+    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) =>
       SubscriptionRef.update(ref, (c) => [...c, { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }]).pipe(Effect.as({ id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })),
     renameProject: (id: string, name: string) =>

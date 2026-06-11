@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, ManagedRuntime, PubSub, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
-import { ProjectStore } from "@yodea/client-core"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
+import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { connectPort } from "@yodea/desktop/main/rpc/transport"
 
 const makePort = () => {
@@ -24,11 +24,13 @@ const makePort = () => {
 
 const fakeStoreLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
-  hub: PubSub.PubSub<DomainEvent>
+  hub: PubSub.PubSub<SequencedEvent>
 ) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
+    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.fromPubSub(hub),
+    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
       const p = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (c) => [...c, p]).pipe(Effect.as(p))
@@ -62,7 +64,7 @@ const fakeStoreLayer = (
 describe("connectPort", () => {
   it("wires the port (start + message handler) and returns a working teardown", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
-    const hub = await Effect.runPromise(PubSub.unbounded<DomainEvent>())
+    const hub = await Effect.runPromise(PubSub.unbounded<SequencedEvent>())
     const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
     const p = makePort()
     try {

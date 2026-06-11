@@ -115,8 +115,9 @@ export const CommandPalette = () => {
     <RenameDialog
       open={renaming !== null}
       project={renaming}
-      onOpenChange={(o) => { if (!o) setRenaming(null) }}
-      onRename={(id, name) => renameProject.mutate({ id, name })}
+      error={renameProject.error}
+      onOpenChange={(o) => { if (!o) { setRenaming(null); renameProject.reset() } }}
+      onRename={(id, name) => renameProject.mutate({ id, name }, { onSuccess: () => setRenaming(null) })}
     />
     {editing !== null && (
       <EditMetadataDialog

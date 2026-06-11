@@ -20,33 +20,59 @@ const runExit = <A, E>(eff: Effect.Effect<A, E, EventStore | SqlClient>) =>
   Effect.runPromise(Effect.provide(Effect.exit(eff), TestStoreWithSql))
 
 describe("EventStore", () => {
-  it("appends events and reads them back in insertion order", async () => {
-    const events = await run(
+  it("append returns the monotonically increasing seq", async () => {
+    const seqs = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        yield* store.append(
-          "p1",
-          ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" })
-        )
-        yield* store.append(
-          "p2",
-          ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" })
-        )
+        const s1 = yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
+        const s2 = yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
+        return [s1, s2]
+      })
+    )
+    expect(seqs).toEqual([1, 2])
+  })
+
+  it("appends events and reads them back as sequenced rows in insertion order", async () => {
+    const rows = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
+        yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
         return yield* store.readAll
       })
     )
-    expect(events.map((e) => e.projectId)).toEqual(["p1", "p2"])
-    expect(events[0]?._tag).toBe("ProjectCreated")
+    expect(rows.map((r) => r.seq)).toEqual([1, 2])
+    expect(rows.map((r) => r.event.projectId)).toEqual(["p1", "p2"])
+    expect(rows[0]?.event._tag).toBe("ProjectCreated")
   })
 
   it("returns an empty log initially", async () => {
-    const events = await run(Effect.flatMap(EventStore, (s) => s.readAll))
-    expect(events).toEqual([])
+    const rows = await run(Effect.flatMap(EventStore, (s) => s.readAll))
+    expect(rows).toEqual([])
+  })
+
+  it("readFrom returns only rows strictly after the cursor", async () => {
+    const out = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
+        yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
+        yield* store.append("p3", ProjectCreated.make({ projectId: "p3", name: "C", occurredAt: "t3" }))
+        return {
+          fromZero: yield* store.readFrom(0),
+          fromOne: yield* store.readFrom(1),
+          fromLast: yield* store.readFrom(3)
+        }
+      })
+    )
+    expect(out.fromZero.map((r) => r.seq)).toEqual([1, 2, 3])
+    expect(out.fromOne.map((r) => r.seq)).toEqual([2, 3])
+    expect(out.fromLast).toEqual([])
   })
 })
 
 describe("EventStore — error paths", () => {
-  it("fails with a SchemaError when a persisted payload is corrupt JSON", async () => {
+  it("skips a corrupt-JSON payload row and returns the remaining sequenced events", async () => {
     const r = await runResult(
       Effect.gen(function* () {
         const store = yield* EventStore
@@ -56,9 +82,10 @@ describe("EventStore — error paths", () => {
         return yield* store.readAll
       })
     )
-    expect(r._tag).toBe("Failure")
-    if (r._tag === "Failure") {
-      expect(String(r.failure)).toMatch(/Schema|parse|JSON/i)
+    expect(r._tag).toBe("Success")
+    if (r._tag === "Success") {
+      expect(r.success.map((x) => x.event.projectId)).toEqual(["p1"])
+      expect(r.success.map((x) => x.seq)).toEqual([1])
     }
   })
 

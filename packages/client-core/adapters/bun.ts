@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect"
 import { BunSocket } from "@effect/platform-bun"
 import { existsSync } from "node:fs"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
+import { BackendUnavailable } from "@yodea/client-core/discovery"
 
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(
@@ -17,21 +18,34 @@ const defaultBackendCommand = (): ReadonlyArray<string> => {
 }
 
 export interface BunAdapterOptions {
-  readonly backendCommand?: ReadonlyArray<string>
+  readonly backendCommand?: ReadonlyArray<string> | (() => ReadonlyArray<string>)
 }
 
-export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
-  const spawnBackend = Effect.sync(() => {
-    const [cmd, ...args] = opts?.backendCommand ?? defaultBackendCommand()
-    const child = Bun.spawn({
-      cmd: [cmd!, ...args],
-      stdout: "ignore",
-      stderr: "ignore",
-      stdin: "ignore",
-      env: process.env
-    })
-    child.unref()
+const resolveCommand = (
+  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>) | undefined
+): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
+  Effect.try({
+    try: () => (typeof configured === "function" ? configured() : configured ?? defaultBackendCommand()),
+    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
   })
+
+export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
+  const spawnBackend = Effect.flatMap(resolveCommand(opts?.backendCommand), (cmd) =>
+    Effect.try({
+      try: () => {
+        const [head, ...args] = cmd
+        const child = Bun.spawn({
+          cmd: [head!, ...args],
+          stdout: "ignore",
+          stderr: "ignore",
+          stdin: "ignore",
+          env: process.env
+        })
+        child.unref()
+      },
+      catch: (e) => new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })
+    })
+  )
   return { protocolLayer, spawnBackend }
 }
 
