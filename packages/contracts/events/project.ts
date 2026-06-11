@@ -1,19 +1,19 @@
 import { Effect, Schema } from "effect"
-import { DESCRIPTION_MAX_LENGTH, Tag } from "@yodea/contracts/project"
+import { DESCRIPTION_MAX_LENGTH, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import { DomainEventMeta, withMeta } from "@yodea/contracts/events/meta"
 
 const ProjectEventMeta = {
-  projectId: Schema.String
+  projectId: ProjectId
 }
 
 export const ProjectEvent = Schema.TaggedUnion(
   withMeta({ ...DomainEventMeta, ...ProjectEventMeta }, {
     ProjectCreated: {
-      name: Schema.String,
+      name: ProjectName,
       directory: Schema.optionalKey(Schema.NullOr(Schema.String)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)))
     },
     ProjectRenamed: {
-      name: Schema.String
+      name: ProjectName
     },
     ProjectDirectoryChanged: {
       directory: Schema.String
