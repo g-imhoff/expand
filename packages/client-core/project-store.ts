@@ -1,13 +1,11 @@
 import { Context, Effect, Layer, PubSub, Queue, Ref, Stream, SubscriptionRef } from "effect"
-import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
+import { type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { DomainEvent, SequencedEvent } from "@yodea/contracts/events/domain"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
-import { findOrSpawnBackend } from "@yodea/client-core/discovery"
-import { endpointWsUrl } from "@yodea/client-core/rpc-client"
+import { acquireClient } from "@yodea/client-core/rpc-client"
 import { supervised } from "@yodea/client-core/supervise"
 
 export interface ProjectStoreShape {
@@ -45,13 +43,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
-    const endpoint = yield* findOrSpawnBackend(adapter)
+    const { client } = yield* acquireClient(adapter)
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
-
-    const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))
-    const client = yield* RpcClient.make(YodeaRpcs).pipe(Effect.provideContext(protocol))
-
-    yield* Effect.forkScoped(supervised("project-store connect drain", Stream.runDrain(client.Connect())))
 
     const events = yield* client.Events({}, { asQueue: true })
 
