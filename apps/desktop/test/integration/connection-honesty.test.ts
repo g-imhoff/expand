@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
+import { ProjectId, ProjectName } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { connectionHandlers } from "@yodea/desktop/main/rpc/connection-handlers"
 import { healthHandlers } from "@yodea/desktop/main/rpc/health-handlers"
+
+const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const connect = connectionHandlers.Connect as () => Stream.Stream<boolean, never, ProjectStore>
 const events = connectionHandlers.Events as (
@@ -33,7 +36,7 @@ const fakeStore = (
 
 const sequenced = (seq: number): SequencedEvent => ({
   seq,
-  event: ProjectCreated.make({ projectId: `p-${seq}`, name: `n${seq}`, occurredAt: "t" })
+  event: ProjectCreated.make({ projectId: ProjectId.make(uid(seq)), name: ProjectName.make("name-" + seq), occurredAt: "t" })
 })
 
 describe("desktop seam honesty", () => {

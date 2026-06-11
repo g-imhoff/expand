@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { ProjectId } from "@yodea/contracts/project"
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,9 @@ const describeError = (error: unknown): string => {
 
 export interface ChangeDirectoryDialogProps {
   readonly open: boolean
-  readonly project: { readonly id: string; readonly name: string; readonly directory: string | null } | null
+  readonly project: { readonly id: ProjectId; readonly name: string; readonly directory: string | null } | null
   readonly onOpenChange: (open: boolean) => void
-  readonly onChangeDirectory: (id: string, directory: string) => void
+  readonly onChangeDirectory: (id: ProjectId, directory: string) => void
   readonly error?: unknown
 }
 
@@ -43,7 +44,7 @@ export const ChangeDirectoryDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change directory</DialogTitle>
-          <DialogDescription>Set the working directory for “{project.name}”.</DialogDescription>
+          <DialogDescription>Set the working directory for "{project.name}".</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <input

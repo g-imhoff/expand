@@ -1,13 +1,34 @@
 import { type ReactElement, type ReactNode } from "react"
 import { render } from "@testing-library/react"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
+import { Project as ProjectClass, ProjectId, ProjectName } from "@yodea/contracts/project"
 import type { AppHandle } from "@yodea/desktop/renderer/app/app-handle"
 import { AppHandleProvider } from "@yodea/desktop/renderer/app/AppHandleProvider"
 
-export const fakeProject = (over: Partial<Project>): Project => ({
-  id: "p1", name: "alpha", directory: null, description: null, tags: [],
-  archived: false, createdAt: "t", updatedAt: "t", ...over
-})
+export const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
+
+interface FakeProjectOver {
+  readonly id?: string
+  readonly name?: string
+  readonly directory?: string | null
+  readonly description?: string | null
+  readonly tags?: ReadonlyArray<string>
+  readonly archived?: boolean
+  readonly createdAt?: string
+  readonly updatedAt?: string
+}
+
+export const fakeProject = (over: FakeProjectOver = {}): Project =>
+  ProjectClass.make({
+    id: ProjectId.make(over.id ?? uid(1)),
+    name: ProjectName.make(over.name ?? "alpha"),
+    directory: over.directory ?? null,
+    description: over.description ?? null,
+    tags: (over.tags ?? []) as Project["tags"],
+    archived: over.archived ?? false,
+    createdAt: over.createdAt ?? "t",
+    updatedAt: over.updatedAt ?? "t"
+  })
 
 export const makeFakeAppHandle = (
   projects: ReadonlyArray<Project>,
