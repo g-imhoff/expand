@@ -86,8 +86,8 @@ export class Project extends Schema.Opaque<Project, Brand.Brand<"Project">>()(
 
 export class ProjectCreateResult extends Schema.Opaque<ProjectCreateResult>()(
   Schema.Struct({ created: Schema.Boolean, project: Project })
-) {}
+) { }
 
 export class ProjectDeleteResult extends Schema.Opaque<ProjectDeleteResult>()(
   Schema.Struct({ id: Schema.String, deleted: Schema.Boolean })
-) {}
+) { }
