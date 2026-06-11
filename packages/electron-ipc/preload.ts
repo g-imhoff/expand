@@ -52,6 +52,11 @@ export const exposeBridge = <C extends IpcContract>(contract: C, apiKey: string,
         api[key] = (nonce: string) => deps.send(portRequestName(contract, key), { nonce })
         break
       }
+      default: {
+        // Compile-time exhaustiveness: a new channel kind makes `channel` non-never here.
+        channel satisfies never
+        break
+      }
     }
   }
   deps.exposeInMainWorld(apiKey, api)

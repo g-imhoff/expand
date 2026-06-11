@@ -164,8 +164,9 @@ describe("invoke pipeline", () => {
   it("returns a Defect envelope for malformed payloads from a valid sender", async () => {
     const fake = makeFakeMain()
     bindSample(fake)
-    const result = (await fake.fireInvoke("sample:add", goodEvent, { a: "x" })) as { _tag: string }
+    const result = (await fake.fireInvoke("sample:add", goodEvent, { a: "x" })) as { _tag: string; message: string }
     expect(result._tag).toBe("IpcDefect")
+    expect((result as { message: string }).message).toContain("payload decode failed")
   })
 
   it("returns undefined (silent) for hostile senders", async () => {

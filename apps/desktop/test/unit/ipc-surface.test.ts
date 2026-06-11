@@ -21,9 +21,9 @@ describe("YodeaIpc registry", () => {
       },
       postToMainWorld: () => {}
     }
-    exposeBridge(YodeaIpc, "yodea", deps)
-    expect(Object.keys(exposed)).toEqual(["yodea"])
-    expect(Object.keys(exposed["yodea"] as object).sort()).toEqual(Object.keys(YodeaIpc.channels).sort())
+    exposeBridge(YodeaIpc, YodeaIpc.prefix, deps)
+    expect(Object.keys(exposed)).toEqual([YodeaIpc.prefix])
+    expect(Object.keys(exposed[YodeaIpc.prefix] as object).sort()).toEqual(Object.keys(YodeaIpc.channels).sort())
   })
 
   it("type-level surface ≡ derived bridge type (spec §10.2 pin)", () => {

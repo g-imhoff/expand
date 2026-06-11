@@ -57,6 +57,14 @@ describe("snapshotSender", () => {
       isMainFrame: false
     })
   })
+
+  it("keeps the url but marks non-main when the target has no main frame", () => {
+    const sender = frame("file:///app/index.html")
+    expect(snapshotSender(event(wc, sender), target(wc, null))).toEqual({
+      url: "file:///app/index.html",
+      isMainFrame: false
+    })
+  })
 })
 
 describe("validateSender", () => {
@@ -84,15 +92,24 @@ describe("validateSender", () => {
   it("rejects everything when the rule list is empty", () => {
     expect(validateSender({ url: "file:///opt/app/index.html", isMainFrame: true }, [])).toBe(false)
   })
+
+  it("rejects opaque origins — an exactOrigin rule never matches the literal \"null\"", () => {
+    // data: pages parse to origin "null"; RULES has fileProtocol + exactOrigin, and a
+    // data: URL is neither file: protocol nor a serialized origin, so it must be rejected.
+    expect(validateSender({ url: "data:text/html,x", isMainFrame: true }, RULES)).toBe(false)
+  })
 })
 
 describe("payloadSize", () => {
   it("measures strings, objects, and treats unserializable payloads as oversized", () => {
     expect(payloadSize("abcd")).toBe(4)
     expect(payloadSize(undefined)).toBe(0)
+    expect(payloadSize(null)).toBe(0)
     expect(payloadSize({ a: 1 })).toBe(JSON.stringify({ a: 1 }).length)
     const circular: { self?: unknown } = {}
     circular.self = circular
     expect(payloadSize(circular)).toBe(Number.MAX_SAFE_INTEGER)
+    // JSON.stringify returns undefined (no throw) for functions → fail closed (F10).
+    expect(payloadSize(() => {})).toBe(Number.MAX_SAFE_INTEGER)
   })
 })

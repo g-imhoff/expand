@@ -80,6 +80,9 @@ describe("send", () => {
     const client = makeIpcClient(Sample, { bridge: () => undefined, win: makeFakeWindow() })
     const exit = await Effect.runPromiseExit(client.ping({ at: 1 }))
     expect(Exit.isFailure(exit)).toBe(true)
+    const error = await Effect.runPromise(Effect.flip(client.ping({ at: 1 })))
+    expect(error).toBeInstanceOf(IpcTransportError)
+    expect((error as IpcTransportError).reason).toBe("bridge-missing")
   })
 })
 
@@ -116,6 +119,7 @@ describe("invoke envelope routing", () => {
     const client = makeClient(bridge, makeFakeWindow())
     const error = await Effect.runPromise(Effect.flip(client.add({ a: 1, b: 2 })))
     expect(error).toBeInstanceOf(IpcTransportError)
+    expect((error as IpcTransportError).reason).toBe("decode")
   })
 })
 
@@ -126,8 +130,14 @@ describe("event stream", () => {
     const collected = await Effect.runPromise(
       Effect.gen(function* () {
         const fiber = yield* Effect.forkChild(Stream.take(client.tick, 2).pipe(Stream.runCollect))
-        // wait for subscription, then fire: good, malformed (dropped), good
-        yield* Effect.sleep("10 millis")
+        // Deterministically wait for the forked stream to subscribe (bridge registers a
+        // listener on acquire) before firing — a fixed sleep races under load. Bounded poll
+        // (~1000 iterations of 1ms) so a genuine never-subscribe regression still fails fast.
+        yield* Effect.repeat(Effect.sleep("1 millis"), {
+          until: () => bridge.eventListeners.length > 0,
+          times: 1000
+        })
+        // fire: good, malformed (dropped), good
         bridge.eventListeners.forEach((l) => l({ seq: 1 }))
         bridge.eventListeners.forEach((l) => l({ seq: "garbage" }))
         bridge.eventListeners.forEach((l) => l({ seq: 2 }))
