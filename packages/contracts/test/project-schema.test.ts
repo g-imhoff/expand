@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { Project, ProjectId, Tag } from "@yodea/contracts/project"
+import { Project, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 
 describe("Project schema", () => {
   it("decodes a well-formed project", () => {
@@ -32,5 +32,21 @@ describe("Project schema", () => {
     expect(p.description).toBeNull()
     expect(p.tags).toEqual([])
     expect(p.archived).toBe(false)
+  })
+})
+
+describe("branded scalars", () => {
+  it("ProjectId.make accepts a v4 UUID and rejects non-UUIDs", () => {
+    const raw = "00000000-0000-4000-8000-000000000001"
+    expect(ProjectId.make(raw)).toBe(raw)
+    expect(() => ProjectId.make("p1")).toThrow()
+  })
+  it("ProjectName.make accepts kebab names and rejects uppercase", () => {
+    expect(ProjectName.make("my-app")).toBe("my-app")
+    expect(() => ProjectName.make("MyApp")).toThrow()
+  })
+  it("Tag.make enforces the tag pattern", () => {
+    expect(Tag.make("backend")).toBe("backend")
+    expect(() => Tag.make("-bad")).toThrow()
   })
 })
