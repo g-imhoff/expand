@@ -23,6 +23,13 @@ import type {
 import { portGrantName, portRequestName, wireName } from "@yodea/electron-ipc/contract"
 
 export type OriginRule =
+  /**
+   * Match a single serialized origin exactly. `origin` MUST already be in normalized
+   * serialized form — lowercase host, no trailing slash, no default port
+   * (e.g. "http://localhost:5173", "https://app.example.com"). It is compared verbatim
+   * against the parsed URL's `origin`, so it can never match the literal "null" of an
+   * opaque origin.
+   */
   | { readonly _tag: "exactOrigin"; readonly origin: string }
   | { readonly _tag: "fileProtocol" }
 
@@ -30,6 +37,10 @@ export interface FrameLike {
   readonly url: string
   readonly detached: boolean
 }
+
+// Note: main-frame status is decided by OBJECT IDENTITY (frame === target.mainFrame),
+// so adapters MUST hand the same frame references to snapshotSender on both the event
+// and target paths — see snapshotSender.
 
 export interface IpcMainEventLike {
   readonly sender: unknown
@@ -47,7 +58,14 @@ export interface FrameSnapshot {
   readonly isMainFrame: boolean
 }
 
-/** Synchronous sender snapshot. MUST be called before any await/yield. */
+/**
+ * Synchronous sender snapshot. MUST be called before any await/yield.
+ *
+ * isMainFrame is determined by OBJECT IDENTITY (`frame === target.mainFrame`), not by
+ * url or any other field. Adapters MUST pass the SAME frame object references on both the
+ * event and target paths; re-wrapping frames into fresh objects compiles fine but makes
+ * isMainFrame permanently false (the identity check can never succeed).
+ */
 export const snapshotSender = (event: IpcMainEventLike, target: WindowTargetLike): FrameSnapshot => {
   if (event.sender !== target.webContents) return { url: null, isMainFrame: false }
   const frame = event.senderFrame
@@ -63,9 +81,14 @@ export const validateSender = (snapshot: FrameSnapshot, rules: ReadonlyArray<Ori
   } catch {
     return false
   }
-  return rules.some((rule) =>
-    rule._tag === "fileProtocol" ? parsed.protocol === "file:" : parsed.origin === rule.origin
-  )
+  // Opaque origins (data:, about:blank, sandboxed frames — file: in some serializations)
+  // parse to the literal origin "null". Only a fileProtocol rule may admit them, and only
+  // via the protocol check below; an exactOrigin rule must NEVER match the string "null".
+  return rules.some((rule) => {
+    if (rule._tag === "fileProtocol") return parsed.protocol === "file:"
+    if (parsed.origin === "null") return false
+    return parsed.origin === rule.origin
+  })
 }
 
 /** Cheap DoS guard. Unserializable payloads count as oversized. */
@@ -73,12 +96,19 @@ export const payloadSize = (payload: unknown): number => {
   if (payload === undefined || payload === null) return 0
   if (typeof payload === "string") return payload.length
   try {
-    return JSON.stringify(payload)?.length ?? 0
+    // JSON.stringify returns undefined (no throw) for functions/symbols. Fail closed:
+    // count an unrepresentable payload as oversized rather than under-counting it as 0.
+    return JSON.stringify(payload)?.length ?? Number.MAX_SAFE_INTEGER
   } catch {
     return Number.MAX_SAFE_INTEGER
   }
 }
 
+/**
+ * Default payload cap. Approximate: the guard measures UTF-16 code units (string length /
+ * JSON.stringify length), NOT encoded UTF-8 bytes — worst case it under-counts by ~3x vs
+ * UTF-8. That imprecision is fine for a coarse DoS guard.
+ */
 export const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
 
 // ---------------------------------------------------------------------------
@@ -123,7 +153,18 @@ export const bindIpc = <C extends IpcContract, R, Port>(
   config: BindIpcConfig<R>
 ): BoundIpc<C> => {
   const maxBytes = config.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES
-  const log = config.log ?? (() => {})
+  // Wrap the configured log once so a throwing logger can never escape the boundary —
+  // notably the invoke catchCause path, where a throw would let a raw rejection (with its
+  // unsanitized message) cross to the renderer instead of the neutral defect envelope.
+  const configLog = config.log ?? (() => {})
+  const log = (message: string) => {
+    try {
+      configLog(message)
+    } catch {
+      // never throw across the boundary
+    }
+  }
+  let unbound = false
   const teardowns: Array<() => void> = []
   const emit: Record<string, (payload: unknown) => void> = {}
 
@@ -206,6 +247,9 @@ export const bindIpc = <C extends IpcContract, R, Port>(
 
       case "event": {
         emit[key] = (payload: unknown) => {
+          // After unbind the underlying target may be gone (the real adapter's
+          // postToRenderer throws on destroyed windows) — drop the emit silently.
+          if (unbound) return
           const encoded = Schema.encodeUnknownSync(codec((channel as EventChannel).payload))(payload)
           config.target.postToRenderer(name, encoded, [])
         }
@@ -239,6 +283,7 @@ export const bindIpc = <C extends IpcContract, R, Port>(
   return {
     emit: emit as IpcEmitterOf<C>,
     unbind: () => {
+      unbound = true
       for (const teardown of teardowns) teardown()
     }
   }

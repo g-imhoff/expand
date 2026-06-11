@@ -83,11 +83,19 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
         client[key] = (payload: unknown) =>
           Effect.flatMap(bridgeFn(key), (fn) =>
             Effect.try({
-              try: () => {
-                fn(Schema.encodeUnknownSync(codec(channel.payload))(payload))
-              },
-              catch: (error) => new IpcTransportError({ reason: "decode", message: String(error) })
-            })
+              try: () => Schema.encodeUnknownSync(codec(channel.payload))(payload),
+              catch: (error) => new IpcTransportError({ reason: "decode", message: `encode failed (${key}): ${error}` })
+            }).pipe(
+              Effect.flatMap((encoded) =>
+                Effect.try({
+                  try: () => {
+                    fn(encoded)
+                  },
+                  catch: (error) =>
+                    new IpcTransportError({ reason: "transport", message: `bridge call failed (${key}): ${error}` })
+                })
+              )
+            )
           )
         break
       }
@@ -100,11 +108,15 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
           switch (envelope._tag) {
             case "IpcSuccess":
               return Schema.decodeUnknownEffect(codec(channel.success))(envelope.value).pipe(
-                Effect.mapError((error) => new IpcTransportError({ reason: "decode", message: String(error) }))
+                Effect.mapError(
+                  (error) => new IpcTransportError({ reason: "decode", message: `decode failed (${key}): ${error}` })
+                )
               )
             case "IpcFailure":
               return Schema.decodeUnknownEffect(codec(channel.error))(envelope.error).pipe(
-                Effect.mapError((error) => new IpcTransportError({ reason: "decode", message: String(error) })),
+                Effect.mapError(
+                  (error) => new IpcTransportError({ reason: "decode", message: `decode failed (${key}): ${error}` })
+                ),
                 Effect.flatMap((domainError) => Effect.fail(domainError))
               )
             case "IpcDefect":
@@ -115,7 +127,7 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
           Effect.flatMap(bridgeFn(key), (fn) =>
             Effect.try({
               try: () => Schema.encodeUnknownSync(codec(channel.payload))(payload),
-              catch: (error) => new IpcTransportError({ reason: "decode", message: String(error) })
+              catch: (error) => new IpcTransportError({ reason: "decode", message: `encode failed (${key}): ${error}` })
             }).pipe(
               Effect.flatMap((encoded) =>
                 Effect.tryPromise({
@@ -130,6 +142,10 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
       }
 
       case "event": {
+        // Backpressure stance: Stream.callback's default queue is unbounded. This is
+        // deliberate while no high-frequency event channels exist — buffering everything
+        // keeps the path simple and lossless. Revisit with an explicit bufferSize/strategy
+        // (e.g. dropping or sliding) when a chatty channel appears.
         client[key] = Stream.callback<unknown, IpcTransportError>((queue) =>
           Effect.acquireRelease(
             Effect.flatMap(bridgeFn(key), (subscribe) =>
@@ -163,7 +179,14 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
               resume(Effect.succeed(port))
             }
             options.win.addEventListener("message", onMessage)
-            request(nonce)
+            try {
+              request(nonce)
+            } catch (error) {
+              // The bridge call threw before any grant could arrive — unregister the
+              // listener we just added (otherwise it leaks) and surface a transport error.
+              options.win.removeEventListener("message", onMessage)
+              resume(Effect.fail(new IpcTransportError({ reason: "transport", message: String(error) })))
+            }
             return Effect.sync(() => options.win.removeEventListener("message", onMessage))
           }).pipe(
             Effect.timeoutOrElse({

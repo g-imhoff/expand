@@ -88,12 +88,16 @@ describe("exposeBridge", () => {
     const { deps, recorded } = makeFakeDeps()
     exposeBridge(Sample, "sample", deps)
     const api = recorded.exposed["sample"] as { rpcPort: (nonce: string) => void }
+
+    // The grant relay is registered statically at exposeBridge time, not per request —
+    // exactly one listener exists before any rpcPort call is made.
+    const grantListeners = recorded.listeners.get("sample:rpcPort:grant") ?? []
+    expect(grantListeners.length).toBe(1)
+
     api.rpcPort("nonce-1")
     expect(recorded.sends).toEqual([{ channel: "sample:rpcPort:request", payload: { nonce: "nonce-1" } }])
 
     const fakePort = { tag: "port" }
-    const grantListeners = recorded.listeners.get("sample:rpcPort:grant") ?? []
-    expect(grantListeners.length).toBe(1)
     grantListeners[0]!({ ports: [fakePort] }, { nonce: "nonce-1" })
     expect(recorded.mainWorldPosts).toEqual([
       { message: { _tag: "IpcPortGrant", channel: "sample:rpcPort", nonce: "nonce-1" }, transfer: [fakePort] }
