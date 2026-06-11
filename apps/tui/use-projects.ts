@@ -1,5 +1,5 @@
 import { useCallback, useContext, useEffect, useState } from "react"
-import { Effect, Fiber, Stream, SubscriptionRef } from "effect"
+import { Effect, Fiber, Schema, Stream, SubscriptionRef } from "effect"
 import { ProjectStore, supervised } from "@yodea/client-core"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectName, Tag, type ProjectId } from "@yodea/contracts/project"
@@ -19,7 +19,7 @@ const describeError = (cause: unknown): string => {
       case "ProjectDirectoryConflict":
         return `directory conflict: ${String(tagged.directory)} is already used by another project`
       case "SchemaError":
-        return `invalid input: ${cause instanceof Error ? cause.message : String(tagged._tag)}`
+        return `invalid input: ${Schema.isSchemaError(cause) ? cause.message : String(tagged._tag)}`
       default:
         return cause instanceof Error ? cause.message : String(tagged._tag)
     }
