@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { ProjectName } from "@yodea/contracts/project"
 
 let dir: string
 let bunMainBefore: string
@@ -34,7 +35,7 @@ describe("cross-store live sync", () => {
       const storeB = await rtB.runPromise(ProjectStore)
       await new Promise((r) => setTimeout(r, 500))
 
-      const created = await rtA.runPromise(storeA.createProject("sync-me"))
+      const created = await rtA.runPromise(storeA.createProject(ProjectName.make("sync-me")))
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id)),
@@ -47,7 +48,7 @@ describe("cross-store live sync", () => {
           Stream.take(1), Stream.runCollect
         )
       )
-      await rtA.runPromise(storeA.renameProject(created.id, "sync-renamed"))
+      await rtA.runPromise(storeA.renameProject(created.id, ProjectName.make("sync-renamed")))
       await sawRename
 
       const listB = await rtB.runPromise(SubscriptionRef.get(storeB.projects))
@@ -67,7 +68,7 @@ describe("cross-store live sync", () => {
       const storeB = await rtB.runPromise(ProjectStore)
       await new Promise((r) => setTimeout(r, 500))
 
-      const created = await rtA.runPromise(storeA.createProject("xstore-archdel"))
+      const created = await rtA.runPromise(storeA.createProject(ProjectName.make("xstore-archdel")))
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id)),
