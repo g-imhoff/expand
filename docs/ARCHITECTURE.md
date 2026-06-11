@@ -645,7 +645,7 @@ each. Paths are repo-relative.
 | File | Responsibility |
 |---|---|
 | `db/event-store.ts` | Append-only SQLite log: DDL (`seq` PK = global order); `append` (the commit point); `readAll` (`ORDER BY seq ASC`, whole-log, no cache). |
-| `domain/project.ts` | `projectsFromEvents` — pure left-fold with a `case` per event: `ProjectCreated` builds the row; rename/dir/archive/restore/metadata mutate it by id (stamp `updatedAt`, no-op if absent); `ProjectDeleted` removes it (tombstone). Maps `event.projectId → project.id`. |
+| `domain/project.ts` | `projectsFromEvents` — Map-based rebuild that delegates per-event work to the canonical `Project.fromCreated`/`Project.applyEvent` statics: `ProjectCreated` seeds the map (first-create-wins on duplicates); rename/dir/archive/restore/metadata mutate by id via `applyEvent` (no-op if absent); `ProjectDeleted` removes the entry. |
 | `application/projections.ts` | `ProjectProjection.list` = `readAll` ∘ fold — projection-on-read, no materialized table. |
 | `application/event-bus.ts` | `EventBus` over `PubSub.unbounded`: `publish` (best-effort), scoped `subscribe`, live-only `stream`. |
 | `application/use-cases.ts` | One method per operation — each *load → validate → append → publish*. `validateDirectory` (shared by `createProject` + `changeDirectory`) uses Effect `FileSystem`/`Path` (absolute + exists + unique among live); name-uniqueness re-checks the full non-deleted set (archived included). `listProjects(includeArchived?)` filters archived by default. The list-then-check **TOCTOU** is documented/accepted under I-2. |
@@ -678,7 +678,7 @@ each. Paths are repo-relative.
 | `adapters/bun.ts` · `adapters/node.ts` | Bun (`BunSocket`+`Bun.spawn`) and Node (`ws`+`child_process`) adapters, behind explicit subpaths. |
 | `discovery.ts` | `readEndpoint` (never fails → `Option`), `tryAcquireLock` (O_EXCL + stale recovery), `awaitEndpoint`, `findOrSpawnBackend(adapter)`. Runtime-neutral (`node:fs`). |
 | `with-client.ts` | The one-shot ritual: connect → hold presence → bounded readiness → run → retry on `StaleEndpoint` (≤3). |
-| `project-store.ts` | The live store: `SubscriptionRef<Project[]>` seeded from `ProjectList({ includeArchived: true })` (so archived projects are present for Restore), folded forward by a `switch` over all 7 events; one thin method per operation; holds presence for the runtime's life. |
+| `project-store.ts` | The live store: `SubscriptionRef<Project[]>` seeded from `ProjectList({ includeArchived: true })` (so archived projects are present for Restore), folded forward by `Project.foldList` (the canonical statics); one thin method per operation; holds presence for the runtime's life. |
 | `index.ts` | Barrel — re-exports the brain + the `RuntimeAdapter` *type*, **never** the adapters. |
 
 ### `apps/tui` & `apps/desktop` — the frontends
@@ -691,7 +691,7 @@ each. Paths are repo-relative.
 | `apps/desktop/src/main/{index,runtime}.ts`, `main/rpc/{server,handlers,transport}.ts` | Node-adapter `ProjectStore` under a `ManagedRuntime`; an `RpcServer.make` + `RpcSerialization.json` over a `MessageChannelMain` port; window + preload + dispose-on-close. `index.ts:13-14` opens CDP `:9222` only when `!app.isPackaged && YODEA_DEVTOOLS_CDP=1`. |
 | `apps/desktop/src/preload/index.ts` | Pure port broker: `contextBridge` exposes `requestPort()` only; brokers the `MessagePort` to the renderer. No per-feature surface. |
 | `apps/desktop/src/renderer/rpc/{client,port,runtime}.ts` | Builds `RpcClient.make` over the port + `RpcSerialization.json` (the **serialized** seam — see §5.4); connection-scoped `Scope`. |
-| `apps/desktop/src/renderer/{app/*,features/projects/*,command/*}` | TanStack Query/Router app; `features/projects/` = hooks (`useProjects`/`useAllProjects` + a mutation per op), `cache.ts`/`event-fold.ts` (live `Events`→cache fold, dual keys), `projects-view.tsx` (archived hidden) + the Radix dialogs; `command/` = the cmdk palette (sources `useAllProjects` so Restore is reachable). |
+| `apps/desktop/src/renderer/{app/*,features/projects/*,command/*}` | TanStack Query/Router app; `features/projects/` = `data/project-store.ts` (live `Events`→`SubscriptionRef` fold via `Project.foldList`) + `data/use-projects.ts` (hooks: `useProjects`/`useAllProjects` + a mutation per op) + the Radix dialogs; `command/` = the cmdk palette (sources `useAllProjects` so Restore is reachable). |
 | `apps/desktop/electron.vite.config.ts` | 3 builds; externalizes `electron`/`effect`/`@effect/*`/`ws`/node-builtins from main+preload, inlines `@yodea/*` aliases. |
 
 ### Enforcement & config
@@ -771,7 +771,7 @@ bun run e2e:desktop           # Playwright on the built app (create + live list,
 **A 30-minute reading path** (dependency order — small files, you can read all of it):
 
 1. **Contract** — `packages/contracts/{rpc,events,project,cli,endpoint}.ts`. Everything depends on these.
-2. **Core** — `db/event-store.ts` → `domain/project.ts` (the 7-case fold) → `application/{projections,event-bus,use-cases}.ts` (§5.1).
+2. **Core** — `db/event-store.ts` → `domain/project.ts` (delegates to the canonical `Project` fold statics) → `application/{projections,event-bus,use-cases}.ts` (§5.1).
 3. **Lifetime** — `server/connection-tracker.ts` → `rpc-handlers.ts` (`Connect`) → `composition/app.ts` (§5.2).
 4. **Brain** — `client-core/adapter.ts` → `adapters/*` → `discovery.ts` → `with-client.ts` → `project-store.ts` (subscribe-before-snapshot comment, §5.3).
 5. **One operation slice end-to-end** — pick *rename* (the template) and read it across the seams: `events.ts` → `domain/project.ts` → `rpc.ts` → `use-cases.ts` → `rpc-handlers.ts` → `project-store.ts` → `cli/commands/project/rename.ts` (§5.1, §5.5).
