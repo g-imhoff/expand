@@ -6,10 +6,11 @@ import { RenameInput } from "@yodea/tui/components/rename-input"
 import { DirectoryInput } from "@yodea/tui/components/directory-input"
 import { MetadataInput } from "@yodea/tui/components/metadata-input"
 import { ConfirmDelete } from "@yodea/tui/components/confirm-delete"
+import { ErrorLine } from "@yodea/tui/components/error-line"
 import { useProjects } from "@yodea/tui/use-projects"
 
 export const App = () => {
-  const { projects, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject } = useProjects()
+  const { projects, error, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject } = useProjects()
   const [mode, setMode] = useState<"list" | "rename" | "directory" | "metadata" | "confirmDelete">("list")
   const selected = projects[0] ?? null
   useInput((input, key) => {
@@ -27,6 +28,7 @@ export const App = () => {
   return (
     <Box flexDirection="column" gap={1}>
       <ProjectList projects={projects} selectedId={selected?.id} />
+      <ErrorLine message={error} />
       {mode === "rename" && selected ? (
         <RenameInput
           current={selected.name}
