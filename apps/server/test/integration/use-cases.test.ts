@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer, PubSub } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
@@ -40,8 +40,9 @@ describe("ProjectUseCases.createProject", () => {
 
     const r = await Effect.runPromise(program)
     expect(r.project.name).toBe("Hello")
-    expect(r.broadcast._tag).toBe("ProjectCreated")
-    expect(r.broadcast.projectId).toBe(r.project.id)
+    expect(r.broadcast.seq).toBe(1)
+    expect(r.broadcast.event._tag).toBe("ProjectCreated")
+    expect(r.broadcast.event.projectId).toBe(r.project.id)
     expect(r.persisted).toHaveLength(1)
     expect(r.listed).toEqual([r.project])
   })
@@ -126,6 +127,40 @@ describe("ProjectUseCases.changeDirectory", () => {
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
     rmSync(tmp, { recursive: true, force: true })
+    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
+  })
+
+  it("fails ProjectDirectoryInvalid(not-a-directory) when the path is a file", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-file-"))
+    const file = join(tmp, "plain.txt")
+    writeFileSync(file, "x")
+    const program = Effect.gen(function* () {
+      const u = yield* ProjectUseCases
+      const { project } = yield* u.createProject("cdfile", false)
+      return yield* u.changeDirectory(project.id, file).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    rmSync(tmp, { recursive: true, force: true })
+    const f = (exit as { failure: { _tag: string; reason: string } }).failure
+    expect(f._tag).toBe("ProjectDirectoryInvalid")
+    expect(f.reason).toBe("not-a-directory")
+  })
+
+  it("fails ProjectDirectoryConflict when a symlink resolves to a directory another project already uses", async () => {
+    const real = mkdtempSync(join(tmpdir(), "yodea-cd-real-"))
+    const linkParent = mkdtempSync(join(tmpdir(), "yodea-cd-link-"))
+    const link = join(linkParent, "alias")
+    symlinkSync(real, link)
+    const program = Effect.gen(function* () {
+      const u = yield* ProjectUseCases
+      const a = (yield* u.createProject("cdreal", false)).project
+      const b = (yield* u.createProject("cdalias", false)).project
+      yield* u.changeDirectory(a.id, real)
+      return yield* u.changeDirectory(b.id, link).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const exit = await Effect.runPromise(program)
+    rmSync(linkParent, { recursive: true, force: true })
+    rmSync(real, { recursive: true, force: true })
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
   })
 })
@@ -228,7 +263,7 @@ describe("ProjectUseCases.setMetadata", () => {
     expect(r.updated.description).toBe("hi")
     expect(r.updated.tags).toEqual(["a", "b"])
     expect(r.updated.id).toBe(r.project.id)
-    expect(r.broadcast._tag).toBe("ProjectMetadataChanged")
+    expect(r.broadcast.event._tag).toBe("ProjectMetadataChanged")
     expect(r.persisted).toHaveLength(2)
   })
 
@@ -288,7 +323,7 @@ describe("ProjectUseCases.deleteProject", () => {
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const r = await Effect.runPromise(program)
     expect(r.result).toEqual({ id: r.id, deleted: true })
-    expect(r.broadcast._tag).toBe("ProjectDeleted")
+    expect(r.broadcast.event._tag).toBe("ProjectDeleted")
     expect(r.listed).toEqual([])
   })
   it("fails with ProjectNotFound for an unknown id", async () => {

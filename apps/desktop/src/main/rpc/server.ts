@@ -3,6 +3,7 @@ import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rp
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectStore } from "@yodea/client-core"
 import { DesktopRpcHandlers } from "@yodea/desktop/main/rpc/handlers"
+import { supervised } from "@yodea/desktop/main/lib/supervised"
 
 export interface MainPortLike {
   postMessage: (message: unknown) => void
@@ -25,6 +26,7 @@ const makePortProtocol = (port: MainPortLike) =>
           const requests = parser.decode(data) as ReadonlyArray<RpcMessage.FromClientEncoded>
           return Effect.forEach(requests, (request) => writeRequest(0, request), { discard: true })
         }),
+        (eff) => supervised("desktop-main rpc inbound", eff),
         Effect.forkScoped
       )
       return {

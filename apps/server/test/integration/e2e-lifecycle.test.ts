@@ -43,7 +43,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
-          const created = yield* client.ProjectCreate({ name: "E2E", ensure: false })
+          const created = yield* client.ProjectCreate({ name: "e2e", ensure: false })
           const listed = yield* client.ProjectList({})
           return { health, created, listed }
         })
@@ -62,8 +62,8 @@ describe.sequential("end-to-end lifecycle", () => {
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true)
     expect(r.outcome.health).toBe("ok")
-    expect(r.outcome.created.project.name).toBe("E2E")
-    expect(r.outcome.listed).toEqual([r.outcome.created.project])
+    expect(r.outcome.created.project.name).toBe("e2e")
+    expect(r.outcome.listed.projects).toEqual([r.outcome.created.project])
     expect(r.upAfter).toBe(false)
   })
 
@@ -75,7 +75,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "arch-e2e", ensure: false })
-          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.ProjectArchive({ id: project.id })
           const archivedEvent = yield* Fiber.join(head)
@@ -92,10 +92,10 @@ describe.sequential("end-to-end lifecycle", () => {
     const r = await Effect.runPromise(program)
     expect(Option.isSome(r.archivedEvent)).toBe(true)
     if (Option.isSome(r.archivedEvent)) {
-      expect(r.archivedEvent.value._tag).toBe("ProjectArchived")
+      expect(r.archivedEvent.value.event._tag).toBe("ProjectArchived")
     }
-    expect(r.all.find((p) => p.id === r.project.id)?.archived).toBe(true)
-    expect(r.def.some((p) => p.id === r.project.id)).toBe(false)
+    expect(r.all.projects.find((p) => p.id === r.project.id)?.archived).toBe(true)
+    expect(r.def.projects.some((p) => p.id === r.project.id)).toBe(false)
     expect(r.restored.archived).toBe(false)
     expect((r.missing as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
@@ -108,7 +108,7 @@ describe.sequential("end-to-end lifecycle", () => {
 
       const observed = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events(), 1)))
+          const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.ProjectCreate({ name: "live", ensure: false })
           return yield* Fiber.join(head)
@@ -122,9 +122,9 @@ describe.sequential("end-to-end lifecycle", () => {
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)
     if (Option.isSome(observed)) {
-      expect(observed.value._tag).toBe("ProjectCreated")
-      if (observed.value._tag === "ProjectCreated") {
-        expect(observed.value.name).toBe("live")
+      expect(observed.value.event._tag).toBe("ProjectCreated")
+      if (observed.value.event._tag === "ProjectCreated") {
+        expect(observed.value.event.name).toBe("live")
       }
     }
   })

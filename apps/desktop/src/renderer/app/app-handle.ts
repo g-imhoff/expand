@@ -1,6 +1,7 @@
 import { type Context, Effect, Stream, SubscriptionRef } from "effect"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { RendererProjectStoreShape } from "@yodea/desktop/renderer/features/projects/data/project-store"
+import { supervised } from "@yodea/desktop/renderer/lib/supervised"
 
 export interface AppHandle {
   readonly getProjects: () => ReadonlyArray<Project>
@@ -33,11 +34,14 @@ export const makeAppHandle = <R>(
 
   // Fork a detached subscriber that updates the mirror and notifies React on every change.
   Effect.runForkWith(context)(
-    Stream.runForEach(SubscriptionRef.changes(store.projects), (next) =>
-      Effect.sync(() => {
-        snapshot = next
-        emit()
-      })
+    supervised(
+      "renderer projects mirror",
+      Stream.runForEach(SubscriptionRef.changes(store.projects), (next) =>
+        Effect.sync(() => {
+          snapshot = next
+          emit()
+        })
+      )
     )
   )
 

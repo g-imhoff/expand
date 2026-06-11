@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, PubSub, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
-import { ProjectStore } from "@yodea/client-core"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
+import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { DesktopRpcHandlers } from "@yodea/desktop/main/rpc/handlers"
 
 const fakeStoreLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
-  hub: PubSub.PubSub<DomainEvent>
+  hub: PubSub.PubSub<SequencedEvent>
 ) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
+    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.fromPubSub(hub),
+    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
       const project = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
@@ -46,7 +48,7 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectList reads the store snapshot; ProjectCreate appends", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
-      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
       const run = <A, E>(eff: Effect.Effect<A, E, ProjectStore>) =>
         eff.pipe(Effect.provide(fakeStoreLayer(ref, hub)))
       const created = yield* run(Effect.flatMap(ProjectStore, (s) => s.createProject("omega")))
@@ -64,7 +66,7 @@ describe("DesktopRpcHandlers", () => {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
         { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       ])
-      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
       return yield* Effect.flatMap(ProjectStore, (s) => s.changeDirectory("a", "/srv/a")).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
@@ -79,7 +81,7 @@ describe("DesktopRpcHandlers", () => {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
         { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       ])
-      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
       const archived = yield* Effect.flatMap(ProjectStore, (s) => s.archiveProject("a")).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
@@ -98,7 +100,7 @@ describe("DesktopRpcHandlers", () => {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
         { id: "a", name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
       ])
-      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
       return yield* Effect.flatMap(ProjectStore, (s) => s.setMetadata("a", { description: "hi", tags: ["x"] })).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
@@ -112,7 +114,7 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectDelete delegates to store.deleteProject and shrinks the ref", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([{ id: "x", name: "x", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }])
-      const hub = yield* PubSub.unbounded<DomainEvent>()
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
       const run = <A, E>(eff: Effect.Effect<A, E, ProjectStore>) => eff.pipe(Effect.provide(fakeStoreLayer(ref, hub)))
       const res = yield* run(Effect.flatMap(ProjectStore, (s) => s.deleteProject("x")))
       const list = yield* run(Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)))

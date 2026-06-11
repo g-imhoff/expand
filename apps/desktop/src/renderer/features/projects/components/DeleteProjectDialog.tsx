@@ -6,12 +6,20 @@ import {
   DialogTitle
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
+const describeError = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    return String((error as { _tag: unknown })._tag)
+  }
+  return String(error)
+}
+
 export interface DeleteProjectDialogProps {
   readonly open: boolean
   readonly projectName: string
   readonly pending: boolean
   readonly onOpenChange: (next: boolean) => void
   readonly onConfirm: () => void
+  readonly error?: unknown
 }
 
 export const DeleteProjectDialog = ({
@@ -19,7 +27,8 @@ export const DeleteProjectDialog = ({
   projectName,
   pending,
   onOpenChange,
-  onConfirm
+  onConfirm,
+  error
 }: DeleteProjectDialogProps) => (
   <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
@@ -33,6 +42,9 @@ export const DeleteProjectDialog = ({
         <button type="button" onClick={() => onOpenChange(false)}>Cancel</button>
         <button type="button" disabled={pending} onClick={onConfirm}>Delete</button>
       </div>
+      {error != null && (
+        <p role="alert" style={{ color: "crimson" }}>{describeError(error)}</p>
+      )}
     </DialogContent>
   </Dialog>
 )

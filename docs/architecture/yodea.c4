@@ -55,7 +55,7 @@ model {
     }
 
     cli = container 'yodea CLI (client)' {
-      description 'Thin RPC client. Same binary, but never instantiates an AppLayer — always talks to a running backend. See BOUNDARIES.md I-1 for the isolation invariant.'
+      description 'Thin RPC client. Separate binary (dist/yodea) from the backend (dist/yodea-server); never instantiates an AppLayer — always talks to a running backend. See BOUNDARIES.md I-1 for the isolation invariant.'
       technology 'TypeScript · Effect · @effect/cli'
 
       cliEntry = component 'CLI entrypoint' {

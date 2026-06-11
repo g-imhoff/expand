@@ -59,15 +59,17 @@ describe.sequential("durability across a backend restart", () => {
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
 
-    const listed = (await Effect.runPromise(program)) as ReadonlyArray<{
-      name: string
-      archived: boolean
-      description: string | null
-      tags: ReadonlyArray<string>
-    }>
-    expect(listed).toHaveLength(1)
-    expect(listed[0]).toMatchObject({ name: "persist-renamed", archived: true, description: "kept" })
-    expect([...listed[0]!.tags]).toEqual(["t1"])
+    const listed = (await Effect.runPromise(program)) as {
+      projects: ReadonlyArray<{
+        name: string
+        archived: boolean
+        description: string | null
+        tags: ReadonlyArray<string>
+      }>
+    }
+    expect(listed.projects).toHaveLength(1)
+    expect(listed.projects[0]).toMatchObject({ name: "persist-renamed", archived: true, description: "kept" })
+    expect([...listed.projects[0]!.tags]).toEqual(["t1"])
   })
 
   it("a deleted project stays gone, a renamed+moved one persists after restart", async () => {
@@ -105,14 +107,14 @@ describe.sequential("durability across a backend restart", () => {
 
     const r = (await Effect.runPromise(program)) as {
       ids: { keepId: string; doomedId: string }
-      listed: ReadonlyArray<{ id: string; name: string; directory: string | null }>
+      listed: { projects: ReadonlyArray<{ id: string; name: string; directory: string | null }> }
     }
-    expect(r.listed).toHaveLength(1)
-    const survivor = r.listed[0]!
+    expect(r.listed.projects).toHaveLength(1)
+    const survivor = r.listed.projects[0]!
     expect(survivor.id).toBe(r.ids.keepId)
     expect(survivor.name).toBe("keeper-renamed")
     expect(survivor.directory).toBe(workdir)
-    expect(r.listed.some((p) => p.id === r.ids.doomedId)).toBe(false)
+    expect(r.listed.projects.some((p) => p.id === r.ids.doomedId)).toBe(false)
     rmSync(workdir, { recursive: true, force: true })
   })
 })

@@ -36,7 +36,7 @@ describe.sequential("project delete e2e", () => {
           Effect.gen(function* () {
             const created = yield* client.ProjectCreate({ name: "gone", ensure: false })
             const head = yield* Effect.forkChild(
-              Stream.runHead(Stream.take(Stream.filter(client.Events(), (e) => e._tag === "ProjectDeleted"), 1))
+              Stream.runHead(Stream.take(Stream.filter(client.Events({}), (se) => se.event._tag === "ProjectDeleted"), 1))
             )
             yield* Effect.sleep("150 millis")
             const del = yield* client.ProjectDelete({ id: created.project.id })
@@ -51,7 +51,7 @@ describe.sequential("project delete e2e", () => {
     )
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
-    expect(first.listed.some((p) => p.id === first.id)).toBe(false)
+    expect(first.listed.projects.some((p) => p.id === first.id)).toBe(false)
 
     const afterRestart = await Effect.runPromise(
       Effect.gen(function* () {
@@ -62,6 +62,6 @@ describe.sequential("project delete e2e", () => {
         return listed
       }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
     )
-    expect(afterRestart.some((p) => p.id === first.id)).toBe(false)
+    expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   })
 })

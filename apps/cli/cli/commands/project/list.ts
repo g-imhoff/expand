@@ -20,5 +20,8 @@ export const listCommand = defineCommand(
     quiet: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => p.id).join("\n")
   },
   ({ archived, all }): Effect.Effect<ReadonlyArray<Project>, unknown, ProjectClient> =>
-    Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: archived || all }))
+    Effect.map(
+      Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: archived || all })),
+      (r) => r.projects
+    )
 )

@@ -5,4 +5,5 @@ export { ProjectClient, ProjectClientLive, ProjectClientLayer, type ProjectClien
 export { ServerClient, ServerClientLive, ServerClientLayer, type ServerClientApi } from "@yodea/client-core/server-client"
 export { ClientLayer } from "@yodea/client-core/client-layer"
 export { withClient } from "@yodea/client-core/with-client"
-export { ProjectStore } from "@yodea/client-core/project-store"
+export { ProjectStore, type ConnectionStatus, type ProjectStoreShape } from "@yodea/client-core/project-store"
+export { supervised } from "@yodea/client-core/supervise"
