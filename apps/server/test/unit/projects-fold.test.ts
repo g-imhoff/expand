@@ -186,10 +186,15 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   it("a duplicate ProjectCreated for the same id does not duplicate or reset the aggregate", () => {
     const projects = projectsFromEvents([
       ProjectCreated.make({ projectId: pid(1), name: pn("b"), occurredAt: "t1" }),
+      ProjectRenamed.make({ projectId: pid(1), name: pn("renamed"), occurredAt: "t5" }),
       ProjectCreated.make({ projectId: pid(1), name: pn("c"), occurredAt: "t9" })
     ])
     expect(projects).toHaveLength(1)
-    expect(projects[0]?.name).toBe("b")
+    // first-create-wins: name stays "renamed" (the interleaved rename survives the late duplicate create)
+    expect(projects[0]?.name).toBe("renamed")
+    // timestamps: createdAt fixed to first create; updatedAt fixed to last real mutation
+    expect(projects[0]?.createdAt).toBe("t1")
+    expect(projects[0]?.updatedAt).toBe("t5")
   })
 
   it("directory-changed updates directory and stamps updatedAt", () => {

@@ -13,20 +13,28 @@ import {
 import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 
-const idArb = fc.uuid({ version: 4 })
 const nameArb = fc.constantFrom("alpha", "beta", "gamma")
 const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStart(4, "0")}`)
 
-const eventArb: fc.Arbitrary<DomainEvent> = fc.oneof(
-  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
-  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
-  fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-  fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")).map((ts) => ts.map((t) => Tag.make(t))), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make({ ...r, projectId: ProjectId.make(r.projectId) }))
-)
-const logArb = fc.array(eventArb, { maxLength: 30 })
+function eventArbFor(idArb: fc.Arbitrary<string>): fc.Arbitrary<DomainEvent> {
+  return fc.oneof(
+    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
+    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
+    fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+    fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")).map((ts) => ts.map((t) => Tag.make(t))), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make({ ...r, projectId: ProjectId.make(r.projectId) }))
+  )
+}
+
+// Draw a small per-run pool of distinct v4 UUIDs so events in the same log
+// share aggregate ids, exercising the default → Project.applyEvent branch.
+const logArb = fc
+  .uniqueArray(fc.uuid({ version: 4 }), { minLength: 1, maxLength: 4 })
+  .chain((pool) =>
+    fc.array(eventArbFor(fc.constantFrom(...pool)), { minLength: 0, maxLength: 30 })
+  )
 
 describe("projectsFromEvents — properties", () => {
   it("is deterministic: same log -> same read-model", () => {
@@ -43,7 +51,17 @@ describe("projectsFromEvents — properties", () => {
   })
 
   it("a tombstoned id never appears, even if mutated afterwards", () => {
-    fc.assert(fc.property(logArb, idArb, tsArb, (log, id, ts) => {
+    // Draw the id from the same pool so the interior log can hit the same aggregate
+    const tombstoneArb = fc
+      .uniqueArray(fc.uuid({ version: 4 }), { minLength: 1, maxLength: 4 })
+      .chain((pool) =>
+        fc.tuple(
+          fc.array(eventArbFor(fc.constantFrom(...pool)), { minLength: 0, maxLength: 30 }),
+          fc.constantFrom(...pool),
+          tsArb
+        )
+      )
+    fc.assert(fc.property(tombstoneArb, ([log, id, ts]) => {
       const pid = ProjectId.make(id)
       const withDelete = [
         ProjectCreated.make({ projectId: pid, name: ProjectName.make("alpha"), occurredAt: "t0001" }),
