@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectId, ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -43,7 +44,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
-          const created = yield* client.ProjectCreate({ name: "e2e", ensure: false })
+          const created = yield* client.ProjectCreate({ name: ProjectName.make("e2e"), ensure: false })
           const listed = yield* client.ProjectList({})
           return { health, created, listed }
         })
@@ -74,7 +75,7 @@ describe.sequential("end-to-end lifecycle", () => {
       yield* awaitEndpointUp
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const { project } = yield* client.ProjectCreate({ name: "arch-e2e", ensure: false })
+          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("arch-e2e"), ensure: false })
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           yield* client.ProjectArchive({ id: project.id })
@@ -82,7 +83,7 @@ describe.sequential("end-to-end lifecycle", () => {
           const all = yield* client.ProjectList({ includeArchived: true })
           const def = yield* client.ProjectList({})
           const restored = yield* client.ProjectRestore({ id: project.id })
-          const missing = yield* client.ProjectArchive({ id: "00000000-0000-4000-8000-000000000000" }).pipe(Effect.result)
+          const missing = yield* client.ProjectArchive({ id: ProjectId.make("00000000-0000-4000-8000-000000000000") }).pipe(Effect.result)
           return { project, archivedEvent, all, def, restored, missing }
         })
       )
@@ -110,7 +111,7 @@ describe.sequential("end-to-end lifecycle", () => {
         Effect.gen(function* () {
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
-          yield* client.ProjectCreate({ name: "live", ensure: false })
+          yield* client.ProjectCreate({ name: ProjectName.make("live"), ensure: false })
           return yield* Fiber.join(head)
         })
       )

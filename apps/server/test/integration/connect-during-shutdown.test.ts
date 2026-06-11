@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -93,7 +94,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         const result = yield* withClient(bunAdapter, (client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
-            const created = yield* client.ProjectCreate({ name: "after-stale", ensure: false })
+            const created = yield* client.ProjectCreate({ name: ProjectName.make("after-stale"), ensure: false })
             return { health, created }
           })
         ).pipe(

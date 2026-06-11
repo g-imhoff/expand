@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { ProjectName } from "@yodea/contracts/project"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
@@ -23,7 +24,7 @@ const run = <A, E>(eff: Effect.Effect<A, E, ProjectUseCases>) => Effect.runPromi
 
 describe("ProjectUseCases.createProject", () => {
   it("creates a new project with created:true", async () => {
-    const r = await run(Effect.flatMap(ProjectUseCases, (u) => u.createProject("alpha", false)))
+    const r = await run(Effect.flatMap(ProjectUseCases, (u) => u.createProject(ProjectName.make("alpha"), false)))
     expect(r.created).toBe(true)
     expect(r.project.name).toBe("alpha")
   })
@@ -32,8 +33,8 @@ describe("ProjectUseCases.createProject", () => {
     const exit = await run(
       Effect.gen(function* () {
         const u = yield* ProjectUseCases
-        yield* u.createProject("dup", false)
-        return yield* u.createProject("dup", false).pipe(Effect.result)
+        yield* u.createProject(ProjectName.make("dup"), false)
+        return yield* u.createProject(ProjectName.make("dup"), false).pipe(Effect.result)
       })
     )
     expect(exit._tag).toBe("Failure")
@@ -44,8 +45,8 @@ describe("ProjectUseCases.createProject", () => {
     const r = await run(
       Effect.gen(function* () {
         const u = yield* ProjectUseCases
-        const first = yield* u.createProject("ens", false)
-        const second = yield* u.createProject("ens", true)
+        const first = yield* u.createProject(ProjectName.make("ens"), false)
+        const second = yield* u.createProject(ProjectName.make("ens"), true)
         return { first, second }
       })
     )
