@@ -1,3 +1,12 @@
+// test/architecture/depcruise-exclude.test.ts
+// ============================================================================
+// DO NOT MODIFY — pins the dependency-cruiser exclude patterns as
+// segment-anchored (see docs/architecture/BOUNDARIES.md, I-1 Enforcement).
+// This test is part of the SPECIFICATION, not the implementation. Relaxing it
+// lets source files whose names merely contain "test"/"out"/"dist" silently
+// drop out of boundary enforcement. Changes require architecture-owner review;
+// CODEOWNERS routes this path.
+// ============================================================================
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
 
