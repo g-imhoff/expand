@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Schema } from "effect"
 import type { Project } from "@yodea/contracts/project"
 import {
   Dialog,
@@ -7,6 +8,13 @@ import {
   DialogHeader,
   DialogTitle
 } from "@yodea/desktop/renderer/components/ui/dialog"
+
+const describeError = (cause: unknown): string => {
+  if (Schema.isSchemaError(cause)) {
+    return `invalid input: ${cause.message}`
+  }
+  return cause instanceof Error ? cause.message : String(cause)
+}
 
 const parseTags = (raw: string): ReadonlyArray<string> =>
   [...new Set(raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0))]
@@ -27,7 +35,7 @@ export const EditMetadataDialog = ({ open, project, onOpenChange, onSubmit }: Ed
       await onSubmit({ description: description.trim() === "" ? null : description, tags: parseTags(tagsRaw) })
       onOpenChange(false)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(describeError(cause))
     }
   }
   return (
