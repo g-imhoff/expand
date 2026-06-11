@@ -18,6 +18,12 @@ describe("server app split", () => {
     expect(pkg.scripts.build).toContain("build:server")
   })
 
+  it("keeps the compiled-binary smoke inside cert:cli:build", () => {
+    const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> }
+    expect(pkg.scripts["cert:cli:build"]).toContain("bun run build")
+    expect(pkg.scripts["cert:cli:build"]).toContain("binary-smoke.sh")
+  })
+
   it("does not keep a dependency-cruiser exception for CLI booting backend composition", () => {
     const config = read(".dependency-cruiser.cjs")
     expect(config).not.toContain("composition-only-from-server-subcommand")
