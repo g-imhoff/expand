@@ -10,7 +10,7 @@ import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectRenamed } from "@yodea/contracts/events/project"
-import type { Project } from "@yodea/contracts/project"
+import { Project, ProjectId, ProjectName } from "@yodea/contracts/project"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -25,11 +25,11 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const PROJECT_ID = "00000000-0000-4000-8000-00000000aaaa"
-const seed: Project = {
-  id: PROJECT_ID, name: "v2", directory: null, description: null, tags: [],
+const PROJECT_ID = ProjectId.make("00000000-0000-4000-8000-00000000aaaa")
+const seed: Project = Project.make({
+  id: PROJECT_ID, name: ProjectName.make("v2"), directory: null, description: null, tags: [],
   archived: false, createdAt: "t0", updatedAt: "t2"
-}
+})
 
 describe.sequential("ProjectStore bootstrap window", () => {
   it("an event in the subscribe→list window is seq-gated: newer applied, stale not re-applied", async () => {
@@ -49,8 +49,8 @@ describe.sequential("ProjectStore bootstrap window", () => {
         ProjectList: () =>
           Effect.gen(function* () {
             yield* Deferred.await(subscribed)
-            yield* PubSub.publish(pubsub, { seq: 3, event: ProjectRenamed.make({ projectId: PROJECT_ID, name: "v3", occurredAt: "t3" }) })
-            yield* PubSub.publish(pubsub, { seq: 1, event: ProjectRenamed.make({ projectId: PROJECT_ID, name: "v0", occurredAt: "t1" }) })
+            yield* PubSub.publish(pubsub, { seq: 3, event: ProjectRenamed.make({ projectId: PROJECT_ID, name: ProjectName.make("v3"), occurredAt: "t3" }) })
+            yield* PubSub.publish(pubsub, { seq: 1, event: ProjectRenamed.make({ projectId: PROJECT_ID, name: ProjectName.make("v0"), occurredAt: "t1" }) })
             return { projects: [seed], seq: 2 }
           }),
         Connect: () => Stream.make(true).pipe(Stream.concat(Stream.never)),

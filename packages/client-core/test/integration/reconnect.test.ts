@@ -5,6 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
+import { ProjectName } from "@yodea/contracts/project"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 
@@ -40,7 +41,7 @@ describe("ProjectStore reconnect", () => {
       const status = () => rt.runPromise(SubscriptionRef.get(store.status))
       expect(await status()).toBe("connected")
 
-      const created = await rt.runPromise(store.createProject("before-kill"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("before-kill")))
       expect(created.name).toBe("before-kill")
 
       const endpoint = JSON.parse(readFileSync(join(dir, "server.json"), "utf8")) as { pid: number }
@@ -49,12 +50,12 @@ describe("ProjectStore reconnect", () => {
       await waitFor(async () => (await status()) !== "connected", 10_000)
       await waitFor(async () => (await status()) === "connected", 20_000)
 
-      const after = await rt.runPromise(store.createProject("after-kill"))
+      const after = await rt.runPromise(store.createProject(ProjectName.make("after-kill")))
       expect(after.name).toBe("after-kill")
 
       await waitFor(async () => {
         const names = (await rt.runPromise(SubscriptionRef.get(store.projects))).map((p) => p.name)
-        return names.includes("before-kill") && names.includes("after-kill")
+        return names.includes(ProjectName.make("before-kill")) && names.includes(ProjectName.make("after-kill"))
       }, 10_000)
     } finally {
       await rt.dispose()
