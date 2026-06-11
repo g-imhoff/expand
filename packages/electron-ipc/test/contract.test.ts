@@ -34,6 +34,14 @@ describe("IpcContract.make", () => {
     expect(() => IpcContract.make("yodea", { "a:b": IpcChannel.portExchange() })).toThrow()
     expect(() => IpcContract.make("", { a: IpcChannel.portExchange() })).toThrow()
     expect(() => IpcContract.make("yodea", { "": IpcChannel.portExchange() })).toThrow()
+    expect(() => IpcContract.make("yodea", { Ab: IpcChannel.portExchange() })).toThrow()
+    expect(() => IpcContract.make("yodea", { "1a": IpcChannel.portExchange() })).toThrow()
+    expect(() => IpcContract.make("yodea", { a_b: IpcChannel.portExchange() })).toThrow()
+    expect(() => IpcContract.make("yodea", { "a.b": IpcChannel.portExchange() })).toThrow()
+  })
+
+  it("accepts camelCase keys", () => {
+    expect(() => IpcContract.make("yodea", { a1B: IpcChannel.portExchange() })).not.toThrow()
   })
 })
 
@@ -42,6 +50,7 @@ describe("envelope guards", () => {
     expect(isResultEnvelope({ _tag: "IpcSuccess", value: 1 })).toBe(true)
     expect(isResultEnvelope({ _tag: "IpcFailure", error: {} })).toBe(true)
     expect(isResultEnvelope({ _tag: "IpcDefect", message: "x" })).toBe(true)
+    expect(isResultEnvelope({ _tag: "IpcDefect" })).toBe(false)
     expect(isResultEnvelope({ _tag: "Other" })).toBe(false)
     expect(isResultEnvelope(null)).toBe(false)
     expect(isResultEnvelope("IpcSuccess")).toBe(false)

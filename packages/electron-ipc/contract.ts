@@ -123,7 +123,11 @@ export type ResultEnvelope = SuccessEnvelope | FailureEnvelope | DefectEnvelope
 export const isResultEnvelope = (input: unknown): input is ResultEnvelope => {
   if (typeof input !== "object" || input === null) return false
   const tag = (input as { readonly _tag?: unknown })._tag
-  return tag === "IpcSuccess" || tag === "IpcFailure" || tag === "IpcDefect"
+  // Asymmetry by design: IpcSuccess/IpcFailure carry `unknown` value/error that may
+  // legitimately be `undefined`, so a tag check is sufficient. IpcDefect's `message`
+  // is `string`, so we must verify it to honour the narrowed type.
+  if (tag === "IpcSuccess" || tag === "IpcFailure") return true
+  return tag === "IpcDefect" && typeof (input as { readonly message?: unknown }).message === "string"
 }
 
 /** Marker relayed by the preload into the main world alongside a transferred MessagePort. */
@@ -152,7 +156,13 @@ export interface IpcSenderInfo {
 // Type-level derivations (consumed by api.d.ts, interpreters, and clients)
 // ---------------------------------------------------------------------------
 
-/** The shape exposed on `window[apiKey]` by the preload interpreter. Encoded types only. */
+/**
+ * The shape exposed on `window[apiKey]` by the preload interpreter. Encoded types only.
+ *
+ * The invoke branch resolves with an undecoded `ResultEnvelope` typed as `Promise<unknown>`:
+ * the bridge layer never decodes. Renderer clients guard the resolved value with
+ * `isResultEnvelope` and then Schema-decode the success/error payload themselves.
+ */
 export type IpcBridgeOf<C extends IpcContract> = {
   readonly [K in keyof C["channels"] & string]: C["channels"][K] extends InvokeChannel<infer P, Schema.Top, Schema.Top>
     ? (payload: P["Encoded"]) => Promise<unknown>
