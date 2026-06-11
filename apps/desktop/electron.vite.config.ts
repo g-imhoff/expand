@@ -9,6 +9,7 @@ const repo = resolve(here, "../..")
 const alias = {
   "@yodea/contracts": resolve(repo, "packages/contracts"),
   "@yodea/client-core": resolve(repo, "packages/client-core"),
+  "@yodea/electron-ipc": resolve(repo, "packages/electron-ipc"),
   "@yodea/desktop": resolve(here, "src")
 }
 

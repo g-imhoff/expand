@@ -8,7 +8,8 @@
       "@yodea/contracts/*": ["packages/contracts/*"],
       "@yodea/client-core": ["packages/client-core/index.ts"],
       "@yodea/client-core/*": ["packages/client-core/*"],
-      "@yodea/desktop/*": ["apps/desktop/src/*"]
+      "@yodea/desktop/*": ["apps/desktop/src/*"],
+      "@yodea/electron-ipc/*": ["packages/electron-ipc/*"]
     },
     "noEmit": true
   },
