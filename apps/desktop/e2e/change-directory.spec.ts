@@ -15,5 +15,10 @@ test("sets a project directory without surfacing an error", async () => {
   // On success ChangeDirectoryDialog is dismissed (movingDir -> null) and no [role=alert] is shown.
   await expect(win.getByRole("dialog")).toHaveCount(0)
   await expect(win.locator("[role=alert]")).toHaveCount(0)
+
+  // Reopen the dialog: the input must show the persisted directory.
+  await row.getByRole("button", { name: "Change directory" }).click()
+  await expect(win.getByLabel("project directory")).toHaveValue(tmpdir())
+  await expect(win.locator("[role=alert]")).toHaveCount(0)
   await app.close()
 })
