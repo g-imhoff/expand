@@ -1,6 +1,8 @@
-// Main interpreter: the authoritative trust boundary. Pure module — MUST NOT
-// import "electron"; the adapter in main-electron.ts narrows real Electron
-// objects to the structural interfaces below (same idiom as MainPortLike).
+// Main interpreter: the authoritative trust boundary. MUST NOT import "electron";
+// the adapter in main-electron.ts narrows real Electron objects to the structural
+// interfaces below (same idiom as MainPortLike). The pure validation half is
+// zero-import; the bindIpc interpreter below depends only on `effect` and the
+// pure contract module — never on electron.
 //
 // Security pipeline (spec §7.2), in order, for EVERY kind including send:
 //   1. snapshotSender (synchronous — frames may detach after any await)
@@ -8,6 +10,17 @@
 //   3. payload size guard
 //   4. Schema decode (failure: drop for send/portExchange, defect envelope for invoke)
 //   5. typed handler dispatch
+import { Effect, Schema } from "effect"
+import type {
+  AnyIpcChannel,
+  EventChannel,
+  IpcContract,
+  IpcEmitterOf,
+  IpcHandlersOf,
+  IpcSenderInfo,
+  ResultEnvelope
+} from "@yodea/electron-ipc/contract"
+import { portGrantName, portRequestName, wireName } from "@yodea/electron-ipc/contract"
 
 export type OriginRule =
   | { readonly _tag: "exactOrigin"; readonly origin: string }
@@ -67,3 +80,166 @@ export const payloadSize = (payload: unknown): number => {
 }
 
 export const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
+
+// ---------------------------------------------------------------------------
+// bindIpc: the main-process interpreter
+// ---------------------------------------------------------------------------
+
+// Boundary codecs operate on generic `Schema.Top` fields. The sync/effect codec
+// helpers constrain to `Schema.Codec<unknown>` (service-free RD/RE = never), which
+// `Schema.Top` (RD/RE = unknown) does not satisfy structurally. IPC payloads are
+// wire-shaped and carry no service requirements, so we narrow each field to a
+// service-free codec at the call site. (Mirror of renderer.ts; duplication ok.)
+const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
+  schema as unknown as Schema.Codec<unknown, unknown>
+
+export interface IpcMainLike {
+  readonly on: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
+  readonly removeListener: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
+  readonly handle: (channel: string, handler: (event: IpcMainEventLike, payload: unknown) => Promise<unknown>) => void
+  readonly removeHandler: (channel: string) => void
+}
+
+export interface BindIpcConfig<R> {
+  /** Named `ipc` (not `ipcMain`) so app code never contains the raw-primitive token the architecture test scans for. */
+  readonly ipc: IpcMainLike
+  readonly target: WindowTargetLike
+  readonly originRules: ReadonlyArray<OriginRule>
+  readonly runPromise: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>
+  readonly maxPayloadBytes?: number
+  readonly log?: (message: string) => void
+}
+
+export interface BoundIpc<C extends IpcContract> {
+  readonly emit: IpcEmitterOf<C>
+  readonly unbind: () => void
+}
+
+const PortRequest = Schema.Struct({ nonce: Schema.String })
+
+export const bindIpc = <C extends IpcContract, R, Port>(
+  contract: C,
+  handlers: IpcHandlersOf<C, R, Port>,
+  config: BindIpcConfig<R>
+): BoundIpc<C> => {
+  const maxBytes = config.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES
+  const log = config.log ?? (() => {})
+  const teardowns: Array<() => void> = []
+  const emit: Record<string, (payload: unknown) => void> = {}
+
+  // Steps 1-3 of the pipeline, shared by every kind. Returns null on rejection.
+  const admit = (name: string, event: IpcMainEventLike, raw: unknown): IpcSenderInfo | null => {
+    const snapshot = snapshotSender(event, config.target)
+    if (!validateSender(snapshot, config.originRules)) {
+      log(`[ipc] ${name}: sender rejected`)
+      return null
+    }
+    if (payloadSize(raw) > maxBytes) {
+      log(`[ipc] ${name}: payload exceeds ${maxBytes} bytes`)
+      return null
+    }
+    return { frameUrl: snapshot.url ?? "" }
+  }
+
+  for (const [key, channel] of Object.entries<AnyIpcChannel>(contract.channels)) {
+    const name = wireName(contract, key as keyof C["channels"] & string)
+    const handler = (handlers as Record<string, unknown>)[key]
+
+    switch (channel._kind) {
+      case "send": {
+        const run = handler as (payload: unknown, sender: IpcSenderInfo) => Effect.Effect<void, never, R>
+        const listener = (event: IpcMainEventLike, raw: unknown) => {
+          const sender = admit(name, event, raw)
+          if (sender === null) return
+          const program = Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
+            Effect.flatMap((payload) => run(payload, sender)),
+            Effect.catchCause((cause) => Effect.sync(() => log(`[ipc] ${name}: dropped (${String(cause)})`)))
+          )
+          void config.runPromise(program as Effect.Effect<unknown, never, R>).catch(() => {})
+        }
+        config.ipc.on(name, listener)
+        teardowns.push(() => config.ipc.removeListener(name, listener))
+        break
+      }
+
+      case "invoke": {
+        const run = handler as (payload: unknown, sender: IpcSenderInfo) => Effect.Effect<unknown, unknown, R>
+        const invokeHandler = (event: IpcMainEventLike, raw: unknown): Promise<unknown> => {
+          const sender = admit(name, event, raw)
+          if (sender === null) return Promise.resolve(undefined) // silent: no probe oracle
+          const program: Effect.Effect<ResultEnvelope, never, R> = Schema.decodeUnknownEffect(codec(channel.payload))(
+            raw
+          ).pipe(
+            Effect.mapError((error) => `payload decode failed: ${String(error)}`),
+            Effect.flatMap((payload) =>
+              run(payload, sender).pipe(
+                Effect.flatMap((value) =>
+                  Schema.encodeUnknownEffect(codec(channel.success))(value).pipe(
+                    Effect.orDie,
+                    Effect.map((encoded): ResultEnvelope => ({ _tag: "IpcSuccess", value: encoded }))
+                  )
+                ),
+                Effect.catch((domainError) =>
+                  Schema.encodeUnknownEffect(codec(channel.error))(domainError).pipe(
+                    Effect.orDie,
+                    Effect.map((encoded): ResultEnvelope => ({ _tag: "IpcFailure", error: encoded }))
+                  )
+                )
+              )
+            ),
+            // Decode failure from a VALIDATED sender → typed Defect envelope (fast feedback).
+            Effect.catch((message) => Effect.succeed<ResultEnvelope>({ _tag: "IpcDefect", message })),
+            // Handler/encode defects → sanitized; full cause goes to the log only.
+            Effect.catchCause((cause) =>
+              Effect.sync((): ResultEnvelope => {
+                log(`[ipc] ${name}: defect (${String(cause)})`)
+                return { _tag: "IpcDefect", message: "internal error" }
+              })
+            )
+          )
+          return config.runPromise(program)
+        }
+        config.ipc.handle(name, invokeHandler)
+        teardowns.push(() => config.ipc.removeHandler(name))
+        break
+      }
+
+      case "event": {
+        emit[key] = (payload: unknown) => {
+          const encoded = Schema.encodeUnknownSync(codec((channel as EventChannel).payload))(payload)
+          config.target.postToRenderer(name, encoded, [])
+        }
+        break
+      }
+
+      case "portExchange": {
+        const run = handler as (sender: IpcSenderInfo) => Effect.Effect<Port, never, R>
+        const requestChannel = portRequestName(contract, key)
+        const grantChannel = portGrantName(contract, key)
+        const listener = (event: IpcMainEventLike, raw: unknown) => {
+          const sender = admit(requestChannel, event, raw)
+          if (sender === null) return
+          const program = Schema.decodeUnknownEffect(PortRequest)(raw).pipe(
+            Effect.flatMap(({ nonce }) =>
+              run(sender).pipe(
+                Effect.map((port) => config.target.postToRenderer(grantChannel, { nonce }, [port]))
+              )
+            ),
+            Effect.catchCause((cause) => Effect.sync(() => log(`[ipc] ${requestChannel}: dropped (${String(cause)})`)))
+          )
+          void config.runPromise(program as Effect.Effect<unknown, never, R>).catch(() => {})
+        }
+        config.ipc.on(requestChannel, listener)
+        teardowns.push(() => config.ipc.removeListener(requestChannel, listener))
+        break
+      }
+    }
+  }
+
+  return {
+    emit: emit as IpcEmitterOf<C>,
+    unbind: () => {
+      for (const teardown of teardowns) teardown()
+    }
+  }
+}
