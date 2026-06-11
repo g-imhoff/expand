@@ -1,5 +1,5 @@
 import type { DomainEvent } from "@yodea/contracts/events/domain"
-import type { Project } from "@yodea/contracts/project"
+import { Project } from "@yodea/contracts/project"
 
 export const projectsFromEvents = (
   events: ReadonlyArray<DomainEvent>
@@ -8,55 +8,18 @@ export const projectsFromEvents = (
   for (const event of events) {
     switch (event._tag) {
       case "ProjectCreated":
-        byId.set(event.projectId, {
-          id: event.projectId,
-          name: event.name,
-          directory: event.directory ?? null,
-          description: null,
-          tags: [],
-          archived: false,
-          createdAt: event.occurredAt,
-          updatedAt: event.occurredAt
-        })
+        // first-create-wins, matching Project.foldList and the test's stated
+        // intent ("does not duplicate or reset"); duplicate creates are
+        // unreachable via the domain (fresh UUID per create, ensure emits no event)
+        if (!byId.has(event.projectId)) byId.set(event.projectId, Project.fromCreated(event))
         break
-      case "ProjectRenamed": {
-        const existing = byId.get(event.projectId)
-        if (existing === undefined) break
-        byId.set(event.projectId, { ...existing, name: event.name, updatedAt: event.occurredAt })
-        break
-      }
-      case "ProjectDirectoryChanged": {
-        const existing = byId.get(event.projectId)
-        if (existing === undefined) break
-        byId.set(event.projectId, { ...existing, directory: event.directory, updatedAt: event.occurredAt })
-        break
-      }
-      case "ProjectArchived": {
-        const existing = byId.get(event.projectId)
-        if (existing === undefined) break
-        byId.set(event.projectId, { ...existing, archived: true, updatedAt: event.occurredAt })
-        break
-      }
-      case "ProjectRestored": {
-        const existing = byId.get(event.projectId)
-        if (existing === undefined) break
-        byId.set(event.projectId, { ...existing, archived: false, updatedAt: event.occurredAt })
-        break
-      }
-      case "ProjectMetadataChanged": {
-        const existing = byId.get(event.projectId)
-        if (existing === undefined) break
-        byId.set(event.projectId, {
-          ...existing,
-          ...(event.description !== undefined ? { description: event.description } : {}),
-          ...(event.tags !== undefined ? { tags: [...new Set(event.tags)] } : {}),
-          updatedAt: event.occurredAt
-        })
-        break
-      }
       case "ProjectDeleted":
         byId.delete(event.projectId)
         break
+      default: {
+        const existing = byId.get(event.projectId)
+        if (existing !== undefined) byId.set(event.projectId, Project.applyEvent(existing, event))
+      }
     }
   }
   return [...byId.values()]

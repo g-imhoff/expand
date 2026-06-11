@@ -10,20 +10,21 @@ import {
   ProjectRenamed,
   ProjectRestored
 } from "@yodea/contracts/events/project"
+import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 
-const idArb = fc.constantFrom("p1", "p2", "p3", "p4")
-const nameArb = fc.constantFrom("alpha", "beta", "gamma", "delta")
+const idArb = fc.uuid({ version: 4 })
+const nameArb = fc.constantFrom("alpha", "beta", "gamma")
 const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStart(4, "0")}`)
 
 const eventArb: fc.Arbitrary<DomainEvent> = fc.oneof(
-  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make(r)),
-  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make(r)),
-  fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make(r)),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make(r)),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make(r)),
-  fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make(r)),
-  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make(r))
+  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
+  fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
+  fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+  fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")).map((ts) => ts.map((t) => Tag.make(t))), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
+  fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make({ ...r, projectId: ProjectId.make(r.projectId) }))
 )
 const logArb = fc.array(eventArb, { maxLength: 30 })
 
@@ -43,11 +44,12 @@ describe("projectsFromEvents — properties", () => {
 
   it("a tombstoned id never appears, even if mutated afterwards", () => {
     fc.assert(fc.property(logArb, idArb, tsArb, (log, id, ts) => {
+      const pid = ProjectId.make(id)
       const withDelete = [
-        ProjectCreated.make({ projectId: id, name: "alpha", occurredAt: "t0001" }),
+        ProjectCreated.make({ projectId: pid, name: ProjectName.make("alpha"), occurredAt: "t0001" }),
         ...log,
-        ProjectDeleted.make({ projectId: id, occurredAt: ts }),
-        ProjectRenamed.make({ projectId: id, name: "beta", occurredAt: `${ts}z` })
+        ProjectDeleted.make({ projectId: pid, occurredAt: ts }),
+        ProjectRenamed.make({ projectId: pid, name: ProjectName.make("beta"), occurredAt: `${ts}z` })
       ]
       expect(projectsFromEvents(withDelete).some((p) => p.id === id)).toBe(false)
     }))
