@@ -3,7 +3,7 @@
 // objects to the structural interfaces of main.ts (same idiom as MainPortLike).
 import { ipcMain } from "electron"
 import type { BrowserWindow, MessagePortMain, WebFrameMain } from "electron"
-import type { FrameLike, IpcMainEventLike, IpcMainLike, WindowTargetLike } from "@yodea/electron-ipc/main"
+import type { FrameLike, IpcMainLike, WindowTargetLike } from "@yodea/electron-ipc/main"
 
 const toFrameLike = (frame: WebFrameMain | null): FrameLike | null => {
   if (frame === null) return null
