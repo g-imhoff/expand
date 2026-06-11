@@ -3,11 +3,11 @@ import { Layer, ManagedRuntime } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
-import { ProjectStore } from "@yodea/client-core"
+import { ProjectStore, type BackendUnavailable } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
 
-export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, never>
+export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
 
 export const RuntimeContext = createContext<YodeaRuntime | null>(null)
 

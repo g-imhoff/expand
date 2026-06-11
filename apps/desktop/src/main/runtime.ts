@@ -1,12 +1,12 @@
 import { Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
-import { ProjectStore } from "@yodea/client-core"
+import { ProjectStore, type BackendUnavailable } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeNodeAdapter } from "@yodea/client-core/adapters/node"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, never>
+export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
 
 export const defaultBackendEntry = (moduleUrl: string): string =>
   join(fileURLToPath(moduleUrl), "..", "..", "..", "..", "server", "main.ts")
