@@ -15,6 +15,7 @@ export const launchApp = async (): Promise<LaunchedApp> => {
     args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs")],
     env: {
       ...process.env,
+      YODEA_HOME: mkdtempSync(resolve(tmpdir(), "yodea-e2e-home-")),
       YODEA_DB: resolve(mkdtempSync(resolve(tmpdir(), "yodea-e2e-")), "events.db"),
       YODEA_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
     }
