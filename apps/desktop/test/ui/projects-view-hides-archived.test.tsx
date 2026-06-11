@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import type { Project } from "@yodea/contracts/project"
-import { fakeProject, makeFakeAppHandle, renderWithHandle } from "./_harness"
+import { fakeProject, makeFakeAppHandle, renderWithHandle, uid } from "./_harness"
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>
@@ -15,8 +15,8 @@ const renderView = (projects: ReadonlyArray<Project>) =>
 describe("ProjectsView — default index view hides archived", () => {
   it("excludes an archived project from the list and the header count", () => {
     const { getByTestId, getByText } = renderView([
-      fakeProject({ id: "live", name: "live-project", archived: false }),
-      fakeProject({ id: "arch", name: "archived-project", archived: true })
+      fakeProject({ id: uid(1), name: "live-project", archived: false }),
+      fakeProject({ id: uid(2), name: "archived-project", archived: true })
     ])
 
     const list = getByTestId("project-list")

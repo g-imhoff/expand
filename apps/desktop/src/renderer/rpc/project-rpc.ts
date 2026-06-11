@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, type Stream } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
+import type { Project, ProjectCreateResult, ProjectDeleteResult, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type {
   ProjectAlreadyExists,
@@ -13,35 +13,35 @@ import { RendererRpcClient } from "@yodea/desktop/renderer/rpc/transport"
 
 export interface ProjectRpcApi {
   readonly create: (payload: {
-    readonly name: string
+    readonly name: ProjectName
     readonly ensure: boolean
     readonly directory?: string | null
   }) => Effect.Effect<
     ProjectCreateResult,
     RpcClientError.RpcClientError | ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict
   >
-  readonly rename: (payload: { readonly id: string; readonly name: string }) => Effect.Effect<
+  readonly rename: (payload: { readonly id: ProjectId; readonly name: ProjectName }) => Effect.Effect<
     Project,
     RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict
   >
-  readonly changeDirectory: (payload: { readonly id: string; readonly directory: string }) => Effect.Effect<
+  readonly changeDirectory: (payload: { readonly id: ProjectId; readonly directory: string }) => Effect.Effect<
     Project,
     RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict
   >
-  readonly archive: (payload: { readonly id: string }) => Effect.Effect<
+  readonly archive: (payload: { readonly id: ProjectId }) => Effect.Effect<
     Project,
     RpcClientError.RpcClientError | ProjectNotFound
   >
-  readonly restore: (payload: { readonly id: string }) => Effect.Effect<
+  readonly restore: (payload: { readonly id: ProjectId }) => Effect.Effect<
     Project,
     RpcClientError.RpcClientError | ProjectNotFound
   >
   readonly setMetadata: (payload: {
-    readonly id: string
+    readonly id: ProjectId
     readonly description?: string | null
-    readonly tags?: ReadonlyArray<string>
+    readonly tags?: ReadonlyArray<Tag>
   }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly delete: (payload: { readonly id: string }) => Effect.Effect<
+  readonly delete: (payload: { readonly id: ProjectId }) => Effect.Effect<
     ProjectDeleteResult,
     RpcClientError.RpcClientError | ProjectNotFound
   >
