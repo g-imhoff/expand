@@ -16,11 +16,7 @@ explicit architecture decision, not a code-review judgment call.
 import backend-internal modules (`apps/server/**`). Frontends depend ONLY
 on the pure contract (`packages/contracts`) and the connection brain
 (`packages/client-core`). Additionally, the Electron **renderer and preload**
-(`apps/desktop/src/{renderer,preload}`) may not import `packages/client-core`
-or the Electron **main** process; they reach the backend exclusively through
-the typed `YodeaRpcs` contract carried over the preload-brokered `MessagePort`
-(the preload is a pure port broker — it exposes no per-feature surface).
-Enforced by `.dependency-cruiser.cjs` + `test/architecture/i1-cli-isolation.test.ts`.
+(`apps/desktop/src/{renderer,preload}`) may not import `packages/client-core` or the Electron **main** process; they reach the backend exclusively through the typed `YodeaRpcs` contract carried over the `MessagePort`. The preload exposes exactly the surface derived from the `YodeaIpc` registry (`apps/desktop/src/shared/ipc/channels.ts`, rendered by `packages/electron-ipc` — see the ADR `docs/superpowers/specs/2026-06-12-typed-ipc-framework-design.md`); no hand-written bridge code. Registry channels are restricted to **desktop-shell concerns** (port bootstrap, window lifecycle); all domain/backend interaction flows exclusively through `YodeaRpcs` over the MessagePort. The `event` channel kind may carry only pre-port bootstrap messages — domain push is stream RPCs on the port. Enforced by `.dependency-cruiser.cjs` (`renderer-must-not-import-client-core`, `electron-ipc-package-isolated`, `shared-ipc-stays-pure`, `preload-imports-allowlist`) + `test/architecture/i1-cli-isolation.test.ts` + `test/architecture/ipc-boundary.test.ts`.
 
 The original CLI-only statement (kept below for the rationale it documents)
 is now a special case of this rule: the CLI is a thin RPC client over

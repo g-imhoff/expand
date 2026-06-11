@@ -34,12 +34,12 @@ export const exposeBridge = <C extends IpcContract>(contract: C, apiKey: string,
       }
       case "event": {
         api[key] = (listener: (payload: unknown) => void) =>
-          // Wrapper strips the IpcRendererEvent: it leaks ipcRenderer via event.sender.
+          // Wrapper strips the IpcRendererEvent: it leaks the raw renderer-side primitive via event.sender.
           deps.on(name, (_event, payload) => listener(payload))
         break
       }
       case "portExchange": {
-        // Static grant relay: MessagePorts cannot cross contextBridge (electron#27024),
+        // Static grant relay: MessagePorts cannot cross the context bridge (electron#27024),
         // so the port is re-posted into the main world with a nonce-correlated marker.
         deps.on(portGrantName(contract, key), (event, payload) => {
           const nonce =
