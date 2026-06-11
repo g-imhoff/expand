@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -34,7 +35,7 @@ describe.sequential("project delete e2e", () => {
         yield* awaitEndpointUp
         const out = yield* withClient(bunAdapter, (client) =>
           Effect.gen(function* () {
-            const created = yield* client.ProjectCreate({ name: "gone", ensure: false })
+            const created = yield* client.ProjectCreate({ name: ProjectName.make("gone"), ensure: false })
             const head = yield* Effect.forkChild(
               Stream.runHead(Stream.take(Stream.filter(client.Events({}), (se) => se.event._tag === "ProjectDeleted"), 1))
             )
