@@ -247,7 +247,7 @@ internals (that is invariant **I-1**).
 
 ```
 packages/
-  contracts/        @yodea/contracts     — the pure wire contract (Schemas only)
+  contracts/        @yodea/contracts     — the pure wire contract (schemas + pure derived helpers; no I/O, no dependencies)
     rpc.ts  events.ts  project.ts  endpoint.ts  cli.ts (yodea/v1 envelopes + ErrorCode)
   client-core/      @yodea/client-core   — the runtime-agnostic connection brain
     adapter.ts            — RuntimeAdapter: the ONLY cross-runtime seam
@@ -348,7 +348,11 @@ Queries re-read and re-fold the whole log on every call (no cache).
   archived projects out of the *default* view (`includeArchived` opts them back
   in); deleted projects are absent from every view. Directory changes are
   validated server-side (absolute + exists-on-disk + unique among live
-  projects) before the event is appended.
+  projects) before the event is appended. The canonical per-event fold logic
+  lives on `Project` itself — the `fromCreated`, `applyEvent`, and `foldList`
+  statics in `@yodea/contracts/project.ts` — so `projectsFromEvents` (server),
+  the client-core `ProjectStore`, and the desktop renderer store all delegate to
+  it: the fold logic exists exactly once.
 
 ### 5.2 The lifetime dance — discover, spawn, connect, self-shutdown (I-2/I-3/I-4)
 
@@ -541,7 +545,7 @@ bun run arch     # EXPECT: clean tree → 0 violations
 ```
 
 The three forbidden rules use `tsPreCompilationDeps: true`, so even `import type`
-edges are caught (load-bearing — the renderer imports the contract type-only):
+edges are caught (the renderer imports the contract — runtime imports of `@yodea/contracts` are allowed; only client-core and backend internals are forbidden):
 
 | Rule | `from` | forbidden `to` |
 |---|---|---|

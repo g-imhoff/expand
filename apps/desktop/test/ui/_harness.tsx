@@ -1,10 +1,5 @@
 import { type ReactElement, type ReactNode } from "react"
-import { cleanup, render } from "@testing-library/react"
-import { afterEach } from "vitest"
-
-// happy-dom keeps every render mounted otherwise — stale DOM from a previous
-// test leaks into the next test's baseElement queries
-afterEach(cleanup)
+import { render } from "@testing-library/react"
 import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 import { Project as ProjectClass, ProjectId, ProjectName } from "@yodea/contracts/project"
 import type { AppHandle } from "@yodea/desktop/renderer/app/app-handle"
