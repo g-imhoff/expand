@@ -16,7 +16,7 @@
     "build": "bun run build:cli && bun run build:server",
     "build:cli": "bun build apps/cli/cli/main.ts --compile --outfile dist/yodea",
     "build:server": "bun build apps/server/main.ts --compile --outfile dist/yodea-server",
-    "cert:cli:build": "bun run build",
+    "cert:cli:build": "bun run build && bash scripts/binary-smoke.sh",
     "dev:cli": "bun apps/cli/cli/main.ts",
     "dev:server": "bun apps/server/main.ts",
     "dev:tui": "bun apps/tui/main.tsx",
