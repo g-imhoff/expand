@@ -3,7 +3,7 @@ import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, Subscriptio
 import type { Project } from "@yodea/contracts/project"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectStore } from "@yodea/client-core"
+import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { buildRendererClient } from "@yodea/desktop/renderer/rpc/transport"
 import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
 import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
@@ -14,6 +14,7 @@ const fakeStoreLayer = (
 ) =>
   Layer.succeed(ProjectStore, {
     projects: ref,
+    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.fromPubSub(hub),
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
