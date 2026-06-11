@@ -101,7 +101,7 @@ export interface IpcMainLike {
 }
 
 export interface BindIpcConfig<R> {
-  /** Named `ipc` (not `ipcMain`) so app code never contains the raw-primitive token the architecture test scans for. */
+  /** Named `ipc` (not the raw main-side primitive) so app code never contains the token the architecture test scans for. */
   readonly ipc: IpcMainLike
   readonly target: WindowTargetLike
   readonly originRules: ReadonlyArray<OriginRule>
