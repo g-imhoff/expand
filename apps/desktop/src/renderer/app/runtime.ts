@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect"
+import type { Cause } from "effect"
 import { RendererRpcClientLayer } from "@yodea/desktop/renderer/rpc/transport"
 import { makeRendererPort, type RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
 import { ProjectRpcLayer } from "@yodea/desktop/renderer/rpc/project-rpc"
@@ -25,17 +26,24 @@ const appLayer = (port: RendererPortLike) => {
   return RendererProjectStoreLayer.pipe(Layer.provideMerge(facets))
 }
 
-export const boot = (mount: (handle: AppHandle) => void): Effect.Effect<never> =>
+const BOOT_TIMEOUT = "10 seconds"
+
+export const boot = (mount: (handle: AppHandle) => void): Effect.Effect<never, Cause.TimeoutError> =>
   Effect.gen(function* () {
-    const messagePort = yield* awaitPortEffect
-    const rendererPort = makeRendererPort(messagePort) // <-- cast-free #22 fix
-    const program = Effect.gen(function* () {
-      const store = yield* RendererProjectStore
-      const server = yield* ServerRpc
-      const context = yield* Effect.context<RendererProjectStore | ServerRpc>()
-      const handle = makeAppHandle(store, context, () => Effect.runPromiseWith(context)(server.health()))
-      mount(handle)
-      return yield* Effect.never
-    })
-    return yield* program.pipe(Effect.provide(appLayer(rendererPort)))
+    const handle = yield* Effect.timeout(
+      Effect.gen(function* () {
+        const messagePort = yield* awaitPortEffect
+        const rendererPort = makeRendererPort(messagePort)
+        const context = yield* Layer.build(appLayer(rendererPort))
+        return yield* Effect.gen(function* () {
+          const store = yield* RendererProjectStore
+          const server = yield* ServerRpc
+          const inner = yield* Effect.context<RendererProjectStore | ServerRpc>()
+          return makeAppHandle(store, inner, () => Effect.runPromiseWith(inner)(server.health()))
+        }).pipe(Effect.provideContext(context))
+      }),
+      BOOT_TIMEOUT
+    )
+    mount(handle)
+    return yield* Effect.never
   }).pipe(Effect.scoped)
