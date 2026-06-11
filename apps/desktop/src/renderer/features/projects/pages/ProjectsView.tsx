@@ -51,8 +51,9 @@ export const ProjectsView = () => {
       <RenameDialog
         open={renaming !== null}
         project={renaming}
-        onOpenChange={(o) => { if (!o) setRenaming(null) }}
-        onRename={(id, name) => rename.mutate({ id, name })}
+        error={rename.error}
+        onOpenChange={(o) => { if (!o) { setRenaming(null); rename.reset() } }}
+        onRename={(id, name) => rename.mutate({ id, name }, { onSuccess: () => setRenaming(null) })}
       />
       <ChangeDirectoryDialog
         open={movingDir !== null}
@@ -67,7 +68,8 @@ export const ProjectsView = () => {
           open
           projectName={target.name}
           pending={del.isPending}
-          onOpenChange={(next) => { if (!next) setTarget(null) }}
+          error={del.error}
+          onOpenChange={(next) => { if (!next) { setTarget(null); del.reset() } }}
           onConfirm={() => del.mutate(target.id, { onSuccess: () => setTarget(null) })}
         />
       )}

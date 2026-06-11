@@ -27,4 +27,17 @@ describe("DeleteProjectDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /cancel/i }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+  it("surfaces a delete error in a role=alert block", () => {
+    render(
+      <DeleteProjectDialog
+        open
+        projectName="alpha"
+        pending={false}
+        onOpenChange={() => {}}
+        onConfirm={() => {}}
+        error={{ _tag: "ProjectNotFound", id: "a" }}
+      />
+    )
+    expect(screen.getByRole("alert").textContent).toContain("ProjectNotFound")
+  })
 })
