@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, type Stream } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type {
   ProjectAlreadyExists,
   ProjectDirectoryConflict,
@@ -46,10 +46,10 @@ export interface ProjectRpcApi {
     RpcClientError.RpcClientError | ProjectNotFound
   >
   readonly list: (payload?: { readonly includeArchived?: boolean }) => Effect.Effect<
-    ReadonlyArray<Project>,
+    { readonly projects: ReadonlyArray<Project>; readonly seq: number },
     RpcClientError.RpcClientError
   >
-  readonly events: () => Stream.Stream<DomainEvent, RpcClientError.RpcClientError>
+  readonly events: () => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
 
 export class ProjectRpc extends Context.Service<ProjectRpc, ProjectRpcApi>()(
@@ -67,6 +67,6 @@ export const ProjectRpcLayer: Layer.Layer<ProjectRpc, never, RendererRpcClient> 
     setMetadata: (p) => client.ProjectSetMetadata(p),
     delete: (p) => client.ProjectDelete(p),
     list: (p = {}) => client.ProjectList(p),
-    events: () => client.Events()
+    events: () => client.Events({})
   }))
 )

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { Schema } from "effect"
 import { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNotFound, YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectDeleteEnvelope } from "@yodea/contracts/cli"
@@ -40,6 +41,15 @@ describe("YodeaRpcs contract", () => {
   it("declares ProjectSetMetadata with id + optional description/tags and ProjectNotFound error", () => {
     const rpc = YodeaRpcs.requests.get("ProjectSetMetadata")
     expect(rpc).toBeDefined()
+  })
+  it("Events accepts an optional fromSeq cursor", () => {
+    const rpc = YodeaRpcs.requests.get("Events")!
+    expect(Schema.decodeUnknownSync(rpc.payloadSchema)({})).toEqual({})
+    expect(Schema.decodeUnknownSync(rpc.payloadSchema)({ fromSeq: 3 })).toEqual({ fromSeq: 3 })
+  })
+  it("ProjectList succeeds with a { projects, seq } snapshot", () => {
+    const rpc = YodeaRpcs.requests.get("ProjectList")!
+    expect(Schema.decodeUnknownSync(rpc.successSchema)({ projects: [], seq: 0 })).toEqual({ projects: [], seq: 0 })
   })
 })
 

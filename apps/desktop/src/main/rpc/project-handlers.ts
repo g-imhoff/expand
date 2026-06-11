@@ -1,4 +1,4 @@
-import { Effect, SubscriptionRef } from "effect"
+import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectStore } from "@yodea/client-core"
@@ -51,7 +51,10 @@ export const projectHandlers: Pick<
       Effect.catchTag("RpcClientError", (e) => Effect.die(e))
     ),
   ProjectList: ({ includeArchived }) =>
-    Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)).pipe(
-      Effect.map((ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
+    Effect.flatMap(ProjectStore, (s) => s.snapshot).pipe(
+      Effect.map(({ projects, seq }) => ({
+        projects: includeArchived ? projects : projects.filter((p) => !p.archived),
+        seq
+      }))
     )
 }

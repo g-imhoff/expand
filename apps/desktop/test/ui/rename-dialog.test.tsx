@@ -15,4 +15,19 @@ describe("RenameDialog", () => {
     fireEvent.click(getByText("Rename"))
     expect(onRename).toHaveBeenCalledWith("a", "alpha-2")
   })
+  it("surfaces a rename error in a role=alert block and does not close itself on submit", () => {
+    const onOpenChange = vi.fn()
+    const { getByRole } = render(
+      <RenameDialog
+        open
+        project={{ id: "a", name: "alpha" }}
+        onOpenChange={onOpenChange}
+        onRename={() => {}}
+        error={{ _tag: "ProjectNameConflict", name: "alpha" }}
+      />
+    )
+    expect(getByRole("alert").textContent).toContain("ProjectNameConflict")
+    fireEvent.click(getByRole("button", { name: "Rename" }))
+    expect(onOpenChange).not.toHaveBeenCalled()
+  })
 })

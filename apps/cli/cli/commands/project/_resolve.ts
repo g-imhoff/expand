@@ -9,7 +9,7 @@ export const resolveProjectTarget = (token: string) =>
   isUuid(token)
     ? Effect.succeed(token)
     : Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: true })).pipe(
-      Effect.flatMap((ps) => {
+      Effect.flatMap(({ projects: ps }) => {
         const matches = ps.filter((p) => p.name === token)
         if (matches.length > 1) {
           return Effect.die(

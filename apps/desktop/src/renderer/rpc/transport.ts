@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Queue, type Scope, Stream } from "effect"
 import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/unstable/rpc"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
+import { supervised } from "@yodea/desktop/renderer/lib/supervised"
 
 export type RendererRpcClientApi = RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>
 
@@ -24,6 +25,7 @@ const makePortProtocol = (port: RendererPortLike) =>
           const responses = parser.decode(data) as ReadonlyArray<RpcMessage.FromServerEncoded>
           return Effect.forEach(responses, (response) => writeResponse(0, response), { discard: true })
         }),
+        (eff) => supervised("renderer rpc inbound", eff),
         Effect.forkScoped
       )
       return {

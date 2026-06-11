@@ -13,12 +13,9 @@ explicit architecture decision, not a code-review judgment call.
 
 **Rule (generalized).** No frontend — `apps/cli/cli`, `apps/tui`,
 `apps/desktop` — and no shared client code (`packages/client-core`) may
-import backend-internal modules
-(`apps/cli/{server,application,domain,db,...}`). Frontends depend ONLY on the
-pure contract (`packages/contracts`) and the connection brain
-(`packages/client-core`). The sole exception:
-`apps/cli/cli/commands/server.ts` imports `apps/cli/composition` to boot the
-backend. Additionally, the Electron **renderer and preload**
+import backend-internal modules (`apps/server/**`). Frontends depend ONLY
+on the pure contract (`packages/contracts`) and the connection brain
+(`packages/client-core`). Additionally, the Electron **renderer and preload**
 (`apps/desktop/src/{renderer,preload}`) may not import `packages/client-core`
 or the Electron **main** process; they reach the backend exclusively through
 the typed `YodeaRpcs` contract carried over the preload-brokered `MessagePort`
@@ -30,32 +27,32 @@ is now a special case of this rule: the CLI is a thin RPC client over
 WebSocket and the only legitimate way for any frontend to interact with
 backend state is to send a command to the running `yodea` backend.
 
-**Forbidden import sources** from `apps/cli/cli/**`:
+**Forbidden import sources** from every frontend (`apps/cli/cli/**`,
+`apps/tui/**`, `apps/desktop/src/**`) and from `packages/client-core/**`:
 
-- `apps/cli/server/**`
-- `apps/cli/application/**`
-- `apps/cli/domain/**`
-- `apps/cli/features/**`
-- `apps/cli/infrastructure/**`
-- `apps/cli/db/**`
-- `apps/cli/services/**`
-- `apps/cli/composition/**`
+- `apps/server/**` — the entire backend: composition root, db, domain,
+  application, http transport, rpc-handlers, endpoint-file,
+  connection-tracker.
 
-**Allowed import sources** from `apps/cli/cli/**`:
+**Allowed import sources** from frontends:
 
-- `apps/cli/shared/**` — RPC contracts (Effect Schema) and shared utilities.
-- `apps/cli/lib/**` — low-level helpers genuinely shared with the server.
+- `packages/contracts/**` — RPC contracts (Effect Schema) and shared
+  schema types.
+- `packages/client-core/**` — discovery, RPC client, project store
+  (except from the Electron renderer/preload, which reach the backend
+  only through the MessagePort seam).
 - External npm packages.
 
-**Permitted exception.** `apps/cli/cli/commands/server.ts` is the
-`yodea server` subcommand wrapper. It is the *only* CLI file allowed to
-import from `apps/cli/composition/**`, and only to start the backend. Keep
-this file as small as possible — ideally a single named import and a
-function call.
+**No permitted exception.** The former `yodea server` subcommand wrapper
+(`apps/cli/cli/commands/server.ts`, which imported the backend
+composition root) was removed when the backend gained its dedicated
+entrypoint `apps/server/main.ts`; `test/architecture/server-app-split.test.ts`
+asserts the file and its dependency-cruiser exception stay gone.
 
-**Why this matters.** The CLI binary and the backend live in the same
-artifact, so the import graph is the only thing physically preventing the
-CLI from instantiating a backend in-process. If a `apps/cli/cli/**` file
+**Why this matters.** The CLI client (`dist/yodea`) and the backend
+(`dist/yodea-server`) ship as separate binaries, and the import graph is
+what physically prevents any frontend from instantiating a backend
+in-process. If a frontend file
 imports a server module, every `yodea <command>` invocation builds its own
 Effect AppLayer with its own event bus, its own SQLite handle, and its own
 spawned ACP subprocesses — completely disconnected from any backend that
@@ -69,11 +66,16 @@ is already running. The consequences:
 This is precisely the architecture this design was created to avoid.
 
 **Enforcement.** An architectural-fitness test must verify the rule on
-every CI run. The recommended approach is `dependency-cruiser` configured
-with a forbidden rule named `cli-client-must-not-import-server`, wrapped
-in a vitest test under `test/architecture/`. The test file must carry a
-"DO NOT MODIFY" header and be referenced from CODEOWNERS so that any
-attempt to relax the rule triggers architecture-owner review.
+every CI run. The implementation is `dependency-cruiser` configured with
+the forbidden rules `frontends-must-not-import-backend` and
+`renderer-must-not-import-client-core`, wrapped in a vitest test under
+`test/architecture/` (`i1-cli-isolation.test.ts`). The cruiser's
+`exclude` patterns are segment-anchored and pinned by
+`test/architecture/depcruise-exclude.test.ts` so no source file whose
+name merely contains "test" can silently drop out of the cruise. The
+test file must carry a "DO NOT MODIFY" header and be referenced from
+CODEOWNERS so that any attempt to relax the rule triggers
+architecture-owner review.
 
 The test is part of the **specification**, not the implementation. It
 should be treated like a contract clause: a change to it is a change to
@@ -84,7 +86,8 @@ the system's guarantees.
 ## I-2. One AppLayer per machine
 
 **Rule.** At most one process per user environment may host the Effect
-`AppLayer`. That process is started by `yodea server` and is the only
+`AppLayer`. That process is the dedicated backend entrypoint
+(`apps/server/main.ts`, shipped as `dist/yodea-server`) and is the only
 container that owns the domain event bus, the SQLite event log, the ACP subprocess
 pool, and the typed service implementations. Every other process (desktop
 renderer, CLI client, future web client) is a frontend that connects to
@@ -131,7 +134,8 @@ There is no grace period and no idle timeout. Zero means dead.
 **Lifecycle.**
 
 1. A frontend (Desktop or CLI) finds no running server via the endpoint
-   file and spawns `yodea server`.
+   file and spawns the backend binary (`dist/yodea-server`; from source,
+   `apps/server/main.ts`).
 2. The server starts, writes the endpoint file, and waits for its first
    connection.
 3. The spawning frontend connects. Connection count goes from 0 to 1.
@@ -161,8 +165,8 @@ For rapid CLI command sequences (e.g., an agent issuing several `yodea`
 calls), the calling process should keep its WebSocket connection open
 for the duration of its work, not reconnect per command.
 
-**Why lifetime is not tied to the spawner.** The process that ran
-`yodea server` (typically the first frontend) may exit while other
+**Why lifetime is not tied to the spawner.** The process that spawned
+the backend (typically the first frontend) may exit while other
 frontends are still connected. The server does not care who spawned it —
 only how many connections are active. This prevents the "Desktop
 launched the server, CLI outlives it" class of bugs.
