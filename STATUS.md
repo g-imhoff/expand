@@ -157,7 +157,7 @@ xvfb-run -a bun run e2e:desktop  # 1 passed — create a project, see it live (P
 The `renderer-must-not-import-client-core` rule now covers `apps/desktop/src/(renderer|preload)` — the preload is a pure `MessagePort` broker. The renderer/preload import only `@yodea/contracts` + `effect`/`effect/unstable/rpc` + npm UI libs, never `client-core` or the main process. The DO-NOT-MODIFY I-1 fitness test was re-proven **non-vacuous** (a forbidden `preload → client-core` import trips the rule). `BOUNDARIES.md` + `.dependency-cruiser.cjs` + the test updated together.
 
 ## New scripts / deps
-- `e2e:desktop` — `playwright test -c apps/desktop/e2e/playwright.config.ts` (`_electron.launch` against the built app; isolated `YODEA_HOME`, absolute `YODEA_BACKEND_CMD`).
+- `e2e:desktop` — `bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts` (builds first so it never tests a stale `apps/desktop/out/`; `_electron.launch` against the built app; isolated `YODEA_HOME`, absolute `YODEA_BACKEND_CMD`).
 - Added `@tanstack/react-query`, `@tanstack/react-router`, `@playwright/test`, `electron-playwright-helpers`.
 
 ## Deferred (per spec)
