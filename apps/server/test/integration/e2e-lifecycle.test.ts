@@ -43,7 +43,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
-          const created = yield* client.ProjectCreate({ name: "E2E", ensure: false })
+          const created = yield* client.ProjectCreate({ name: "e2e", ensure: false })
           const listed = yield* client.ProjectList({})
           return { health, created, listed }
         })
@@ -62,7 +62,7 @@ describe.sequential("end-to-end lifecycle", () => {
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true)
     expect(r.outcome.health).toBe("ok")
-    expect(r.outcome.created.project.name).toBe("E2E")
+    expect(r.outcome.created.project.name).toBe("e2e")
     expect(r.outcome.listed.projects).toEqual([r.outcome.created.project])
     expect(r.upAfter).toBe(false)
   })
