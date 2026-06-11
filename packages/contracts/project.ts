@@ -1,14 +1,21 @@
 import { Effect, Schema } from "effect"
 
 export const ProjectName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/))
+  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
+  Schema.brand("ProjectName")
 )
 export type ProjectName = typeof ProjectName.Type
 
-export const ProjectId = Schema.String.pipe(Schema.check(Schema.isUUID(4)))
+export const ProjectId = Schema.String.pipe(
+  Schema.check(Schema.isUUID(4)),
+  Schema.brand("ProjectId")
+)
 export type ProjectId = typeof ProjectId.Type
 
-export const Tag = Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)))
+export const Tag = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
+  Schema.brand("Tag")
+)
 export type Tag = typeof Tag.Type
 
 export const DESCRIPTION_MAX_LENGTH = 2048
