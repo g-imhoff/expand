@@ -23,9 +23,13 @@ class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
   readonly reason: string
 }> {}
 
-const acquire = (
+export const acquireClient = (
   adapter: RuntimeAdapter
-): Effect.Effect<YodeaRpcClientApi, BackendUnavailable, FileSystem.FileSystem | Scope.Scope> => {
+): Effect.Effect<
+  { readonly client: YodeaRpcClientApi; readonly endpoint: Endpoint },
+  BackendUnavailable,
+  FileSystem.FileSystem | Scope.Scope
+> => {
   const once = findOrSpawnBackend(adapter).pipe(
     Effect.catchIf(
       (e): e is "pending" => e === "pending",
@@ -53,7 +57,7 @@ const acquire = (
               )
           })
         )
-        return client
+        return { client, endpoint }
       })
     )
   )
@@ -72,4 +76,4 @@ const acquire = (
 export const YodeaRpcClientLive = (
   adapter: RuntimeAdapter
 ): Layer.Layer<YodeaRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
-  Layer.effect(YodeaRpcClient, acquire(adapter))
+  Layer.effect(YodeaRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))
