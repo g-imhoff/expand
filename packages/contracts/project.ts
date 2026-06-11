@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect"
+import type { Brand } from "effect"
 
 export const ProjectName = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
@@ -20,20 +21,23 @@ export type Tag = typeof Tag.Type
 
 export const DESCRIPTION_MAX_LENGTH = 2048
 
-export const Project = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  directory: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  description: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-  tags: Schema.Array(Tag).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-  archived: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
-  createdAt: Schema.String,
-  updatedAt: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
-})
-export type Project = typeof Project.Type
+export class Project extends Schema.Opaque<Project, Brand.Brand<"Project">>()(
+  Schema.Struct({
+    id: ProjectId,
+    name: ProjectName,
+    directory: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+    description: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+    tags: Schema.Array(Tag).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
+    archived: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
+    createdAt: Schema.String,
+    updatedAt: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
+  })
+) {}
 
-export const ProjectCreateResult = Schema.Struct({ created: Schema.Boolean, project: Project })
-export type ProjectCreateResult = typeof ProjectCreateResult.Type
+export class ProjectCreateResult extends Schema.Opaque<ProjectCreateResult>()(
+  Schema.Struct({ created: Schema.Boolean, project: Project })
+) {}
 
-export const ProjectDeleteResult = Schema.Struct({ id: Schema.String, deleted: Schema.Boolean })
-export type ProjectDeleteResult = typeof ProjectDeleteResult.Type
+export class ProjectDeleteResult extends Schema.Opaque<ProjectDeleteResult>()(
+  Schema.Struct({ id: Schema.String, deleted: Schema.Boolean })
+) {}
