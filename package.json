@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "typecheck:all": "bun run typecheck && bun run typecheck:desktop",
     "test": "bun --bun vitest run",
     "test:coverage": "bun --bun vitest run --coverage",
     "test:watch": "bun --bun vitest",
@@ -23,7 +24,7 @@
     "dev:desktop": "cd apps/desktop && electron-vite dev",
     "build:desktop": "cd apps/desktop && electron-vite build",
     "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
-    "e2e:desktop": "playwright test -c apps/desktop/e2e/playwright.config.ts"
+    "e2e:desktop": "bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
