@@ -13,7 +13,8 @@
 //
 // Desktop architecture redesign (typed RPC seam over a MessagePort; the
 // `renderer-must-not-import-client-core` rule extended to cover the preload,
-// which is now a pure port broker). Re-proven non-vacuous: a forbidden
+// which exposes only the registry-derived typed IPC surface (originally a pure
+// port broker; amended by the 2026-06-12 typed-IPC ADR)). Re-proven non-vacuous: a forbidden
 // preload -> client-core import trips the rule. ADR:
 // docs/superpowers/specs/2026-06-01-desktop-architecture-design.md and
 // docs/superpowers/plans/2026-06-01-desktop-architecture.md.

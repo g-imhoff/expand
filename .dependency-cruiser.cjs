@@ -30,7 +30,7 @@ module.exports = {
       comment:
         "BOUNDARIES.md I-1 (amended): the IPC registry imports only the framework contract.",
       from: { path: "^apps/desktop/src/shared/ipc/" },
-      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc|apps/desktop/src/shared/ipc)/" }
+      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc/contract|apps/desktop/src/shared/ipc)" }
     },
     {
       name: "preload-imports-allowlist",
