@@ -55,11 +55,14 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         if (!path.isAbsolute(directory)) {
           return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
         }
-        const onDisk = yield* fs.exists(directory).pipe(Effect.orDie)
-        if (!onDisk) {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+        const info = yield* fs.stat(directory).pipe(
+          Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+        )
+        if (info.type !== "Directory") {
+          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" }))
         }
-        if (projects.some((p) => p.id !== selfId && p.directory === directory)) {
+        const canonical = yield* fs.realPath(directory).pipe(Effect.orDie)
+        if (projects.some((p) => p.id !== selfId && (p.directory === directory || p.directory === canonical))) {
           return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
         }
       })
