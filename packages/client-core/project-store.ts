@@ -107,7 +107,7 @@ const withConnectionHooks = (
     adapter.protocolLayer(url).pipe(
       Layer.provide(
         Layer.succeed(RpcClient.ConnectionHooks, {
-          onConnect: SubscriptionRef.set(status, "connected"),
+          onConnect: Effect.void,
           onDisconnect: SubscriptionRef.set(status, "reconnecting")
         })
       )
