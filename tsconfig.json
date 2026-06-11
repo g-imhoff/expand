@@ -22,6 +22,7 @@
       "@yodea/tui/*": ["apps/tui/*"],
       "@yodea/desktop/*": ["apps/desktop/src/*"],
       "@yodea/server/*": ["apps/server/*"],
+      "@yodea/electron-ipc/*": ["packages/electron-ipc/*"],
       "@yodea/*": ["apps/cli/*"]
     }
   },
