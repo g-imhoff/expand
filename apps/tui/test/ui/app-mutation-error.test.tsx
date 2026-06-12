@@ -74,6 +74,7 @@ describe("App mutation error line", () => {
       stdin.write("\r")
       await flush(80)
       expect(lastFrame()).toContain("invalid input")
+      expect(lastFrame()).toContain("Expected a string matching")
     } finally {
       await runtime.dispose()
     }
