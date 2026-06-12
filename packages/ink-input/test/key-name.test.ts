@@ -19,12 +19,16 @@ describe("toKeyName", () => {
     expect(toKeyName("", k({ tab: true }))).toBe("tab")
     expect(toKeyName("", k({ backspace: true }))).toBe("backspace")
     expect(toKeyName("", k({ delete: true }))).toBe("delete")
+    expect(toKeyName("", k({ pageUp: true }))).toBe("pageup")
+    expect(toKeyName("", k({ pageDown: true }))).toBe("pagedown")
   })
 
   it("special-key flags win over any input residue", () => {
     // terminals can put residue in input alongside flags; flags are authoritative
     expect(toKeyName("", k({ backspace: true }))).toBe("backspace")
     expect(toKeyName("[A", k({ upArrow: true }))).toBe("up")
+    expect(toKeyName("", k({ upArrow: true, meta: true }))).toBe("up")
+    expect(toKeyName("", k({ downArrow: true, ctrl: true }))).toBe("down")
   })
 
   it("maps ctrl/meta chords", () => {
