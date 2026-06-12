@@ -14,5 +14,6 @@ describe("HintBar", () => {
     const { lastFrame } = render(<HintBar bindings={bindings} />)
     expect(lastFrame()).toContain("j next")
     expect(lastFrame()).toContain("r rename")
+    expect(lastFrame()).toContain("j next · r rename")
   })
 })
