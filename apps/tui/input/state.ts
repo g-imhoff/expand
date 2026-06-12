@@ -43,6 +43,7 @@ export type Action =
   | { readonly _tag: "FocusCreate" }
   | { readonly _tag: "FocusList" }
   | { readonly _tag: "OpenRename"; readonly projectId: ProjectId; readonly currentName: string }
+  /** Directory overlay deliberately opens EMPTY (no currentDirectory prefill): submitting a stale old path by reflex-Enter is worse than retyping; matches pre-redesign behavior. */
   | { readonly _tag: "OpenDirectory"; readonly projectId: ProjectId }
   | { readonly _tag: "OpenMetadata"; readonly projectId: ProjectId; readonly description: string; readonly tags: string }
   | { readonly _tag: "OpenConfirmDelete"; readonly projectId: ProjectId }
