@@ -27,14 +27,17 @@ export const route = (
         return resolveBinding(confirmDeleteBindings, keyName)
       case "rename":
       case "directory": {
-        const action = resolveBinding(textOverlayBindings, keyName)
-        if (action !== null) return action
-        return textFieldConsumes(keyName, input) ? { _tag: "TextKey", keyName, input } : null
+        // Text field gets first refusal: a pasted literal "return"/"escape"
+        // is text, not a command. Real Enter/Esc arrive with input ""/"\r" —
+        // textFieldConsumes rejects them, so they fall through to the table.
+        if (textFieldConsumes(keyName, input)) return { _tag: "TextKey", keyName, input }
+        return resolveBinding(textOverlayBindings, keyName)
       }
       case "metadata": {
-        const action = resolveBinding(metadataBindings, keyName)
-        if (action !== null) return action
-        return textFieldConsumes(keyName, input) ? { _tag: "TextKey", keyName, input } : null
+        // Text field gets first refusal (see rename/directory). Real
+        // return/escape/tab fall through to switch fields / submit / cancel.
+        if (textFieldConsumes(keyName, input)) return { _tag: "TextKey", keyName, input }
+        return resolveBinding(metadataBindings, keyName)
       }
       default:
         return assertNever(ui.overlay)
@@ -43,11 +46,13 @@ export const route = (
 
   // 2. Create field focused. Structural property: NO command lookup exists in
   //    this branch — typing d-a-t-a cannot reach a binding because the code
-  //    path does not exist.
+  //    path does not exist. The text field gets first refusal: a pasted
+  //    literal "return"/"escape"/"tab" is text, not submit/clear/focus-list.
+  //    Real Enter/Esc/Tab arrive with input ""/"\r"/"\t" — textFieldConsumes
+  //    rejects them, so they fall through to createBindings.
   if (ui.focus === "create") {
-    const action = resolveBinding(createBindings, keyName)
-    if (action !== null) return action
-    return textFieldConsumes(keyName, input) ? { _tag: "TextKey", keyName, input } : null
+    if (textFieldConsumes(keyName, input)) return { _tag: "TextKey", keyName, input }
+    return resolveBinding(createBindings, keyName)
   }
 
   // 3. List focused → the list table, enriched with the selected project.
