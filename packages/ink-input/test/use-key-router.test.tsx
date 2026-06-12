@@ -19,7 +19,7 @@ describe("useKeyRouter", () => {
     await tick()
     stdin.write("a")
     await tick()
-    stdin.write("") // escape
+    stdin.write("\x1b") // escape
     await tick()
     stdin.write("\r") // return
     await tick()
