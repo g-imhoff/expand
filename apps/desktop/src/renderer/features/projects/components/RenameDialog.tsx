@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { ProjectId } from "@yodea/contracts/project"
 import {
   Dialog,
   DialogContent,
@@ -16,9 +17,9 @@ const describeError = (error: unknown): string => {
 
 export interface RenameDialogProps {
   readonly open: boolean
-  readonly project: { readonly id: string; readonly name: string } | null
+  readonly project: { readonly id: ProjectId; readonly name: string } | null
   readonly onOpenChange: (open: boolean) => void
-  readonly onRename: (id: string, name: string) => void
+  readonly onRename: (id: ProjectId, name: string) => void
   readonly error?: unknown
 }
 
@@ -37,7 +38,7 @@ export const RenameDialog = ({ open, project, onOpenChange, onRename, error }: R
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Rename project</DialogTitle>
-          <DialogDescription>Give “{project.name}” a new name.</DialogDescription>
+          <DialogDescription>Give "{project.name}" a new name.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <input

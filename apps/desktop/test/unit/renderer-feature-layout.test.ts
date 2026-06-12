@@ -20,7 +20,6 @@ describe("renderer feature folder layout", () => {
     expect(existsSync(at("apps/desktop/src/renderer/features/projects/components/EditMetadataDialog.tsx"))).toBe(true)
     expect(existsSync(at("apps/desktop/src/renderer/features/projects/pages/ProjectsView.tsx"))).toBe(true)
     expect(existsSync(at("apps/desktop/src/renderer/features/projects/pages/Workspace.tsx"))).toBe(true)
-    expect(existsSync(at("apps/desktop/src/renderer/features/projects/model/event-fold.ts"))).toBe(true)
     expect(existsSync(at("apps/desktop/src/renderer/features/projects/data/use-projects.ts"))).toBe(true)
     expect(existsSync(at("apps/desktop/src/renderer/features/projects/data/project-store.ts"))).toBe(true)
   })

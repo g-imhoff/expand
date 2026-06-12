@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, ManagedRuntime, PubSub, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
+import { Project as ProjectClass, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
 import { connectPort } from "@yodea/desktop/main/rpc/transport"
+
+const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const makePort = () => {
   const sent: Array<unknown> = []
@@ -32,30 +35,30 @@ const fakeStoreLayer = (
     events: Stream.fromPubSub(hub),
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
     createProject: (name: string) => {
-      const p = { id: `id-${name}`, name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
+      const p = ProjectClass.make({ id: ProjectId.make(uid(1)), name: ProjectName.make(name as ProjectName), directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       return SubscriptionRef.update(ref, (c) => [...c, p]).pipe(Effect.as(p))
     },
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
+    renameProject: (id: ProjectId, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? ProjectClass.make({ ...p, name: ProjectName.make(name as ProjectName) }) : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
       ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, directory } : p))).pipe(
+    changeDirectory: (id: ProjectId, directory: string) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? ProjectClass.make({ ...p, directory }) : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
       ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, archived: true } : p))).pipe(
+    archiveProject: (id: ProjectId) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: true }) : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
       ),
-    restoreProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, archived: false } : p))).pipe(
+    restoreProject: (id: ProjectId) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: false }) : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
       ),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? { ...p, ...patch } : p))).pipe(
+    setMetadata: (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
+      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? ProjectClass.make({ ...p, ...patch }) : p))).pipe(
         Effect.map((c) => c.find((p) => p.id === id)!)
       ),
-    deleteProject: (id: string) =>
+    deleteProject: (id: ProjectId) =>
       SubscriptionRef.update(ref, (c) => c.filter((p) => p.id !== id)).pipe(
         Effect.as({ id, deleted: true } as const)
       )
