@@ -23,6 +23,7 @@
       "@yodea/desktop/*": ["apps/desktop/src/*"],
       "@yodea/server/*": ["apps/server/*"],
       "@yodea/electron-ipc/*": ["packages/electron-ipc/*"],
+      "@yodea/ink-input/*": ["packages/ink-input/*"],
       "@yodea/*": ["apps/cli/*"]
     }
   },

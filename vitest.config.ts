@@ -41,6 +41,7 @@ export default defineConfig({
       "@yodea/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
       "@yodea/server": new URL("./apps/server", import.meta.url).pathname,
       "@yodea/electron-ipc": new URL("./packages/electron-ipc", import.meta.url).pathname,
+      "@yodea/ink-input": new URL("./packages/ink-input", import.meta.url).pathname,
       "@yodea": new URL("./apps/cli", import.meta.url).pathname
     }
   }
