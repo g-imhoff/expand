@@ -1,9 +1,17 @@
-import { app, BrowserWindow, ipcMain, MessageChannelMain, session } from "electron"
+import { app, BrowserWindow, MessageChannelMain, session } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Effect } from "effect"
+import type { ProjectStore } from "@yodea/client-core"
+import { bindIpc } from "@yodea/electron-ipc/main"
+import { electronBindDeps } from "@yodea/electron-ipc/main-electron"
 import { makeRuntime } from "@yodea/desktop/main/runtime"
 import { connectPort } from "@yodea/desktop/main/rpc/transport"
 import { hardenWebContents } from "@yodea/desktop/main/security/harden-web-contents"
+import { windowOptions } from "@yodea/desktop/main/security/window-options"
+import { originRulesFor } from "@yodea/desktop/main/ipc/origin-rules"
+import { wirePortLifecycle } from "@yodea/desktop/main/ipc/port-lifecycle"
+import { YodeaIpc } from "@yodea/desktop/shared/ipc/channels"
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -28,16 +36,7 @@ const installCsp = () => {
 }
 
 const createWindow = () => {
-  const win = new BrowserWindow({
-    width: 980,
-    height: 700,
-    webPreferences: {
-      preload: join(here, "../preload/index.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true
-    }
-  })
+  const win = new BrowserWindow(windowOptions(join(here, "../preload/index.cjs")))
 
   hardenWebContents({
     onWillNavigate: (cb) => win.webContents.on("will-navigate", (e, url) => cb(e, url)),
@@ -46,18 +45,43 @@ const createWindow = () => {
   })
 
   let currentTeardown: (() => Promise<void>) | undefined
-  const onPortRequest = (e: Electron.IpcMainEvent) => {
-    if (e.sender !== win.webContents) return
-    if (currentTeardown) void currentTeardown()
-    const { port1, port2 } = new MessageChannelMain()
-    currentTeardown = connectPort({ port: port1, runtime })
-    win.webContents.postMessage("yodea:port", null, [port2])
+  const teardownPort = () => {
+    if (currentTeardown) {
+      void currentTeardown()
+      currentTeardown = undefined
+    }
   }
-  ipcMain.on("yodea:port-request", onPortRequest)
 
-  win.on("closed", () => {
-    ipcMain.removeListener("yodea:port-request", onPortRequest)
-    if (currentTeardown) void currentTeardown()
+  const { ipc, target } = electronBindDeps(win)
+  // Explicit type params: the rpcPort handler is `Effect.sync` (R = never), so
+  // inference leaves bindIpc's R as `unknown`, which then fights runtime.runPromise
+  // (R = ProjectStore). Pin R/Port to the real services and transferable port type.
+  const bound = bindIpc<typeof YodeaIpc, ProjectStore, Electron.MessagePortMain>(
+    YodeaIpc,
+    {
+      rpcPort: () =>
+        Effect.sync(() => {
+          teardownPort() // supersede: a new request invalidates the previous port
+          const { port1, port2 } = new MessageChannelMain()
+          currentTeardown = connectPort({ port: port1, runtime })
+          return port2
+        })
+    },
+    {
+      ipc,
+      target,
+      originRules: originRulesFor(devUrl),
+      runPromise: (effect) => runtime.runPromise(effect),
+      log: (message) => console.warn(message)
+    }
+  )
+
+  wirePortLifecycle({
+    onNavigation: (cb) =>
+      win.webContents.on("did-start-navigation", (details) => cb({ isSameDocument: details.isSameDocument })),
+    onClosed: (cb) => win.on("closed", cb),
+    teardownPort,
+    unbind: bound.unbind
   })
 
   if (devUrl) win.loadURL(devUrl)
