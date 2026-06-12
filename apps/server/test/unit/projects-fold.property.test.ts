@@ -90,4 +90,27 @@ describe("projectsFromEvents — properties", () => {
       expect(new Set(ids).size).toBe(ids.length)
     }))
   })
+
+  it("mutations are applied: archiving an existing project sets archived:true", () => {
+    // Draw a single id from the pool; guarantee create then archive in that order.
+    const archiveArb = fc
+      .uniqueArray(fc.uuid({ version: 4 }), { minLength: 1, maxLength: 4 })
+      .chain((pool) =>
+        fc.tuple(
+          fc.constantFrom(...pool),
+          tsArb,
+          tsArb
+        )
+      )
+    fc.assert(fc.property(archiveArb, ([id, t1, t2]) => {
+      const projId = ProjectId.make(id)
+      const log = [
+        ProjectCreated.make({ projectId: projId, name: ProjectName.make("alpha"), occurredAt: t1 < t2 ? t1 : t2 }),
+        ProjectArchived.make({ projectId: projId, occurredAt: t1 < t2 ? t2 : t1 })
+      ]
+      const result = projectsFromEvents(log)
+      expect(result).toHaveLength(1)
+      expect(result[0]?.archived).toBe(true)
+    }))
+  })
 })
