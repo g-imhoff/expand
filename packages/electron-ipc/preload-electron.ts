@@ -11,9 +11,6 @@ declare const window: {
 }
 
 export const electronPreloadDeps = (): PreloadIpcDeps => {
-  // file:// pages have an opaque origin ("null") — there the source+nonce checks
-  // on the receiving side are the load-bearing guards (spec §8).
-  const targetOrigin = window.location.origin === "null" ? "*" : window.location.origin
   return {
     send: (channel, payload) => ipcRenderer.send(channel, payload),
     invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
@@ -23,6 +20,13 @@ export const electronPreloadDeps = (): PreloadIpcDeps => {
       return () => ipcRenderer.removeListener(channel, wrapped)
     },
     exposeInMainWorld: (key, api) => contextBridge.exposeInMainWorld(key, api),
-    postToMainWorld: (message, transfer) => window.postMessage(message, targetOrigin, transfer)
+    postToMainWorld: (message, transfer) => {
+      // Read the origin per post — origin can change over the preload's lifetime, so a
+      // value captured once at setup could go stale. file:// pages have an opaque origin
+      // ("null"); there the source+nonce checks on the receiving side are the load-bearing
+      // guards (spec §8), and we fall back to "*".
+      const targetOrigin = window.location.origin === "null" ? "*" : window.location.origin
+      window.postMessage(message, targetOrigin, transfer)
+    }
   }
 }
