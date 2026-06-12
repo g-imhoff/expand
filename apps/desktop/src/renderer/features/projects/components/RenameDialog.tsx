@@ -38,7 +38,7 @@ export const RenameDialog = ({ open, project, onOpenChange, onRename, error }: R
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Rename project</DialogTitle>
-          <DialogDescription>Give "{project.name}" a new name.</DialogDescription>
+          <DialogDescription>Give “{project.name}” a new name.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <input

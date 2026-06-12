@@ -44,7 +44,7 @@ export const ChangeDirectoryDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change directory</DialogTitle>
-          <DialogDescription>Set the working directory for "{project.name}".</DialogDescription>
+          <DialogDescription>Set the working directory for “{project.name}”.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit}>
           <input
