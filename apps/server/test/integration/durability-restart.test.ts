@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectName, Tag } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -49,10 +50,10 @@ describe.sequential("durability across a backend restart", () => {
     const program = Effect.gen(function* () {
       yield* boot((client) =>
         Effect.gen(function* () {
-          const { project } = yield* client.ProjectCreate({ name: "persist", ensure: false })
-          yield* client.ProjectRename({ id: project.id, name: "persist-renamed" })
+          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("persist"), ensure: false })
+          yield* client.ProjectRename({ id: project.id, name: ProjectName.make("persist-renamed") })
           yield* client.ProjectArchive({ id: project.id })
-          yield* client.ProjectSetMetadata({ id: project.id, description: "kept", tags: ["t1"] })
+          yield* client.ProjectSetMetadata({ id: project.id, description: "kept", tags: [Tag.make("t1")] })
           return project.id
         })
       )
@@ -93,10 +94,10 @@ describe.sequential("durability across a backend restart", () => {
     const program = Effect.gen(function* () {
       const ids = yield* boot((client) =>
         Effect.gen(function* () {
-          const keep = (yield* client.ProjectCreate({ name: "keeper", ensure: false })).project
-          yield* client.ProjectRename({ id: keep.id, name: "keeper-renamed" })
+          const keep = (yield* client.ProjectCreate({ name: ProjectName.make("keeper"), ensure: false })).project
+          yield* client.ProjectRename({ id: keep.id, name: ProjectName.make("keeper-renamed") })
           yield* client.ProjectChangeDirectory({ id: keep.id, directory: workdir })
-          const doomed = (yield* client.ProjectCreate({ name: "doomed", ensure: false })).project
+          const doomed = (yield* client.ProjectCreate({ name: ProjectName.make("doomed"), ensure: false })).project
           yield* client.ProjectDelete({ id: doomed.id })
           return { keepId: keep.id, doomedId: doomed.id }
         })

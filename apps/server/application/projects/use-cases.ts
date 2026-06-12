@@ -1,6 +1,7 @@
 import { Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
+import { Project, ProjectId } from "@yodea/contracts/project"
+import type { ProjectCreateResult, ProjectDeleteResult, ProjectName, Tag } from "@yodea/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { EventStore } from "@yodea/server/db/event-store"
 import { EventBus } from "@yodea/server/application/event-bus"
@@ -12,25 +13,19 @@ type UseCaseError = SqlError | Schema.SchemaError
 
 export class ProjectUseCases extends Context.Service<ProjectUseCases, {
   readonly createProject: (
-    name: string,
+    name: ProjectName,
     ensure: boolean,
     directory?: string | null
   ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
-  readonly renameProject: (
-    id: string,
-    name: string
-  ) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | UseCaseError>
-  readonly changeDirectory: (
-    id: string,
-    directory: string
-  ) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
-  readonly archiveProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
-  readonly restoreProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  readonly renameProject: (id: ProjectId, name: ProjectName) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | UseCaseError>
+  readonly changeDirectory: (id: ProjectId, directory: string) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
+  readonly archiveProject: (id: ProjectId) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  readonly restoreProject: (id: ProjectId) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
   readonly setMetadata: (
-    id: string,
-    patch: { description?: string | null; tags?: ReadonlyArray<string> }
+    id: ProjectId,
+    patch: { description?: string | null; tags?: ReadonlyArray<Tag> }
   ) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
-  readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
+  readonly deleteProject: (id: ProjectId) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/ProjectUseCases", {
   make: Effect.gen(function* () {
@@ -67,38 +62,26 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         }
       })
 
-    const createProject = (name: string, ensure: boolean, directory?: string | null) =>
+    const createProject = (name: ProjectName, ensure: boolean, directory?: string | null) =>
       mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.name === name)
         if (existing !== undefined) {
-          if (ensure) return { created: false, project: existing }
+          if (ensure) return { created: false, project: existing } as const
           return yield* Effect.fail(new ProjectAlreadyExists({ name }))
         }
         if (typeof directory === "string") {
           yield* validateDirectory(directory, all)
         }
         const dir = typeof directory === "string" ? directory : null
-        const id = newId()
+        const id = ProjectId.make(newId())
         const createdAt = new Date().toISOString()
         const event = ProjectCreated.make({ projectId: id, name, directory: dir, occurredAt: createdAt })
         yield* commit(id, event)
-        return {
-          created: true,
-          project: {
-            id,
-            name,
-            directory: dir,
-            description: null,
-            tags: [],
-            archived: false,
-            createdAt,
-            updatedAt: createdAt
-          }
-        }
+        return { created: true, project: Project.fromCreated(event) } as const
       }))
 
-    const renameProject = (id: string, name: string) =>
+    const renameProject = (id: ProjectId, name: ProjectName) =>
       mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const target = all.find((p) => p.id === id)
@@ -109,10 +92,10 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const occurredAt = new Date().toISOString()
         const event = ProjectRenamed.make({ projectId: id, name, occurredAt })
         yield* commit(id, event)
-        return { ...target, name, updatedAt: occurredAt }
+        return Project.applyEvent(target, event)
       }))
 
-    const changeDirectory = (id: string, directory: string) =>
+    const changeDirectory = (id: ProjectId, directory: string) =>
       mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
@@ -121,11 +104,11 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const occurredAt = new Date().toISOString()
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
         yield* commit(id, event)
-        return { ...existing, directory, updatedAt: occurredAt }
+        return Project.applyEvent(existing, event)
       }))
 
     const toggleArchived = (
-      id: string,
+      id: ProjectId,
       makeEvent: (occurredAt: string) => typeof ProjectArchived.Type | typeof ProjectRestored.Type
     ) =>
       mutex.withPermit(Effect.gen(function* () {
@@ -138,12 +121,12 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         return updated ?? existing
       }))
 
-    const archiveProject = (id: string) =>
+    const archiveProject = (id: ProjectId) =>
       toggleArchived(id, (occurredAt) => ProjectArchived.make({ projectId: id, occurredAt }))
-    const restoreProject = (id: string) =>
+    const restoreProject = (id: ProjectId) =>
       toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
 
-    const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+    const setMetadata = (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
       mutex.withPermit(Effect.gen(function* () {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
@@ -160,7 +143,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         return updated ?? existing
       }))
 
-    const deleteProject = (id: string) =>
+    const deleteProject = (id: ProjectId) =>
       mutex.withPermit(Effect.gen(function* () {
         const existing = (yield* projection.list).find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))

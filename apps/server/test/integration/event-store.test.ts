@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest"
 import { Cause, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { ProjectId, ProjectName } from "@yodea/contracts/project"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ProjectCreated } from "@yodea/contracts/events/project"
+
+const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestStore = EventStoreLayer.pipe(Layer.provide(TestSql))
@@ -24,8 +27,8 @@ describe("EventStore", () => {
     const seqs = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        const s1 = yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
-        const s2 = yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
+        const s1 = yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        const s2 = yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
         return [s1, s2]
       })
     )
@@ -36,13 +39,13 @@ describe("EventStore", () => {
     const rows = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
-        yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
         return yield* store.readAll
       })
     )
     expect(rows.map((r) => r.seq)).toEqual([1, 2])
-    expect(rows.map((r) => r.event.projectId)).toEqual(["p1", "p2"])
+    expect(rows.map((r) => r.event.projectId)).toEqual([uid(1), uid(2)])
     expect(rows[0]?.event._tag).toBe("ProjectCreated")
   })
 
@@ -55,9 +58,9 @@ describe("EventStore", () => {
     const out = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
-        yield* store.append("p2", ProjectCreated.make({ projectId: "p2", name: "B", occurredAt: "t2" }))
-        yield* store.append("p3", ProjectCreated.make({ projectId: "p3", name: "C", occurredAt: "t3" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
+        yield* store.append(uid(3), ProjectCreated.make({ projectId: ProjectId.make(uid(3)), name: ProjectName.make("gamma"), occurredAt: "t3" }))
         return {
           fromZero: yield* store.readFrom(0),
           fromOne: yield* store.readFrom(1),
@@ -77,14 +80,14 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
-        yield* sql`INSERT INTO events ${sql.insert({ stream_id: "p2", event_type: "ProjectCreated", payload: "{ not json" })}`
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(2), event_type: "ProjectCreated", payload: "{ not json" })}`
         return yield* store.readAll
       })
     )
     expect(r._tag).toBe("Success")
     if (r._tag === "Success") {
-      expect(r.success.map((x) => x.event.projectId)).toEqual(["p1"])
+      expect(r.success.map((x) => x.event.projectId)).toEqual([uid(1)])
       expect(r.success.map((x) => x.seq)).toEqual([1])
     }
   })
@@ -94,7 +97,7 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append("p1", ProjectCreated.make({ projectId: "p1", name: "A", occurredAt: "t1" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
         yield* sql`DROP TABLE events`
         return yield* store.readAll
       })

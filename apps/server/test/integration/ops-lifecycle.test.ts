@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectName, Tag } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -41,12 +42,12 @@ describe.sequential("project operations over the wire", () => {
           const events = yield* client.Events({}, { asQueue: true })
           yield* Effect.sleep("500 millis")
 
-          const { project } = yield* client.ProjectCreate({ name: "ops", ensure: false })
-          const renamed = yield* client.ProjectRename({ id: project.id, name: "ops-renamed" })
+          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("ops"), ensure: false })
+          const renamed = yield* client.ProjectRename({ id: project.id, name: ProjectName.make("ops-renamed") })
           const dirSet = yield* client.ProjectChangeDirectory({ id: project.id, directory: workdir })
           const archived = yield* client.ProjectArchive({ id: project.id })
           const restored = yield* client.ProjectRestore({ id: project.id })
-          const meta = yield* client.ProjectSetMetadata({ id: project.id, description: "desc", tags: ["a", "b"] })
+          const meta = yield* client.ProjectSetMetadata({ id: project.id, description: "desc", tags: [Tag.make("a"), Tag.make("b")] })
           const deleted = yield* client.ProjectDelete({ id: project.id })
 
           const tags: string[] = []
@@ -83,7 +84,7 @@ describe.sequential("project operations over the wire", () => {
       yield* awaitEndpointUp
       const result = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const { project } = yield* client.ProjectCreate({ name: "dirfail", ensure: false })
+          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("dirfail"), ensure: false })
           return yield* client.ProjectChangeDirectory({ id: project.id, directory: "/definitely/not/here" }).pipe(Effect.result)
         })
       )

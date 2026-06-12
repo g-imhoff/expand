@@ -4,6 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -38,7 +39,7 @@ describe.sequential("change-directory end-to-end", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const created = yield* client.ProjectCreate({ name: "cde2e", ensure: false })
+          const created = yield* client.ProjectCreate({ name: ProjectName.make("cde2e"), ensure: false })
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
           const moved = yield* client.ProjectChangeDirectory({ id: created.project.id, directory: target })
@@ -63,7 +64,7 @@ describe.sequential("change-directory end-to-end", () => {
       yield* awaitEndpointUp
       const result = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const created = yield* client.ProjectCreate({ name: "cdbad", ensure: false })
+          const created = yield* client.ProjectCreate({ name: ProjectName.make("cdbad"), ensure: false })
           return yield* client.ProjectChangeDirectory({ id: created.project.id, directory: "rel/dir" }).pipe(Effect.result)
         })
       )
