@@ -1,0 +1,60 @@
+// apps/tui/input/state.ts
+// Pure module — no ink imports. The TUI's input state machine vocabulary.
+import type { Project, ProjectId } from "@yodea/contracts/project"
+import { emptyTextField, type TextFieldState } from "@yodea/ink-input/text-field"
+import type { KeyName } from "@yodea/ink-input/key-name"
+
+export type Focus = "list" | "create"
+
+export type Overlay =
+  | { readonly kind: "rename"; readonly projectId: ProjectId; readonly field: TextFieldState }
+  | { readonly kind: "directory"; readonly projectId: ProjectId; readonly field: TextFieldState }
+  | {
+      readonly kind: "metadata"; readonly projectId: ProjectId
+      readonly active: "description" | "tags"
+      readonly description: TextFieldState; readonly tags: TextFieldState
+    }
+  | { readonly kind: "confirmDelete"; readonly projectId: ProjectId }
+
+export type UiState = {
+  readonly focus: Focus
+  readonly overlay: Overlay | null
+  readonly selectedId: ProjectId | null
+  /** Last known index of the selection — lets reconcile clamp to the nearest
+   *  neighbor when the selected project vanishes (concurrent client). */
+  readonly selectedIndex: number
+  readonly create: TextFieldState
+}
+
+export const initialUiState: UiState = {
+  focus: "list", overlay: null, selectedId: null, selectedIndex: 0, create: emptyTextField
+}
+
+/** Intents carried by the list binding table; route() enriches them with the
+ *  selected project's data (the only projects-aware step). */
+export type ListIntent =
+  | "SelectNext" | "SelectPrev"
+  | "OpenRename" | "OpenDirectory" | "OpenMetadata"
+  | "ToggleArchive" | "OpenConfirmDelete" | "FocusCreate"
+
+/** Fully resolved actions — everything reduce needs is in the payload. */
+export type Action =
+  | { readonly _tag: "Select"; readonly id: ProjectId; readonly index: number }
+  | { readonly _tag: "FocusCreate" }
+  | { readonly _tag: "FocusList" }
+  | { readonly _tag: "OpenRename"; readonly projectId: ProjectId; readonly currentName: string }
+  | { readonly _tag: "OpenDirectory"; readonly projectId: ProjectId }
+  | { readonly _tag: "OpenMetadata"; readonly projectId: ProjectId; readonly description: string; readonly tags: string }
+  | { readonly _tag: "OpenConfirmDelete"; readonly projectId: ProjectId }
+  | { readonly _tag: "ToggleArchive"; readonly projectId: ProjectId; readonly currentlyArchived: boolean }
+  | { readonly _tag: "CancelOverlay" }
+  | { readonly _tag: "SubmitOverlay" }
+  | { readonly _tag: "SwitchMetadataField" }
+  | { readonly _tag: "TextKey"; readonly keyName: KeyName; readonly input: string }
+  | { readonly _tag: "SubmitCreate" }
+  | { readonly _tag: "ClearCreate" }
+  | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }
+
+export const assertNever = (value: never): never => {
+  throw new Error(`unreachable: ${JSON.stringify(value)}`)
+}
