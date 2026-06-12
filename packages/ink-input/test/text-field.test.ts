@@ -26,6 +26,16 @@ describe("textFieldConsumes", () => {
     expect(textFieldConsumes("up", "")).toBe(false)
     expect(textFieldConsumes("down", "")).toBe(false)
   })
+  it("pasted literal key-name words are text, not key actions", () => {
+    expect(textFieldConsumes("delete", "delete")).toBe(true)
+    expect(textFieldConsumes("backspace", "backspace")).toBe(true)
+    expect(textFieldConsumes("tab", "tab")).toBe(true)
+    expect(textFieldReduce(textField("x"), "delete", "delete").value).toBe("xdelete")
+    expect(textFieldReduce(textField("x"), "tab", "tab").value).toBe("xtab")
+  })
+  it("does not consume an unnamed empty key event", () => {
+    expect(textFieldConsumes("", "")).toBe(false)
+  })
 })
 
 describe("textFieldReduce", () => {
@@ -37,6 +47,10 @@ describe("textFieldReduce", () => {
     expect(textFieldReduce(textField("ab"), "backspace", "").value).toBe("a")
     expect(textFieldReduce(textField("ab"), "delete", "").value).toBe("a")
     expect(textFieldReduce(emptyTextField, "backspace", "").value).toBe("")
+  })
+  it("backspace is code-point safe (no surrogate-pair corruption)", () => {
+    expect(textFieldReduce(textField("a🎉"), "backspace", "").value).toBe("a")
+    expect(textFieldReduce(textField("🎉"), "delete", "").value).toBe("")
   })
   it("ignores non-consumed keys", () => {
     expect(textFieldReduce(textField("ab"), "escape", "")).toEqual(textField("ab"))
