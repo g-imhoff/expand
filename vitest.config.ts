@@ -9,6 +9,7 @@ export default defineConfig({
       "packages/**/test/**/*.test.tsx",
       "test/architecture/**/*.test.ts"
     ],
+    setupFiles: ["apps/desktop/test/ui/setup.ts"],
     environment: "node",
     globals: false,
     testTimeout: 30_000,
