@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { ProjectName, Tag } from "@yodea/contracts/project"
 
 let dir: string
 let bunMainBefore: string
@@ -42,7 +43,7 @@ describe("ProjectStore", () => {
           Stream.runCollect
         )
       )
-      const created = await rtA.runPromise(storeA.createProject("alpha"))
+      const created = await rtA.runPromise(storeA.createProject(ProjectName.make("alpha")))
       expect(created.name).toBe("alpha")
       await seen
 
@@ -59,8 +60,8 @@ describe("ProjectStore", () => {
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
-      const created = await rt.runPromise(store.createProject("alpha"))
-      await rt.runPromise(store.renameProject(created.id, "alpha-renamed"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("alpha")))
+      await rt.runPromise(store.renameProject(created.id, ProjectName.make("alpha-renamed")))
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(snapshot.find((p) => p.id === created.id)?.name).toBe("alpha-renamed")
@@ -75,7 +76,7 @@ describe("ProjectStore", () => {
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cds-"))
     try {
       const store = await rt.runPromise(ProjectStore)
-      const created = await rt.runPromise(store.createProject("cdstore"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("cdstore")))
       const moved = await rt.runPromise(store.changeDirectory(created.id, tmp))
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
@@ -93,7 +94,7 @@ describe("ProjectStore", () => {
     try {
       const store = await rt.runPromise(ProjectStore)
       await new Promise((r) => setTimeout(r, 300))
-      const created = await rt.runPromise(store.createProject("toggleme"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("toggleme")))
       const seenArchived = rt.runPromise(
         SubscriptionRef.changes(store.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id && p.archived === true)),
@@ -114,7 +115,7 @@ describe("ProjectStore", () => {
     const rtA = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
-      const created = await rtA.runPromise(storeA.createProject("archived-at-rest"))
+      const created = await rtA.runPromise(storeA.createProject(ProjectName.make("archived-at-rest")))
       await rtA.runPromise(storeA.archiveProject(created.id))
       await new Promise((r) => setTimeout(r, 300))
 
@@ -146,7 +147,7 @@ describe("ProjectStore", () => {
         )
       )
       await new Promise((r) => setTimeout(r, 300))
-      await rt.runPromise(store.createProject("gamma"))
+      await rt.runPromise(store.createProject(ProjectName.make("gamma")))
       const events = await seen
       expect(Array.from(events)[0]).toMatchObject({ event: { _tag: "ProjectCreated", name: "gamma" } })
     } finally {
@@ -158,8 +159,8 @@ describe("ProjectStore", () => {
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
-      const created = await rt.runPromise(store.createProject("withmeta"))
-      await rt.runPromise(store.setMetadata(created.id, { description: "desc", tags: ["a", "a"] }))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("withmeta")))
+      await rt.runPromise(store.setMetadata(created.id, { description: "desc", tags: [Tag.make("a"), Tag.make("a")] }))
       await new Promise((r) => setTimeout(r, 300))
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       const p = snapshot.find((x) => x.id === created.id)
@@ -177,7 +178,7 @@ describe("ProjectStore", () => {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
       await new Promise((r) => setTimeout(r, 500))
-      const created = await rtA.runPromise(storeA.createProject("toremove"))
+      const created = await rtA.runPromise(storeA.createProject(ProjectName.make("toremove")))
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
           Stream.filter((ps) => ps.some((p) => p.id === created.id)),

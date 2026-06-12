@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { ProjectClient, ServerClient } from "@yodea/client-core"
+import { ProjectName } from "@yodea/contracts/project"
 
 const projectStub = Layer.succeed(ProjectClient, {
   create: ({ name }: { name: string; ensure: boolean }) =>
@@ -21,7 +22,7 @@ const serverStub = Layer.succeed(ServerClient, {
 describe("client services", () => {
   it("exposes project operations through ProjectClient", async () => {
     const created = await Effect.runPromise(
-      Effect.flatMap(ProjectClient, (c) => c.create({ name: "alpha", ensure: true })).pipe(Effect.provide(projectStub))
+      Effect.flatMap(ProjectClient, (c) => c.create({ name: ProjectName.make("alpha"), ensure: true })).pipe(Effect.provide(projectStub))
     )
     expect(created.project.name).toBe("alpha")
   })

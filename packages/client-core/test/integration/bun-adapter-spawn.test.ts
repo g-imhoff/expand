@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
+import { ProjectName } from "@yodea/contracts/project"
 
 let dir: string
 beforeEach(() => {
@@ -34,7 +35,7 @@ describe("Bun adapter (explicit backendCommand)", () => {
           Effect.timeout("5 seconds")
         )
       )
-      const created = await rt.runPromise(store.createProject("spawned"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("spawned")))
       expect(created.name).toBe("spawned")
       await seen
 

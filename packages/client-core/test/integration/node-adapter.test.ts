@@ -7,6 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeNodeAdapter } from "@yodea/client-core/adapters/node"
+import { ProjectName } from "@yodea/contracts/project"
 
 let dir: string
 beforeEach(() => {
@@ -36,7 +37,7 @@ describe("Node adapter", () => {
           Effect.timeout("5 seconds")
         )
       )
-      const created = await rt.runPromise(store.createProject("via-node"))
+      const created = await rt.runPromise(store.createProject(ProjectName.make("via-node")))
       expect(created.name).toBe("via-node")
       await seen
 
