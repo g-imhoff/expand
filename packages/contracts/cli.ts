@@ -17,43 +17,48 @@ export const ErrorCode = Schema.Literals([
 ])
 export type ErrorCode = typeof ErrorCode.Type
 
-export const ErrorEnvelope = Schema.Struct({
-  apiVersion: Schema.Literal(API_VERSION),
-  kind: Schema.Literal("Error"),
-  code: ErrorCode,
-  message: Schema.String,
-  input: Schema.optional(Schema.Unknown),
-  hint: Schema.optional(Schema.String),
-  retryable: Schema.Boolean
-})
-export type ErrorEnvelope = typeof ErrorEnvelope.Type
+export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
+  Schema.Struct({
+    apiVersion: Schema.Literal(API_VERSION),
+    kind: Schema.Literal("Error"),
+    code: ErrorCode,
+    message: Schema.String,
+    input: Schema.optional(Schema.Unknown),
+    hint: Schema.optional(Schema.String),
+    retryable: Schema.Boolean
+  })
+) {}
 
-export const ProjectEnvelope = Schema.Struct({
-  apiVersion: Schema.Literal(API_VERSION),
-  kind: Schema.Literal("Project"),
-  created: Schema.Boolean,
-  data: Project
-})
-export type ProjectEnvelope = typeof ProjectEnvelope.Type
+export class ProjectEnvelope extends Schema.Opaque<ProjectEnvelope>()(
+  Schema.Struct({
+    apiVersion: Schema.Literal(API_VERSION),
+    kind: Schema.Literal("Project"),
+    created: Schema.Boolean,
+    data: Project
+  })
+) {}
 
-export const ProjectListEnvelope = Schema.Struct({
-  apiVersion: Schema.Literal(API_VERSION),
-  kind: Schema.Literal("ProjectList"),
-  count: Schema.Number,
-  data: Schema.Array(Project)
-})
-export type ProjectListEnvelope = typeof ProjectListEnvelope.Type
+export class ProjectListEnvelope extends Schema.Opaque<ProjectListEnvelope>()(
+  Schema.Struct({
+    apiVersion: Schema.Literal(API_VERSION),
+    kind: Schema.Literal("ProjectList"),
+    count: Schema.Number,
+    data: Schema.Array(Project)
+  })
+) {}
 
-export const ProjectDeleteEnvelope = Schema.Struct({
-  apiVersion: Schema.Literal(API_VERSION),
-  kind: Schema.Literal("ProjectDelete"),
-  data: ProjectDeleteResult
-})
-export type ProjectDeleteEnvelope = typeof ProjectDeleteEnvelope.Type
+export class ProjectDeleteEnvelope extends Schema.Opaque<ProjectDeleteEnvelope>()(
+  Schema.Struct({
+    apiVersion: Schema.Literal(API_VERSION),
+    kind: Schema.Literal("ProjectDelete"),
+    data: ProjectDeleteResult
+  })
+) {}
 
-export const HealthEnvelope = Schema.Struct({
-  apiVersion: Schema.Literal(API_VERSION),
-  kind: Schema.Literal("Health"),
-  data: Schema.Struct({ status: Schema.String })
-})
-export type HealthEnvelope = typeof HealthEnvelope.Type
+export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
+  Schema.Struct({
+    apiVersion: Schema.Literal(API_VERSION),
+    kind: Schema.Literal("Health"),
+    data: Schema.Struct({ status: Schema.String })
+  })
+) {}
