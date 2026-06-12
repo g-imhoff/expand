@@ -35,6 +35,7 @@ Thumbs.db
 
 # AI Generated Files
 /docs/superpowers
+/.claude/worktrees
 
 # Playwright E2E artifacts
 test-results/
