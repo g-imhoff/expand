@@ -1,9 +1,5 @@
-import { contextBridge, ipcRenderer } from "electron"
+import { exposeBridge } from "@yodea/electron-ipc/preload"
+import { electronPreloadDeps } from "@yodea/electron-ipc/preload-electron"
+import { YodeaIpc } from "@yodea/desktop/shared/ipc/channels"
 
-ipcRenderer.on("yodea:port", (event) => {
-  window.postMessage("yodea:port", "*", event.ports)
-})
-
-contextBridge.exposeInMainWorld("yodea", {
-  requestPort: () => ipcRenderer.send("yodea:port-request")
-})
+exposeBridge(YodeaIpc, "yodea", electronPreloadDeps())
