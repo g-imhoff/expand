@@ -5,7 +5,7 @@
 import type { KeyName } from "@yodea/ink-input/key-name"
 
 export type Binding<A> = {
-  readonly keys: ReadonlyArray<KeyName>
+  readonly keys: readonly [KeyName, ...Array<KeyName>]
   readonly label: string
   readonly action: A
 }
