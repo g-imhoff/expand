@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { Schema } from "effect"
 import type { ProjectId } from "@yodea/contracts/project"
 import {
   Dialog,
@@ -9,6 +10,9 @@ import {
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
 const describeError = (error: unknown): string => {
+  if (Schema.isSchemaError(error)) {
+    return `invalid input: ${error.message}`
+  }
   if (typeof error === "object" && error !== null && "_tag" in error) {
     return String((error as { _tag: unknown })._tag)
   }
