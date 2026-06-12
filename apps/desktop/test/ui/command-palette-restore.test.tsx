@@ -18,13 +18,13 @@ describe("CommandPalette — archived projects stay reachable", () => {
     const { baseElement } = renderPalette([fakeProject({ id: uid(1), name: "alpha", archived: true })])
     expect(baseElement.textContent).toContain('Restore')
     expect(baseElement.textContent).toContain('alpha')
-    expect(baseElement.textContent).not.toContain('Archive "alpha"')
+    expect(baseElement.textContent).not.toContain('Archive')
   })
 
   it("shows Archive (not Restore) for a live project — toggle keys off archived", () => {
     const { baseElement } = renderPalette([fakeProject({ id: uid(2), name: "beta", archived: false })])
     expect(baseElement.textContent).toContain('Archive')
     expect(baseElement.textContent).toContain('beta')
-    expect(baseElement.textContent).not.toContain('Restore "beta"')
+    expect(baseElement.textContent).not.toContain('Restore')
   })
 })
