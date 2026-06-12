@@ -1,5 +1,10 @@
 // test/architecture/ipc-boundary.test.ts
 // ============================================================================
+// DO NOT MODIFY — architectural invariant I-1 (see docs/architecture/BOUNDARIES.md).
+// This test is part of the SPECIFICATION, not the implementation. Changing or
+// relaxing it changes the system's guarantees and requires an architecture-
+// decision document plus architecture-owner review. CODEOWNERS routes this path.
+//
 // Architectural enforcement for the typed IPC framework (BOUNDARIES.md I-1,
 // amended). ADR: docs/superpowers/specs/2026-06-12-typed-ipc-framework-design.md
 // and docs/superpowers/plans/2026-06-12-typed-ipc-framework.md.
