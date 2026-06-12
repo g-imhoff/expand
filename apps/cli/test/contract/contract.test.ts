@@ -221,6 +221,12 @@ describe("CLI contract", () => {
     expect(r.code).toBe(7)
   })
 
+  it("project set-metadata --tag 'BAD TAG' -> INVALID_ARGUMENT on stderr, exit 2 (parse-time)", async () => {
+    const r = await runCli(tree(metaClient), ["project", "set-metadata", "alpha", "--tag", "BAD TAG"])
+    expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })
+    expect(r.code).toBe(2)
+  })
+
   it("project delete <uuid> -> ProjectDelete envelope, exit 0", async () => {
     const uuid = "f47ac10b-58cc-4372-a567-0e02b2c3d479"
     const stub = { ...okClient, ProjectDelete: ({ id }: { id: string }) => Effect.succeed({ id, deleted: true }) }
