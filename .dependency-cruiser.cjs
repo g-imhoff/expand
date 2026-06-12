@@ -15,6 +15,30 @@ module.exports = {
         "BOUNDARIES.md I-1: renderer and preload reach backend only through the preload-brokered MessagePort.",
       from: { path: "^apps/desktop/src/(renderer|preload)/" },
       to: { path: "^(packages/client-core|apps/desktop/src/main)(/|$)" }
+    },
+    {
+      name: "electron-ipc-package-isolated",
+      severity: "error",
+      comment:
+        "BOUNDARIES.md I-1 (amended): the generic IPC framework imports no app code.",
+      from: { path: "^packages/electron-ipc/" },
+      to: { path: "^(apps|packages)/", pathNot: "^packages/electron-ipc/" }
+    },
+    {
+      name: "shared-ipc-stays-pure",
+      severity: "error",
+      comment:
+        "BOUNDARIES.md I-1 (amended): the IPC registry imports only the framework contract.",
+      from: { path: "^apps/desktop/src/shared/ipc/" },
+      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc|apps/desktop/src/shared/ipc)/" }
+    },
+    {
+      name: "preload-imports-allowlist",
+      severity: "error",
+      comment:
+        "BOUNDARIES.md I-1 (amended): the preload may import only the IPC framework and the registry.",
+      from: { path: "^apps/desktop/src/preload/" },
+      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc|apps/desktop/src/shared/ipc|apps/desktop/src/preload)/" }
     }
   ],
   options: {

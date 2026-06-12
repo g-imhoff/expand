@@ -103,7 +103,7 @@ export const portGrantName = (contract: IpcContract, key: string): string =>
   `${contract.prefix}:${key}:grant`
 
 // ---------------------------------------------------------------------------
-// Wire envelopes (plain JSON-ish shapes; cross contextBridge/structured clone)
+// Wire envelopes (plain JSON-ish shapes; cross the context bridge via structured clone)
 // ---------------------------------------------------------------------------
 
 export interface SuccessEnvelope {
