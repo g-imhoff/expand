@@ -9,6 +9,24 @@ import { RendererProjectStore, RendererProjectStoreLayer } from "@yodea/desktop/
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
+// Polls a SubscriptionRef until `predicate` holds, instead of a fixed sleep that
+// is fragile under CPU contention. Bounded so a never-converging condition fails
+// loudly (with the last observed value) rather than hanging or sleeping blindly.
+const pollUntil = <A>(
+  ref: SubscriptionRef.SubscriptionRef<A>,
+  predicate: (a: A) => boolean,
+  describe: string
+): Effect.Effect<A> =>
+  Effect.gen(function* () {
+    for (let i = 0; i < 200; i++) {
+      const value = yield* SubscriptionRef.get(ref)
+      if (predicate(value)) return value
+      yield* Effect.sleep("5 millis")
+    }
+    const last = yield* SubscriptionRef.get(ref)
+    return yield* Effect.die(new Error(`pollUntil never converged: ${describe}; last value: ${JSON.stringify(last)}`))
+  })
+
 const stubRpc = (initial: ReadonlyArray<Project>, events: ReadonlyArray<SequencedEvent>): Layer.Layer<ProjectRpc> =>
   Layer.succeed(ProjectRpc, {
     create: () => Effect.die("unused"),
@@ -30,8 +48,13 @@ describe("RendererProjectStore", () => {
     ]
     const program = Effect.gen(function* () {
       const store = yield* RendererProjectStore
-      yield* Effect.sleep("20 millis") // let the forked subscriber consume the finite stream
-      return yield* SubscriptionRef.get(store.projects)
+      // Poll until the forked subscriber has folded both events (Created + Renamed)
+      // into the ref, rather than guessing how long that takes.
+      return yield* pollUntil(
+        store.projects,
+        (ps) => ps.length === 1 && ps[0]!.name === "alpha-2",
+        "stream folded into projects -> [alpha-2]"
+      )
     }).pipe(Effect.scoped, Effect.provide(RendererProjectStoreLayer), Effect.provide(stubRpc([], events)))
 
     const result = await Effect.runPromise(program)
@@ -92,7 +115,17 @@ describe("RendererProjectStore — bootstrap window", () => {
           Stream.take(1),
           Stream.runDrain
         )
-        yield* Effect.sleep("50 millis")
+        // The stale seq:1 (v0) event is published after seq:3 (v3) and so is folded
+        // after it (FIFO). Instead of sleeping to give v0 "a chance" to wrongly apply,
+        // poll until v3 is stable across many consecutive reads: if the stale event
+        // ever clobbered v3 this would observe the regression, and it converges
+        // deterministically once v0 is drained-and-skipped.
+        let stable = 0
+        for (let i = 0; i < 200 && stable < 20; i++) {
+          const ps = yield* SubscriptionRef.get(store.projects)
+          stable = ps.length === 1 && ps[0]!.name === "v3" ? stable + 1 : 0
+          yield* Effect.sleep("2 millis")
+        }
         return yield* SubscriptionRef.get(store.projects)
       }).pipe(
         Effect.provide(RendererProjectStoreLayer),
