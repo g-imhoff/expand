@@ -49,6 +49,8 @@ describe("App mutation error line", () => {
       stdin.write("\r")
       await flush(80)
       expect(lastFrame()).toContain('name conflict: "alpha" already exists')
+      stdin.write("n") // focus create before typing
+      await flush(80)
       stdin.write("zen")
       await flush(80)
       stdin.write("\r")
@@ -68,6 +70,8 @@ describe("App mutation error line", () => {
         <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
       )
       await flush(50)
+      stdin.write("n") // focus create before typing
+      await flush(80)
       // "INVALID NAME!!!" contains uppercase + spaces — fails ProjectName regex
       stdin.write("INVALID NAME!!!")
       await flush(80)
