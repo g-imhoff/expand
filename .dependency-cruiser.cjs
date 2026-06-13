@@ -39,6 +39,14 @@ module.exports = {
         "BOUNDARIES.md I-1 (amended): the preload may import only the IPC framework and the registry.",
       from: { path: "^apps/desktop/src/preload/" },
       to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc|apps/desktop/src/shared/ipc|apps/desktop/src/preload)/" }
+    },
+    {
+      name: "ink-input-package-isolated",
+      comment:
+        "packages/ink-input is a generic leaf utility: it must not depend on apps or sibling packages (ADR: docs/superpowers/specs/2026-06-13-tui-input-architecture-design.md)",
+      severity: "error",
+      from: { path: "^packages/ink-input" },
+      to: { path: "^(apps/|packages/(?!ink-input))" }
     }
   ],
   options: {
