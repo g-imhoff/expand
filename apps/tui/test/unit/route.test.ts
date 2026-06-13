@@ -56,6 +56,11 @@ describe("route — list focus", () => {
     expect(route(listUi, projects, "q", "q")).toBeNull()
     expect(route(listUi, projects, "backspace", "")).toBeNull() // C1: backspace must NOT open delete-confirm
   })
+  it("null selection with non-empty projects: nav and commands are no-ops", () => {
+    const noSel: UiState = { ...initialUiState }
+    expect(route(noSel, projects, "j", "j")).toBeNull()
+    expect(route(noSel, projects, "r", "r")).toBeNull()
+  })
 })
 
 describe("route — create focus (THE C1 regression)", () => {
@@ -72,6 +77,11 @@ describe("route — create focus (THE C1 regression)", () => {
     expect(route(createUi, projects, "return", "")).toEqual({ _tag: "SubmitCreate" })
     expect(route(createUi, projects, "escape", "")).toEqual({ _tag: "ClearCreate" })
     expect(route(createUi, projects, "tab", "")).toEqual({ _tag: "FocusList" })
+  })
+  it("pasted literal key-name words are text, never actions (text first refusal)", () => {
+    expect(route(createUi, projects, "tab", "tab")).toEqual({ _tag: "TextKey", keyName: "tab", input: "tab" })
+    expect(route(createUi, projects, "return", "return")).toEqual({ _tag: "TextKey", keyName: "return", input: "return" })
+    expect(route(createUi, projects, "escape", "escape")).toEqual({ _tag: "TextKey", keyName: "escape", input: "escape" })
   })
 })
 
@@ -100,5 +110,9 @@ describe("route — overlays are modal", () => {
   it("metadata overlay: tab switches fields instead of focusing", () => {
     expect(route(metaUi, projects, "tab", "")).toEqual({ _tag: "SwitchMetadataField" })
     expect(route(metaUi, projects, "x", "x")).toEqual({ _tag: "TextKey", keyName: "x", input: "x" })
+  })
+  it("rename overlay: pasted 'return' is text, real Enter still submits", () => {
+    expect(route(renameUi, projects, "return", "return")).toEqual({ _tag: "TextKey", keyName: "return", input: "return" })
+    expect(route(renameUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
   })
 })
