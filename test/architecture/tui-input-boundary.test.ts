@@ -1,10 +1,15 @@
 // test/architecture/tui-input-boundary.test.ts
 // ============================================================================
-// Architectural enforcement for the TUI input framework.
-// Ink's useInput is a GLOBAL broadcast: every mounted handler receives every
-// keypress, with no consumption or priority. Exclusivity is only structural
-// when exactly one handler exists. This test pins that invariant repo-wide.
-// ADR: docs/superpowers/specs/2026-06-13-tui-input-architecture-design.md
+// DO NOT MODIFY — single-router input invariant (review finding C1).
+// This test is part of the SPECIFICATION, not the implementation. Changing or
+// relaxing it changes the system's guarantees and requires an architecture-
+// decision document plus architecture-owner review. CODEOWNERS routes this path.
+//
+// Architectural enforcement for the TUI input framework. Ink's useInput is a
+// GLOBAL broadcast: every mounted handler receives every keypress, with no
+// consumption or priority. Exclusivity is only structural when exactly one
+// handler exists. This test pins that single-router invariant repo-wide. ADR:
+// docs/superpowers/specs/2026-06-13-tui-input-architecture-design.md
 // ============================================================================
 import { readFileSync, readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
