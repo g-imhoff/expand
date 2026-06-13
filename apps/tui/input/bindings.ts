@@ -3,7 +3,7 @@
 // drive the router (route.ts) and the hint bar (app.tsx): help cannot drift
 // from behavior.
 import type { Binding } from "@yodea/ink-input/bindings"
-import type { Action, ListIntent, UiState } from "@yodea/tui/input/state"
+import { assertNever, type Action, type ListIntent, type UiState } from "@yodea/tui/input/state"
 
 export const listBindings: ReadonlyArray<Binding<ListIntent>> = [
   { keys: ["j", "down"], label: "next", action: "SelectNext" },
@@ -46,6 +46,7 @@ export const activeBindings = (ui: UiState): ReadonlyArray<Binding<unknown>> => 
       case "metadata": return metadataBindings
       case "rename":
       case "directory": return textOverlayBindings
+      default: return assertNever(ui.overlay)
     }
   }
   return ui.focus === "create" ? createBindings : listBindings
