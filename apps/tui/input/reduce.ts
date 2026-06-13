@@ -31,7 +31,7 @@ const reconcile = (ui: UiState, projects: ReadonlyArray<Project>): UiState => {
   } else {
     const index = next.selectedId === null ? -1 : projects.findIndex((p) => p.id === next.selectedId)
     if (index === -1) {
-      const clamped = Math.min(next.selectedIndex, projects.length - 1)
+      const clamped = Math.max(0, Math.min(next.selectedIndex, projects.length - 1))
       next = { ...next, selectedId: projects[clamped]!.id, selectedIndex: clamped }
     } else if (index !== next.selectedIndex) {
       next = { ...next, selectedIndex: index }
@@ -98,9 +98,9 @@ export const uiReduce = (ui: UiState, action: Action): Result => {
     case "Select":
       return pure({ ...ui, selectedId: action.id, selectedIndex: action.index })
     case "FocusCreate":
-      return pure({ ...ui, focus: "create" })
+      return ui.focus === "create" ? pure(ui) : pure({ ...ui, focus: "create" })
     case "FocusList":
-      return pure({ ...ui, focus: "list" })
+      return ui.focus === "list" ? pure(ui) : pure({ ...ui, focus: "list" })
     case "OpenRename":
       return pure({ ...ui, overlay: { kind: "rename", projectId: action.projectId, field: textField(action.currentName) } })
     case "OpenDirectory":
@@ -123,7 +123,7 @@ export const uiReduce = (ui: UiState, action: Action): Result => {
           : { _tag: "Archive", id: action.projectId }]
       }
     case "CancelOverlay":
-      return pure({ ...ui, overlay: null })
+      return ui.overlay === null ? pure(ui) : pure({ ...ui, overlay: null })
     case "SwitchMetadataField":
       return ui.overlay?.kind === "metadata"
         ? pure({ ...ui, overlay: { ...ui.overlay, active: ui.overlay.active === "description" ? "tags" : "description" } })
