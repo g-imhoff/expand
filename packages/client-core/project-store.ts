@@ -3,7 +3,7 @@ import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import { Project } from "@yodea/contracts/project"
 import type { ProjectCreateResult, ProjectDeleteResult, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
-import type { DomainEvent, SequencedEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { BackendUnavailable } from "@yodea/client-core/discovery"
@@ -42,12 +42,6 @@ export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreShap
   "yodea/ProjectStore"
 ) {}
 
-const applyEvent = (
-  projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
-  event: DomainEvent
-): Effect.Effect<void> =>
-  SubscriptionRef.update(projects, (cur) => Project.foldList(cur, event))
-
 const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
   Schedule.either(Schedule.spaced("5 seconds"))
 )
@@ -79,13 +73,24 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
+    // Single source of truth: projects and seq are written/read together, so a
+    // snapshot can never observe a seq ahead of the projects it returns (C2).
+    const state = yield* SubscriptionRef.make<{ projects: ReadonlyArray<Project>; seq: number }>({ projects: [], seq: 0 })
+    // Public, read-only mirror of state.projects (the shape consumers depend on).
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
     const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")
     const hub = yield* PubSub.unbounded<SequencedEvent>()
-    const lastSeq = yield* SubscriptionRef.make(0)
     const clientRef = yield* SubscriptionRef.make<YodeaRpcClientApi | null>(null)
     const ready = yield* Deferred.make<void, BackendUnavailable>()
     const hooked = withConnectionHooks(adapter, status)
+
+    // Keep the public mirror in sync as a strict downstream projection of `state`.
+    yield* Effect.forkScoped(
+      Stream.runForEach(
+        Stream.changes(Stream.map(SubscriptionRef.changes(state), (s) => s.projects)),
+        (ps) => SubscriptionRef.set(projects, ps)
+      )
+    )
 
     const session = Effect.scoped(
       Effect.gen(function* () {
@@ -93,19 +98,24 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
         yield* SubscriptionRef.set(clientRef, client)
         const queue = yield* client.Events({}, { asQueue: true })
         const snapshot = yield* client.ProjectList({ includeArchived: true })
-        yield* SubscriptionRef.update(lastSeq, (last) => Math.max(last, snapshot.seq))
+        yield* SubscriptionRef.update(state, (s) => ({
+          projects: snapshot.projects,
+          seq: Math.max(s.seq, snapshot.seq)
+        }))
+        // One-time explicit seed of the public mirror before signalling ready, so
+        // consumers never observe the empty initial value.
         yield* SubscriptionRef.set(projects, snapshot.projects)
         yield* SubscriptionRef.set(status, "connected")
         yield* Deferred.succeed(ready, undefined)
         return yield* Queue.take(queue).pipe(
           Effect.flatMap((sequenced) =>
-            Effect.flatMap(SubscriptionRef.get(lastSeq), (last) =>
-              sequenced.seq <= last
-                ? Effect.void
-                : SubscriptionRef.set(lastSeq, sequenced.seq).pipe(
-                    Effect.andThen(PubSub.publish(hub, sequenced)),
-                    Effect.andThen(applyEvent(projects, sequenced.event))
-                  )
+            // Gate + fold + seq-bump in ONE atomic update; publish only if newly applied.
+            SubscriptionRef.modify(state, (s) =>
+              sequenced.seq <= s.seq
+                ? [false, s] as const
+                : [true, { projects: Project.foldList(s.projects, sequenced.event), seq: sequenced.seq }] as const
+            ).pipe(
+              Effect.flatMap((applied) => applied ? PubSub.publish(hub, sequenced) : Effect.void)
             )
           ),
           Effect.forever
@@ -136,9 +146,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     return {
       projects,
       status,
-      snapshot: Effect.flatMap(SubscriptionRef.get(projects), (ps) =>
-        Effect.map(SubscriptionRef.get(lastSeq), (seq) => ({ projects: ps, seq }))
-      ),
+      snapshot: SubscriptionRef.get(state),
       events: Stream.fromPubSub(hub),
       createProject: (name: ProjectName, directory?: string | null) =>
         current.pipe(
