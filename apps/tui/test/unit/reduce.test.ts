@@ -122,4 +122,10 @@ describe("uiReduce — Reconcile (concurrent-client races)", () => {
     expect(next.overlay).not.toBeNull()
     expect(next.selectedIndex).toBe(1)
   })
+  it("clamps a negative stale selectedIndex to 0 (never crashes)", () => {
+    const ui: UiState = { ...initialUiState, selectedId: pid(9), selectedIndex: -3 }
+    const { ui: next } = uiReduce(ui, { _tag: "Reconcile", projects: [project(1), project(2)] })
+    expect(next.selectedId).toBe(pid(1))
+    expect(next.selectedIndex).toBe(0)
+  })
 })
