@@ -1,59 +1,84 @@
-import { Box, useInput } from "ink"
-import { useState } from "react"
+// apps/tui/components/app.tsx
+// The only stateful component. One key pipeline:
+//   useKeyRouter → route (pure) → uiReduce (pure) → setUi + runEffect.
+import React, { useEffect, useState } from "react"
+import { Box } from "ink"
+import { useKeyRouter } from "@yodea/ink-input/use-key-router-ink"
+import { HintBar } from "@yodea/ink-input/components/hint-bar-ink"
 import { ProjectList } from "@yodea/tui/components/project-list"
-import { CreateInput } from "@yodea/tui/components/create-input"
-import { RenameInput } from "@yodea/tui/components/rename-input"
-import { DirectoryInput } from "@yodea/tui/components/directory-input"
-import { MetadataInput } from "@yodea/tui/components/metadata-input"
+import { TextField } from "@yodea/tui/components/text-field"
 import { ConfirmDelete } from "@yodea/tui/components/confirm-delete"
 import { ErrorLine } from "@yodea/tui/components/error-line"
 import { useProjects } from "@yodea/tui/use-projects"
+import { initialUiState, assertNever, type Overlay } from "@yodea/tui/input/state"
+import { activeBindings } from "@yodea/tui/input/bindings"
+import { route } from "@yodea/tui/input/route"
+import { uiReduce, type DomainEffect } from "@yodea/tui/input/reduce"
 
 export const App = () => {
-  const { projects, error, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject } = useProjects()
-  const [mode, setMode] = useState<"list" | "rename" | "directory" | "metadata" | "confirmDelete">("list")
-  const selected = projects[0] ?? null
-  useInput((input, key) => {
-    if (mode === "list" && selected) {
-      if (input === "r") setMode("rename")
-      else if (input === "d") setMode("directory")
-      else if (input === "m") setMode("metadata")
-      else if (input === "x" || key.delete) setMode("confirmDelete")
-      else if (input === "a") {
-        if (selected.archived) restore(selected.id)
-        else archive(selected.id)
-      }
+  const {
+    projects, error, create, rename, changeDirectory,
+    archive, restore, setMetadata, deleteProject
+  } = useProjects()
+  const [ui, setUi] = useState(initialUiState)
+
+  const runEffect = (effect: DomainEffect): void => {
+    switch (effect._tag) {
+      case "Create": return create(effect.name)
+      case "Rename": return rename(effect.id, effect.name)
+      case "ChangeDirectory": return changeDirectory(effect.id, effect.directory)
+      case "SetMetadata": return setMetadata(effect.id, { description: effect.description, tags: effect.tags })
+      case "Archive": return archive(effect.id)
+      case "Restore": return restore(effect.id)
+      case "Delete": return deleteProject(effect.id)
+      default: return assertNever(effect)
     }
+  }
+
+  useKeyRouter((keyName, input) => {
+    const action = route(ui, projects, keyName, input)
+    if (action === null) return
+    const result = uiReduce(ui, action)
+    setUi(result.ui)
+    for (const effect of result.effects) runEffect(effect)
   })
+
+  useEffect(() => {
+    setUi((current) => uiReduce(current, { _tag: "Reconcile", projects }).ui)
+  }, [projects])
+
+  const overlayView = (overlay: Overlay) => {
+    switch (overlay.kind) {
+      case "rename":
+        return <TextField label="rename ▸ " color="yellow" state={overlay.field} focused={true} />
+      case "directory":
+        return <TextField label="directory ▸ " color="blue" state={overlay.field} focused={true} />
+      case "metadata":
+        return (
+          <Box flexDirection="column">
+            <TextField label="description ▸ " color="cyan" state={overlay.description} focused={overlay.active === "description"} />
+            <TextField label="tags (a, b) ▸ " color="cyan" state={overlay.tags} focused={overlay.active === "tags"} />
+          </Box>
+        )
+      case "confirmDelete":
+        return <ConfirmDelete projectName={projects.find((p) => p.id === overlay.projectId)?.name ?? ""} />
+      default:
+        return assertNever(overlay)
+    }
+  }
+
   return (
     <Box flexDirection="column" gap={1}>
-      <ProjectList projects={projects} selectedId={selected?.id} />
+      <ProjectList
+        projects={projects}
+        selectedId={ui.selectedId ?? undefined}
+        focused={ui.overlay === null && ui.focus === "list"}
+      />
       <ErrorLine message={error} />
-      {mode === "rename" && selected ? (
-        <RenameInput
-          current={selected.name}
-          onSubmit={(name) => { rename(selected.id, name); setMode("list") }}
-          onCancel={() => setMode("list")}
-        />
-      ) : mode === "directory" && selected ? (
-        <DirectoryInput
-          projectName={selected.name}
-          onSubmit={(dir) => { changeDirectory(selected.id, dir); setMode("list") }}
-          onCancel={() => setMode("list")}
-        />
-      ) : mode === "metadata" && selected ? (
-        <MetadataInput
-          onSubmit={(patch) => { setMetadata(selected.id, patch); setMode("list") }}
-        />
-      ) : mode === "confirmDelete" && selected ? (
-        <ConfirmDelete
-          projectName={selected.name}
-          onConfirm={() => { deleteProject(selected.id); setMode("list") }}
-          onCancel={() => setMode("list")}
-        />
-      ) : (
-        <CreateInput onSubmit={create} />
-      )}
+      {ui.overlay !== null
+        ? overlayView(ui.overlay)
+        : <TextField label="new project ▸ " state={ui.create} focused={ui.focus === "create"} />}
+      <HintBar bindings={activeBindings(ui)} />
     </Box>
   )
 }
