@@ -8,7 +8,7 @@ import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
 
-// See app-input-routing.test.tsx for the full rationale. ink wires `useInput`
+// See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to
 // nobody and lost — and that window outlasts any fixed delay under load, which
 // is the flake. So poll for observable outcomes, and warm the pipeline up with

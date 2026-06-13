@@ -46,7 +46,7 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
       )
   })
 
-// See app-input-routing.test.tsx for the full rationale. ink wires `useInput`
+// See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to
 // nobody and lost. Under load that window outlasts any fixed delay — the flake.
 // So poll for observable outcomes, and warm the pipeline up with Tab (a focus

@@ -46,7 +46,7 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
       )
   })
 
-// See app-input-routing.test.tsx for the full rationale. ink wires `useInput`
+// See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects (raw-mode/readable, then the input-emitter subscription);
 // between them a written key is read off stdin but routed to nobody and lost,
 // because ink-testing-library emits "readable" once per write. Under load that
