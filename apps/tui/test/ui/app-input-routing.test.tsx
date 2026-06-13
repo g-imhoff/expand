@@ -57,7 +57,7 @@ const seed = (n: number, name: string) => ({
 const WAIT = { timeout: 2000, interval: 10 } as const
 const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
   vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT)
-// ink's `useInput` wires input in TWO separate effects: one enables raw mode
+// ink's input hook wires input in TWO separate effects: one enables raw mode
 // (which attaches stdin's "readable" listener) and a LATER one subscribes the
 // key handler to ink's internal "input" emitter. Between them there is a window
 // where a key is read off stdin but routed to nobody — and a dropped key is
