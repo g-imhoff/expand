@@ -24,7 +24,9 @@
     "dev:desktop": "cd apps/desktop && electron-vite dev",
     "build:desktop": "cd apps/desktop && electron-vite build",
     "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
-    "e2e:desktop": "bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts"
+    "e2e:desktop": "bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts",
+    "lint": "eslint .",
+    "prepare": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
@@ -60,11 +62,13 @@
     "electron": "42",
     "electron-playwright-helpers": "^1.7.1",
     "electron-vite": "5",
+    "eslint": "^10.5.0",
     "fast-check": "4.8.0",
     "happy-dom": "^20.9.0",
     "ink-testing-library": "4",
     "tailwindcss": "^4.3.0",
     "typescript": "6.0.3",
+    "typescript-eslint": "^8.61.1",
     "vitest": "4.1.7"
   }
 }
