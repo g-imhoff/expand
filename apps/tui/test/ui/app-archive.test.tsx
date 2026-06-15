@@ -3,11 +3,10 @@ import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { type ProjectId, type ProjectName, type Tag } from "@yodea/contracts/project"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
 
-const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ProjectId
+const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 
 const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
   Layer.succeed(ProjectStore, {
@@ -15,32 +14,32 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.empty,
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: ProjectName) =>
-      SubscriptionRef.update(ref, (c) => [...c, { id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<Tag>, archived: false, createdAt: "t", updatedAt: "t" }]).pipe(Effect.as({ id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<Tag>, archived: false, createdAt: "t", updatedAt: "t" } as any)),
-    renameProject: (id: ProjectId, name: ProjectName) =>
+    createProject: (name: string) =>
+      SubscriptionRef.update(ref, (c) => [...c, { id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" }]).pipe(Effect.as({ id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" } as any)),
+    renameProject: (id: string, name: string) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, name } : p))).pipe(
         Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
       ),
-    changeDirectory: (id: ProjectId, directory: string) =>
+    changeDirectory: (id: string, directory: string) =>
       SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, directory } : p))).pipe(
         Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
       ),
-    archiveProject: (id: ProjectId) =>
+    archiveProject: (id: string) =>
       SubscriptionRef.modify(ref, (c) => {
         const next = c.map((p: any) => p.id === id ? { ...p, archived: true } : p)
         return [next.find((p: any) => p.id === id) as any, next] as const
       }),
-    restoreProject: (id: ProjectId) =>
+    restoreProject: (id: string) =>
       SubscriptionRef.modify(ref, (c) => {
         const next = c.map((p: any) => p.id === id ? { ...p, archived: false } : p)
         return [next.find((p: any) => p.id === id) as any, next] as const
       }),
-    setMetadata: (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
+    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
       SubscriptionRef.modify(ref, (c) => {
         const next = c.map((p: any) => p.id === id ? { ...p, ...patch } : p)
         return [next.find((p: any) => p.id === id) as any, next] as const
       }),
-    deleteProject: (id: ProjectId) =>
+    deleteProject: (id: string) =>
       SubscriptionRef.update(ref, (c) => c.filter((p: any) => p.id !== id)).pipe(
         Effect.as({ id, deleted: true } as const)
       )
@@ -76,7 +75,7 @@ const ensureInputLive = async (
 describe("App archive keybinding", () => {
   it("pressing 'a' archives the selected project", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([
-      { id: uid(1), name: "alpha" as ProjectName, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
+      { id: uid(1), name: "alpha" as string, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
     ]))
     const runtime = ManagedRuntime.make(fakeLayer(ref))
     try {
@@ -93,7 +92,7 @@ describe("App archive keybinding", () => {
 
   it("shows a project that is ALREADY archived at startup and restores it with 'a'", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([
-      { id: uid(1), name: "alpha" as ProjectName, directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" }
+      { id: uid(1), name: "alpha" as string, directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" }
     ]))
     const runtime = ManagedRuntime.make(fakeLayer(ref))
     try {

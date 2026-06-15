@@ -4,7 +4,6 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -37,10 +36,10 @@ describe.sequential("project operations under concurrency", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const a = (yield* client.ProjectCreate({ name: ProjectName.make("alpha"), ensure: false })).project
-          const b = (yield* client.ProjectCreate({ name: ProjectName.make("beta"), ensure: false })).project
-          const first = yield* client.ProjectRename({ id: a.id, name: ProjectName.make("merged") }).pipe(Effect.result)
-          const second = yield* client.ProjectRename({ id: b.id, name: ProjectName.make("merged") }).pipe(Effect.result)
+          const a = (yield* client.ProjectCreate({ name: "alpha", ensure: false })).project
+          const b = (yield* client.ProjectCreate({ name: "beta", ensure: false })).project
+          const first = yield* client.ProjectRename({ id: a.id, name: "merged" }).pipe(Effect.result)
+          const second = yield* client.ProjectRename({ id: b.id, name: "merged" }).pipe(Effect.result)
           const listed = yield* client.ProjectList({ includeArchived: true })
           return { first, second, listed, aId: a.id }
         })
@@ -69,11 +68,11 @@ describe.sequential("project operations under concurrency", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const a = (yield* client.ProjectCreate({ name: ProjectName.make("alpha"), ensure: false })).project
-          const b = (yield* client.ProjectCreate({ name: ProjectName.make("beta"), ensure: false })).project
+          const a = (yield* client.ProjectCreate({ name: "alpha", ensure: false })).project
+          const b = (yield* client.ProjectCreate({ name: "beta", ensure: false })).project
           const results = yield* Effect.all(
-            [client.ProjectRename({ id: a.id, name: ProjectName.make("merged") }).pipe(Effect.result),
-             client.ProjectRename({ id: b.id, name: ProjectName.make("merged") }).pipe(Effect.result)],
+            [client.ProjectRename({ id: a.id, name: "merged" }).pipe(Effect.result),
+             client.ProjectRename({ id: b.id, name: "merged" }).pipe(Effect.result)],
             { concurrency: "unbounded" }
           )
           const listed = yield* client.ProjectList({ includeArchived: true })
@@ -108,7 +107,7 @@ describe.sequential("project operations under concurrency", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("doomed"), ensure: false })
+          const { project } = yield* client.ProjectCreate({ name: "doomed", ensure: false })
           yield* client.ProjectArchive({ id: project.id })
           yield* client.ProjectDelete({ id: project.id })
           const restore = yield* client.ProjectRestore({ id: project.id }).pipe(Effect.result)
@@ -136,8 +135,8 @@ describe.sequential("project operations under concurrency", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const a = (yield* client.ProjectCreate({ name: ProjectName.make("a"), ensure: false })).project
-          const b = (yield* client.ProjectCreate({ name: ProjectName.make("b"), ensure: false })).project
+          const a = (yield* client.ProjectCreate({ name: "a", ensure: false })).project
+          const b = (yield* client.ProjectCreate({ name: "b", ensure: false })).project
           const first = yield* client.ProjectChangeDirectory({ id: a.id, directory: shared }).pipe(Effect.result)
           const second = yield* client.ProjectChangeDirectory({ id: b.id, directory: shared }).pipe(Effect.result)
           const listed = yield* client.ProjectList({ includeArchived: true })
@@ -170,8 +169,8 @@ describe.sequential("project operations under concurrency", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const a = (yield* client.ProjectCreate({ name: ProjectName.make("a"), ensure: false })).project
-          const b = (yield* client.ProjectCreate({ name: ProjectName.make("b"), ensure: false })).project
+          const a = (yield* client.ProjectCreate({ name: "a", ensure: false })).project
+          const b = (yield* client.ProjectCreate({ name: "b", ensure: false })).project
           const results = yield* Effect.all(
             [client.ProjectChangeDirectory({ id: a.id, directory: shared }).pipe(Effect.result),
              client.ProjectChangeDirectory({ id: b.id, directory: shared }).pipe(Effect.result)],

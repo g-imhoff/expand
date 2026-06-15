@@ -2,14 +2,14 @@ import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
 import { API_VERSION } from "@yodea/contracts/cli"
 import type { Project } from "@yodea/contracts/project"
-import { Tag } from "@yodea/contracts/project"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
 const target = Argument.string("project")
 const description = Flag.string("description").pipe(Flag.optional)
-const tag = Flag.string("tag").pipe(Flag.withSchema(Tag), Flag.atLeast(0))
+// Raw strings: the backend validates tags at ingestion (ProjectInvalidInput).
+const tag = Flag.string("tag").pipe(Flag.atLeast(0))
 const clearTags = Flag.boolean("clear-tags").pipe(Flag.withDefault(false))
 
 export const setMetadataCommand = defineCommand(

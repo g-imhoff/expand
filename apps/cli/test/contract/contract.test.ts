@@ -3,6 +3,12 @@ import { Effect } from "effect"
 import { makeYodea } from "@yodea/cli/main"
 import { runCli, stubLayer } from "../harness"
 
+// The backend validates names/tags at its ingestion boundary and returns a typed
+// ProjectInvalidInput; these stubs mirror that so the CLI's INVALID_ARGUMENT
+// mapping (exit 2) is exercised without a real server.
+const KEBAB = /^[a-z0-9][a-z0-9-]{0,63}$/
+const invalidInput = (field: string) => Effect.fail({ _tag: "ProjectInvalidInput", field, reason: `invalid ${field}` })
+
 const FULL = (over: Partial<{ id: string; name: string; directory: string | null; description: string | null; tags: ReadonlyArray<string>; archived: boolean }>) => ({
   id: over.id ?? "01J", name: over.name ?? "alpha", directory: over.directory ?? null, description: over.description ?? null,
   tags: over.tags ?? [], archived: over.archived ?? false, createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
@@ -22,9 +28,11 @@ const cdClient = {
 const okClient = {
   Health: () => Effect.succeed("ok"),
   ProjectCreate: ({ name, ensure }: { name: string; ensure: boolean }) =>
-    name === "dup" && !ensure
-      ? Effect.fail({ _tag: "ProjectAlreadyExists", name })
-      : Effect.succeed({ created: !(name === "dup"), project: { id: "01J", name, createdAt: "2026-01-01T00:00:00.000Z" } }),
+    !KEBAB.test(name)
+      ? invalidInput("name")
+      : name === "dup" && !ensure
+        ? Effect.fail({ _tag: "ProjectAlreadyExists", name })
+        : Effect.succeed({ created: !(name === "dup"), project: { id: "01J", name, createdAt: "2026-01-01T00:00:00.000Z" } }),
   ProjectList: () => Effect.succeed({
     projects: [
       FULL({ id: "01K", name: "beta" }),
@@ -88,7 +96,7 @@ describe("CLI contract", () => {
     expect(JSON.parse(r.stdout.join(""))).toMatchObject({ created: false })
     expect(r.code).toBe(0)
   })
-  it("project create 'My Proj' -> INVALID_ARGUMENT on stderr, exit 2 (parse-time)", async () => {
+  it("project create 'My Proj' -> INVALID_ARGUMENT on stderr, exit 2 (server-validated)", async () => {
     const r = await runCli(tree(okClient), ["project", "create", "My Proj"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })
     expect(r.code).toBe(2)
@@ -190,7 +198,9 @@ describe("CLI contract", () => {
     ...okClient,
     ProjectList: () => Effect.succeed({ projects: [FULL({ id: "01J", name: "alpha" })], seq: 0 }),
     ProjectSetMetadata: ({ id, description, tags }: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
-      Effect.succeed(FULL({ id, name: "alpha", description: description ?? null, tags: tags ?? [] }))
+      tags !== undefined && tags.some((t) => !KEBAB.test(t))
+        ? invalidInput("tags")
+        : Effect.succeed(FULL({ id, name: "alpha", description: description ?? null, tags: tags ?? [] }))
   }
 
   it("project set-metadata <name> --description --tag -> Project envelope created:false, exit 0", async () => {
@@ -221,7 +231,7 @@ describe("CLI contract", () => {
     expect(r.code).toBe(7)
   })
 
-  it("project set-metadata --tag 'BAD TAG' -> INVALID_ARGUMENT on stderr, exit 2 (parse-time)", async () => {
+  it("project set-metadata --tag 'BAD TAG' -> INVALID_ARGUMENT on stderr, exit 2 (server-validated)", async () => {
     const r = await runCli(tree(metaClient), ["project", "set-metadata", "alpha", "--tag", "BAD TAG"])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })
     expect(r.code).toBe(2)
@@ -272,7 +282,7 @@ describe("CLI parse/validation edge cases", () => {
     ProjectRename: ({ id }: { id: string }) => Effect.fail({ _tag: "ProjectNotFound", id })
   }
 
-  it("over-length name (>64 chars) -> INVALID_ARGUMENT, exit 2 (parse-time)", async () => {
+  it("over-length name (>64 chars) -> INVALID_ARGUMENT, exit 2 (server-validated)", async () => {
     const long = "a".repeat(65)
     const r = await runCli(tree(opsClient), ["project", "create", long])
     expect(JSON.parse(r.stderr.join(""))).toMatchObject({ kind: "Error", code: "INVALID_ARGUMENT" })

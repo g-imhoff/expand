@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { projectsFromEvents } from "@yodea/server/domain/project"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
-import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
-const pid = (n: number): ProjectId => ProjectId.make(uid(n))
-const pn = (s: string): ProjectName => ProjectName.make(s)
-const tag = (s: string): Tag => Tag.make(s)
+const pid = (n: number): string => uid(n)
+const pn = (s: string): string => s
+const tag = (s: string): string => s
 
 describe("projectsFromEvents", () => {
   it("folds an empty log into no projects", () => {

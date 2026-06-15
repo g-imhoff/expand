@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
 import { API_VERSION, ErrorEnvelope, ProjectEnvelope, ProjectListEnvelope, HealthEnvelope } from "@yodea/contracts/cli"
-import { ProjectName, ProjectCreateResult } from "@yodea/contracts/project"
+import { ProjectCreateResult } from "@yodea/contracts/project"
 
 const dec = <A, I>(s: Schema.Codec<A, I>, u: unknown) => Schema.decodeUnknownSync(s)(u)
 
@@ -31,12 +31,6 @@ describe("contracts/cli", () => {
     const v = { apiVersion: "yodea/v1", kind: "Error", code: "PROJECT_EXISTS", message: "x", retryable: false }
     expect(dec(ErrorEnvelope, v)).toEqual(v)
     expect(() => dec(ErrorEnvelope, { ...v, code: "NOPE" })).toThrow()
-  })
-
-  it("ProjectName accepts kebab names and rejects spaces/caps", () => {
-    expect(dec(ProjectName, "my-proj-1")).toBe("my-proj-1")
-    expect(() => dec(ProjectName, "My Proj")).toThrow()
-    expect(() => dec(ProjectName, "")).toThrow()
   })
 
   it("ProjectCreateResult pairs created + project", () => {

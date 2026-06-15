@@ -1,19 +1,21 @@
 import { Effect, Schema } from "effect"
-import { DESCRIPTION_MAX_LENGTH, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import { DomainEventMeta, withMeta } from "@yodea/contracts/events/meta"
 
+// Events carry plain strings. They are the source of truth and were validated at
+// the ingestion boundary (apps/server use-cases, via Project verbs) before being
+// appended, so the schema here is intentionally dumb transport — no branding.
 const ProjectEventMeta = {
-  projectId: ProjectId
+  projectId: Schema.String
 }
 
 export const ProjectEvent = Schema.TaggedUnion(
   withMeta({ ...DomainEventMeta, ...ProjectEventMeta }, {
     ProjectCreated: {
-      name: ProjectName,
+      name: Schema.String,
       directory: Schema.optionalKey(Schema.NullOr(Schema.String)).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null)))
     },
     ProjectRenamed: {
-      name: ProjectName
+      name: Schema.String
     },
     ProjectDirectoryChanged: {
       directory: Schema.String
@@ -21,8 +23,8 @@ export const ProjectEvent = Schema.TaggedUnion(
     ProjectArchived: {},
     ProjectRestored: {},
     ProjectMetadataChanged: {
-      description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
-      tags: Schema.optionalKey(Schema.Array(Tag))
+      description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      tags: Schema.optionalKey(Schema.Array(Schema.String))
     },
     ProjectDeleted: {}
   })

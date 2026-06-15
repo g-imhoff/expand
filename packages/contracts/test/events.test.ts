@@ -2,15 +2,14 @@ import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
 import { DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
-import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
-const pid1 = ProjectId.make(uid(1))
-const nameA = ProjectName.make("a")
-const nameRenamed = ProjectName.make("renamed")
-const tagAlpha = Tag.make("alpha")
-const tagBeta = Tag.make("beta")
-const tagX = Tag.make("x")
+const pid1 = uid(1)
+const nameA = "a"
+const nameRenamed = "renamed"
+const tagAlpha = "alpha"
+const tagBeta = "beta"
+const tagX = "x"
 
 describe("DomainEvent", () => {
   it("constructs ProjectCreated with an auto-filled _tag", () => {
@@ -105,7 +104,7 @@ describe("ProjectMetadataChanged", () => {
     const e = ProjectMetadataChanged.make({
       projectId: pid1,
       description: "a project",
-      tags: [tagAlpha, tagBeta] as ReadonlyArray<Tag>,
+      tags: [tagAlpha, tagBeta] as ReadonlyArray<string>,
       occurredAt: "2026-01-02T00:00:00.000Z"
     })
     expect(e._tag).toBe("ProjectMetadataChanged")
@@ -126,7 +125,7 @@ describe("ProjectMetadataChanged", () => {
   it("roundtrips through the DomainEvent union with only tags present", () => {
     const e = ProjectMetadataChanged.make({
       projectId: pid1,
-      tags: [tagX] as ReadonlyArray<Tag>,
+      tags: [tagX] as ReadonlyArray<string>,
       occurredAt: "2026-01-02T00:00:00.000Z"
     })
     const json = Schema.encodeSync(DomainEventFromJson)(e)
@@ -165,12 +164,13 @@ describe("SequencedEvent", () => {
   })
 })
 
-describe("ProjectCreated branded fields", () => {
-  it("ProjectCreated.make rejects non-UUID projectId and invalid name", () => {
+describe("ProjectCreated plain-string fields", () => {
+  it("carries projectId/name as plain strings (events are validated at ingestion, not here)", () => {
     const uuid = "00000000-0000-4000-8000-000000000001"
-    expect(() => ProjectCreated.make({ projectId: "p1" as ProjectId, name: "a" as ProjectName, occurredAt: "t" })).toThrow()
-    expect(() => ProjectCreated.make({ projectId: uuid as ProjectId, name: "Bad Name" as ProjectName, occurredAt: "t" })).toThrow()
-    const ok = ProjectCreated.make({ projectId: uuid as ProjectId, name: "a" as ProjectName, occurredAt: "t" })
-    expect(ok.projectId).toBe(uuid)
+    // The event schema no longer brands or validates — the server's Project verbs
+    // do that before an event is appended, so the event accepts raw strings.
+    const e = ProjectCreated.make({ projectId: uuid, name: "a", occurredAt: "t" })
+    expect(e.projectId).toBe(uuid)
+    expect(e.name).toBe("a")
   })
 })

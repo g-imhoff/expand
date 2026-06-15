@@ -3,10 +3,12 @@ import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { ProjectNameConflict } from "@yodea/contracts/rpc"
-import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import { ProjectInvalidInput, ProjectNameConflict } from "@yodea/contracts/rpc"
 import { RuntimeContext } from "@yodea/tui/runtime"
 import { App } from "@yodea/tui/components/app"
+
+// The backend validates names at its ingestion boundary; the fake store mirrors that.
+const KEBAB = /^[a-z0-9][a-z0-9-]{0,63}$/
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to
@@ -41,11 +43,13 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.empty,
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: ProjectName) =>
-      SubscriptionRef.update(ref, (c) => [...c, { id: uid(1), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }]).pipe(
-        Effect.as({ id: uid(1), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } as any)
-      ),
-    renameProject: (_id: ProjectId, name: ProjectName) => Effect.fail(new ProjectNameConflict({ name })),
+    createProject: (name: string) =>
+      !KEBAB.test(name)
+        ? Effect.fail(new ProjectInvalidInput({ field: "name", reason: "must match ^[a-z0-9][a-z0-9-]{0,63}$" }))
+        : SubscriptionRef.update(ref, (c) => [...c, { id: uid(1), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }]).pipe(
+            Effect.as({ id: uid(1), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } as any)
+          ),
+    renameProject: (_id: string, name: string) => Effect.fail(new ProjectNameConflict({ name })),
     changeDirectory: () => Effect.die("unused"),
     archiveProject: () => Effect.die("unused"),
     restoreProject: () => Effect.die("unused"),
@@ -93,12 +97,12 @@ describe("App mutation error line", () => {
       await ensureInputLive(stdin, lastFrame, "no projects yet")
       stdin.write("n") // focus create before typing
       await waitForFrame(lastFrame, "return create") // create focused (re-rendered)
-      // "INVALID NAME!!!" contains uppercase + spaces — fails ProjectName regex
+      // "INVALID NAME!!!" contains uppercase + spaces — fails string regex
       stdin.write("INVALID NAME!!!")
       await waitForFrame(lastFrame, "INVALID NAME!!!") // draft typed
       stdin.write("\r")
-      await waitForFrame(lastFrame, "invalid input")
-      expect(lastFrame()).toContain("Expected a string matching")
+      await waitForFrame(lastFrame, "invalid name")
+      expect(lastFrame()).toContain("must match")
     } finally {
       await runtime.dispose()
     }

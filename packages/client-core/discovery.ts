@@ -37,11 +37,6 @@ const lockPath = () => `${endpointFilePath()}.lock`
 
 const LOCK_STALE_AFTER_MS = 30_000
 
-interface LockInfo {
-  readonly pid: number
-  readonly startedAt: number
-}
-
 const isLockStale = (): boolean => {
   let mtimeMs: number
   try {
@@ -117,3 +112,8 @@ export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
       Effect.ensuring(releaseLock)
     )
   })
+
+interface LockInfo {
+  readonly pid: number
+  readonly startedAt: number
+}

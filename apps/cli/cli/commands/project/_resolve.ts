@@ -1,12 +1,13 @@
-import { Effect, Schema } from "effect"
-import { ProjectId } from "@yodea/contracts/project"
+import { Effect } from "effect"
 import { ProjectNotFound } from "@yodea/contracts/rpc"
 import { ProjectClient } from "@yodea/client-core"
 
-const isUuid = Schema.is(ProjectId)
+// A target token is an id when it looks like a UUID; otherwise it's a name to
+// resolve. This is a transport-level shape check, not Project's private rule.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const resolveProjectTarget = (token: string) =>
-  isUuid(token)
+  UUID_RE.test(token)
     ? Effect.succeed(token)
     : Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: true })).pipe(
       Effect.flatMap(({ projects: ps }) => {

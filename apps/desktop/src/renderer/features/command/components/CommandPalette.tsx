@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react"
 import { PlusIcon } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
-import type { Project, ProjectId } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import {
   CommandDialog,
   CommandEmpty,
@@ -27,7 +27,7 @@ export const CommandPalette = () => {
   const archiveProject = useArchiveProject()
   const restoreProject = useRestoreProject()
   const setMetadata = useSetMetadata()
-  const [renaming, setRenaming] = useState<{ id: ProjectId; name: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [editing, setEditing] = useState<Project | null>(null)
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)

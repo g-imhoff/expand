@@ -1,25 +1,25 @@
 // apps/tui/input/state.ts
 // Pure module — no ink imports. The TUI's input state machine vocabulary.
-import type { Project, ProjectId } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { emptyTextField, type TextFieldState } from "@yodea/ink-input/text-field"
 import type { KeyName } from "@yodea/ink-input/key-name"
 
 export type Focus = "list" | "create"
 
 export type Overlay =
-  | { readonly kind: "rename"; readonly projectId: ProjectId; readonly field: TextFieldState }
-  | { readonly kind: "directory"; readonly projectId: ProjectId; readonly field: TextFieldState }
+  | { readonly kind: "rename"; readonly projectId: string; readonly field: TextFieldState }
+  | { readonly kind: "directory"; readonly projectId: string; readonly field: TextFieldState }
   | {
-      readonly kind: "metadata"; readonly projectId: ProjectId
+      readonly kind: "metadata"; readonly projectId: string
       readonly active: "description" | "tags"
       readonly description: TextFieldState; readonly tags: TextFieldState
     }
-  | { readonly kind: "confirmDelete"; readonly projectId: ProjectId }
+  | { readonly kind: "confirmDelete"; readonly projectId: string }
 
 export type UiState = {
   readonly focus: Focus
   readonly overlay: Overlay | null
-  readonly selectedId: ProjectId | null
+  readonly selectedId: string | null
   /** Last known index of the selection — lets reconcile clamp to the nearest
    *  neighbor when the selected project vanishes (concurrent client). */
   readonly selectedIndex: number
@@ -39,15 +39,15 @@ export type ListIntent =
 
 /** Fully resolved actions — everything reduce needs is in the payload. */
 export type Action =
-  | { readonly _tag: "Select"; readonly id: ProjectId; readonly index: number }
+  | { readonly _tag: "Select"; readonly id: string; readonly index: number }
   | { readonly _tag: "FocusCreate" }
   | { readonly _tag: "FocusList" }
-  | { readonly _tag: "OpenRename"; readonly projectId: ProjectId; readonly currentName: string }
+  | { readonly _tag: "OpenRename"; readonly projectId: string; readonly currentName: string }
   /** Directory overlay deliberately opens EMPTY (no currentDirectory prefill): submitting a stale old path by reflex-Enter is worse than retyping; matches pre-redesign behavior. */
-  | { readonly _tag: "OpenDirectory"; readonly projectId: ProjectId }
-  | { readonly _tag: "OpenMetadata"; readonly projectId: ProjectId; readonly description: string; readonly tags: string }
-  | { readonly _tag: "OpenConfirmDelete"; readonly projectId: ProjectId }
-  | { readonly _tag: "ToggleArchive"; readonly projectId: ProjectId; readonly currentlyArchived: boolean }
+  | { readonly _tag: "OpenDirectory"; readonly projectId: string }
+  | { readonly _tag: "OpenMetadata"; readonly projectId: string; readonly description: string; readonly tags: string }
+  | { readonly _tag: "OpenConfirmDelete"; readonly projectId: string }
+  | { readonly _tag: "ToggleArchive"; readonly projectId: string; readonly currentlyArchived: boolean }
   | { readonly _tag: "CancelOverlay" }
   | { readonly _tag: "SubmitOverlay" }
   | { readonly _tag: "SwitchMetadataField" }

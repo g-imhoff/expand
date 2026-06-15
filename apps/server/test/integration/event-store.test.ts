@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import { Cause, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { ProjectId, ProjectName } from "@yodea/contracts/project"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 
@@ -27,8 +26,8 @@ describe("EventStore", () => {
     const seqs = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        const s1 = yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
-        const s2 = yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
+        const s1 = yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
+        const s2 = yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }))
         return [s1, s2]
       })
     )
@@ -39,8 +38,8 @@ describe("EventStore", () => {
     const rows = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
-        yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }))
         return yield* store.readAll
       })
     )
@@ -58,9 +57,9 @@ describe("EventStore", () => {
     const out = await run(
       Effect.gen(function* () {
         const store = yield* EventStore
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
-        yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("beta"), occurredAt: "t2" }))
-        yield* store.append(uid(3), ProjectCreated.make({ projectId: ProjectId.make(uid(3)), name: ProjectName.make("gamma"), occurredAt: "t3" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }))
+        yield* store.append(uid(3), ProjectCreated.make({ projectId: uid(3), name: "gamma", occurredAt: "t3" }))
         return {
           fromZero: yield* store.readFrom(0),
           fromOne: yield* store.readFrom(1),
@@ -80,7 +79,7 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
         yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(2), event_type: "ProjectCreated", payload: "{ not json" })}`
         return yield* store.readAll
       })
@@ -97,7 +96,7 @@ describe("EventStore — error paths", () => {
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
         yield* sql`DROP TABLE events`
         return yield* store.readAll
       })

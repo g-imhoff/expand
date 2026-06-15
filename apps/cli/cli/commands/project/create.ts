@@ -1,15 +1,13 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
-import { ProjectName } from "@yodea/contracts/project"
 import { API_VERSION } from "@yodea/contracts/cli"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 
-const name = Argument.string("name").pipe(Argument.withSchema(ProjectName))
+// Raw string: the backend validates the name at ingestion (ProjectInvalidInput).
+const name = Argument.string("name")
 const ensure = Flag.boolean("ensure").pipe(Flag.withDefault(false))
 const directory = Flag.string("directory").pipe(Flag.optional)
-
-type CreateResult = { created: boolean; project: { id: string; name: string; directory?: string | null; createdAt: string } }
 
 export const createCommand = defineCommand(
   "create",
@@ -23,3 +21,5 @@ export const createCommand = defineCommand(
     Effect.flatMap(ProjectClient, (c) =>
       c.create({ name, ensure, ...(Option.isSome(directory) ? { directory: directory.value } : {}) }))
 )
+
+type CreateResult = { created: boolean; project: { id: string; name: string; directory?: string | null; createdAt: string } }

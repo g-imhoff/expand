@@ -4,7 +4,6 @@ import { Effect } from "effect"
 import { defineCommand } from "@yodea/cli/_command"
 import { Format, Quiet } from "@yodea/cli/global-flags"
 import { ProjectClient } from "@yodea/client-core"
-import type { ProjectName } from "@yodea/contracts/project"
 import { runCli, stubLayer } from "../harness"
 
 const create = defineCommand(
@@ -18,7 +17,7 @@ const create = defineCommand(
     quiet: (r) => r.project.id
   },
   ({ name }): Effect.Effect<{ created: boolean; project: { id: string; name: string; createdAt: string } }, unknown, ProjectClient> =>
-    Effect.flatMap(ProjectClient, (c) => c.create({ name: name as ProjectName, ensure: false }))
+    Effect.flatMap(ProjectClient, (c) => c.create({ name: name as string, ensure: false }))
 )
 
 const tree = (stub: object) =>

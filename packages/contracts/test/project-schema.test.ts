@@ -1,57 +1,33 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { Project, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import { Project } from "@yodea/contracts/project"
 
-describe("Project opaque entity", () => {
-  const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
-  const valid = {
-    id: ProjectId.make(uid(1)),
-    name: ProjectName.make("my-app"),
-    directory: null,
-    description: null,
-    tags: [],
-    archived: false,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z"
-  }
-  it("Project.make builds a branded value and validates fields", () => {
-    const p = Project.make(valid)
-    expect(p.id).toBe(uid(1))
-    expect(() => Project.make({ ...valid, id: "p1" as ProjectId })).toThrow()
-  })
-  it("decode still applies field defaults", () => {
-    const p = Schema.decodeUnknownSync(Project)({
-      id: uid(1), name: "my-app", createdAt: "t"
-    })
-    expect(p.tags).toEqual([])
-    expect(p.archived).toBe(false)
-  })
-})
+const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
+
+const valid = {
+  id: uid(1),
+  name: "my-app",
+  directory: null,
+  description: null,
+  tags: [],
+  archived: false,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z"
+}
 
 describe("Project schema", () => {
-  const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
-
-  it("decodes a well-formed project", () => {
-    const p = Schema.decodeUnknownSync(Project)({
-      id: uid(1),
-      name: "first",
-      createdAt: "2026-01-01T00:00:00.000Z"
-    })
+  it("decodes a well-formed project and brands its fields", () => {
+    const p = Schema.decodeUnknownSync(Project)(valid)
     expect(p.id).toBe(uid(1))
+    expect(p.name).toBe("my-app")
   })
 
-  it("rejects a project missing a field", () => {
+  it("rejects an invalid id on decode", () => {
+    expect(() => Schema.decodeUnknownSync(Project)({ ...valid, id: "p1" })).toThrow()
+  })
+
+  it("rejects a project missing a required field", () => {
     expect(() => Schema.decodeUnknownSync(Project)({ id: uid(1) })).toThrow()
-  })
-
-  it("ProjectId accepts a v4 UUID and rejects a name", () => {
-    expect(Schema.decodeUnknownSync(ProjectId)("3f2504e0-4f89-41d3-9a0c-0305e82c3301")).toBeTypeOf("string")
-    expect(() => Schema.decodeUnknownSync(ProjectId)("alpha")).toThrow()
-  })
-
-  it("Tag accepts kebab and rejects spaces/uppercase", () => {
-    expect(Schema.decodeUnknownSync(Tag)("web-app")).toBe("web-app")
-    expect(() => Schema.decodeUnknownSync(Tag)("Web App")).toThrow()
   })
 
   it("decodes a legacy project (no new fields) filling defaults", () => {
@@ -63,18 +39,23 @@ describe("Project schema", () => {
   })
 })
 
-describe("branded scalars", () => {
-  it("ProjectId.make accepts a v4 UUID and rejects non-UUIDs", () => {
-    const raw = "00000000-0000-4000-8000-000000000001"
-    expect(ProjectId.make(raw)).toBe(raw)
-    expect(() => ProjectId.make("p1")).toThrow()
+describe("Project field validation (enforced by construction)", () => {
+  const decode = (props: Record<string, unknown>) => Schema.decodeUnknownSync(Project)({ ...valid, ...props })
+
+  it("accepts kebab names and rejects spaces/uppercase/empty", () => {
+    expect(decode({ name: "my-app" }).name).toBe("my-app")
+    expect(() => decode({ name: "My App" })).toThrow()
+    expect(() => decode({ name: "" })).toThrow()
   })
-  it("ProjectName.make accepts kebab names and rejects uppercase", () => {
-    expect(ProjectName.make("my-app")).toBe("my-app")
-    expect(() => ProjectName.make("MyApp")).toThrow()
+
+  it("validates each tag", () => {
+    expect(decode({ tags: ["web", "api"] }).tags).toEqual(["web", "api"])
+    expect(() => decode({ tags: ["Bad Tag"] })).toThrow()
   })
-  it("Tag.make enforces the tag pattern", () => {
-    expect(Tag.make("backend")).toBe("backend")
-    expect(() => Tag.make("-bad")).toThrow()
+
+  it("enforces the description length cap and accepts null", () => {
+    expect(decode({ description: null }).description).toBeNull()
+    expect(decode({ description: "ok" }).description).toBe("ok")
+    expect(() => decode({ description: "x".repeat(2049) })).toThrow()
   })
 })

@@ -1,5 +1,5 @@
 import { type Context, Effect, Stream, SubscriptionRef } from "effect"
-import type { Project, ProjectDeleteResult, ProjectId } from "@yodea/contracts/project"
+import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { RendererProjectStoreShape } from "@yodea/desktop/renderer/features/projects/data/project-store"
 import { supervised } from "@yodea/desktop/renderer/lib/supervised"
 
@@ -7,16 +7,16 @@ export interface AppHandle {
   readonly getProjects: () => ReadonlyArray<Project>
   readonly subscribe: (callback: () => void) => () => void
   readonly createProject: (name: string) => Promise<Project>
-  readonly renameProject: (args: { readonly id: ProjectId; readonly name: string }) => Promise<Project>
-  readonly changeDirectory: (args: { readonly id: ProjectId; readonly directory: string }) => Promise<Project>
-  readonly archiveProject: (id: ProjectId) => Promise<Project>
-  readonly restoreProject: (id: ProjectId) => Promise<Project>
+  readonly renameProject: (args: { readonly id: string; readonly name: string }) => Promise<Project>
+  readonly changeDirectory: (args: { readonly id: string; readonly directory: string }) => Promise<Project>
+  readonly archiveProject: (id: string) => Promise<Project>
+  readonly restoreProject: (id: string) => Promise<Project>
   readonly setMetadata: (args: {
-    readonly id: ProjectId
+    readonly id: string
     readonly description?: string | null
     readonly tags?: ReadonlyArray<string>
   }) => Promise<Project>
-  readonly deleteProject: (id: ProjectId) => Promise<ProjectDeleteResult>
+  readonly deleteProject: (id: string) => Promise<ProjectDeleteResult>
   readonly health: () => Promise<string>
 }
 

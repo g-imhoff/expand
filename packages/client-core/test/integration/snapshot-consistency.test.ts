@@ -10,7 +10,7 @@ import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectCreated } from "@yodea/contracts/events/project"
-import { Project, ProjectId, ProjectName } from "@yodea/contracts/project"
+import { Project } from "@yodea/contracts/project"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -26,9 +26,9 @@ afterEach(() => {
 })
 
 const N = 40
-const idFor = (i: number): ProjectId =>
-  ProjectId.make(`00000000-0000-4000-8000-${String(i).padStart(12, "0")}`)
-const nameFor = (i: number): ProjectName => ProjectName.make(`p${i}`)
+const idFor = (i: number): string =>
+  `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`
+const nameFor = (i: number): string => `p${i}`
 
 // All seq>=1 events the server will publish, in order.
 const allEvents: ReadonlyArray<SequencedEvent> = Array.from({ length: N }, (_, k) => {

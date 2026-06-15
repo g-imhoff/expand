@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { Deferred, Effect, Layer, PubSub, Stream, SubscriptionRef } from "effect"
+import { Deferred, Effect, Layer, PubSub, Stream, SubscriptionRef, Schema } from "effect"
 import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
-import { Project as ProjectClass, ProjectId, ProjectName } from "@yodea/contracts/project"
+import { Project as ProjectClass } from "@yodea/contracts/project"
 import type { Project } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectRpc, type ProjectRpcApi } from "@yodea/desktop/renderer/rpc/project-rpc"
@@ -43,8 +43,8 @@ const stubRpc = (initial: ReadonlyArray<Project>, events: ReadonlyArray<Sequence
 describe("RendererProjectStore", () => {
   it("seeds from list and folds the event stream into the SubscriptionRef", async () => {
     const events: ReadonlyArray<SequencedEvent> = [
-      { seq: 1, event: ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t1" }) },
-      { seq: 2, event: ProjectRenamed.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha-2"), occurredAt: "t2" }) }
+      { seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }) },
+      { seq: 2, event: ProjectRenamed.make({ projectId: uid(1), name: "alpha-2", occurredAt: "t2" }) }
     ]
     const program = Effect.gen(function* () {
       const store = yield* RendererProjectStore
@@ -63,7 +63,7 @@ describe("RendererProjectStore", () => {
 
   it("starts from the list snapshot before any event", async () => {
     const seed: ReadonlyArray<Project> = [
-      ProjectClass.make({ id: ProjectId.make(uid(10)), name: ProjectName.make("seed"), directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" })
+      Schema.decodeUnknownSync(ProjectClass)({ id: uid(10), name: "seed", directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" })
     ]
     const program = Effect.gen(function* () {
       const store = yield* RendererProjectStore
@@ -79,8 +79,8 @@ describe("RendererProjectStore — bootstrap window", () => {
     const program = Effect.gen(function* () {
       const pubsub = yield* PubSub.unbounded<SequencedEvent>()
       const subscribed = yield* Deferred.make<void>()
-      const seed: Project = ProjectClass.make({
-        id: ProjectId.make(uid(1)), name: ProjectName.make("v2"), directory: null, description: null, tags: [],
+      const seed: Project = Schema.decodeUnknownSync(ProjectClass)({
+        id: uid(1), name: "v2", directory: null, description: null, tags: [],
         archived: false, createdAt: "t0", updatedAt: "t2"
       })
       const rpcLayer = Layer.succeed(ProjectRpc, {
@@ -94,8 +94,8 @@ describe("RendererProjectStore — bootstrap window", () => {
         list: () =>
           Effect.gen(function* () {
             yield* Deferred.await(subscribed)
-            yield* PubSub.publish(pubsub, { seq: 3, event: ProjectRenamed.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("v3"), occurredAt: "t3" }) })
-            yield* PubSub.publish(pubsub, { seq: 1, event: ProjectRenamed.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("v0"), occurredAt: "t1" }) })
+            yield* PubSub.publish(pubsub, { seq: 3, event: ProjectRenamed.make({ projectId: uid(1), name: "v3", occurredAt: "t3" }) })
+            yield* PubSub.publish(pubsub, { seq: 1, event: ProjectRenamed.make({ projectId: uid(1), name: "v0", occurredAt: "t1" }) })
             return { projects: [seed], seq: 2 }
           }),
         events: () =>

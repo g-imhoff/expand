@@ -4,7 +4,6 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectName } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -37,11 +36,11 @@ describe.sequential("Events replay with fromSeq", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const a = (yield* client.ProjectCreate({ name: ProjectName.make("replay-a"), ensure: false })).project
-          yield* client.ProjectCreate({ name: ProjectName.make("replay-b"), ensure: false })
+          const a = (yield* client.ProjectCreate({ name: "replay-a", ensure: false })).project
+          yield* client.ProjectCreate({ name: "replay-b", ensure: false })
           const events = yield* client.Events({ fromSeq: 1 }, { asQueue: true })
           const first = yield* Queue.take(events)
-          yield* client.ProjectRename({ id: a.id, name: ProjectName.make("replay-a2") })
+          yield* client.ProjectRename({ id: a.id, name: "replay-a2" })
           const second = yield* Queue.take(events)
           return { first, second }
         })
@@ -64,8 +63,8 @@ describe.sequential("Events replay with fromSeq", () => {
       yield* awaitEndpointUp
       const out = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          yield* client.ProjectCreate({ name: ProjectName.make("full-a"), ensure: false })
-          yield* client.ProjectCreate({ name: ProjectName.make("full-b"), ensure: false })
+          yield* client.ProjectCreate({ name: "full-a", ensure: false })
+          yield* client.ProjectCreate({ name: "full-b", ensure: false })
           const events = yield* client.Events({ fromSeq: 0 }, { asQueue: true })
           const e1 = yield* Queue.take(events)
           const e2 = yield* Queue.take(events)

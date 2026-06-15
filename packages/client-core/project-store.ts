@@ -2,9 +2,9 @@ import { Cause, Context, Deferred, Effect, Exit, Layer, PubSub, Queue, Schedule,
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import { Project } from "@yodea/contracts/project"
-import type { ProjectCreateResult, ProjectDeleteResult, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import type { ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { BackendUnavailable } from "@yodea/client-core/discovery"
 import { acquireClient, type YodeaRpcClientApi } from "@yodea/client-core/rpc-client"
@@ -12,29 +12,32 @@ import { supervised } from "@yodea/client-core/supervise"
 
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
+// Mutations take raw strings and forward them to the backend, which validates
+// at its ingestion boundary (invalid input returns ProjectInvalidInput). The
+// store never brands or validates — it only mirrors the server's event stream.
 export interface ProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   readonly status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
   readonly snapshot: Effect.Effect<{ readonly projects: ReadonlyArray<Project>; readonly seq: number }>
   readonly createProject: (
-    name: ProjectName,
+    name: string,
     directory?: string | null
-  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectDirectoryInvalid | ProjectDirectoryConflict>
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput>
   readonly renameProject: (
-    id: ProjectId,
-    name: ProjectName
-  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict>
+    id: string,
+    name: string
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict | ProjectInvalidInput>
   readonly changeDirectory: (
-    id: ProjectId,
+    id: string,
     directory: string
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict>
-  readonly archiveProject: (id: ProjectId) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly restoreProject: (id: ProjectId) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  readonly archiveProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  readonly restoreProject: (id: string) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   readonly setMetadata: (
-    id: ProjectId,
-    patch: { description?: string | null; tags?: ReadonlyArray<Tag> }
-  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly deleteProject: (id: ProjectId) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
+    id: string,
+    patch: { description?: string | null; tags?: ReadonlyArray<string> }
+  ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectInvalidInput>
+  readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
   readonly events: Stream.Stream<SequencedEvent>
 }
 
@@ -148,7 +151,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       status,
       snapshot: SubscriptionRef.get(state),
       events: Stream.fromPubSub(hub),
-      createProject: (name: ProjectName, directory?: string | null) =>
+      createProject: (name: string, directory?: string | null) =>
         current.pipe(
           Effect.flatMap((client) =>
             client.ProjectCreate({ name, ensure: true, ...(directory !== undefined ? { directory } : {}) })
@@ -156,15 +159,15 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
           Effect.map((r: ProjectCreateResult) => r.project),
           Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e))
         ),
-      renameProject: (id: ProjectId, name: ProjectName) =>
+      renameProject: (id: string, name: string) =>
         current.pipe(Effect.flatMap((client) => client.ProjectRename({ id, name }))),
-      changeDirectory: (id: ProjectId, directory: string) =>
+      changeDirectory: (id: string, directory: string) =>
         current.pipe(Effect.flatMap((client) => client.ProjectChangeDirectory({ id, directory }))),
-      archiveProject: (id: ProjectId) =>
+      archiveProject: (id: string) =>
         current.pipe(Effect.flatMap((client) => client.ProjectArchive({ id }))),
-      restoreProject: (id: ProjectId) =>
+      restoreProject: (id: string) =>
         current.pipe(Effect.flatMap((client) => client.ProjectRestore({ id }))),
-      setMetadata: (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
+      setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
         current.pipe(
           Effect.flatMap((client) =>
             client.ProjectSetMetadata({
@@ -174,7 +177,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
             })
           )
         ),
-      deleteProject: (id: ProjectId) =>
+      deleteProject: (id: string) =>
         current.pipe(Effect.flatMap((client) => client.ProjectDelete({ id })))
     }
   })

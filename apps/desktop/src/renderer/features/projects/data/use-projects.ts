@@ -1,11 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore } from "react"
-import type { Project, ProjectId } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { useAppHandle } from "@yodea/desktop/renderer/app/AppHandleProvider"
-
-interface MutationOptions<A> {
-  readonly onSuccess?: (result: A) => void
-  readonly onError?: (error: unknown) => void
-}
 
 export interface MutationState<I, A> {
   readonly mutate: (input: I, options?: MutationOptions<A>) => void
@@ -63,31 +58,36 @@ export const useCreateProject = () => {
 
 export const useRenameProject = () => {
   const handle = useAppHandle()
-  return useRunMutation((args: { id: ProjectId; name: string }) => handle.renameProject(args))
+  return useRunMutation((args: { id: string; name: string }) => handle.renameProject(args))
 }
 
 export const useChangeDirectory = () => {
   const handle = useAppHandle()
-  return useRunMutation((args: { id: ProjectId; directory: string }) => handle.changeDirectory(args))
+  return useRunMutation((args: { id: string; directory: string }) => handle.changeDirectory(args))
 }
 
 export const useArchiveProject = () => {
   const handle = useAppHandle()
-  return useRunMutation((id: ProjectId) => handle.archiveProject(id))
+  return useRunMutation((id: string) => handle.archiveProject(id))
 }
 
 export const useRestoreProject = () => {
   const handle = useAppHandle()
-  return useRunMutation((id: ProjectId) => handle.restoreProject(id))
+  return useRunMutation((id: string) => handle.restoreProject(id))
 }
 
 export const useSetMetadata = () => {
   const handle = useAppHandle()
-  return useRunMutation((args: { id: ProjectId; description?: string | null; tags?: ReadonlyArray<string> }) =>
+  return useRunMutation((args: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
     handle.setMetadata(args))
 }
 
 export const useDeleteProject = () => {
   const handle = useAppHandle()
-  return useRunMutation((id: ProjectId) => handle.deleteProject(id))
+  return useRunMutation((id: string) => handle.deleteProject(id))
+}
+
+interface MutationOptions<A> {
+  readonly onSuccess?: (result: A) => void
+  readonly onError?: (error: unknown) => void
 }

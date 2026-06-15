@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
-import type { Project, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { textField } from "@yodea/ink-input/text-field"
 import { initialUiState, type UiState } from "@yodea/tui/input/state"
 import { uiReduce } from "@yodea/tui/input/reduce"
 
-const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ProjectId
+const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number): Project => ({
-  id: pid(n), name: `p${n}` as ProjectName, directory: null, description: null,
-  tags: [] as ReadonlyArray<Tag>, archived: false, createdAt: "t", updatedAt: "t"
+  id: pid(n), name: `p${n}` as string, directory: null, description: null,
+  tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t"
 } as Project)
 
 describe("uiReduce — text editing", () => {

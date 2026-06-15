@@ -1,5 +1,5 @@
 import { Effect, Stream } from "effect"
-import { YodeaRpcs, ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import { YodeaRpcs, ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import { ProjectUseCases } from "@yodea/server/application/projects/use-cases"
 import { ServerUseCases } from "@yodea/server/application/server/use-cases"
 import { EventBus } from "@yodea/server/application/event-bus"
@@ -12,11 +12,12 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
   ProjectCreate: ({ name, ensure, directory }) =>
     Effect.flatMap(ProjectUseCases, (u) => u.createProject(name, ensure, directory)).pipe(
       Effect.catchIf(
-        (e): e is ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict =>
+        (e): e is ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput =>
           typeof e === "object" && e !== null && "_tag" in e &&
           ((e as { _tag: string })._tag === "ProjectAlreadyExists" ||
             (e as { _tag: string })._tag === "ProjectDirectoryInvalid" ||
-            (e as { _tag: string })._tag === "ProjectDirectoryConflict"),
+            (e as { _tag: string })._tag === "ProjectDirectoryConflict" ||
+            (e as { _tag: string })._tag === "ProjectInvalidInput"),
         (e) => Effect.fail(e),
         (e) => Effect.die(e)
       )
@@ -24,10 +25,11 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
   ProjectRename: ({ id, name }) =>
     Effect.flatMap(ProjectUseCases, (u) => u.renameProject(id, name)).pipe(
       Effect.catchIf(
-        (e): e is ProjectNotFound | ProjectNameConflict =>
+        (e): e is ProjectNotFound | ProjectNameConflict | ProjectInvalidInput =>
           typeof e === "object" && e !== null && "_tag" in e &&
           ((e as { _tag: string })._tag === "ProjectNotFound" ||
-            (e as { _tag: string })._tag === "ProjectNameConflict"),
+            (e as { _tag: string })._tag === "ProjectNameConflict" ||
+            (e as { _tag: string })._tag === "ProjectInvalidInput"),
         (e) => Effect.fail(e),
         (e) => Effect.die(e)
       )
@@ -72,9 +74,10 @@ export const YodeaHandlers = YodeaRpcs.toLayer({
       })
     ).pipe(
       Effect.catchIf(
-        (e): e is ProjectNotFound =>
+        (e): e is ProjectNotFound | ProjectInvalidInput =>
           typeof e === "object" && e !== null && "_tag" in e &&
-          (e as { _tag: string })._tag === "ProjectNotFound",
+          ((e as { _tag: string })._tag === "ProjectNotFound" ||
+            (e as { _tag: string })._tag === "ProjectInvalidInput"),
         (e) => Effect.fail(e),
         (e) => Effect.die(e)
       )

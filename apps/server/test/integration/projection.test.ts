@@ -4,7 +4,6 @@ import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
 import { ProjectCreated } from "@yodea/contracts/events/project"
-import { ProjectId, ProjectName } from "@yodea/contracts/project"
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
 
@@ -26,7 +25,7 @@ describe("ProjectProjection", () => {
         const projection = yield* ProjectProjection
         yield* store.append(
           uid(1),
-          ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("a"), occurredAt: "t1" })
+          ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" })
         )
         return yield* projection.list
       })
@@ -40,8 +39,8 @@ describe("ProjectProjection", () => {
         const store = yield* EventStore
         const projection = yield* ProjectProjection
         const empty = yield* projection.snapshot
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("a"), occurredAt: "t1" }))
-        yield* store.append(uid(2), ProjectCreated.make({ projectId: ProjectId.make(uid(2)), name: ProjectName.make("b"), occurredAt: "t2" }))
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
         const full = yield* projection.snapshot
         return { empty, full }
       })

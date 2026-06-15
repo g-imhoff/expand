@@ -1,7 +1,7 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
 import { SequencedEvent } from "@yodea/contracts/events/domain"
-import { DESCRIPTION_MAX_LENGTH, Project, ProjectCreateResult, ProjectDeleteResult, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
   "ProjectAlreadyExists",
@@ -28,40 +28,49 @@ export class ProjectDirectoryConflict extends Schema.TaggedErrorClass<ProjectDir
   { directory: Schema.String }
 ) {}
 
+// Raw input that failed Project's validation at the ingestion boundary (name or
+// tag pattern, description length). Travels back to the client as a typed error.
+export class ProjectInvalidInput extends Schema.TaggedErrorClass<ProjectInvalidInput>()(
+  "ProjectInvalidInput",
+  { field: Schema.String, reason: Schema.String }
+) {}
+
+// Payloads carry plain strings: the server validates them through Project at
+// ingestion. The wire never references the branded vocabulary.
 export class YodeaRpcs extends RpcGroup.make(
   Rpc.make("Health", { success: Schema.String }),
   Rpc.make("ProjectCreate", {
     payload: {
-      name: ProjectName,
+      name: Schema.String,
       ensure: Schema.Boolean,
-      directory: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(4096)))))
+      directory: Schema.optionalKey(Schema.NullOr(Schema.String))
     },
     success: ProjectCreateResult,
-    error: Schema.Union([ProjectAlreadyExists, ProjectDirectoryInvalid, ProjectDirectoryConflict])
+    error: Schema.Union([ProjectAlreadyExists, ProjectDirectoryInvalid, ProjectDirectoryConflict, ProjectInvalidInput])
   }),
   Rpc.make("ProjectRename", {
-    payload: { id: ProjectId, name: ProjectName },
+    payload: { id: Schema.String, name: Schema.String },
     success: Project,
-    error: Schema.Union([ProjectNotFound, ProjectNameConflict])
+    error: Schema.Union([ProjectNotFound, ProjectNameConflict, ProjectInvalidInput])
   }),
   Rpc.make("ProjectChangeDirectory", {
-    payload: { id: ProjectId, directory: Schema.String.pipe(Schema.check(Schema.isMaxLength(4096))) },
+    payload: { id: Schema.String, directory: Schema.String },
     success: Project,
     error: Schema.Union([ProjectNotFound, ProjectDirectoryInvalid, ProjectDirectoryConflict])
   }),
-  Rpc.make("ProjectArchive", { payload: { id: ProjectId }, success: Project, error: ProjectNotFound }),
-  Rpc.make("ProjectRestore", { payload: { id: ProjectId }, success: Project, error: ProjectNotFound }),
+  Rpc.make("ProjectArchive", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
+  Rpc.make("ProjectRestore", { payload: { id: Schema.String }, success: Project, error: ProjectNotFound }),
   Rpc.make("ProjectSetMetadata", {
     payload: {
-      id: ProjectId,
-      description: Schema.optionalKey(Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(DESCRIPTION_MAX_LENGTH))))),
-      tags: Schema.optionalKey(Schema.Array(Tag))
+      id: Schema.String,
+      description: Schema.optionalKey(Schema.NullOr(Schema.String)),
+      tags: Schema.optionalKey(Schema.Array(Schema.String))
     },
     success: Project,
-    error: ProjectNotFound
+    error: Schema.Union([ProjectNotFound, ProjectInvalidInput])
   }),
   Rpc.make("ProjectDelete", {
-    payload: { id: ProjectId },
+    payload: { id: Schema.String },
     success: ProjectDeleteResult,
     error: ProjectNotFound
   }),

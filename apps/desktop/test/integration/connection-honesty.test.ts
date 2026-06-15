@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@yodea/contracts/project"
-import { ProjectId, ProjectName } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
@@ -36,7 +35,7 @@ const fakeStore = (
 
 const sequenced = (seq: number): SequencedEvent => ({
   seq,
-  event: ProjectCreated.make({ projectId: ProjectId.make(uid(seq)), name: ProjectName.make("name-" + seq), occurredAt: "t" })
+  event: ProjectCreated.make({ projectId: uid(seq), name: "name-" + seq, occurredAt: "t" })
 })
 
 describe("desktop seam honesty", () => {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
-import type { Project, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { textField } from "@yodea/ink-input/text-field"
 import { initialUiState, type UiState } from "@yodea/tui/input/state"
 import { route } from "@yodea/tui/input/route"
 
-const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ProjectId
+const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number, over: Partial<Project> = {}): Project => ({
-  id: pid(n), name: `p${n}` as ProjectName, directory: null, description: null,
-  tags: [] as ReadonlyArray<Tag>, archived: false, createdAt: "t", updatedAt: "t", ...over
+  id: pid(n), name: `p${n}` as string, directory: null, description: null,
+  tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t", ...over
 } as Project)
 
 const projects = [project(1), project(2), project(3)]
@@ -38,7 +38,7 @@ describe("route — list focus", () => {
     expect(route(listUi, archived, "a", "a")).toEqual({ _tag: "ToggleArchive", projectId: pid(2), currentlyArchived: true })
   })
   it("m carries metadata prefill (description, comma-joined tags)", () => {
-    const tagged = [project(1), project(2, { description: "desc", tags: ["api", "db"] as unknown as ReadonlyArray<Tag> }), project(3)]
+    const tagged = [project(1), project(2, { description: "desc", tags: ["api", "db"] as unknown as Project["tags"] }), project(3)]
     expect(route(listUi, tagged, "m", "m")).toEqual({ _tag: "OpenMetadata", projectId: pid(2), description: "desc", tags: "api, db" })
   })
   it("n and tab focus the create field", () => {

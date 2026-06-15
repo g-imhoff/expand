@@ -1,7 +1,7 @@
 // apps/tui/input/reduce.ts
 // Pure module — no ink imports. State transitions + descriptive effects.
 // Effects are data; app.tsx's runEffect is the only place they meet useProjects.
-import type { Project, ProjectId } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { emptyTextField, textField, textFieldReduce } from "@yodea/ink-input/text-field"
 import {
   assertNever, type Action, type Overlay, type UiState
@@ -9,14 +9,13 @@ import {
 
 export type DomainEffect =
   | { readonly _tag: "Create"; readonly name: string }
-  | { readonly _tag: "Rename"; readonly id: ProjectId; readonly name: string }
-  | { readonly _tag: "ChangeDirectory"; readonly id: ProjectId; readonly directory: string }
-  | { readonly _tag: "SetMetadata"; readonly id: ProjectId; readonly description: string | null; readonly tags: ReadonlyArray<string> }
-  | { readonly _tag: "Archive"; readonly id: ProjectId }
-  | { readonly _tag: "Restore"; readonly id: ProjectId }
-  | { readonly _tag: "Delete"; readonly id: ProjectId }
+  | { readonly _tag: "Rename"; readonly id: string; readonly name: string }
+  | { readonly _tag: "ChangeDirectory"; readonly id: string; readonly directory: string }
+  | { readonly _tag: "SetMetadata"; readonly id: string; readonly description: string | null; readonly tags: ReadonlyArray<string> }
+  | { readonly _tag: "Archive"; readonly id: string }
+  | { readonly _tag: "Restore"; readonly id: string }
+  | { readonly _tag: "Delete"; readonly id: string }
 
-type Result = { readonly ui: UiState; readonly effects: ReadonlyArray<DomainEffect> }
 const pure = (ui: UiState): Result => ({ ui, effects: [] })
 
 const parseTags = (raw: string): ReadonlyArray<string> =>
@@ -145,3 +144,5 @@ export const uiReduce = (ui: UiState, action: Action): Result => {
       return assertNever(action)
   }
 }
+
+type Result = { readonly ui: UiState; readonly effects: ReadonlyArray<DomainEffect> }

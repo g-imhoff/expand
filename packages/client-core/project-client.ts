@@ -1,28 +1,30 @@
 import { Context, Effect, Layer } from "effect"
 import type { FileSystem } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import type { Project, ProjectCreateResult, ProjectDeleteResult, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
-import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
+import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
+import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
 import type { BackendUnavailable } from "@yodea/client-core/discovery"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { YodeaRpcClient, YodeaRpcClientLive } from "@yodea/client-core/rpc-client"
 
+// Raw strings in; the backend validates at ingestion (ProjectInvalidInput on
+// failure). The client never references the branded vocabulary.
 export interface ProjectClientApi {
   readonly create: (payload: {
-    readonly name: ProjectName
+    readonly name: string
     readonly ensure: boolean
     readonly directory?: string | null
-  }) => Effect.Effect<ProjectCreateResult, RpcClientError.RpcClientError | ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict>
-  readonly rename: (payload: { readonly id: ProjectId; readonly name: ProjectName }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict>
-  readonly changeDirectory: (payload: { readonly id: ProjectId; readonly directory: string }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict>
-  readonly archive: (payload: { readonly id: ProjectId }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly restore: (payload: { readonly id: ProjectId }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  }) => Effect.Effect<ProjectCreateResult, RpcClientError.RpcClientError | ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput>
+  readonly rename: (payload: { readonly id: string; readonly name: string }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectNameConflict | ProjectInvalidInput>
+  readonly changeDirectory: (payload: { readonly id: string; readonly directory: string }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict>
+  readonly archive: (payload: { readonly id: string }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
+  readonly restore: (payload: { readonly id: string }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
   readonly setMetadata: (payload: {
-    readonly id: ProjectId
+    readonly id: string
     readonly description?: string | null
-    readonly tags?: ReadonlyArray<Tag>
-  }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound>
-  readonly delete: (payload: { readonly id: ProjectId }) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
+    readonly tags?: ReadonlyArray<string>
+  }) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectInvalidInput>
+  readonly delete: (payload: { readonly id: string }) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
   readonly list: (payload?: { readonly includeArchived?: boolean }) => Effect.Effect<
     { readonly projects: ReadonlyArray<Project>; readonly seq: number },
     RpcClientError.RpcClientError

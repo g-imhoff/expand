@@ -4,7 +4,6 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
@@ -39,13 +38,13 @@ describe.sequential("end-to-end set-metadata", () => {
       yield* awaitEndpointUp
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
-          const { project } = yield* client.ProjectCreate({ name: ProjectName.make("e2emeta"), ensure: false })
+          const { project } = yield* client.ProjectCreate({ name: "e2emeta", ensure: false })
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
-          const updated = yield* client.ProjectSetMetadata({ id: project.id, description: "e2e", tags: [Tag.make("a"), Tag.make("a"), Tag.make("b")] })
+          const updated = yield* client.ProjectSetMetadata({ id: project.id, description: "e2e", tags: ["a", "a", "b"] })
           const metaEvent = yield* Fiber.join(head)
           const listed = yield* client.ProjectList({})
-          const notFound = yield* client.ProjectSetMetadata({ id: ProjectId.make("00000000-0000-4000-8000-000000000000"), description: "x" }).pipe(Effect.result)
+          const notFound = yield* client.ProjectSetMetadata({ id: "00000000-0000-4000-8000-000000000000", description: "x" }).pipe(Effect.result)
           return { project, updated, metaEvent, listed, notFound }
         })
       )

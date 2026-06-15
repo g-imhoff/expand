@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, PubSub, Stream, SubscriptionRef } from "effect"
-import { Project as ProjectClass, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import { Effect, Layer, PubSub, Stream, SubscriptionRef, Schema } from "effect"
+import { Project as ProjectClass } from "@yodea/contracts/project"
 import type { Project } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
@@ -17,31 +17,31 @@ const fakeStoreLayer = (
     status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.fromPubSub(hub),
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: ProjectName) => {
-      const project = ProjectClass.make({ id: ProjectId.make(uid(1)), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
+    createProject: (name: string) => {
+      const project = Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
     },
-    renameProject: (id: ProjectId, name: ProjectName) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, name }) : p))).pipe(
+    renameProject: (id: string, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, name }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    changeDirectory: (id: ProjectId, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, directory }) : p))).pipe(
+    changeDirectory: (id: string, directory: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, directory }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    archiveProject: (id: ProjectId) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: true }) : p))).pipe(
+    archiveProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: true }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    restoreProject: (id: ProjectId) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: false }) : p))).pipe(
+    restoreProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: false }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    setMetadata: (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, ...patch }) : p))).pipe(
+    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, ...patch }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    deleteProject: (id: ProjectId) =>
+    deleteProject: (id: string) =>
       SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
         Effect.as({ id, deleted: true } as const)
       )
@@ -54,7 +54,7 @@ describe("DesktopRpcHandlers", () => {
       const hub = yield* PubSub.unbounded<SequencedEvent>()
       const run = <A, E>(eff: Effect.Effect<A, E, ProjectStore>) =>
         eff.pipe(Effect.provide(fakeStoreLayer(ref, hub)))
-      const created = yield* run(Effect.flatMap(ProjectStore, (s) => s.createProject(ProjectName.make("omega"))))
+      const created = yield* run(Effect.flatMap(ProjectStore, (s) => s.createProject("omega")))
       const list = yield* run(Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)))
       return { created, list }
     })
@@ -67,10 +67,10 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectChangeDirectory delegates to the store", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
-        ProjectClass.make({ id: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
+        Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       ])
       const hub = yield* PubSub.unbounded<SequencedEvent>()
-      return yield* Effect.flatMap(ProjectStore, (s) => s.changeDirectory(ProjectId.make(uid(1)), "/srv/a")).pipe(
+      return yield* Effect.flatMap(ProjectStore, (s) => s.changeDirectory(uid(1), "/srv/a")).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
     })
@@ -82,13 +82,13 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectArchive delegates to the store and toggles archived:true", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
-        ProjectClass.make({ id: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
+        Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       ])
       const hub = yield* PubSub.unbounded<SequencedEvent>()
-      const archived = yield* Effect.flatMap(ProjectStore, (s) => s.archiveProject(ProjectId.make(uid(1)))).pipe(
+      const archived = yield* Effect.flatMap(ProjectStore, (s) => s.archiveProject(uid(1))).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
-      const restored = yield* Effect.flatMap(ProjectStore, (s) => s.restoreProject(ProjectId.make(uid(1)))).pipe(
+      const restored = yield* Effect.flatMap(ProjectStore, (s) => s.restoreProject(uid(1))).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
       return { archived, restored }
@@ -102,10 +102,10 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectSetMetadata delegates to the store (replace-style merge)", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
-        ProjectClass.make({ id: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
+        Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name: "alpha", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       ])
       const hub = yield* PubSub.unbounded<SequencedEvent>()
-      return yield* Effect.flatMap(ProjectStore, (s) => s.setMetadata(ProjectId.make(uid(1)), { description: "hi", tags: [Tag.make("x")] })).pipe(
+      return yield* Effect.flatMap(ProjectStore, (s) => s.setMetadata(uid(1), { description: "hi", tags: ["x"] })).pipe(
         Effect.provide(fakeStoreLayer(ref, hub))
       )
     })
@@ -118,11 +118,11 @@ describe("DesktopRpcHandlers", () => {
   it("ProjectDelete delegates to store.deleteProject and shrinks the ref", async () => {
     const program = Effect.gen(function* () {
       const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([
-        ProjectClass.make({ id: ProjectId.make(uid(1)), name: ProjectName.make("x"), directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
+        Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name: "x", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
       ])
       const hub = yield* PubSub.unbounded<SequencedEvent>()
       const run = <A, E>(eff: Effect.Effect<A, E, ProjectStore>) => eff.pipe(Effect.provide(fakeStoreLayer(ref, hub)))
-      const res = yield* run(Effect.flatMap(ProjectStore, (s) => s.deleteProject(ProjectId.make(uid(1)))))
+      const res = yield* run(Effect.flatMap(ProjectStore, (s) => s.deleteProject(uid(1))))
       const list = yield* run(Effect.flatMap(ProjectStore, (s) => SubscriptionRef.get(s.projects)))
       return { res, list }
     })

@@ -1,13 +1,13 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ProjectName, type Project } from "@yodea/contracts/project"
+import type { Project } from "@yodea/contracts/project"
 import { API_VERSION } from "@yodea/contracts/cli"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
 
 const target = Argument.string("project")
-const name = Argument.string("name").pipe(Argument.withSchema(ProjectName))
+const name = Argument.string("name")
 
 export const renameCommand = defineCommand(
   "rename",

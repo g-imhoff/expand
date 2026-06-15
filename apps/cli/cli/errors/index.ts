@@ -8,6 +8,7 @@ export {
   NameConflictCli,
   DirectoryInvalidCli,
   DirectoryConflictCli,
+  InvalidInputCli,
   mapProjectError,
   type ProjectCliError
 } from "@yodea/cli/errors/project-errors"

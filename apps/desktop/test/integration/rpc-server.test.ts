@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef } from "effect"
-import { Project as ProjectClass, ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
+import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef, Schema } from "effect"
+import { Project as ProjectClass } from "@yodea/contracts/project"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
@@ -20,9 +20,9 @@ const fakeStoreLayer = (
     status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
     events: Stream.fromPubSub(hub),
     snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: ProjectName) => {
-      const project = ProjectClass.make({
-        id: ProjectId.make(uid(1)),
+    createProject: (name: string) => {
+      const project = Schema.decodeUnknownSync(ProjectClass)({
+        id: uid(1),
         name,
         directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t"
       })
@@ -31,27 +31,27 @@ const fakeStoreLayer = (
         SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
       )
     },
-    renameProject: (id: ProjectId, name: ProjectName) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, name }) : p))).pipe(
+    renameProject: (id: string, name: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, name }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    changeDirectory: (id: ProjectId, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, directory }) : p))).pipe(
+    changeDirectory: (id: string, directory: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, directory }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    archiveProject: (id: ProjectId) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: true }) : p))).pipe(
+    archiveProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: true }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    restoreProject: (id: ProjectId) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, archived: false }) : p))).pipe(
+    restoreProject: (id: string) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: false }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    setMetadata: (id: ProjectId, patch: { description?: string | null; tags?: ReadonlyArray<Tag> }) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? ProjectClass.make({ ...p, ...patch }) : p))).pipe(
+    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
+      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, ...patch }) : p))).pipe(
         Effect.map((cur) => cur.find((p) => p.id === id)!)
       ),
-    deleteProject: (id: ProjectId) =>
+    deleteProject: (id: string) =>
       SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
         Effect.as({ id, deleted: true } as const)
       )
@@ -93,7 +93,7 @@ describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cl
 
     try {
       const list0 = await runtime.runPromise(client.ProjectList({}))
-      const created = await runtime.runPromise(client.ProjectCreate({ name: ProjectName.make("omega"), ensure: false }))
+      const created = await runtime.runPromise(client.ProjectCreate({ name: "omega", ensure: false }))
       const list1 = await runtime.runPromise(client.ProjectList({}))
 
       expect(list0).toEqual({ projects: [], seq: 0 })

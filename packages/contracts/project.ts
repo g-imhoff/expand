@@ -1,72 +1,50 @@
 import { Effect, Schema } from "effect"
-import type { Brand } from "effect"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 
-type ProjectCreatedEvent = Extract<DomainEvent, { _tag: "ProjectCreated" }>
-
-export const ProjectName = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
-  Schema.brand("ProjectName")
-)
-export type ProjectName = typeof ProjectName.Type
-
-export const ProjectId = Schema.String.pipe(
-  Schema.check(Schema.isUUID(4)),
-  Schema.brand("ProjectId")
-)
-export type ProjectId = typeof ProjectId.Type
-
-export const Tag = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)),
-  Schema.brand("Tag")
-)
-export type Tag = typeof Tag.Type
-
-export const DESCRIPTION_MAX_LENGTH = 2048
-
-export class Project extends Schema.Opaque<Project, Brand.Brand<"Project">>()(
-  Schema.Struct({
-    id: ProjectId,
-    name: ProjectName,
-    directory: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-    description: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
-    tags: Schema.Array(Tag).pipe(Schema.withDecodingDefaultKey(Effect.succeed([]))),
-    archived: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
-    createdAt: Schema.String,
-    updatedAt: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
-  })
-) {
+export class Project extends Schema.Class<Project>("Project")({
+  id: Schema.String.pipe(Schema.check(Schema.isUUID(4)), Schema.brand("ProjectId")),
+  name: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)), Schema.brand("ProjectName")),
+  directory: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
+  description: Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(2048)))).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(null))
+  ),
+  tags: Schema.Array(Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)), Schema.brand("Tag"))).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([]))
+  ),
+  archived: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
+  createdAt: Schema.String,
+  updatedAt: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("")))
+}) {
   static fromCreated(e: ProjectCreatedEvent): Project {
-    return Project.make({
-      id: e.projectId,
-      name: e.name,
+    return new Project({
+      id: e.projectId as ProjectId,
+      name: e.name as ProjectName,
       directory: e.directory ?? null,
       description: null,
       tags: [],
       archived: false,
       createdAt: e.occurredAt,
       updatedAt: e.occurredAt
-    })
+    }, { disableChecks: true })
   }
 
-  // Assumes e.projectId === p.id; matching is the caller's (or foldList's) job.
   static applyEvent(p: Project, e: DomainEvent): Project {
     switch (e._tag) {
       case "ProjectRenamed":
-        return Project.make({ ...p, name: e.name, updatedAt: e.occurredAt })
+        return new Project({ ...p, name: e.name as ProjectName, updatedAt: e.occurredAt }, { disableChecks: true })
       case "ProjectDirectoryChanged":
-        return Project.make({ ...p, directory: e.directory, updatedAt: e.occurredAt })
+        return new Project({ ...p, directory: e.directory, updatedAt: e.occurredAt }, { disableChecks: true })
       case "ProjectArchived":
-        return Project.make({ ...p, archived: true, updatedAt: e.occurredAt })
+        return new Project({ ...p, archived: true, updatedAt: e.occurredAt }, { disableChecks: true })
       case "ProjectRestored":
-        return Project.make({ ...p, archived: false, updatedAt: e.occurredAt })
+        return new Project({ ...p, archived: false, updatedAt: e.occurredAt }, { disableChecks: true })
       case "ProjectMetadataChanged":
-        return Project.make({
+        return new Project({
           ...p,
           ...(e.description !== undefined ? { description: e.description } : {}),
-          ...(e.tags !== undefined ? { tags: [...new Set(e.tags)] } : {}),
+          ...(e.tags !== undefined ? { tags: [...new Set(e.tags)].map((t) => t as Tag) } : {}),
           updatedAt: e.occurredAt
-        })
+        }, { disableChecks: true })
       default:
         return p
     }
@@ -91,3 +69,8 @@ export class ProjectCreateResult extends Schema.Opaque<ProjectCreateResult>()(
 export class ProjectDeleteResult extends Schema.Opaque<ProjectDeleteResult>()(
   Schema.Struct({ id: Schema.String, deleted: Schema.Boolean })
 ) { }
+
+type ProjectCreatedEvent = Extract<DomainEvent, { _tag: "ProjectCreated" }>
+type ProjectId = Project["id"]
+type ProjectName = Project["name"]
+type Tag = Project["tags"][number]

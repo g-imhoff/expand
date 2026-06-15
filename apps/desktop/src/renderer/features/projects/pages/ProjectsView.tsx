@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import type { ProjectId } from "@yodea/contracts/project"
 import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/data/use-projects"
 import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
 import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
@@ -12,9 +11,9 @@ export const ProjectsView = () => {
   const rename = useRenameProject()
   const changeDirectory = useChangeDirectory()
   const del = useDeleteProject()
-  const [renaming, setRenaming] = useState<{ id: ProjectId; name: string } | null>(null)
-  const [target, setTarget] = useState<{ id: ProjectId; name: string } | null>(null)
-  const [movingDir, setMovingDir] = useState<{ id: ProjectId; name: string; directory: string | null } | null>(null)
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
+  const [target, setTarget] = useState<{ id: string; name: string } | null>(null)
+  const [movingDir, setMovingDir] = useState<{ id: string; name: string; directory: string | null } | null>(null)
   const [name, setName] = useState("")
   const submit = (e: React.FormEvent) => {
     e.preventDefault()

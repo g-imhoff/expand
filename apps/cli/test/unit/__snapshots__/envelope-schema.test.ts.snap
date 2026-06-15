@@ -153,7 +153,81 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
     },
   },
   "ProjectEnvelope": {
-    "definitions": {},
+    "definitions": {
+      "Project": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean",
+          },
+          "createdAt": {
+            "type": "string",
+          },
+          "description": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "maxLength": 2048,
+                  },
+                ],
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "id": {
+            "allOf": [
+              {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              },
+            ],
+            "type": "string",
+          },
+          "name": {
+            "allOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              },
+            ],
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "allOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                },
+              ],
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "updatedAt": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+        ],
+        "type": "object",
+      },
+    },
     "dialect": "draft-2020-12",
     "schema": {
       "additionalProperties": false,
@@ -168,72 +242,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
           "type": "boolean",
         },
         "data": {
-          "additionalProperties": false,
-          "properties": {
-            "archived": {
-              "type": "boolean",
-            },
-            "createdAt": {
-              "type": "string",
-            },
-            "description": {
-              "anyOf": [
-                {
-                  "type": "string",
-                },
-                {
-                  "type": "null",
-                },
-              ],
-            },
-            "directory": {
-              "anyOf": [
-                {
-                  "type": "string",
-                },
-                {
-                  "type": "null",
-                },
-              ],
-            },
-            "id": {
-              "allOf": [
-                {
-                  "format": "uuid",
-                  "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-                },
-              ],
-              "type": "string",
-            },
-            "name": {
-              "allOf": [
-                {
-                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
-                },
-              ],
-              "type": "string",
-            },
-            "tags": {
-              "items": {
-                "allOf": [
-                  {
-                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
-                  },
-                ],
-                "type": "string",
-              },
-              "type": "array",
-            },
-            "updatedAt": {
-              "type": "string",
-            },
-          },
-          "required": [
-            "id",
-            "name",
-            "createdAt",
-          ],
-          "type": "object",
+          "$ref": "#/$defs/Project",
         },
         "kind": {
           "enum": [
@@ -252,7 +261,81 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
     },
   },
   "ProjectListEnvelope": {
-    "definitions": {},
+    "definitions": {
+      "Project": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean",
+          },
+          "createdAt": {
+            "type": "string",
+          },
+          "description": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "maxLength": 2048,
+                  },
+                ],
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "id": {
+            "allOf": [
+              {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              },
+            ],
+            "type": "string",
+          },
+          "name": {
+            "allOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              },
+            ],
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "allOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                },
+              ],
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "updatedAt": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+        ],
+        "type": "object",
+      },
+    },
     "dialect": "draft-2020-12",
     "schema": {
       "additionalProperties": false,
@@ -290,72 +373,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
         },
         "data": {
           "items": {
-            "additionalProperties": false,
-            "properties": {
-              "archived": {
-                "type": "boolean",
-              },
-              "createdAt": {
-                "type": "string",
-              },
-              "description": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                  },
-                  {
-                    "type": "null",
-                  },
-                ],
-              },
-              "directory": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                  },
-                  {
-                    "type": "null",
-                  },
-                ],
-              },
-              "id": {
-                "allOf": [
-                  {
-                    "format": "uuid",
-                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
-                  },
-                ],
-                "type": "string",
-              },
-              "name": {
-                "allOf": [
-                  {
-                    "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
-                  },
-                ],
-                "type": "string",
-              },
-              "tags": {
-                "items": {
-                  "allOf": [
-                    {
-                      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
-                    },
-                  ],
-                  "type": "string",
-                },
-                "type": "array",
-              },
-              "updatedAt": {
-                "type": "string",
-              },
-            },
-            "required": [
-              "id",
-              "name",
-              "createdAt",
-            ],
-            "type": "object",
+            "$ref": "#/$defs/Project",
           },
           "type": "array",
         },

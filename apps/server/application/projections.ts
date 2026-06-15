@@ -4,8 +4,6 @@ import type { Project } from "@yodea/contracts/project"
 import { EventStore } from "@yodea/server/db/event-store"
 import { projectsFromEvents } from "@yodea/server/domain/project"
 
-type ProjectionError = SqlError | Schema.SchemaError
-
 export class ProjectProjection extends Context.Service<ProjectProjection, {
   readonly list: Effect.Effect<ReadonlyArray<Project>, ProjectionError>
   readonly snapshot: Effect.Effect<{ readonly projects: ReadonlyArray<Project>; readonly seq: number }, ProjectionError>
@@ -22,3 +20,5 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
 }) { }
 
 export const ProjectProjectionLayer = Layer.effect(ProjectProjection, ProjectProjection.make)
+
+type ProjectionError = SqlError | Schema.SchemaError

@@ -10,6 +10,10 @@ import {
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
 const describeError = (cause: unknown): string => {
+  if (typeof cause === "object" && cause !== null && (cause as { _tag?: string })._tag === "ProjectInvalidInput") {
+    const e = cause as { field: string; reason: string }
+    return `invalid ${e.field}: ${e.reason}`
+  }
   if (Schema.isSchemaError(cause)) {
     return `invalid input: ${cause.message}`
   }

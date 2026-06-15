@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, Stream } from "effect"
+import { Effect, Layer, Stream, Schema } from "effect"
 import { ProjectCreated } from "@yodea/contracts/events/project"
-import { Project as ProjectClass, ProjectId, ProjectName } from "@yodea/contracts/project"
+import { Project as ProjectClass } from "@yodea/contracts/project"
 import type { Project } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { ProjectRpc, type ProjectRpcApi } from "@yodea/desktop/renderer/rpc/project-rpc"
@@ -10,8 +10,8 @@ import { makeAppHandle } from "@yodea/desktop/renderer/app/app-handle"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
-const project: Project = ProjectClass.make({
-  id: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), directory: null, description: null, tags: [],
+const project: Project = Schema.decodeUnknownSync(ProjectClass)({
+  id: uid(1), name: "alpha", directory: null, description: null, tags: [],
   archived: false, createdAt: "t", updatedAt: "t"
 })
 
@@ -30,7 +30,7 @@ const stub = (events: ReadonlyArray<SequencedEvent>): Layer.Layer<ProjectRpc> =>
 
 describe("makeAppHandle", () => {
   it("mirrors store.projects into a sync snapshot and notifies subscribers; command resolves via the runtime", async () => {
-    const events = [{ seq: 1, event: ProjectCreated.make({ projectId: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), occurredAt: "t" }) }]
+    const events = [{ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t" }) }]
     await Effect.gen(function* () {
       const store = yield* RendererProjectStore
       const context = yield* Effect.context<never>()

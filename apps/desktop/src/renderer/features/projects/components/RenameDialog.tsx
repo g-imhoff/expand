@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react"
 import { Schema } from "effect"
-import type { ProjectId } from "@yodea/contracts/project"
 import {
   Dialog,
   DialogContent,
@@ -10,6 +9,10 @@ import {
 } from "@yodea/desktop/renderer/components/ui/dialog"
 
 const describeError = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && (error as { _tag?: string })._tag === "ProjectInvalidInput") {
+    const e = error as { field: string; reason: string }
+    return `invalid ${e.field}: ${e.reason}`
+  }
   if (Schema.isSchemaError(error)) {
     return `invalid input: ${error.message}`
   }
@@ -21,9 +24,9 @@ const describeError = (error: unknown): string => {
 
 export interface RenameDialogProps {
   readonly open: boolean
-  readonly project: { readonly id: ProjectId; readonly name: string } | null
+  readonly project: { readonly id: string; readonly name: string } | null
   readonly onOpenChange: (open: boolean) => void
-  readonly onRename: (id: ProjectId, name: string) => void
+  readonly onRename: (id: string, name: string) => void
   readonly error?: unknown
 }
 

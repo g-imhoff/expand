@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
-import { Project as ProjectClass, ProjectId, ProjectName } from "@yodea/contracts/project"
+import { Effect, Schema } from "effect"
+import { Project as ProjectClass } from "@yodea/contracts/project"
 import type { Project } from "@yodea/contracts/project"
 import { RendererRpcClient, type RendererRpcClientApi } from "@yodea/desktop/renderer/rpc/transport"
 import { ProjectRpc, ProjectRpcLayer } from "@yodea/desktop/renderer/rpc/project-rpc"
@@ -25,8 +25,8 @@ const fakeClient = (over: RpcOverrides): RendererRpcClientApi =>
     ...over
   }) as unknown as RendererRpcClientApi
 
-const project: Project = ProjectClass.make({
-  id: ProjectId.make(uid(1)), name: ProjectName.make("alpha"), directory: null, description: null, tags: [],
+const project: Project = Schema.decodeUnknownSync(ProjectClass)({
+  id: uid(1), name: "alpha", directory: null, description: null, tags: [],
   archived: false, createdAt: "t", updatedAt: "t"
 })
 
@@ -39,7 +39,7 @@ describe("ProjectRpcLayer", () => {
       }
     })
     const result = await ProjectRpc.pipe(
-      Effect.flatMap((rpc) => rpc.create({ name: ProjectName.make("alpha"), ensure: true })),
+      Effect.flatMap((rpc) => rpc.create({ name: "alpha", ensure: true })),
       Effect.provide(ProjectRpcLayer),
       Effect.provideService(RendererRpcClient, client),
       Effect.runPromise
@@ -55,7 +55,7 @@ describe("ProjectRpcLayer", () => {
       }
     })
     const result = await ProjectRpc.pipe(
-      Effect.flatMap((rpc) => rpc.archive({ id: ProjectId.make(uid(1)) })),
+      Effect.flatMap((rpc) => rpc.archive({ id: uid(1) })),
       Effect.provide(ProjectRpcLayer),
       Effect.provideService(RendererRpcClient, client),
       Effect.runPromise

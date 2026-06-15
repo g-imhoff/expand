@@ -10,7 +10,6 @@ import {
   ProjectRenamed,
   ProjectRestored
 } from "@yodea/contracts/events/project"
-import { ProjectId, ProjectName, Tag } from "@yodea/contracts/project"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 
 const nameArb = fc.constantFrom("alpha", "beta", "gamma")
@@ -18,13 +17,13 @@ const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStar
 
 function eventArbFor(idArb: fc.Arbitrary<string>): fc.Arbitrary<DomainEvent> {
   return fc.oneof(
-    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
-    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make({ ...r, projectId: ProjectId.make(r.projectId), name: ProjectName.make(r.name) })),
-    fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-    fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")).map((ts) => ts.map((t) => Tag.make(t))), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make({ ...r, projectId: ProjectId.make(r.projectId) })),
-    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make({ ...r, projectId: ProjectId.make(r.projectId) }))
+    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectCreated.make({ ...r, projectId: r.projectId, name: r.name })),
+    fc.record({ projectId: idArb, name: nameArb, occurredAt: tsArb }).map((r) => ProjectRenamed.make({ ...r, projectId: r.projectId, name: r.name })),
+    fc.record({ projectId: idArb, directory: fc.constantFrom("/a", "/b"), occurredAt: tsArb }).map((r) => ProjectDirectoryChanged.make({ ...r, projectId: r.projectId })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectArchived.make({ ...r, projectId: r.projectId })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectRestored.make({ ...r, projectId: r.projectId })),
+    fc.record({ projectId: idArb, tags: fc.array(fc.constantFrom("x", "y", "z")).map((ts) => ts.map((t) => t)), occurredAt: tsArb }).map((r) => ProjectMetadataChanged.make({ ...r, projectId: r.projectId })),
+    fc.record({ projectId: idArb, occurredAt: tsArb }).map((r) => ProjectDeleted.make({ ...r, projectId: r.projectId }))
   )
 }
 
@@ -62,12 +61,12 @@ describe("projectsFromEvents — properties", () => {
         )
       )
     fc.assert(fc.property(tombstoneArb, ([log, id, ts]) => {
-      const pid = ProjectId.make(id)
+      const pid = id
       const withDelete = [
-        ProjectCreated.make({ projectId: pid, name: ProjectName.make("alpha"), occurredAt: "t0001" }),
+        ProjectCreated.make({ projectId: pid, name: "alpha", occurredAt: "t0001" }),
         ...log,
         ProjectDeleted.make({ projectId: pid, occurredAt: ts }),
-        ProjectRenamed.make({ projectId: pid, name: ProjectName.make("beta"), occurredAt: `${ts}z` })
+        ProjectRenamed.make({ projectId: pid, name: "beta", occurredAt: `${ts}z` })
       ]
       expect(projectsFromEvents(withDelete).some((p) => p.id === id)).toBe(false)
     }))
@@ -103,9 +102,9 @@ describe("projectsFromEvents — properties", () => {
         )
       )
     fc.assert(fc.property(archiveArb, ([id, t1, t2]) => {
-      const projId = ProjectId.make(id)
+      const projId = id
       const log = [
-        ProjectCreated.make({ projectId: projId, name: ProjectName.make("alpha"), occurredAt: t1 < t2 ? t1 : t2 }),
+        ProjectCreated.make({ projectId: projId, name: "alpha", occurredAt: t1 < t2 ? t1 : t2 }),
         ProjectArchived.make({ projectId: projId, occurredAt: t1 < t2 ? t2 : t1 })
       ]
       const result = projectsFromEvents(log)
