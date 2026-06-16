@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "gen:fold-version": "bun run scripts/fold-version.ts",
     "typecheck:all": "bun run typecheck && bun run typecheck:desktop",
     "test": "bun --bun vitest run",
     "test:coverage": "bun --bun vitest run --coverage",
