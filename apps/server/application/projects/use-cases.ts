@@ -69,7 +69,12 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
 
     const commit = (id: string, event: Parameters<typeof store.append>[1]) =>
       Effect.uninterruptible(
-        Effect.flatMap(store.append(id, event), (seq) => bus.publish({ seq, event }))
+        Effect.flatMap(store.append(id, event), (seq) =>
+          // Append (durable) → advance in-memory read model → publish to the bus.
+          // apply BEFORE publish so a client that receives the event and then calls
+          // ProjectList observes the already-updated projection.
+          projection.apply({ seq, event }).pipe(Effect.andThen(bus.publish({ seq, event })))
+        )
       )
 
     const validateDirectory = (

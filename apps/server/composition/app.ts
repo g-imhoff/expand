@@ -5,6 +5,7 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
+import { SnapshotStoreLayer } from "@yodea/server/db/snapshot-store"
 import { ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
@@ -23,7 +24,8 @@ const HTTP_SHUTDOWN_GRACE = "1 second"
 const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
-  const projection = ProjectProjectionLayer.pipe(Layer.provide(store))
+  const snapshots = SnapshotStoreLayer.pipe(Layer.provide(sql))
+  const projection = ProjectProjectionLayer.pipe(Layer.provide(store), Layer.provide(snapshots))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(store),
     Layer.provide(EventBusLayer),
