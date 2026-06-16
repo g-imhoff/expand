@@ -6,6 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Project } from "@yodea/contracts/project"
+import { FOLD_VERSION } from "@yodea/contracts/fold-version.generated"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
@@ -61,7 +62,7 @@ describe("snapshot+tail equivalence", () => {
               const snapshots = yield* SnapshotStore
               const rows = yield* store.readAll
               const prefix = rows.slice(0, k).map((r) => r.event)
-              yield* snapshots.save({ projects: projectsFromEvents(prefix), seq: k, foldVersion: "1" })
+              yield* snapshots.save({ projects: projectsFromEvents(prefix), seq: k, foldVersion: FOLD_VERSION })
             }),
             Layer.mergeAll(EventStoreLayer, SnapshotStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
           ))

@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, SubscriptionRef } from "effect"
-import { Project, FOLD_VERSION } from "@yodea/contracts/project"
+import { Project } from "@yodea/contracts/project"
+import { FOLD_VERSION } from "@yodea/contracts/fold-version.generated"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { EventStore } from "@yodea/server/db/event-store"
 import { SnapshotStore } from "@yodea/server/db/snapshot-store"
