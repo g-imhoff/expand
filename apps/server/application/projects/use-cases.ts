@@ -158,8 +158,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = makeEvent(new Date().toISOString())
         yield* commit(id, event)
-        const updated = (yield* projection.list).find((p) => p.id === id)
-        return updated ?? existing
+        return Project.applyEvent(existing, event)
       }))
 
     const archiveProject = (id: string) =>
@@ -186,8 +185,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           occurredAt
         })
         yield* commit(id, event)
-        const updated = (yield* projection.list).find((p) => p.id === id)
-        return updated ?? existing
+        return Project.applyEvent(existing, event)
       }))
 
     const deleteProject = (id: string) =>

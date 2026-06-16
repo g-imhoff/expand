@@ -245,6 +245,20 @@ describe("ProjectUseCases.archiveProject / restoreProject", () => {
     const exit = await Effect.runPromise(program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
   })
+  it("archive/restore return value equals the projection's folded result (no divergent read-back)", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* ProjectUseCases
+      const { project } = yield* u.createProject("lockstep", false)
+      const archivedReturned = yield* u.archiveProject(project.id)
+      const archivedListed = (yield* u.listProjects(true)).find((p) => p.id === project.id)
+      const restoredReturned = yield* u.restoreProject(project.id)
+      const restoredListed = (yield* u.listProjects(true)).find((p) => p.id === project.id)
+      return { archivedReturned, archivedListed, restoredReturned, restoredListed }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    expect(r.archivedReturned).toEqual(r.archivedListed)
+    expect(r.restoredReturned).toEqual(r.restoredListed)
+  })
 })
 
 describe("ProjectUseCases.setMetadata", () => {
@@ -307,6 +321,18 @@ describe("ProjectUseCases.setMetadata", () => {
     } else {
       expect(stored._tag).toBe("Failure")
     }
+  })
+
+  it("setMetadata return value equals the projection's folded result", async () => {
+    const program = Effect.gen(function* () {
+      const u = yield* ProjectUseCases
+      const { project } = yield* u.createProject("metalock", false)
+      const returned = yield* u.setMetadata(project.id, { description: "d", tags: ["x", "y"] })
+      const listed = (yield* u.listProjects(true)).find((p) => p.id === project.id)
+      return { returned, listed }
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    const r = await Effect.runPromise(program)
+    expect(r.returned).toEqual(r.listed)
   })
 })
 
