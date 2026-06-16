@@ -80,7 +80,7 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 **Why here:** It is the foundation (`dependsOn: none`). Every later module speaks this language.
 
 **Read in order:**
-1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also exports **`FOLD_VERSION`** — the stamp the server writes onto its persisted snapshot; bump it when a fold/shape change would make re-folding old events yield different state (pinned by `test/architecture/fold-version-lockstep.test.ts`).
+1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSION`** — a build-time SHA-256 of the fold nodes (`Project` class + `server/domain/project.ts:projectsFromEvents`), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`bun run gen:fold-version`). The server stamps it on the persisted snapshot; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
@@ -268,7 +268,7 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **What:** Nine "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (new — hashes the contracts fold so it can't change without a conscious `FOLD_VERSION` decision; the build fails until the recorded hash is updated).
+**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the fold-node hash via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSION` is current — the build fails until you `bun run gen:fold-version` and commit).
 
 **Scrutinize hardest:**
 - **Non-vacuity:** do the depcruise-backed tests actually *fail* when a real forbidden import is introduced (not just assert a name is absent + exit 0)?
