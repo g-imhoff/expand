@@ -117,4 +117,35 @@ describe.sequential("durability across a backend restart", () => {
     expect(r.listed.projects.some((p) => p.id === r.ids.doomedId)).toBe(false)
     rmSync(workdir, { recursive: true, force: true })
   })
+
+  it("persists a snapshot that the reboot reads (snapshot seq matches the log)", async () => {
+    const dbPath = join(dir, "events.db")
+    const boot = (
+      use: (c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi) => Effect.Effect<unknown, unknown, never>
+    ) =>
+      Effect.gen(function* () {
+        const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+        yield* awaitEndpointUp
+        const out = yield* withClient(bunAdapter, use)
+        yield* Fiber.join(serverFiber).pipe(
+          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
+        )
+        return out
+      })
+
+    const program = Effect.gen(function* () {
+      yield* boot((client) =>
+        Effect.gen(function* () {
+          const { project } = yield* client.ProjectCreate({ name: "snap-a", ensure: false })
+          yield* client.ProjectCreate({ name: "snap-b", ensure: false })
+          yield* client.ProjectRename({ id: project.id, name: "snap-a2" })
+        })
+      )
+      return yield* boot((client) => client.ProjectList({ includeArchived: true }))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+
+    const listed = (await Effect.runPromise(program)) as { seq: number; projects: ReadonlyArray<{ name: string }> }
+    expect(listed.seq).toBe(3)
+    expect(listed.projects.map((p) => p.name).sort()).toEqual(["snap-a2", "snap-b"])
+  })
 })
