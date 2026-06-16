@@ -50,6 +50,7 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 **Recurring themes** worth understanding once, because they appear in almost every module:
 
 - **Event sourcing + one shared fold.** The backend stores immutable domain events; current project state is *derived* by folding them. The fold lives in **one place** (`Project.foldList` in contracts) and is reused verbatim by the server *and* every client — so a snapshot can never disagree with a replayed stream.
+- **Server read-model cache (optimization).** The server no longer re-folds the whole log on every read. It keeps an **in-memory live read model** (a `SubscriptionRef`) seeded at boot from a **persisted `{projects, seq}` snapshot** and advanced per commit — reads are O(rows), boot is O(tail-since-snapshot). The snapshot is a disposable cache stamped with `FOLD_VERSION` (rebuild-from-zero on mismatch) and proven equal to a full replay by `snapshot-equivalence.test.ts`, so *snapshot can never disagree with replay* still holds — now as a **checked invariant** rather than the absence of a cache.
 - **Protocol v2.** Clients bootstrap by (1) subscribing to the `Events` stream *first*, (2) seeding from a `{projects, seq}` snapshot, (3) gating the live fold by `seq`. This avoids losing or double-applying events during the bootstrap window.
 - **Branded scalars.** `ProjectId` / `ProjectName` / `Tag` are nominal types validated at the schema boundary — the system's trust boundary for untrusted input.
 - **Effects-as-data / dependency injection.** UI logic and Electron wiring are kept pure and testable; side effects and platform primitives are isolated to a single seam each.
@@ -79,7 +80,7 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 **Why here:** It is the foundation (`dependsOn: none`). Every later module speaks this language.
 
 **Read in order:**
-1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.*
+1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also exports **`FOLD_VERSION`** — the stamp the server writes onto its persisted snapshot; bump it when a fold/shape change would make re-folding old events yield different state (pinned by `test/architecture/fold-version-lockstep.test.ts`).
 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
@@ -100,7 +101,7 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 
 ### Stage 2 — `apps/server`  ·  75–90 min  ·  🔴 high
 
-**What:** The single authoritative backend (I-2). An event-sourced service: mutations append immutable events to a SQLite log (monotonic `seq`), the read-model is folded from that log, and it's all served over a token-guarded, loopback-only WebSocket RPC. Writes the endpoint file on boot (I-3); self-shuts-down at zero connections (I-4).
+**What:** The single authoritative backend (I-2). An event-sourced service: mutations append immutable events to a SQLite log (monotonic `seq`); the read-model is an **in-memory live projection seeded at boot from a persisted snapshot** (folded from the log only for the tail since that snapshot, or from zero on first boot / `FOLD_VERSION` mismatch), and it's all served over a token-guarded, loopback-only WebSocket RPC. Writes the endpoint file on boot (I-3); self-shuts-down at zero connections (I-4).
 
 **Why here:** It depends only on `contracts`, and it's the source of truth every client mirrors. Understand it before any client.
 
@@ -108,9 +109,9 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 1. `packages/contracts/events/project.ts` — refresh the event vocabulary the backend stores.
 2. `db/event-store.ts` — the append-only `events` table; `append()` returns the new `seq`; `readAll`/`readFrom` decode rows.
 3. `domain/project.ts` — `projectsFromEvents`, the pure fold (delegates to the contracts statics).
-4. `application/projections.ts` — wraps the fold as a service; the atomic `{projects, seq}` snapshot that powers `ProjectList`.
+4. `db/snapshot-store.ts` + `application/projections.ts` — the read-model cache. `snapshot-store.ts` is the single-row `snapshot {projects, seq, fold_version}` table (`load` returns `null` on absent/undecodable; `save` upserts — the disposable cache). `projections.ts` is **now stateful**: on layer build it boot-catches-up (load snapshot → fold only the tail via `readFrom(snap.seq)`, or rebuild from zero on miss/`FOLD_VERSION` mismatch) into a `SubscriptionRef`; `list`/`snapshot` read it; `apply` advances it with the C2 seq-gate (mirrors the client store). `ProjectList` is O(rows); boot is O(tail-since-snapshot).
 5. `application/event-bus.ts` — in-memory `PubSub` of `SequencedEvent` (the live half of the stream).
-6. `application/projects/use-cases.ts` — **the busiest, riskiest file.** Every mutation, the `Semaphore(1)` mutex, directory validation, and the uninterruptible `commit` (append-then-publish).
+6. `application/projects/use-cases.ts` — **the busiest, riskiest file.** Every mutation, the `Semaphore(1)` mutex, directory validation, and the uninterruptible `commit` (**append → `projection.apply` (advance the in-memory model) → publish**).
 7. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` state machine for I-4.
 8. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern; the `fromSeq` replay logic.
 9. `http.ts` — WebSocket transport: `timingSafeEqual` token check, loopback bind, access log that strips the token.
@@ -121,8 +122,9 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 - **`fromSeq` replay seam** (`rpc-handlers.ts`): subscribe → read backlog → filter live by `seq > lastReplayed`. Verify **no gap or duplicate** between backlog tail and first live event under concurrent appends.
 - **`commit()`:** append (SQLite) + publish (PubSub) are two systems wrapped in `uninterruptible`. A failure between them desyncs bus from log — confirm "log is source of truth, bus is best-effort" is intended.
 - **Silent row-skip:** `readAll`/`readFrom` *skip* undecodable rows with only a warning — a bad migration could make projects silently vanish. Judge whether that's acceptable for an authoritative store.
+- **The read-model cache (new):** confirm the four guards that keep the in-memory/persisted snapshot equal to a replay — (1) the snapshot is written *only at boot* by the single non-concurrent writer, (2) stamped at the committed `max(seq)`, (3) the tail catch-up and the from-zero rebuild both go through the *same* shared transition (`Project.foldList` / `projectsFromEvents`), and (4) a `FOLD_VERSION` mismatch forces a from-zero rebuild. `apply`-before-`publish` in `commit()` stops a client reading a stale projection right after its own event. The snapshot is treated as disposable: a load/save failure falls back to a from-zero rebuild (warn, continue), while an event-*log* read failure stays a hard defect.
 
-**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts`, `test/integration/trust-boundary.test.ts`.
+**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts` (now also asserts the snapshot advances across a restart), `test/integration/trust-boundary.test.ts`, `test/integration/snapshot-equivalence.test.ts` (the proof that snapshot+tail == fold-from-zero across all 7 event types), `test/integration/snapshot-store.test.ts`, and the boot-matrix in `test/integration/projection.test.ts`.
 
 ---
 
@@ -264,9 +266,9 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 #### 7a — `test/architecture`  ·  30–45 min  ·  🟢 low
 
-**What:** Eight "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
+**What:** Nine "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts`.
+**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (new — hashes the contracts fold so it can't change without a conscious `FOLD_VERSION` decision; the build fails until the recorded hash is updated).
 
 **Scrutinize hardest:**
 - **Non-vacuity:** do the depcruise-backed tests actually *fail* when a real forbidden import is introduced (not just assert a name is absent + exit 0)?
