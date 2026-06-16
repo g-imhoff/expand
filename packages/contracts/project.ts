@@ -1,6 +1,18 @@
 import { Effect, Schema } from "effect"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
 
+/**
+ * Version of the projection fold (foldList / applyEvent / fromCreated) and the
+ * Project read-model shape. BUMP THIS whenever a change would make re-folding the
+ * SAME past events produce a DIFFERENT Project than before (changed transition
+ * semantics or changed Project shape). Do NOT bump for pure refactors or comments.
+ * The server stamps it on the persisted snapshot; a mismatch forces a from-zero
+ * rebuild (apps/server/application/projections.ts). Distinct from PROTOCOL_VERSION
+ * (wire compatibility). The fold-version-lockstep arch test fails the build if this
+ * file changes without acknowledgement.
+ */
+export const FOLD_VERSION = "1"
+
 export class Project extends Schema.Class<Project>("Project")({
   id: Schema.String.pipe(Schema.check(Schema.isUUID(4)), Schema.brand("ProjectId")),
   name: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)), Schema.brand("ProjectName")),
