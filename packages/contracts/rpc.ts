@@ -7,6 +7,13 @@ import { StreamRpcs } from "@yodea/contracts/rpc/stream"
 // base" — every feature is an equal member, and adding one is just another arg.
 export class YodeaRpcs extends RpcGroup.make().merge(ProjectRpcs, ServerRpcs, StreamRpcs) {}
 
-// Keep `@yodea/contracts/rpc` exporting the project error classes (+ ProjectRpcs)
-// so every existing import site resolves unchanged.
-export * from "@yodea/contracts/rpc/projects"
+// Re-export the project error classes by name (never `export *`) so the public
+// surface stays visible and dead-code analysis can see each binding.
+export {
+  ProjectAlreadyExists,
+  ProjectNotFound,
+  ProjectNameConflict,
+  ProjectDirectoryInvalid,
+  ProjectDirectoryConflict,
+  ProjectInvalidInput
+} from "@yodea/contracts/rpc/projects"
