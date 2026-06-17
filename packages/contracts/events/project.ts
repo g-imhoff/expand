@@ -1,9 +1,6 @@
 import { Effect, Schema } from "effect"
 import { DomainEventMeta, withMeta } from "@yodea/contracts/events/meta"
 
-// Events carry plain strings. They are the source of truth and were validated at
-// the ingestion boundary (apps/server use-cases, via Project verbs) before being
-// appended, so the schema here is intentionally dumb transport — no branding.
 const ProjectEventMeta = {
   projectId: Schema.String
 }
@@ -29,7 +26,6 @@ export const ProjectEvent = Schema.TaggedUnion(
     ProjectDeleted: {}
   })
 )
-export type ProjectEvent = typeof ProjectEvent.Type
 
 export const {
   ProjectCreated,
