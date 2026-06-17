@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { ProjectStore } from "@yodea/client-core"
+import { dieOnRpcClientError } from "@yodea/desktop/main/rpc/guard"
 
 export const projectHandlers: Pick<
   Handlers,
@@ -15,39 +16,30 @@ export const projectHandlers: Pick<
   | "ProjectList"
 > = {
   ProjectCreate: ({ name, directory }) =>
-    Effect.flatMap(ProjectStore, (s) => s.createProject(name, directory)).pipe(
-      Effect.map((project) => ({ created: true, project })),
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
+    dieOnRpcClientError(
+      Effect.flatMap(ProjectStore, (s) => s.createProject(name, directory)).pipe(
+        Effect.map((project) => ({ created: true, project }))
+      )
     ),
   ProjectRename: ({ id, name }) =>
-    Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name)).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
-    ),
+    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name))),
   ProjectChangeDirectory: ({ id, directory }) =>
-    Effect.flatMap(ProjectStore, (s) => s.changeDirectory(id, directory)).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
-    ),
+    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.changeDirectory(id, directory))),
   ProjectArchive: ({ id }) =>
-    Effect.flatMap(ProjectStore, (s) => s.archiveProject(id)).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
-    ),
+    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.archiveProject(id))),
   ProjectRestore: ({ id }) =>
-    Effect.flatMap(ProjectStore, (s) => s.restoreProject(id)).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
-    ),
+    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.restoreProject(id))),
   ProjectSetMetadata: ({ id, description, tags }) =>
-    Effect.flatMap(ProjectStore, (s) =>
-      s.setMetadata(id, {
-        ...(description !== undefined ? { description } : {}),
-        ...(tags !== undefined ? { tags } : {})
-      })
-    ).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
+    dieOnRpcClientError(
+      Effect.flatMap(ProjectStore, (s) =>
+        s.setMetadata(id, {
+          ...(description !== undefined ? { description } : {}),
+          ...(tags !== undefined ? { tags } : {})
+        })
+      )
     ),
   ProjectDelete: ({ id }) =>
-    Effect.flatMap(ProjectStore, (s) => s.deleteProject(id)).pipe(
-      Effect.catchTag("RpcClientError", (e) => Effect.die(e))
-    ),
+    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.deleteProject(id))),
   ProjectList: ({ includeArchived }) =>
     Effect.flatMap(ProjectStore, (s) => s.snapshot).pipe(
       Effect.map(({ projects, seq }) => ({
