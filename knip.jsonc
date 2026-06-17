@@ -1,0 +1,40 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // Type/interface exports that are only referenced WITHIN their own file are
+  // internal "plumbing" — this mirrors the repo's own `exports-on-top` ESLint
+  // rule (non-exported type aliases/interfaces live below the exports). This is
+  // narrow ON PURPOSE: it covers ONLY types/interfaces, NOT values. Over-exported
+  // values (const/function/class) are un-exported in code, never hidden here.
+  "ignoreExportsUsedInFile": { "type": true, "interface": true },
+
+  // ws / @types/ws ARE used: packages/client-core/adapters/node.ts imports the
+  // Node `WebSocket` and is consumed by the Electron main process (apps/desktop,
+  // a workspace whose package.json declares no deps). Knip can't credit a root
+  // dependency across that workspace boundary, so this is a false positive, not
+  // dead — suppress it explicitly rather than remove a live dependency.
+  "ignoreDependencies": ["ws", "@types/ws"],
+
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.ts"],
+      "project": [
+        "apps/cli/**/*.{ts,tsx}",
+        "apps/server/**/*.{ts,tsx}",
+        "apps/tui/**/*.{ts,tsx}",
+        "packages/**/*.{ts,tsx}",
+        "scripts/**/*.ts"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
+        "src/main/index.ts",
+        "src/preload/index.ts",
+        "src/renderer/main.tsx",
+        "electron.vite.config.ts",
+        "test/**/*.test.{ts,tsx}",
+        "e2e/**/*.spec.ts"
+      ]
+    }
+  }
+}

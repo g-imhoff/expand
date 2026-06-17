@@ -66,8 +66,8 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 **Why here:** Everything downstream is justified by these rules. Read them so each later module maps to a named invariant.
 
 **Read in order:**
-1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it's enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
-2. `docs/architecture/yodea.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
+DONE 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it's enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
+DONE 2. `docs/architecture/yodea.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
 
 **Scrutinize:** Whether the prose rules are specific enough to be enforceable (they are later turned into tests in Stage 7 — keep them in mind).
 
@@ -80,10 +80,10 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 **Why here:** It is the foundation (`dependsOn: none`). Every later module speaks this language.
 
 **Read in order:**
-1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSION`** — a build-time SHA-256 of the fold nodes (`Project` class + `server/domain/project.ts:projectsFromEvents`), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`bun run gen:fold-version`). The server stamps it on the persisted snapshot; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
-2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
-3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
-4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
+DONE 1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSION`** — a build-time SHA-256 of the fold nodes (`Project` class + `server/domain/project.ts:projectsFromEvents`), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`bun run gen:fold-version`). The server stamps it on the persisted snapshot; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
+DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
+DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
+DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
 5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
 7. `cli.ts` — the stable `yodea/v1` JSON envelopes the CLI prints.
@@ -266,9 +266,9 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 #### 7a — `test/architecture`  ·  30–45 min  ·  🟢 low
 
-**What:** Nine "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
+**What:** Ten "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the fold-node hash via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSION` is current — the build fails until you `bun run gen:fold-version` and commit).
+**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the fold-node hash via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSION` is current — the build fails until you `bun run gen:fold-version` and commit) → `no-dead-code.test.ts` (runs **Knip** over both workspaces and fails on any unused file / export / exported type / dependency — the standing "no dead code" gate; config and every suppression are justified in `knip.jsonc`).
 
 **Scrutinize hardest:**
 - **Non-vacuity:** do the depcruise-backed tests actually *fail* when a real forbidden import is introduced (not just assert a name is absent + exit 0)?
@@ -281,7 +281,7 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, and the compiled-binary smoke test.
 
-**Read in order:** `.dependency-cruiser.cjs` (the six forbidden import rules — the I-1 engine in code) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@yodea/*` alias maps) → `CODEOWNERS`.
+**Read in order:** `.dependency-cruiser.cjs` (the six forbidden import rules — the I-1 engine in code) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@yodea/*` alias maps) → `CODEOWNERS`.
 
 **Scrutinize hardest:**
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path would silently escape I-1.

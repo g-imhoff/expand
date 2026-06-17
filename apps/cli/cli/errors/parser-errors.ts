@@ -2,7 +2,7 @@ import { CliError, CliOutput } from "effect/unstable/cli"
 import { makeEnvelope } from "@yodea/cli/errors/envelope"
 import type { ErrorEnvelope } from "@yodea/contracts/cli"
 
-export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
+const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
     case "InvalidValue":
     case "MissingArgument":

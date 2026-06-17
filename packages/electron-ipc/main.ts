@@ -109,7 +109,7 @@ export const payloadSize = (payload: unknown): number => {
  * JSON.stringify length), NOT encoded UTF-8 bytes — worst case it under-counts by ~3x vs
  * UTF-8. That imprecision is fine for a coarse DoS guard.
  */
-export const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
+const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
 
 // ---------------------------------------------------------------------------
 // bindIpc: the main-process interpreter

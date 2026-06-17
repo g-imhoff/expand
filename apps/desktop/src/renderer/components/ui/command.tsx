@@ -78,4 +78,4 @@ const CommandItem = ({ className, ...props }: React.ComponentProps<typeof Comman
   />
 )
 
-export { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList }
+export { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList }

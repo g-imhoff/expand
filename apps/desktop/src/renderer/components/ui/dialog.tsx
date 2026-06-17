@@ -5,7 +5,6 @@ import { cn } from "../../lib/utils"
 
 const Dialog = DialogPrimitive.Root
 const DialogPortal = DialogPrimitive.Portal
-const DialogClose = DialogPrimitive.Close
 
 const DialogOverlay = ({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Overlay>) => (
   <DialogPrimitive.Overlay className={cn("fixed inset-0 z-50 bg-black/50", className)} {...props} />
@@ -51,11 +50,8 @@ const DialogDescription = ({ className, ...props }: React.ComponentProps<typeof 
 
 export {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
-  DialogOverlay,
-  DialogPortal,
   DialogTitle
 }

@@ -24,7 +24,7 @@ export class ProjectNotFoundCli extends Data.TaggedError("ProjectNotFoundCli")<{
   }
 }
 
-export class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ readonly name: string }> {
+class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ readonly name: string }> {
   readonly [Runtime.errorExitCode] = 8
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
@@ -35,7 +35,7 @@ export class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ reado
   }
 }
 
-export class DirectoryInvalidCli extends Data.TaggedError("DirectoryInvalidCli")<{ readonly directory: string; readonly reason: string }> {
+class DirectoryInvalidCli extends Data.TaggedError("DirectoryInvalidCli")<{ readonly directory: string; readonly reason: string }> {
   readonly [Runtime.errorExitCode] = 9
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
@@ -46,7 +46,7 @@ export class DirectoryInvalidCli extends Data.TaggedError("DirectoryInvalidCli")
   }
 }
 
-export class DirectoryConflictCli extends Data.TaggedError("DirectoryConflictCli")<{ readonly directory: string }> {
+class DirectoryConflictCli extends Data.TaggedError("DirectoryConflictCli")<{ readonly directory: string }> {
   readonly [Runtime.errorExitCode] = 10
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
@@ -57,7 +57,7 @@ export class DirectoryConflictCli extends Data.TaggedError("DirectoryConflictCli
   }
 }
 
-export class InvalidInputCli extends Data.TaggedError("InvalidInputCli")<{ readonly field: string; readonly reason: string }> {
+class InvalidInputCli extends Data.TaggedError("InvalidInputCli")<{ readonly field: string; readonly reason: string }> {
   readonly [Runtime.errorExitCode] = 2
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
