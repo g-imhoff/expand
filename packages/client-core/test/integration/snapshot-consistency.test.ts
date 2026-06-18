@@ -14,14 +14,13 @@ import { Project } from "@yodea/contracts/project"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-snap-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -156,14 +155,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const finalSnap = yield* store.snapshot
         return { reads, finalSnap }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))),
+        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("events never fully converged"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const { reads, finalSnap } = await Effect.runPromise(program)
 
@@ -224,14 +223,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const hubEvents = Exit.isSuccess(hubExit) ? Array.from(hubExit.value) : []
         return { snap, hubSeqs: hubEvents.map((se) => se.seq) }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))),
+        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("tracer e3 never applied"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const { snap, hubSeqs } = await Effect.runPromise(program)
     // stale seq-1 event must NOT have created p99
@@ -259,14 +258,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const snap = yield* store.snapshot
         return { mirror: Array.from(mirror), snap }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))),
+        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("mirror never reached N"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const { mirror, snap } = await Effect.runPromise(program)
     const last = mirror[mirror.length - 1] ?? []

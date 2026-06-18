@@ -7,26 +7,23 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-store-"))
-  process.env.YODEA_HOME = dir
-  process.env.YODEA_DB = join(dir, "events.db")
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
   ;(Bun as unknown as { main: string }).main = bunMainBefore
-  delete process.env.YODEA_HOME
-  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("ProjectStore", () => {
   it("snapshot + live cross-store updates", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
@@ -55,7 +52,7 @@ describe("ProjectStore", () => {
   })
 
   it("renameProject updates the reactive projects ref via the live fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
@@ -70,7 +67,7 @@ describe("ProjectStore", () => {
   })
 
   it("changeDirectory updates the reactive projects ref", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rt = ManagedRuntime.make(appLayer)
     const tmp = mkdtempSync(join(tmpdir(), "yodea-cds-"))
     try {
@@ -88,7 +85,7 @@ describe("ProjectStore", () => {
   })
 
   it("archive toggles archived in the live ref via the Events fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
@@ -110,7 +107,7 @@ describe("ProjectStore", () => {
   })
 
   it("seeds the startup snapshot with archived projects (restore stays reachable)", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rtA = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
@@ -134,7 +131,7 @@ describe("ProjectStore", () => {
   })
 
   it("exposes a live events stream that emits ProjectCreated", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
@@ -154,7 +151,7 @@ describe("ProjectStore", () => {
     }
   })
   it("setMetadata mutates the reactive ref via the live fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
@@ -170,7 +167,7 @@ describe("ProjectStore", () => {
     }
   })
   it("delete shrinks the live ref and propagates cross-store", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {

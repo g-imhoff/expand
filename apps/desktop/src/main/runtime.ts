@@ -3,6 +3,7 @@ import { NodeServices } from "@effect/platform-node"
 import { ProjectStore, type BackendUnavailable } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeNodeAdapter } from "@yodea/client-core/adapters/node"
+import { appContextLayer } from "@yodea/contracts/app-context"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -26,6 +27,7 @@ const backendCommand = (): ReadonlyArray<string> => {
 export const makeRuntime = (): YodeaRuntime =>
   ManagedRuntime.make(
     ProjectStoreLayer(makeNodeAdapter({ backendCommand })).pipe(
-      Layer.provide(NodeServices.layer)
+      Layer.provide(NodeServices.layer),
+      Layer.provide(appContextLayer())
     )
   )

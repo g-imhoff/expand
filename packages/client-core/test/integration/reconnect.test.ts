@@ -7,20 +7,17 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-reconnect-"))
-  process.env.YODEA_HOME = dir
-  process.env.YODEA_DB = join(dir, "events.db")
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
   ;(Bun as unknown as { main: string }).main = bunMainBefore
-  delete process.env.YODEA_HOME
-  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -34,7 +31,9 @@ const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number): Pr
 
 describe("ProjectStore reconnect", () => {
   it("recovers after the backend dies: status leaves connected, then a mutation and the list succeed", async () => {
-    const rt = ManagedRuntime.make(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer)))
+    const rt = ManagedRuntime.make(
+      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+    )
     try {
       const store = await rt.runPromise(ProjectStore)
       const status = () => rt.runPromise(SubscriptionRef.get(store.status))

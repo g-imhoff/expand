@@ -7,14 +7,13 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-bun-spawn-"))
-  process.env.YODEA_DB = join(dir, "events.db")
 })
 afterEach(() => {
-  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -23,7 +22,9 @@ describe("Bun adapter (explicit backendCommand)", () => {
     const adapter = makeBunAdapter({
       backendCommand: [process.execPath, join(process.cwd(), "apps/server/main.ts")]
     })
-    const rt = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+    const rt = ManagedRuntime.make(
+      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+    )
     try {
       const store = await rt.runPromise(ProjectStore)
       const seen = rt.runPromise(

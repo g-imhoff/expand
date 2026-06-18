@@ -31,18 +31,20 @@ const resolveCommand = (
   })
 
 export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
-  const spawnBackend = Effect.flatMap(resolveCommand(opts.backendCommand), (cmd) =>
-    Effect.callback<void, BackendUnavailable>((resume) => {
-      const [head, ...args] = cmd
-      const child = spawn(head!, args, { detached: true, stdio: "ignore", env: process.env })
-      child.once("error", (e) => {
-        resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })))
+  const spawnBackend = (dataDir: string) =>
+    Effect.flatMap(resolveCommand(opts.backendCommand), (cmd) =>
+      Effect.callback<void, BackendUnavailable>((resume) => {
+        const [head, ...rest] = cmd
+        const args = [...rest, "--data-dir", dataDir]
+        const child = spawn(head!, args, { detached: true, stdio: "ignore", env: process.env })
+        child.once("error", (e) => {
+          resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })))
+        })
+        child.once("spawn", () => {
+          child.unref()
+          resume(Effect.void)
+        })
       })
-      child.once("spawn", () => {
-        child.unref()
-        resume(Effect.void)
-      })
-    })
-  )
+    )
   return { protocolLayer, spawnBackend }
 }

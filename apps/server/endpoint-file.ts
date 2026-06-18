@@ -1,18 +1,19 @@
 import { Effect, FileSystem, Path, Schema } from "effect"
 import type { Endpoint } from "@yodea/contracts/endpoint"
-import { EndpointFromJson, endpointFilePath } from "@yodea/contracts/endpoint"
+import { EndpointFromJson } from "@yodea/contracts/endpoint"
+import { AppContext } from "@yodea/contracts/app-context"
 
 export const writeEndpointFile = (endpoint: Endpoint) =>
   Effect.acquireRelease(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const file = endpointFilePath()
-      yield* fs.makeDirectory(path.dirname(file), { recursive: true, mode: 0o700 })
+      const { paths } = yield* AppContext
+      yield* fs.makeDirectory(path.dirname(paths.endpointFile), { recursive: true, mode: 0o700 })
       const json = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
-      yield* fs.writeFileString(file, json, { mode: 0o600 })
-      yield* fs.chmod(file, 0o600)
-      return file
+      yield* fs.writeFileString(paths.endpointFile, json, { mode: 0o600 })
+      yield* fs.chmod(paths.endpointFile, 0o600)
+      return paths.endpointFile
     }),
     (file) =>
       Effect.gen(function* () {

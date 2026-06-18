@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from "effect"
 import type { FileSystem } from "effect"
+import type { AppContext } from "@yodea/contracts/app-context"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
@@ -51,5 +52,5 @@ export const ProjectClientLive: Layer.Layer<ProjectClient, never, YodeaRpcClient
 
 export const ProjectClientLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ProjectClient, BackendUnavailable, FileSystem.FileSystem> =>
+): Layer.Layer<ProjectClient, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
   ProjectClientLive.pipe(Layer.provide(YodeaRpcClientLive(adapter)))

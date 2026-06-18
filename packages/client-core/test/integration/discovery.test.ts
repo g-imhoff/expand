@@ -1,28 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Option } from "effect"
+import { Effect, Layer, Option } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readEndpoint } from "@yodea/client-core/discovery"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { AppContext, appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-disc-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
-const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices>) =>
-  Effect.runPromise(Effect.provide(eff, BunServices.layer))
+const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices | AppContext>) =>
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, appContextLayer(dir))))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
-    endpointFilePath(),
+    resolveAppContext(dir).paths.endpointFile,
     JSON.stringify({ url: "ws://127.0.0.1:51789/rpc", token: "t", pid, protocolVersion })
   )
 
@@ -44,7 +43,7 @@ describe("readEndpoint", () => {
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for malformed JSON", async () => {
-    writeFileSync(endpointFilePath(), "{ not json")
+    writeFileSync(resolveAppContext(dir).paths.endpointFile, "{ not json")
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
 })

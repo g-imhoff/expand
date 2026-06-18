@@ -47,6 +47,13 @@ module.exports = {
       severity: "error",
       from: { path: "^packages/ink-input" },
       to: { path: "^(apps/|packages/(?!ink-input))" }
+    },
+    {
+      name: "renderer-no-node-appcontext",
+      severity: "error",
+      comment: "packages/contracts/app-context pulls node:os/fs — the renderer/preload must never import it.",
+      from: { path: "^apps/desktop/src/(renderer|preload)/" },
+      to: { path: "^packages/contracts/app-context(\\.ts)?$" }
     }
   ],
   options: {

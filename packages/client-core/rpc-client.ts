@@ -3,6 +3,7 @@ import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import type { Endpoint } from "@yodea/contracts/endpoint"
+import type { AppContext } from "@yodea/contracts/app-context"
 import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@yodea/client-core/discovery"
 import { supervised } from "@yodea/client-core/supervise"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
@@ -28,7 +29,7 @@ export const acquireClient = (
 ): Effect.Effect<
   { readonly client: YodeaRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
-  FileSystem.FileSystem | Scope.Scope
+  FileSystem.FileSystem | AppContext | Scope.Scope
 > => {
   const once = findOrSpawnBackend(adapter).pipe(
     Effect.catchIf(
@@ -75,5 +76,5 @@ export const acquireClient = (
 
 export const YodeaRpcClientLive = (
   adapter: RuntimeAdapter
-): Layer.Layer<YodeaRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
+): Layer.Layer<YodeaRpcClient, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
   Layer.effect(YodeaRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))

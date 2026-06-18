@@ -1,7 +1,8 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
-import { type Endpoint, EndpointFromJson, endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { AppContext } from "@yodea/contracts/app-context"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
@@ -17,14 +18,14 @@ const isProcessAlive = (pid: number): boolean => {
   }
 }
 
-export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem> =
+export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem | AppContext> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const file = endpointFilePath()
-    if (!(yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false)))) {
+    const { paths } = yield* AppContext
+    if (!(yield* fs.exists(paths.endpointFile).pipe(Effect.orElseSucceed(() => false)))) {
       return Option.none()
     }
-    const text = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
+    const text = yield* fs.readFileString(paths.endpointFile).pipe(Effect.orElseSucceed(() => ""))
     const decoded = yield* Schema.decodeUnknownEffect(EndpointFromJson)(text).pipe(Effect.option)
     if (Option.isNone(decoded)) return Option.none()
     const endpoint = decoded.value
@@ -33,20 +34,18 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     return Option.some(endpoint)
   })
 
-const lockPath = () => `${endpointFilePath()}.lock`
-
 const LOCK_STALE_AFTER_MS = 30_000
 
-const isLockStale = (): boolean => {
+const isLockStale = (lockPath: string): boolean => {
   let mtimeMs: number
   try {
-    mtimeMs = statSync(lockPath()).mtimeMs
+    mtimeMs = statSync(lockPath).mtimeMs
   } catch {
     return false
   }
   if (Date.now() - mtimeMs > LOCK_STALE_AFTER_MS) return true
   try {
-    const info = JSON.parse(readFileSync(lockPath(), "utf8")) as Partial<LockInfo>
+    const info = JSON.parse(readFileSync(lockPath, "utf8")) as Partial<LockInfo>
     if (typeof info.pid !== "number") return true
     return !isProcessAlive(info.pid)
   } catch {
@@ -54,10 +53,10 @@ const isLockStale = (): boolean => {
   }
 }
 
-const createLockOnce = (): boolean => {
+const createLockOnce = (lockPath: string): boolean => {
   try {
-    mkdirSync(dirname(lockPath()), { recursive: true })
-    const fd = openSync(lockPath(), "wx")
+    mkdirSync(dirname(lockPath), { recursive: true })
+    const fd = openSync(lockPath, "wx")
     try {
       const info: LockInfo = { pid: process.pid, startedAt: Date.now() }
       writeSync(fd, JSON.stringify(info))
@@ -70,24 +69,25 @@ const createLockOnce = (): boolean => {
   }
 }
 
-const tryAcquireLock = Effect.sync(() => {
-  if (createLockOnce()) return true
-  if (!isLockStale()) return false
-  try {
-    rmSync(lockPath(), { force: true })
-  } catch {}
-  return createLockOnce()
-})
-const releaseLock = Effect.sync(() => {
-  try {
-    rmSync(lockPath(), { force: true })
-  } catch {}
-})
+const tryAcquireLock = (lockPath: string) =>
+  Effect.sync(() => {
+    if (createLockOnce(lockPath)) return true
+    if (!isLockStale(lockPath)) return false
+    try {
+      rmSync(lockPath, { force: true })
+    } catch {}
+    return createLockOnce(lockPath)
+  })
+
+const releaseLock = (lockPath: string) =>
+  Effect.sync(() => {
+    try {
+      rmSync(lockPath, { force: true })
+    } catch {}
+  })
 
 const awaitEndpoint = readEndpoint.pipe(
-  Effect.flatMap((o) =>
-    Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const)
-  ),
+  Effect.flatMap((o) => (Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("50 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
@@ -95,21 +95,24 @@ const awaitEndpoint = readEndpoint.pipe(
   })
 )
 
-export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
+export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem | AppContext> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    yield* fs.remove(endpointFilePath()).pipe(Effect.ignore)
+    const { paths } = yield* AppContext
+    yield* fs.remove(paths.endpointFile).pipe(Effect.ignore)
   })
 
 export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
   Effect.gen(function* () {
+    const { paths } = yield* AppContext
+    const lockPath = `${paths.endpointFile}.lock`
     const existing = yield* readEndpoint
     if (Option.isSome(existing)) return existing.value
-    const acquired = yield* tryAcquireLock
+    const acquired = yield* tryAcquireLock(lockPath)
     if (!acquired) return yield* awaitEndpoint
-    return yield* adapter.spawnBackend.pipe(
+    return yield* adapter.spawnBackend(paths.dataDir).pipe(
       Effect.andThen(awaitEndpoint),
-      Effect.ensuring(releaseLock)
+      Effect.ensuring(releaseLock(lockPath))
     )
   })
 

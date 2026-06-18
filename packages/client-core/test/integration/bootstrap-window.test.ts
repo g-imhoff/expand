@@ -14,14 +14,13 @@ import { Project } from "@yodea/contracts/project"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-window-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -95,14 +94,16 @@ describe.sequential("ProjectStore bootstrap window", () => {
         const snap = yield* store.snapshot
         return { final, snap }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))),
+        Effect.provide(
+          ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+        ),
         Effect.timeoutOrElse({
           duration: "10 seconds",
           orElse: () => Effect.fail(new Error("v3 never applied — the bootstrap window lost the event"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const r = await Effect.runPromise(program)
     expect(r.final).toHaveLength(1)

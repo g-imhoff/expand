@@ -5,21 +5,20 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-ep-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("endpoint file (I-3)", () => {
   it("writes the file inside the scope and removes it when the scope closes", async () => {
-    const file = endpointFilePath()
+    const file = resolveAppContext(dir).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -37,7 +36,7 @@ describe("endpoint file (I-3)", () => {
       yield* Scope.close(scope, Exit.void)
       const after = yield* fs.exists(file)
       return { during, after }
-    }).pipe(Effect.provide(BunServices.layer))
+    }).pipe(Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const r = await Effect.runPromise(program)
     expect(r.during).toBe(true)

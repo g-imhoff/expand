@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 import { ClientLayer, ProjectClient, ServerClient } from "@yodea/client-core"
 import { Format, Quiet } from "@yodea/cli/global-flags"
 import { jsonCliErrorFormatter } from "@yodea/cli/errors"
@@ -44,6 +45,7 @@ export const yodea = makeYodea(ClientLayer(makeBunAdapter({ backendCommand })))
 if (import.meta.main) {
   renderErrors(Command.run(yodea, { version: "0.0.0" })).pipe(
     Effect.provide(CliOutput.layer(jsonCliErrorFormatter)),
+    Effect.provide(appContextLayer()),
     Effect.provide(BunServices.layer),
     BunRuntime.runMain
   )

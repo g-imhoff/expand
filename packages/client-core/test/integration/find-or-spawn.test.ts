@@ -6,22 +6,22 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { findOrSpawnBackend } from "@yodea/client-core/discovery"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
+import { Layer } from "effect"
 
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-spawn-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("findOrSpawnBackend", () => {
   it("returns the existing live backend without spawning", async () => {
     writeFileSync(
-      endpointFilePath(),
+      resolveAppContext(dir).paths.endpointFile,
       JSON.stringify({
         url: "ws://127.0.0.1:51789/rpc",
         token: "t",
@@ -30,7 +30,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend(bunAdapter), BunServices.layer)
+      Effect.provide(findOrSpawnBackend(bunAdapter), Layer.mergeAll(BunServices.layer, appContextLayer(dir)))
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -42,7 +42,7 @@ describe("findOrSpawnBackend", () => {
   // re-spawned (pre-fix). The acquire must now detect the dead-pid lock as stale,
   // clear it, and proceed to spawn instead of waiting out the timeout and failing.
   it("recovers from a stale (dead-pid) spawn lock with no server.json", async () => {
-    const lockPath = `${endpointFilePath()}.lock`
+    const lockPath = `${resolveAppContext(dir).paths.endpointFile}.lock`
     // Orphaned lock: a dead pid (out-of-range -> ESRCH -> treated as dead). No
     // server.json exists, so readEndpoint is None and we go straight to acquire.
     writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, startedAt: Date.now() }))
@@ -59,7 +59,7 @@ describe("findOrSpawnBackend", () => {
       // stale lock and (no-op) spawn fires, advertise a live endpoint so the
       // acquiring fiber's awaitEndpoint resolves instead of timing out.
       const reviver = yield* Effect.forkChild(
-        Effect.sync(() => writeFileSync(endpointFilePath(), JSON.stringify(realEndpoint))).pipe(
+        Effect.sync(() => writeFileSync(resolveAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))).pipe(
           Effect.delay("100 millis")
         )
       )
@@ -69,7 +69,7 @@ describe("findOrSpawnBackend", () => {
       const endpoint = yield* findOrSpawnBackend(bunAdapter)
       yield* Fiber.join(reviver)
       return endpoint
-    }).pipe(Effect.provide(BunServices.layer))
+    }).pipe(Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
     const endpoint = await Effect.runPromise(program)
     expect(endpoint.url).toBe(realEndpoint.url)

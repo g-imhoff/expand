@@ -30,22 +30,23 @@ const resolveCommand = (
   })
 
 export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
-  const spawnBackend = Effect.flatMap(resolveCommand(opts?.backendCommand), (cmd) =>
-    Effect.try({
-      try: () => {
-        const [head, ...args] = cmd
-        const child = Bun.spawn({
-          cmd: [head!, ...args],
-          stdout: "ignore",
-          stderr: "ignore",
-          stdin: "ignore",
-          env: process.env
-        })
-        child.unref()
-      },
-      catch: (e) => new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })
-    })
-  )
+  const spawnBackend = (dataDir: string) =>
+    Effect.flatMap(resolveCommand(opts?.backendCommand), (cmd) =>
+      Effect.try({
+        try: () => {
+          const [head, ...rest] = cmd
+          const child = Bun.spawn({
+            cmd: [head!, ...rest, "--data-dir", dataDir],
+            stdout: "ignore",
+            stderr: "ignore",
+            stdin: "ignore",
+            env: process.env
+          })
+          child.unref()
+        },
+        catch: (e) => new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })
+      })
+    )
   return { protocolLayer, spawnBackend }
 }
 

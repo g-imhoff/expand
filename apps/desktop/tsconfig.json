@@ -14,5 +14,5 @@
     "noEmit": true
   },
   "exclude": [],
-  "include": ["src", "test"]
+  "include": ["src", "test", "../../packages/contracts/globals.d.ts"]
 }

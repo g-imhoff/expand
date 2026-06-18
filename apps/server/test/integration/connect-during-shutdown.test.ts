@@ -8,7 +8,8 @@ import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
-import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
@@ -25,10 +26,8 @@ import { endpointFilePath, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 let dir: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-race-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -36,7 +35,7 @@ const writeStaleEndpoint = () =>
   // Live pid (this process) so readEndpoint accepts it, but a port nothing is
   // listening on — i.e. a server that has already gone away.
   writeFileSync(
-    endpointFilePath(),
+    resolveAppContext(dir).paths.endpointFile,
     JSON.stringify({
       url: "ws://127.0.0.1:9/rpc",
       token: "stale",
@@ -83,7 +82,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
             Effect.retry(Schedule.spaced("10 millis")),
             Effect.andThen(
               Effect.sync(() =>
-                writeFileSync(endpointFilePath(), JSON.stringify(realEndpoint))
+                writeFileSync(resolveAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
               )
             )
           )
@@ -106,7 +105,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")

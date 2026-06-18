@@ -7,26 +7,23 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-xstore-"))
-  process.env.YODEA_HOME = dir
-  process.env.YODEA_DB = join(dir, "events.db")
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
   ;(Bun as unknown as { main: string }).main = bunMainBefore
-  delete process.env.YODEA_HOME
-  delete process.env.YODEA_DB
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("cross-store live sync", () => {
   it("a rename through store A appears in store B via the live event-fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
@@ -59,7 +56,7 @@ describe("cross-store live sync", () => {
   })
 
   it("an archive then a delete through store A both propagate to store B", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {

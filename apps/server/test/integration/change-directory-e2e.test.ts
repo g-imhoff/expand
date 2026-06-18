@@ -8,15 +8,14 @@ import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
+import { appContextLayer } from "@yodea/contracts/app-context"
 
 let dir: string
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "yodea-cd-e2e-"))
-  process.env.YODEA_ENDPOINT_FILE = join(dir, "server.json")
 })
 afterEach(() => {
-  delete process.env.YODEA_ENDPOINT_FILE
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -50,7 +49,7 @@ describe.sequential("change-directory end-to-end", () => {
       yield* Fiber.interrupt(serverFiber)
       rmSync(target, { recursive: true, force: true })
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
     const r = await Effect.runPromise(program)
     expect(r.moved.directory).toBe(r.listed.projects[0]?.directory)
     expect(Option.isSome(r.event) && r.event.value.event._tag === "ProjectDirectoryChanged").toBe(true)
@@ -69,7 +68,7 @@ describe.sequential("change-directory end-to-end", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
     const exit = await Effect.runPromise(program)
     expect((exit as { failure: { _tag: string; reason: string } }).failure._tag).toBe("ProjectDirectoryInvalid")
   })
