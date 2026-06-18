@@ -5,37 +5,33 @@ import { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contra
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
   "ProjectAlreadyExists",
   { name: Schema.String }
-) {}
+) { }
 
 export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
   "ProjectNotFound",
   { id: Schema.String }
-) {}
+) { }
 
 export class ProjectNameConflict extends Schema.TaggedErrorClass<ProjectNameConflict>()(
   "ProjectNameConflict",
   { name: Schema.String }
-) {}
+) { }
 
 export class ProjectDirectoryInvalid extends Schema.TaggedErrorClass<ProjectDirectoryInvalid>()(
   "ProjectDirectoryInvalid",
   { directory: Schema.String, reason: Schema.String }
-) {}
+) { }
 
 export class ProjectDirectoryConflict extends Schema.TaggedErrorClass<ProjectDirectoryConflict>()(
   "ProjectDirectoryConflict",
   { directory: Schema.String }
-) {}
+) { }
 
-// Raw input that failed Project's validation at the ingestion boundary (name or
-// tag pattern, description length). Travels back to the client as a typed error.
 export class ProjectInvalidInput extends Schema.TaggedErrorClass<ProjectInvalidInput>()(
   "ProjectInvalidInput",
   { field: Schema.String, reason: Schema.String }
-) {}
+) { }
 
-// Payloads carry plain strings: the server validates them through Project at
-// ingestion. The wire never references the branded vocabulary.
 export class ProjectRpcs extends RpcGroup.make(
   Rpc.make("ProjectCreate", {
     payload: {
@@ -76,4 +72,4 @@ export class ProjectRpcs extends RpcGroup.make(
     payload: { includeArchived: Schema.optionalKey(Schema.Boolean) },
     success: Schema.Struct({ projects: Schema.Array(Project), seq: Schema.Int })
   })
-) {}
+) { }

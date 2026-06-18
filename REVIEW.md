@@ -84,8 +84,8 @@ DONE 1. `project.ts` — **start here.** Branded scalars + the opaque `Project` 
 DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
-5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
-6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
+DONE 5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
+6. maybe a good idea to change the homedir for the different env (dev, release) `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
 7. `cli.ts` — the stable `yodea/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**
