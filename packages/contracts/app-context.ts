@@ -1,13 +1,20 @@
 import { Context, Effect, Layer } from "effect"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { channel } from "@yodea/contracts/channel"
+import { channel, type Channel } from "@yodea/contracts/channel"
 
 export interface PathsShape {
   readonly dataDir: string      // <base>
   readonly dbPath: string       // <base>/events.db
   readonly endpointFile: string // <base>/server.json
   readonly logDir: string       // <base>/logs
+}
+
+// The application's runtime context: which build it is, and where its files live.
+// Paths are one facet — the service is the place future app-level context grows.
+export interface AppContextShape {
+  readonly channel: Channel
+  readonly paths: PathsShape
 }
 
 // OS data home — honors $XDG_DATA_HOME / platform conventions. Reads ONLY OS env
@@ -20,7 +27,7 @@ const osDataHome = (): string => {
 
 const channelBase = (): string => join(osDataHome(), channel === "dev" ? "yodea-dev" : "yodea")
 
-const derive = (base: string): PathsShape => ({
+const derivePaths = (base: string): PathsShape => ({
   dataDir: base,
   dbPath: join(base, "events.db"),
   endpointFile: join(base, "server.json"),
@@ -28,11 +35,14 @@ const derive = (base: string): PathsShape => ({
 })
 
 // Pure resolver. baseDir = parsed --data-dir (spawned child / test) ?? channel base.
-export const resolvePaths = (baseDir?: string): PathsShape => derive(baseDir ?? channelBase())
+export const resolveAppContext = (baseDir?: string): AppContextShape => ({
+  channel,
+  paths: derivePaths(baseDir ?? channelBase())
+})
 
-export class Paths extends Context.Service<Paths, PathsShape>()("yodea/Paths", {
-  make: Effect.sync(() => resolvePaths()) // default = channel-derived base
+export class AppContext extends Context.Service<AppContext, AppContextShape>()("yodea/AppContext", {
+  make: Effect.sync(() => resolveAppContext()) // default = channel-derived base
 }) {}
 
-export const pathsLayer = (baseDir?: string): Layer.Layer<Paths> =>
-  Layer.succeed(Paths, resolvePaths(baseDir))
+export const appContextLayer = (baseDir?: string): Layer.Layer<AppContext> =>
+  Layer.succeed(AppContext, resolveAppContext(baseDir))
