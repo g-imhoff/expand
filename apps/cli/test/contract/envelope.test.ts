@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { API_VERSION, ErrorEnvelope, ProjectEnvelope, ProjectListEnvelope, HealthEnvelope } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION, ErrorEnvelope, ProjectEnvelope, ProjectListEnvelope, HealthEnvelope } from "@yodea/cli/contract/envelope"
 import { ProjectCreateResult } from "@yodea/contracts/project"
 
 const dec = <A, I>(s: Schema.Codec<A, I>, u: unknown) => Schema.decodeUnknownSync(s)(u)
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
-describe("contracts/cli", () => {
-  it("API_VERSION is yodea/v1", () => {
-    expect(API_VERSION).toBe("yodea/v1")
+describe("cli/contract/envelope", () => {
+  it("ENVELOPE_VERSION is yodea/v1", () => {
+    expect(ENVELOPE_VERSION).toBe("yodea/v1")
   })
 
   it("ProjectEnvelope round-trips a created project", () => {

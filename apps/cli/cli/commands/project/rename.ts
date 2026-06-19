@@ -1,7 +1,7 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
 import type { Project } from "@yodea/contracts/project"
-import { API_VERSION } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
@@ -13,7 +13,7 @@ export const renameCommand = defineCommand(
   "rename",
   { project: target, name },
   {
-    envelope: (p: Project) => ({ apiVersion: API_VERSION, kind: "Project", created: false, data: p }),
+    envelope: (p: Project) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: false, data: p }),
     text: (p: Project) => `${p.id}  ${p.name}`,
     quiet: (p: Project) => p.id
   },

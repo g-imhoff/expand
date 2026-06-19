@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { Project, ProjectDeleteResult } from "@yodea/contracts/project"
 
-export const API_VERSION = "yodea/v1" as const
+export const ENVELOPE_VERSION = "yodea/v1" as const
 
 export const ErrorCode = Schema.Literals([
   "UNEXPECTED",
@@ -19,7 +19,7 @@ export type ErrorCode = typeof ErrorCode.Type
 
 export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
   Schema.Struct({
-    apiVersion: Schema.Literal(API_VERSION),
+    apiVersion: Schema.Literal(ENVELOPE_VERSION),
     kind: Schema.Literal("Error"),
     code: ErrorCode,
     message: Schema.String,
@@ -31,7 +31,7 @@ export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
 
 export class ProjectEnvelope extends Schema.Opaque<ProjectEnvelope>()(
   Schema.Struct({
-    apiVersion: Schema.Literal(API_VERSION),
+    apiVersion: Schema.Literal(ENVELOPE_VERSION),
     kind: Schema.Literal("Project"),
     created: Schema.Boolean,
     data: Project
@@ -40,7 +40,7 @@ export class ProjectEnvelope extends Schema.Opaque<ProjectEnvelope>()(
 
 export class ProjectListEnvelope extends Schema.Opaque<ProjectListEnvelope>()(
   Schema.Struct({
-    apiVersion: Schema.Literal(API_VERSION),
+    apiVersion: Schema.Literal(ENVELOPE_VERSION),
     kind: Schema.Literal("ProjectList"),
     count: Schema.Number,
     data: Schema.Array(Project)
@@ -49,7 +49,7 @@ export class ProjectListEnvelope extends Schema.Opaque<ProjectListEnvelope>()(
 
 export class ProjectDeleteEnvelope extends Schema.Opaque<ProjectDeleteEnvelope>()(
   Schema.Struct({
-    apiVersion: Schema.Literal(API_VERSION),
+    apiVersion: Schema.Literal(ENVELOPE_VERSION),
     kind: Schema.Literal("ProjectDelete"),
     data: ProjectDeleteResult
   })
@@ -57,7 +57,7 @@ export class ProjectDeleteEnvelope extends Schema.Opaque<ProjectDeleteEnvelope>(
 
 export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
   Schema.Struct({
-    apiVersion: Schema.Literal(API_VERSION),
+    apiVersion: Schema.Literal(ENVELOPE_VERSION),
     kind: Schema.Literal("Health"),
     data: Schema.Struct({ status: Schema.String })
   })

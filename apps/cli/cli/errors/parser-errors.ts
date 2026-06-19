@@ -1,6 +1,6 @@
 import { CliError, CliOutput } from "effect/unstable/cli"
 import { makeEnvelope } from "@yodea/cli/errors/envelope"
-import type { ErrorEnvelope } from "@yodea/contracts/cli"
+import type { ErrorEnvelope } from "@yodea/cli/contract/envelope"
 
 const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {

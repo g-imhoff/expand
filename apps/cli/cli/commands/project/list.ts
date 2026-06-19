@@ -1,6 +1,6 @@
 import { Flag } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { API_VERSION } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
 import type { Project } from "@yodea/contracts/project"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
@@ -15,7 +15,7 @@ export const listCommand = defineCommand(
   "list",
   { archived, all },
   {
-    envelope: (ps: ReadonlyArray<Project>) => ({ apiVersion: API_VERSION, kind: "ProjectList", count: ps.length, data: sorted(ps) }),
+    envelope: (ps: ReadonlyArray<Project>) => ({ apiVersion: ENVELOPE_VERSION, kind: "ProjectList", count: ps.length, data: sorted(ps) }),
     text: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => `${p.id}  ${p.name}`).join("\n"),
     quiet: (ps: ReadonlyArray<Project>) => sorted(ps).map((p) => p.id).join("\n")
   },

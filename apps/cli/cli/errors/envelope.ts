@@ -1,4 +1,4 @@
-import { API_VERSION, type ErrorCode, type ErrorEnvelope } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION, type ErrorCode, type ErrorEnvelope } from "@yodea/cli/contract/envelope"
 
 export const makeEnvelope = (
   code: ErrorCode,
@@ -6,7 +6,7 @@ export const makeEnvelope = (
   retryable: boolean,
   extra?: { input?: unknown; hint?: string }
 ): ErrorEnvelope => ({
-  apiVersion: API_VERSION,
+  apiVersion: ENVELOPE_VERSION,
   kind: "Error",
   code,
   message,

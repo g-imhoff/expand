@@ -1,6 +1,6 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { API_VERSION } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
 import type { ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
@@ -12,7 +12,7 @@ export const deleteCommand = defineCommand(
   "delete",
   { project: target },
   {
-    envelope: (r: ProjectDeleteResult) => ({ apiVersion: API_VERSION, kind: "ProjectDelete", data: r }),
+    envelope: (r: ProjectDeleteResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "ProjectDelete", data: r }),
     text: (r: ProjectDeleteResult) => `deleted ${r.id}`,
     quiet: (r: ProjectDeleteResult) => r.id
   },

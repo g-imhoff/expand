@@ -1,5 +1,5 @@
 import { Data, Runtime } from "effect"
-import type { ErrorEnvelope } from "@yodea/contracts/cli"
+import type { ErrorEnvelope } from "@yodea/cli/contract/envelope"
 import { makeEnvelope, tagOf } from "@yodea/cli/errors/envelope"
 
 export class BackendUnreachable extends Data.TaggedError("BackendUnreachable")<{ readonly reason: string }> {

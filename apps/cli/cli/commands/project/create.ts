@@ -1,6 +1,6 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
-import { API_VERSION } from "@yodea/contracts/cli"
+import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
 import { ProjectClient } from "@yodea/client-core"
 import { defineCommand } from "@yodea/cli/_command"
 
@@ -13,7 +13,7 @@ export const createCommand = defineCommand(
   "create",
   { name, ensure, directory },
   {
-    envelope: (r: CreateResult) => ({ apiVersion: API_VERSION, kind: "Project", created: r.created, data: r.project }),
+    envelope: (r: CreateResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: r.created, data: r.project }),
     text: (r: CreateResult) => `created ${r.project.id}  ${r.project.name}`,
     quiet: (r: CreateResult) => r.project.id
   },

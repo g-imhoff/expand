@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { ErrorEnvelope, HealthEnvelope, ProjectDeleteEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@yodea/contracts/cli"
+import { ErrorEnvelope, HealthEnvelope, ProjectDeleteEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@yodea/cli/contract/envelope"
 
 const shapeOf = (schema: Schema.Top): unknown => Schema.toJsonSchemaDocument(schema)
 
