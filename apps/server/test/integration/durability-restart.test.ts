@@ -8,7 +8,7 @@ import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -56,7 +56,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const listed = (await Effect.runPromise(program)) as {
       projects: ReadonlyArray<{
@@ -102,7 +102,7 @@ describe.sequential("durability across a backend restart", () => {
       )
       const listed = yield* boot((client) => client.ProjectList({ includeArchived: true }))
       return { ids, listed }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = (await Effect.runPromise(program)) as {
       ids: { keepId: string; doomedId: string }
@@ -141,7 +141,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const listed = (await Effect.runPromise(program)) as { seq: number; projects: ReadonlyArray<{ name: string }> }
     expect(listed.seq).toBe(3)

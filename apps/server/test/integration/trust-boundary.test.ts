@@ -10,7 +10,7 @@ import { join } from "node:path"
 import { runServer } from "@yodea/server/composition/app"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 import { httpServerLayer } from "@yodea/server/http"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
@@ -117,7 +117,7 @@ describe.sequential("trust boundary", () => {
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
       return addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const hostname = await Effect.runPromise(program)
     expect(hostname).toBe("127.0.0.1")
@@ -139,7 +139,7 @@ describe.sequential("trust boundary", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return { advertisedHost, loopback, offLoopback }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.advertisedHost).toBe("127.0.0.1")
@@ -168,7 +168,7 @@ describe.sequential("trust boundary", () => {
         })
       )
       return { noToken, wrongToken, health }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.noToken).toBe("closed")
@@ -178,7 +178,7 @@ describe.sequential("trust boundary", () => {
 
   it("writes the endpoint file 0600 inside a 0700 directory", async () => {
     const home = join(dir, "yodea-home")
-    const file = resolveAppContext(home).paths.endpointFile
+    const file = makeTestAppContext(home).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -196,7 +196,7 @@ describe.sequential("trust boundary", () => {
       const dirInfo = yield* fs.stat(home)
       yield* Scope.close(scope, Exit.void)
       return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(appContextLayer(home)))
+    }).pipe(Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(home).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.fileMode).toBe(0o600)
@@ -204,7 +204,7 @@ describe.sequential("trust boundary", () => {
   })
 
   it("tightens a pre-existing endpoint file to 0600", async () => {
-    const file = resolveAppContext(dir).paths.endpointFile
+    const file = makeTestAppContext(dir).paths.endpointFile
     writeFileSync(file, "stale", { mode: 0o644 })
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
@@ -222,7 +222,7 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(file)
       yield* Scope.close(scope, Exit.void)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     expect(await Effect.runPromise(program)).toBe(0o600)
   })
@@ -236,7 +236,7 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(dbPath)
       yield* Fiber.interrupt(serverFiber)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     expect(await Effect.runPromise(program)).toBe(0o600)
   })
@@ -254,7 +254,7 @@ describe.sequential("trust boundary", () => {
       const realToken = yield* Effect.promise(() => probeWs(endpointWsUrl(endpoint)))
       yield* Fiber.interrupt(serverFiber)
       return { sameLengthWrong, realToken }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.sameLengthWrong).toBe("closed")

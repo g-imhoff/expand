@@ -11,16 +11,15 @@ export interface LaunchedApp {
 }
 
 export const launchApp = async (): Promise<LaunchedApp> => {
-  // Isolate this run's data to a throwaway OS data home. AppContext derives the
-  // channel base (and thus dataDir / endpointFile / dbPath) from $XDG_DATA_HOME,
-  // and the node adapter forwards that same dataDir to the spawned server via
-  // `--data-dir`, so both sides agree without any YODEA_* override.
+  // Isolate this run's data to a throwaway dir. The desktop main process resolves
+  // its AppContext base from the `--data-dir` argv we pass here, and the node
+  // adapter forwards that same dir to the spawned server via `--data-dir`, so both
+  // sides rendezvous on the same endpoint file without any env override.
   const dataHome = mkdtempSync(resolve(tmpdir(), "yodea-e2e-home-"))
   const app = await electron.launch({
-    args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs")],
+    args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs"), "--data-dir", dataHome],
     env: {
       ...process.env,
-      XDG_DATA_HOME: dataHome,
       YODEA_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
     }
   })

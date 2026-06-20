@@ -6,7 +6,6 @@ import { join } from "node:path"
 import { ProjectStore, type BackendUnavailable } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
-import { appContextLayer } from "@yodea/contracts/app-context"
 
 export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
 
@@ -29,7 +28,6 @@ const resolveBackendCommand = (): ReadonlyArray<string> => {
 export const makeProductionRuntime = (): YodeaRuntime =>
   ManagedRuntime.make(
     ProjectStoreLayer(makeBunAdapter({ backendCommand: resolveBackendCommand })).pipe(
-      Layer.provide(BunServices.layer),
-      Layer.provide(appContextLayer())
+      Layer.provide(BunServices.layer)
     )
   )

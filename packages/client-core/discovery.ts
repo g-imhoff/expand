@@ -18,7 +18,7 @@ const isProcessAlive = (pid: number): boolean => {
   }
 }
 
-export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem | AppContext> =
+export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext
@@ -95,7 +95,7 @@ const awaitEndpoint = readEndpoint.pipe(
   })
 )
 
-export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem | AppContext> =
+export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext

@@ -1,48 +1,47 @@
-import { Context, Effect, Layer } from "effect"
+import { Context } from "effect"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { channel, type Channel } from "@yodea/contracts/channel"
 
-export interface PathsShape {
-  readonly dataDir: string      // <base>
-  readonly dbPath: string       // <base>/events.db
-  readonly endpointFile: string // <base>/server.json
-  readonly logDir: string       // <base>/logs
+export interface AppPath {
+  readonly dataDir: string
+  readonly dbPath: string
+  readonly endpointFile: string
+  readonly logDir: string
 }
 
-// The application's runtime context: which build it is, and where its files live.
-// Paths are one facet — the service is the place future app-level context grows.
 export interface AppContextShape {
   readonly channel: Channel
-  readonly paths: PathsShape
+  readonly paths: AppPath
 }
 
-// OS data home — honors $XDG_DATA_HOME / platform conventions. Reads ONLY OS env
-// ($XDG_DATA_HOME / $HOME / %LOCALAPPDATA%), never any YODEA_* variable.
-const osDataHome = (): string => {
-  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support")
-  if (process.platform === "win32") return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local")
-  return process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
-}
-
-const channelBase = (): string => join(osDataHome(), channel === "dev" ? "yodea-dev" : "yodea")
-
-const derivePaths = (base: string): PathsShape => ({
-  dataDir: base,
-  dbPath: join(base, "events.db"),
-  endpointFile: join(base, "server.json"),
-  logDir: join(base, "logs")
+export const AppContext = Context.Reference<AppContextShape>("yodea/AppContext", {
+  defaultValue: () => deriveContext(processDataDir())
 })
 
-// Pure resolver. baseDir = parsed --data-dir (spawned child / test) ?? channel base.
-export const resolveAppContext = (baseDir?: string): AppContextShape => ({
+const NAMES = {
+  home: ".yodea",
+  channel: { dev: "yodea-dev", release: "yodea" },
+  db: "events.db",
+  endpoint: "server.json",
+  logs: "logs"
+} as const
+
+const channelBase = (): string => join(homedir(), NAMES.home, NAMES.channel[channel])
+
+const derivePaths = (base: string): AppPath => ({
+  dataDir: base,
+  dbPath: join(base, NAMES.db),
+  endpointFile: join(base, NAMES.endpoint),
+  logDir: join(base, NAMES.logs)
+})
+
+const processDataDir = (): string | undefined => {
+  const i = process.argv.indexOf("--data-dir")
+  return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined
+}
+
+const deriveContext = (baseDir?: string): AppContextShape => ({
   channel,
   paths: derivePaths(baseDir ?? channelBase())
 })
-
-export class AppContext extends Context.Service<AppContext, AppContextShape>()("yodea/AppContext", {
-  make: Effect.sync(() => resolveAppContext()) // default = channel-derived base
-}) {}
-
-export const appContextLayer = (baseDir?: string): Layer.Layer<AppContext> =>
-  Layer.succeed(AppContext, resolveAppContext(baseDir))

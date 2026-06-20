@@ -14,7 +14,7 @@ import { Project } from "@yodea/contracts/project"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -95,7 +95,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
         return { final, snap }
       }).pipe(
         Effect.provide(
-          ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+          ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
         ),
         Effect.timeoutOrElse({
           duration: "10 seconds",
@@ -103,7 +103,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.final).toHaveLength(1)

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { acquireClient } from "@yodea/client-core/rpc-client"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 let bunMainBefore: string
@@ -26,7 +26,7 @@ describe("acquireClient", () => {
       const { client, endpoint } = yield* acquireClient(bunAdapter)
       const health = yield* client.Health()
       return { health, endpoint }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const { health, endpoint } = await Effect.runPromise(program)
     expect(health).toBe("ok")

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readEndpoint } from "@yodea/client-core/discovery"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { AppContext, appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -16,12 +16,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices | AppContext>) =>
-  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, appContextLayer(dir))))
+const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices>) =>
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, makeTestAppContext(dir).layer)))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
-    resolveAppContext(dir).paths.endpointFile,
+    makeTestAppContext(dir).paths.endpointFile,
     JSON.stringify({ url: "ws://127.0.0.1:51789/rpc", token: "t", pid, protocolVersion })
   )
 
@@ -43,7 +43,7 @@ describe("readEndpoint", () => {
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for malformed JSON", async () => {
-    writeFileSync(resolveAppContext(dir).paths.endpointFile, "{ not json")
+    writeFileSync(makeTestAppContext(dir).paths.endpointFile, "{ not json")
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
 })

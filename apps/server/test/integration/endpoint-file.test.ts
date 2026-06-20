@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { writeEndpointFile } from "@yodea/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -18,7 +18,7 @@ afterEach(() => {
 
 describe("endpoint file (I-3)", () => {
   it("writes the file inside the scope and removes it when the scope closes", async () => {
-    const file = resolveAppContext(dir).paths.endpointFile
+    const file = makeTestAppContext(dir).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -36,7 +36,7 @@ describe("endpoint file (I-3)", () => {
       yield* Scope.close(scope, Exit.void)
       const after = yield* fs.exists(file)
       return { during, after }
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.during).toBe(true)

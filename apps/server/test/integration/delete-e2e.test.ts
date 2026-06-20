@@ -8,7 +8,7 @@ import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -46,7 +46,7 @@ describe.sequential("project delete e2e", () => {
         )
         yield* Fiber.interrupt(serverFiber)
         return out
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
     )
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
@@ -59,7 +59,7 @@ describe.sequential("project delete e2e", () => {
         const listed = yield* withClient(bunAdapter, (client) => client.ProjectList({ includeArchived: true }))
         yield* Fiber.interrupt(serverFiber)
         return listed
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
     )
     expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   })

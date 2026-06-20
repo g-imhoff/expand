@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 let bunMainBefore: string
@@ -32,7 +32,7 @@ const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number): Pr
 describe("ProjectStore reconnect", () => {
   it("recovers after the backend dies: status leaves connected, then a mutation and the list succeed", async () => {
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
     )
     try {
       const store = await rt.runPromise(ProjectStore)

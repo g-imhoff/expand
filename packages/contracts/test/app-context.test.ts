@@ -1,17 +1,15 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
+import { Effect } from "effect"
+import { homedir } from "node:os"
 import { join } from "node:path"
-import { resolveAppContext } from "@yodea/contracts/app-context"
+import { AppContext } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
-const ORIG = { ...process.env }
-afterEach(() => {
-  process.env = { ...ORIG }
-})
-
-describe("resolveAppContext", () => {
-  it("exposes the channel and derives all subpaths under an explicit base", () => {
-    const ctx = resolveAppContext("/tmp/x")
+describe("AppContext", () => {
+  it("the testkit derives all subpaths under an explicit base", () => {
+    const { ctx, paths } = makeTestAppContext("/tmp/x")
     expect(ctx.channel).toBe("dev")
-    expect(ctx.paths).toEqual({
+    expect(paths).toEqual({
       dataDir: "/tmp/x",
       dbPath: join("/tmp/x", "events.db"),
       endpointFile: join("/tmp/x", "server.json"),
@@ -19,9 +17,10 @@ describe("resolveAppContext", () => {
     })
   })
 
-  it("honors $XDG_DATA_HOME on linux and adds the dev suffix (channel=dev in tests)", () => {
-    if (process.platform !== "linux") return
-    process.env.XDG_DATA_HOME = "/home/u/.local/share"
-    expect(resolveAppContext().paths.dataDir).toBe(join("/home/u/.local/share", "yodea-dev"))
+  it("resolves the channel base under ~/.yodea by default, with nothing provided (channel=dev in tests)", async () => {
+    const ctx = await Effect.gen(function* () {
+      return yield* AppContext
+    }).pipe(Effect.runPromise)
+    expect(ctx.paths.dataDir).toBe(join(homedir(), ".yodea", "yodea-dev"))
   })
 })

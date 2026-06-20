@@ -9,7 +9,7 @@ import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { appContextLayer, resolveAppContext } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
@@ -35,7 +35,7 @@ const writeStaleEndpoint = () =>
   // Live pid (this process) so readEndpoint accepts it, but a port nothing is
   // listening on — i.e. a server that has already gone away.
   writeFileSync(
-    resolveAppContext(dir).paths.endpointFile,
+    makeTestAppContext(dir).paths.endpointFile,
     JSON.stringify({
       url: "ws://127.0.0.1:9/rpc",
       token: "stale",
@@ -82,7 +82,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
             Effect.retry(Schedule.spaced("10 millis")),
             Effect.andThen(
               Effect.sync(() =>
-                writeFileSync(resolveAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
+                writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
               )
             )
           )
@@ -105,7 +105,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")

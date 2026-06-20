@@ -5,7 +5,6 @@ import { Project } from "@yodea/contracts/project"
 import type { ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import type { AppContext } from "@yodea/contracts/app-context"
 import type { RuntimeAdapter } from "@yodea/client-core/adapter"
 import { BackendUnavailable } from "@yodea/client-core/discovery"
 import { acquireClient, type YodeaRpcClientApi } from "@yodea/client-core/rpc-client"
@@ -74,7 +73,7 @@ const toUnavailable = (e: { readonly _tag: string }): BackendUnavailable =>
 const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   ProjectStoreShape,
   BackendUnavailable,
-  FileSystem.FileSystem | AppContext | Scope.Scope
+  FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
     // Single source of truth: projects and seq are written/read together, so a
@@ -185,5 +184,5 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
 
 export const ProjectStoreLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ProjectStore, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
+): Layer.Layer<ProjectStore, BackendUnavailable, FileSystem.FileSystem> =>
   Layer.effect(ProjectStore, makeStore(adapter))

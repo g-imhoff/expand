@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "@yodea/client-core"
 import { ProjectStoreLayer } from "@yodea/client-core/project-store"
 import { makeNodeAdapter } from "@yodea/client-core/adapters/node"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -23,7 +23,7 @@ describe("Node adapter", () => {
       backendCommand: ["bun", join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(appContextLayer(dir)))
+      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
     )
     try {
       const store = await rt.runPromise(ProjectStore)

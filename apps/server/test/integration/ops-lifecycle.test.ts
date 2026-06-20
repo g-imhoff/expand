@@ -8,7 +8,7 @@ import { runServer } from "@yodea/server/composition/app"
 import { withClient } from "@yodea/client-core"
 import { bunAdapter } from "@yodea/client-core/adapters/bun"
 import { readEndpoint } from "@yodea/client-core/discovery"
-import { appContextLayer } from "@yodea/contracts/app-context"
+import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
@@ -57,7 +57,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
     const r = await Effect.runPromise(program)
     expect(r.renamed.name).toBe("ops-renamed")
@@ -88,7 +88,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(appContextLayer(dir)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
     const r = await Effect.runPromise(program)
     expect(r._tag).toBe("Failure")
     if (r._tag === "Failure") expect((r.failure as { _tag: string })._tag).toBe("ProjectDirectoryInvalid")
