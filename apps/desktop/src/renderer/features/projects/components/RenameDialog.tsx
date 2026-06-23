@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Schema } from "effect"
 import {
   Dialog,
@@ -32,7 +32,6 @@ export interface RenameDialogProps {
 
 export const RenameDialog = ({ open, project, onOpenChange, onRename, error }: RenameDialogProps) => {
   const [value, setValue] = useState(project?.name ?? "")
-  useEffect(() => { setValue(project?.name ?? "") }, [project?.id, project?.name])
   if (project === null) return null
   const submit = (e: React.FormEvent) => {
     e.preventDefault()

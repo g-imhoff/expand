@@ -1,0 +1,104 @@
+{
+  // React Doctor config — https://www.react.doctor/docs/configuration/config-files
+  // (JSON5: comments + trailing commas allowed.)
+  //
+  // Every entry below suppresses a VERIFIED FALSE POSITIVE — a finding that fired
+  // only because React Doctor cannot see how this project wires things together,
+  // not because the code is wrong. Each override is scoped to the exact file(s)
+  // and the single rule, so the rule keeps protecting all other code. Genuine
+  // issues are fixed in code, never silenced here.
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "overrides": [
+      // ── deslop/unused-file ──────────────────────────────────────────────
+      // These 5 files are the Electron app's entry points (and files reachable
+      // only from them). deslop traces reachability from package.json scripts /
+      // known entries, but this app's real entries live where deslop does not
+      // look: index.html (`<script src="./main.tsx">`) and electron.vite.config.ts
+      // (preload input). Reachability is:
+      //   index.html → main.tsx → router.tsx → { Workspace.tsx, root-layout.tsx }
+      //   electron.vite.config.ts → preload/index.ts (IPC bridge, side-effect entry)
+      // Deleting any of these would stop the desktop app from booting. NOT dead code.
+      {
+        "files": [
+          "apps/desktop/src/preload/index.ts",
+          "apps/desktop/src/renderer/main.tsx",
+          "apps/desktop/src/renderer/app/router.tsx",
+          "apps/desktop/src/renderer/app/shell/root-layout.tsx",
+          "apps/desktop/src/renderer/features/projects/pages/Workspace.tsx"
+        ],
+        "rules": ["deslop/unused-file"]
+      },
+
+      // ── deslop/unused-dev-dependency ────────────────────────────────────
+      // dependency-cruiser, knip and happy-dom are all genuinely used, but via
+      // mechanisms deslop's import graph cannot see:
+      //   • dependency-cruiser → `arch` script invokes the `depcruise` bin
+      //     (+ CI and the test/architecture/* suite read .dependency-cruiser.cjs)
+      //   • knip               → `knip` script invokes the `knip-bun` bin
+      //     (+ test/architecture/no-dead-code.test.ts)
+      //   • happy-dom          → vitest DOM environment selected per-file via
+      //     `// @vitest-environment happy-dom` in 8 desktop test files
+      // Removing any of them breaks CI / tests.
+      // CAVEAT: this drops the rule for package.json as a whole, so a dev dep that
+      // becomes genuinely unused LATER won't be flagged — re-audit deps by hand.
+      {
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
+      },
+
+      // ── react-doctor/no-unknown-property ────────────────────────────────
+      // `cmdk-input-wrapper=""` is standard shadcn/ui cmdk boilerplate. React 19
+      // forwards hyphenated custom attributes straight to the DOM (so it IS applied,
+      // not ignored as the message implies). It's an intentional CSS styling hook.
+      // The rule still guards class/htmlFor/aria-* typos everywhere else.
+      {
+        "files": ["apps/desktop/src/renderer/components/ui/command.tsx"],
+        "rules": ["react-doctor/no-unknown-property"]
+      },
+
+      // ── react-doctor/rendering-usetransition-loading ────────────────────
+      // useRunMutation's `isPending` tracks a real async backend RPC (a data fetch),
+      // not a synchronous render update. The rule's own docs exempt the fetch
+      // lifecycle; switching to useTransition would break the mutateAsync / error /
+      // reset / onSuccess contract this hook exposes to the whole app.
+      {
+        "files": ["apps/desktop/src/renderer/features/projects/data/use-projects.ts"],
+        "rules": ["react-doctor/rendering-usetransition-loading"]
+      },
+
+      // ── react-doctor/js-set-map-lookups ─────────────────────────────────
+      // resolveBinding scans a tiny key-binding table; each `binding.keys` is a
+      // fresh 1–3 element tuple (rebuilt per iteration) and the table is passed in
+      // per call. A Set/Map would add allocation, not remove it, and would break
+      // the module's documented, unit-tested "first match wins" contract.
+      {
+        "files": ["packages/ink-input/bindings.ts"],
+        "rules": ["react-doctor/js-set-map-lookups"]
+      },
+
+      // ── react-doctor/anchor-is-valid (test files only) ──────────────────
+      // The only finding is an `<a>` inside a vi.mock stand-in for the router Link —
+      // throwaway test scaffolding, never shipped UI. The real <Link> in
+      // ProjectsView renders a valid navigable href. Scoped to test files so
+      // production accessibility is still fully linted.
+      {
+        "files": ["**/*.test.tsx", "**/*.test.ts"],
+        "rules": ["react-doctor/anchor-is-valid"]
+      },
+
+      // ── react-doctor/local-rpc-native-bridge-risk ───────────────────────
+      // node.ts is an OUTBOUND localhost WebSocket *client* that also spawns its
+      // app-supplied backend, running in the Electron MAIN process. There is no
+      // inbound web origin and no web-controlled command, so the rule's threat model
+      // (a web page driving native actions) cannot occur here. The real browser↔native
+      // trust boundary is hardened in apps/desktop/src/main (origin-rules.ts exact-origin
+      // allowlist, harden-web-contents.ts, window-options.ts sandbox). The rule fired
+      // only on lexical `WebSocket` + `spawn` proximity.
+      {
+        "files": ["packages/client-core/adapters/node.ts"],
+        "rules": ["react-doctor/local-rpc-native-bridge-risk"]
+      }
+    ]
+  }
+}

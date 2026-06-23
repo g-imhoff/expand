@@ -32,7 +32,7 @@ export interface EditMetadataDialogProps {
 
 export const EditMetadataDialog = ({ open, project, onOpenChange, onSubmit }: EditMetadataDialogProps) => {
   const [description, setDescription] = useState(project.description ?? "")
-  const [tagsRaw, setTagsRaw] = useState(project.tags.join(", "))
+  const [tagsRaw, setTagsRaw] = useState(() => project.tags.join(", "))
   const [error, setError] = useState<string | null>(null)
   const save = async () => {
     try {

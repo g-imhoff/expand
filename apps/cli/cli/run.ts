@@ -3,7 +3,7 @@ import type { CliError } from "effect/unstable/cli"
 import { mapContractError, type YodeaCliError } from "@yodea/cli/errors"
 import { writeErr } from "@yodea/cli/output"
 
-export class UsageExit extends Data.TaggedError("UsageExit")<{}> {
+class UsageExit extends Data.TaggedError("UsageExit")<{}> {
   readonly [Runtime.errorExitCode] = 2
   readonly [Runtime.errorReported] = false
 }

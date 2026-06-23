@@ -28,7 +28,8 @@
     "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
     "e2e:desktop": "bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts",
     "lint": "eslint .",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "git config core.hooksPath .githooks",
+    "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",

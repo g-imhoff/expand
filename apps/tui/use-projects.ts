@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState } from "react"
+import { useCallback, use, useEffect, useState } from "react"
 import { Effect, Fiber, Schema, Stream, SubscriptionRef } from "effect"
 import { ProjectStore, supervised } from "@yodea/client-core"
 import type { Project } from "@yodea/contracts/project"
@@ -29,7 +29,7 @@ const describeError = (cause: unknown): string => {
 }
 
 export const useProjects = () => {
-  const runtime = useContext(RuntimeContext)
+  const runtime = use(RuntimeContext)
   if (!runtime) throw new Error("useProjects must be used within a RuntimeContext")
   const [projects, setProjects] = useState<ReadonlyArray<Project>>([])
   const [error, setError] = useState<string | null>(null)

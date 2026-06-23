@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useContext } from "react"
+import { createContext, type ReactNode, use } from "react"
 import type { AppHandle } from "@yodea/desktop/renderer/app/app-handle"
 
 const AppHandleContext = createContext<AppHandle | null>(null)
@@ -8,7 +8,7 @@ export const AppHandleProvider = ({ value, children }: { value: AppHandle; child
 )
 
 export const useAppHandle = (): AppHandle => {
-  const handle = useContext(AppHandleContext)
+  const handle = use(AppHandleContext)
   if (handle === null) throw new Error("useAppHandle must be used within <AppHandleProvider>")
   return handle
 }

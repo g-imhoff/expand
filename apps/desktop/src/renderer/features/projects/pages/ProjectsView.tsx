@@ -42,13 +42,14 @@ export const ProjectsView = () => {
           <li key={p.id}>
             <Link to="/p/$projectId" params={{ projectId: p.id }}>{p.name}</Link>{" "}
             <small style={{ opacity: 0.6 }}>{p.id}</small>{" "}
-            <button onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>{" "}
-            <button onClick={() => setMovingDir({ id: p.id, name: p.name, directory: p.directory })}>Change directory</button>{" "}
-            <button onClick={() => setTarget({ id: p.id, name: p.name })}>Delete</button>
+            <button type="button" onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>{" "}
+            <button type="button" onClick={() => setMovingDir({ id: p.id, name: p.name, directory: p.directory })}>Change directory</button>{" "}
+            <button type="button" onClick={() => setTarget({ id: p.id, name: p.name })}>Delete</button>
           </li>
         ))}
       </ul>
       <RenameDialog
+        key={renaming?.id}
         open={renaming !== null}
         project={renaming}
         error={rename.error}
@@ -56,6 +57,7 @@ export const ProjectsView = () => {
         onRename={(id, name) => rename.mutate({ id, name }, { onSuccess: () => setRenaming(null) })}
       />
       <ChangeDirectoryDialog
+        key={movingDir?.id}
         open={movingDir !== null}
         project={movingDir}
         error={changeDirectory.error}

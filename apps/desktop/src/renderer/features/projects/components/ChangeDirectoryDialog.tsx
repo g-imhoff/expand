@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Schema } from "effect"
 import {
   Dialog,
@@ -34,7 +34,6 @@ export const ChangeDirectoryDialog = ({
   error
 }: ChangeDirectoryDialogProps) => {
   const [value, setValue] = useState(project?.directory ?? "")
-  useEffect(() => { setValue(project?.directory ?? "") }, [project?.id, project?.directory])
   if (project === null) return null
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
