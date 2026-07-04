@@ -3,7 +3,10 @@ import { ProjectRpcs } from "@yodea/contracts/rpc/projects"
 import { ServerRpcs } from "@yodea/contracts/rpc/server"
 import { StreamRpcs } from "@yodea/contracts/rpc/stream"
 
-export class YodeaRpcs extends RpcGroup.make().merge(ProjectRpcs, ServerRpcs, StreamRpcs) { }
+export class YodeaRpcs extends RpcGroup
+  .make()
+  .merge(ProjectRpcs, ServerRpcs, StreamRpcs)
+{ }
 
 export {
   ProjectAlreadyExists,

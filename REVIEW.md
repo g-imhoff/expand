@@ -85,8 +85,8 @@ DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a c
 DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
 DONE 5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
-6. maybe a good idea to change the homedir for the different env (dev, release) `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-7. `cli.ts` — the stable `yodea/v1` JSON envelopes the CLI prints.
+DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
+MOVED 7. `cli.ts` — the stable `yodea/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**
 - **Single fold, no second copy.** Confirm `foldList`/`applyEvent` here are genuinely the *only* projection and that server + client-core reuse them (any divergence breaks snapshot-vs-replay consistency).
@@ -106,7 +106,7 @@ DONE 5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2
 **Why here:** It depends only on `contracts`, and it's the source of truth every client mirrors. Understand it before any client.
 
 **Read in order:**
-1. `packages/contracts/events/project.ts` — refresh the event vocabulary the backend stores.
+DONE 1. `packages/contracts/events/project.ts` — refresh the event vocabulary the backend stores.
 2. `db/event-store.ts` — the append-only `events` table; `append()` returns the new `seq`; `readAll`/`readFrom` decode rows.
 3. `domain/project.ts` — `projectsFromEvents`, the pure fold (delegates to the contracts statics).
 4. `db/snapshot-store.ts` + `application/projections.ts` — the read-model cache. `snapshot-store.ts` is the single-row `snapshot {projects, seq, fold_version}` table (`load` returns `null` on absent/undecodable; `save` upserts — the disposable cache). `projections.ts` is **now stateful**: on layer build it boot-catches-up (load snapshot → fold only the tail via `readFrom(snap.seq)`, or rebuild from zero on miss/`FOLD_VERSION` mismatch) into a `SubscriptionRef`; `list`/`snapshot` read it; `apply` advances it with the C2 seq-gate (mirrors the client store). `ProjectList` is O(rows); boot is O(tail-since-snapshot).
