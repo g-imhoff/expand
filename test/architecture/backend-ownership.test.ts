@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest"
 const SERVER_FILES = [
   "apps/server/composition/app.ts",
   "apps/server/db/event-store.ts",
+  "apps/server/db/replay-feed.ts",
+  "apps/server/application/projects/project-event-store.ts",
   "apps/server/domain/project.ts",
   "apps/server/application/event-bus.ts",
   "apps/server/application/projections.ts",
