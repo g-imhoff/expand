@@ -138,7 +138,7 @@ model {
       }
 
       storage = component 'Session Storage' {
-        description 'Event log + snapshots. Persists events, serves history queries.'
+        description 'Event log + projection state. Persists events, serves streamed history reads.'
         technology 'SQLite (WAL)'
       }
 
