@@ -6,8 +6,10 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { SnapshotStore, SnapshotStoreLayer } from "@yodea/server/db/snapshot-store"
-import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
+import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
+import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
+import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
@@ -17,11 +19,12 @@ const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padSta
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
   const Store = EventStoreLayer.pipe(Layer.provide(Sql))
-  const Snapshots = SnapshotStoreLayer.pipe(Layer.provide(Sql))
-  const Projection = ProjectProjectionLayer.pipe(Layer.provide(Store), Layer.provide(Snapshots))
-  return Layer.mergeAll(Projection, Store, Snapshots).pipe(Layer.provideMerge(Sql))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Store))
+  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
+  const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
+  return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))
 }
-const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | EventStore | SnapshotStore | SqlClient>) =>
+const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | EventStore | ProjectionStateStore | SqlClient>) =>
   Effect.runPromise(Effect.provide(eff, layersFor(dbPath)))
 
 const withDb = async (body: (dbPath: string) => Promise<void>) => {
@@ -78,8 +81,8 @@ describe("ProjectProjection — boot catch-up", () => {
       const snap = await on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap.seq).toBe(2)
       expect(snap.projects.map((p) => p.name).sort()).toEqual(["a", "b"])
-      const persisted = await on(db, Effect.flatMap(SnapshotStore, (s) => s.load))
-      expect(persisted?.seq).toBe(2)
+      const persisted = await on(db, Effect.flatMap(ProjectionStateStore, (s) => s.load(PROJECTION_NAME)))
+      expect(persisted?.lastSeq).toBe(2)
     })
   })
 
@@ -88,11 +91,25 @@ describe("ProjectProjection — boot catch-up", () => {
       // Seed a real event, then save a bogus snapshot with a wrong foldVersion + wrong state.
       await on(db, Effect.gen(function* () {
         const store = yield* EventStore
-        const snapshots = yield* SnapshotStore
+        const snapshots = yield* ProjectionStateStore
         yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
-        yield* snapshots.save({ projects: [], seq: 0, foldVersion: "OLD" })
+        yield* snapshots.save(PROJECTION_NAME, { state: "[]", lastSeq: 0, foldVersion: "OLD" })
       }))
       // Re-boot: foldVersion "OLD" != current → ignore snapshot, fold from zero.
+      const snap = await on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
+      expect(snap.seq).toBe(1)
+      expect(snap.projects.map((p) => p.name)).toEqual(["real"])
+    })
+  })
+
+  it("ignores an undecodable persisted state and rebuilds from zero", async () => {
+    await withDb(async (db) => {
+      await on(db, Effect.gen(function* () {
+        const store = yield* EventStore
+        const snapshots = yield* ProjectionStateStore
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
+        yield* snapshots.save(PROJECTION_NAME, { state: "{ not json", lastSeq: 99, foldVersion: FOLD_VERSIONS.projects })
+      }))
       const snap = await on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap.seq).toBe(1)
       expect(snap.projects.map((p) => p.name)).toEqual(["real"])

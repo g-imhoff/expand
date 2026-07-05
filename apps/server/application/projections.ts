@@ -1,10 +1,14 @@
-import { Context, Effect, Layer, SubscriptionRef } from "effect"
+import { Context, Duration, Effect, Exit, Layer, Schema, Stream, SubscriptionRef } from "effect"
 import { Project } from "@yodea/contracts/project"
 import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { EventStore } from "@yodea/server/db/event-store"
-import { SnapshotStore } from "@yodea/server/db/snapshot-store"
-import { projectsFromEvents } from "@yodea/server/domain/project"
+import { ProjectEventStore } from "@yodea/server/db/project-event-store"
+import { ProjectionStateStore } from "@yodea/server/db/projection-state-store"
+import { foldProjectsInto } from "@yodea/server/domain/project"
+
+export const PROJECTION_NAME = "projects"
+
+const ProjectsFromJson = Schema.fromJsonString(Schema.Array(Project))
 
 export class ProjectProjection extends Context.Service<ProjectProjection, {
   readonly list: Effect.Effect<ReadonlyArray<Project>>
@@ -15,45 +19,77 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
   readonly apply: (sequenced: SequencedEvent) => Effect.Effect<boolean>
 }>()("yodea/ProjectProjection", {
   make: Effect.gen(function* () {
-    const store = yield* EventStore
-    const snapshots = yield* SnapshotStore
+    const events = yield* ProjectEventStore
+    const states = yield* ProjectionStateStore
 
     // ---- boot catch-up: runs once at layer build; single non-concurrent writer ----
-    // The snapshot is a DISPOSABLE cache (design §6): a save failure is non-fatal
-    // (warn, continue — next boot just folds a longer tail). The event LOG is the
-    // source of truth, so a log-read failure is a hard defect (orDie).
-    const saveSnapshot = (s: State) =>
-      snapshots.save({ projects: s.projects, seq: s.seq, foldVersion: FOLD_VERSIONS.projects }).pipe(
+    // projection_state is a DISPOSABLE cache (spec §3.3): a save failure is
+    // non-fatal (warn, continue — next boot just folds a longer tail). The event
+    // LOG is the source of truth, so a log-read failure is a hard defect (orDie —
+    // and scan itself dies on an undecodable row, D10 fail-fast).
+    const saveCheckpoint = (s: State) =>
+      Schema.encodeEffect(ProjectsFromJson)(s.projects).pipe(
+        Effect.orDie,
+        Effect.flatMap((state) =>
+          states.save(PROJECTION_NAME, { state, lastSeq: s.seq, foldVersion: FOLD_VERSIONS.projects })
+        ),
         Effect.catch((e) =>
-          Effect.logWarning(`snapshot save failed at boot — continuing (next boot folds a longer tail): ${e}`)
+          Effect.logWarning(`projection checkpoint save failed — continuing (next boot folds a longer tail): ${e}`)
         )
       )
 
-    // Load failure for ANY reason (absent / undecodable / SQL error) → fall back to
-    // a from-zero rebuild rather than failing to boot.
-    const snap = yield* snapshots.load.pipe(
+    // Load failure for ANY reason (absent / SQL error) → fall back to a
+    // from-zero rebuild rather than failing to boot.
+    const loaded = yield* states.load(PROJECTION_NAME).pipe(
       Effect.catch((e) =>
-        Effect.logWarning(`snapshot load failed — rebuilding from the event log: ${e}`).pipe(Effect.map(() => null))
+        Effect.logWarning(`projection state load failed — rebuilding from the event log: ${e}`).pipe(Effect.map(() => null))
       )
     )
 
-    let initial: State
-    if (snap === null || snap.foldVersion !== FOLD_VERSIONS.projects) {
-      // No usable snapshot → rebuild from zero (the proven path) and write a fresh one.
-      const rows = yield* store.readAll.pipe(Effect.orDie)
-      initial = {
-        projects: projectsFromEvents(rows.map((r) => r.event)),
-        seq: rows.length > 0 ? rows[rows.length - 1]!.seq : 0
+    // A usable persisted state must match this build's fold version AND decode.
+    let resume: State | null = null
+    if (loaded !== null && loaded.foldVersion === FOLD_VERSIONS.projects) {
+      const exit = Schema.decodeUnknownExit(ProjectsFromJson)(loaded.state)
+      if (Exit.isSuccess(exit)) {
+        resume = { projects: exit.value, seq: loaded.lastSeq }
+      } else {
+        yield* Effect.logWarning(`projection state undecodable — rebuilding from the event log`)
       }
-      yield* saveSnapshot(initial)
-    } else {
-      // Usable snapshot → fold only events after snap.seq onto snap.projects.
-      const tail = yield* store.readFrom(snap.seq).pipe(Effect.orDie)
-      const projects = tail.reduce((acc, se) => Project.foldList(acc, se.event), snap.projects)
-      const seq = tail.length > 0 ? tail[tail.length - 1]!.seq : snap.seq
-      initial = { projects, seq }
-      if (tail.length > 0) yield* saveSnapshot(initial)
     }
+
+    // Cheap boot observability (spec §3.5): count + time the fold so future
+    // tuning decisions are anchored in data, not folklore.
+    let folded = 0
+    let initial: State
+    if (resume === null) {
+      // From-zero rebuild, chunk by chunk: the log is streamed (keyset-paginated
+      // scan under ProjectEventStore.read), never materialized as one array.
+      const [elapsed, rebuilt] = yield* Effect.timed(
+        Stream.runFold(
+          events.read(0),
+          () => ({ byId: new Map<string, Project>(), seq: 0 }),
+          (acc, se: SequencedEvent) => {
+            folded++
+            foldProjectsInto(acc.byId, se.event)
+            return { byId: acc.byId, seq: se.seq }
+          }
+        ).pipe(Effect.orDie)
+      )
+      initial = { projects: [...rebuilt.byId.values()], seq: rebuilt.seq }
+      yield* Effect.logInfo(`projection boot: full rebuild folded ${folded} events to seq ${initial.seq} in ${Duration.toMillis(elapsed)}ms`)
+    } else {
+      // Tail catch-up from the persisted state, same shared fold, streamed.
+      const start = resume
+      const [elapsed, caught] = yield* Effect.timed(
+        Stream.runFold(events.read(start.seq), () => start, (acc, se: SequencedEvent) => {
+          folded++
+          return { projects: Project.foldList(acc.projects, se.event), seq: se.seq }
+        }).pipe(Effect.orDie)
+      )
+      initial = caught
+      yield* Effect.logInfo(`projection boot: tail catch-up folded ${folded} events (seq ${start.seq} → ${initial.seq}) in ${Duration.toMillis(elapsed)}ms`)
+    }
+    yield* saveCheckpoint(initial)
 
     const ref = yield* SubscriptionRef.make<State>(initial)
 

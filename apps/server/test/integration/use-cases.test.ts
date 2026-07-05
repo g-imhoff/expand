@@ -8,7 +8,8 @@ import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { SnapshotStoreLayer } from "@yodea/server/db/snapshot-store"
+import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
 import { ServerUseCases, ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
 
@@ -16,8 +17,9 @@ const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padSta
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const Store = EventStoreLayer.pipe(Layer.provide(Sql))
-const Snapshots = SnapshotStoreLayer.pipe(Layer.provide(Sql))
-const Projection = ProjectProjectionLayer.pipe(Layer.provide(Store), Layer.provide(Snapshots))
+const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Store))
+const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
+const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
 const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provide(Projection),
   Layer.provideMerge(Store),

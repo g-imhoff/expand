@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { mkdtempSync, rmSync } from "node:fs"
@@ -12,8 +12,9 @@ import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
 } from "@yodea/contracts/events/project"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { SnapshotStore, SnapshotStoreLayer } from "@yodea/server/db/snapshot-store"
-import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
+import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
+import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
 import { projectsFromEvents } from "@yodea/server/domain/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
@@ -33,9 +34,10 @@ const script: ReadonlyArray<DomainEvent> = [
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
   const Store = EventStoreLayer.pipe(Layer.provide(Sql))
-  const Snapshots = SnapshotStoreLayer.pipe(Layer.provide(Sql))
-  const Projection = ProjectProjectionLayer.pipe(Layer.provide(Store), Layer.provide(Snapshots))
-  return Layer.mergeAll(Projection, Store, Snapshots).pipe(Layer.provideMerge(Sql))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Store))
+  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
+  const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
+  return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))
 }
 
 describe("snapshot+tail equivalence", () => {
@@ -59,12 +61,13 @@ describe("snapshot+tail equivalence", () => {
           await Effect.runPromise(Effect.provide(
             Effect.gen(function* () {
               const store = yield* EventStore
-              const snapshots = yield* SnapshotStore
+              const snapshots = yield* ProjectionStateStore
               const rows = yield* store.readAll
               const prefix = rows.slice(0, k).map((r) => r.event)
-              yield* snapshots.save({ projects: projectsFromEvents(prefix), seq: k, foldVersion: FOLD_VERSIONS.projects })
+              const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(projectsFromEvents(prefix)).pipe(Effect.orDie)
+              yield* snapshots.save(PROJECTION_NAME, { state, lastSeq: k, foldVersion: FOLD_VERSIONS.projects })
             }),
-            Layer.mergeAll(EventStoreLayer, SnapshotStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
+            Layer.mergeAll(EventStoreLayer, ProjectionStateStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
           ))
         }
         // Boot the projection: it loads snapshot@k and folds the tail.
