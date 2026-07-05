@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
+import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
 import { streamHandlers } from "@yodea/server/rpc/stream"
 import { ProjectCreated } from "@yodea/contracts/events/project"
@@ -9,11 +10,11 @@ import { ProjectCreated } from "@yodea/contracts/events/project"
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
-const TestLayer = Layer.mergeAll(EventStoreLayer, EventBusLayer).pipe(
+const TestLayer = Layer.mergeAll(EventStoreLayer, ReplayFeedLayer, EventBusLayer).pipe(
   Layer.provideMerge(SqliteClient.layer({ filename: ":memory:", disableWAL: true }))
 )
 
-const run = <A, E>(eff: Effect.Effect<A, E, EventStore | EventBus>) =>
+const run = <A, E>(eff: Effect.Effect<A, E, EventStore | EventBus | ReplayFeed>) =>
   Effect.runPromise(Effect.provide(Effect.scoped(eff), TestLayer))
 
 describe("Events handler — streamed backlog + live dedup gate", () => {

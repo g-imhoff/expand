@@ -3,7 +3,7 @@ import type { RpcGroup } from "effect/unstable/rpc"
 import { YodeaRpcs } from "@yodea/contracts/rpc"
 import { EventBus } from "@yodea/server/application/event-bus"
 import { ConnectionTracker } from "@yodea/server/connection-tracker"
-import { EventStore } from "@yodea/server/db/event-store"
+import { ReplayFeed } from "@yodea/server/db/replay-feed"
 
 export const streamHandlers = {
   Connect: () =>
@@ -21,7 +21,7 @@ export const streamHandlers = {
       : Stream.unwrap(
           Effect.gen(function* () {
             const bus = yield* EventBus
-            const store = yield* EventStore
+            const feed = yield* ReplayFeed
             // Subscribe FIRST so no event can fall between backlog and live.
             const sub = yield* bus.subscribe
             // The last replayed seq can no longer be computed up front (the
@@ -29,7 +29,7 @@ export const streamHandlers = {
             // backlog elements flow. Initialized to fromSeq so an empty backlog
             // degrades to filtering by the cursor itself.
             const lastReplayed = yield* Ref.make(fromSeq)
-            const backlog = store.scan({ afterSeq: fromSeq }).pipe(
+            const backlog = feed.read(fromSeq).pipe(
               Stream.tap((se) => Ref.set(lastReplayed, se.seq)),
               Stream.orDie
             )

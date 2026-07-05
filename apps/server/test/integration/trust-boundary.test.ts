@@ -13,6 +13,7 @@ import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 import { httpServerLayer } from "@yodea/server/http"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
+import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
 import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
@@ -52,6 +53,7 @@ const currentEndpoint = readEndpoint.pipe(
 const testCore = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
   const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(store))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
@@ -62,7 +64,7 @@ const testCore = (dbPath: string) => {
     Layer.provide(BunFileSystem.layer),
     Layer.provide(BunServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, store)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, store, replay)
 }
 
 const probeTcp = (host: string, port: number): Promise<"open" | "closed"> =>
