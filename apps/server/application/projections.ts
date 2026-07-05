@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, SubscriptionRef } from "effect"
 import { Project } from "@yodea/contracts/project"
-import { FOLD_VERSION } from "@yodea/contracts/fold-version.generated"
+import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
 import { EventStore } from "@yodea/server/db/event-store"
 import { SnapshotStore } from "@yodea/server/db/snapshot-store"
@@ -23,7 +23,7 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
     // (warn, continue — next boot just folds a longer tail). The event LOG is the
     // source of truth, so a log-read failure is a hard defect (orDie).
     const saveSnapshot = (s: State) =>
-      snapshots.save({ projects: s.projects, seq: s.seq, foldVersion: FOLD_VERSION }).pipe(
+      snapshots.save({ projects: s.projects, seq: s.seq, foldVersion: FOLD_VERSIONS.projects }).pipe(
         Effect.catch((e) =>
           Effect.logWarning(`snapshot save failed at boot — continuing (next boot folds a longer tail): ${e}`)
         )
@@ -38,7 +38,7 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
     )
 
     let initial: State
-    if (snap === null || snap.foldVersion !== FOLD_VERSION) {
+    if (snap === null || snap.foldVersion !== FOLD_VERSIONS.projects) {
       // No usable snapshot → rebuild from zero (the proven path) and write a fresh one.
       const rows = yield* store.readAll.pipe(Effect.orDie)
       initial = {
