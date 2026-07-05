@@ -3,7 +3,8 @@ import { SqlError } from "effect/unstable/sql/SqlError"
 import { Project } from "@yodea/contracts/project"
 import type { ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import { EventStore } from "@yodea/server/db/event-store"
+import { ProjectEventStore } from "@yodea/server/application/projects/project-event-store"
+import type { ProjectEvent } from "@yodea/contracts/events/project"
 import { EventBus } from "@yodea/server/application/event-bus"
 import { ProjectProjection } from "@yodea/server/application/projections"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
@@ -60,16 +61,16 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/ProjectUseCases", {
   make: Effect.gen(function* () {
-    const store = yield* EventStore
+    const projectEvents = yield* ProjectEventStore
     const bus = yield* EventBus
     const projection = yield* ProjectProjection
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const mutex = yield* Semaphore.make(1)
 
-    const commit = (id: string, event: Parameters<typeof store.append>[1]) =>
+    const commit = (event: ProjectEvent) =>
       Effect.uninterruptible(
-        Effect.flatMap(store.append(id, event), (seq) =>
+        Effect.flatMap(projectEvents.append(event), (seq) =>
           // Append (durable) → advance in-memory read model → publish to the bus.
           // apply BEFORE publish so a client that receives the event and then calls
           // ProjectList observes the already-updated projection.
@@ -120,7 +121,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           yield* validateDirectory(directory, all)
         }
         const event = ProjectCreated.make({ projectId: id, name: project.name, directory: dir, occurredAt: createdAt })
-        yield* commit(id, event)
+        yield* commit(event)
         return { created: true, project } as const
       }))
 
@@ -137,7 +138,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           return yield* Effect.fail(new ProjectNameConflict({ name: renamed.name }))
         }
         const event = ProjectRenamed.make({ projectId: id, name: renamed.name, occurredAt })
-        yield* commit(id, event)
+        yield* commit(event)
         return renamed
       }))
 
@@ -149,7 +150,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         yield* validateDirectory(directory, all, id)
         const occurredAt = new Date().toISOString()
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
-        yield* commit(id, event)
+        yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
 
@@ -162,7 +163,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = makeEvent(new Date().toISOString())
-        yield* commit(id, event)
+        yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
 
@@ -189,7 +190,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
           ...(patch.tags !== undefined ? { tags: next.tags } : {}),
           occurredAt
         })
-        yield* commit(id, event)
+        yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
 
@@ -198,7 +199,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = (yield* projection.list).find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const event = ProjectDeleted.make({ projectId: id, occurredAt: new Date().toISOString() })
-        yield* commit(id, event)
+        yield* commit(event)
         return { id, deleted: true } as const
       }))
 

@@ -22,6 +22,7 @@ const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
 const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
 const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provide(Projection),
+  Layer.provideMerge(ProjectEvents),
   Layer.provideMerge(Store),
   Layer.provideMerge(EventBusLayer)
 )

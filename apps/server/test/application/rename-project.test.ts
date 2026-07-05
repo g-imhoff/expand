@@ -19,6 +19,7 @@ const layer = () => {
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   return ProjectUseCasesLayer.pipe(
+    Layer.provide(projectEvents),
     Layer.provide(store),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
