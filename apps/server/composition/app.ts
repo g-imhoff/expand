@@ -4,7 +4,7 @@ import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
 import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
@@ -27,7 +27,7 @@ const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
   const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(store))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(

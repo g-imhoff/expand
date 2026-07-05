@@ -3,16 +3,13 @@ import { Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectCreated, ProjectEvent } from "@yodea/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestLayer = ProjectEventStoreLayer.pipe(
-  Layer.provideMerge(EventStoreLayer),
-  Layer.provideMerge(TestSql)
-)
+const TestLayer = Layer.mergeAll(ProjectEventStoreLayer, EventStoreLayer).pipe(Layer.provideMerge(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | EventStore | SqlClient>) =>
   Effect.runPromise(Effect.provide(eff, TestLayer))
@@ -49,5 +46,19 @@ describe("ProjectEventStore", () => {
     )
     expect(out.all.map((r) => r.seq)).toEqual([1, 3])       // seq 2 (foreign) filtered in SQL
     expect(out.after.map((r) => r.seq)).toEqual([3])         // strictly-after semantics
+  })
+
+  it("append derives stream_id from event.projectId — a mismatched id is unrepresentable", async () => {
+    const out = await run(
+      Effect.gen(function* () {
+        const events = yield* ProjectEventStore
+        const sql = yield* SqlClient
+        const seq = yield* events.append(ProjectCreated.make({ projectId: uid(7), name: "derived", occurredAt: "t1" }))
+        const rows = yield* sql<{ readonly stream_id: string }>`SELECT stream_id FROM events WHERE seq = ${seq}`
+        return { seq, streamId: rows[0]?.stream_id }
+      })
+    )
+    expect(out.seq).toBe(1)
+    expect(out.streamId).toBe(uid(7))
   })
 })

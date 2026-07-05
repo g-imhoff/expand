@@ -27,6 +27,8 @@ export const ProjectEvent = Schema.TaggedUnion(
   })
 )
 
+export type ProjectEvent = typeof ProjectEvent.Type
+
 export const {
   ProjectCreated,
   ProjectRenamed,

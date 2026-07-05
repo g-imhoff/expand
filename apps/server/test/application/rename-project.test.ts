@@ -8,14 +8,14 @@ import { join } from "node:path"
 import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
   const store = EventStoreLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(store))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   return ProjectUseCasesLayer.pipe(

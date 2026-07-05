@@ -12,7 +12,7 @@ import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
 } from "@yodea/contracts/events/project"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
 import { projectsFromEvents } from "@yodea/server/domain/project"
@@ -34,7 +34,7 @@ const script: ReadonlyArray<DomainEvent> = [
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
   const Store = EventStoreLayer.pipe(Layer.provide(Sql))
-  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Store))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
   const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
   return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))

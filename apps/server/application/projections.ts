@@ -2,7 +2,7 @@ import { Context, Duration, Effect, Exit, Layer, Schema, Stream, SubscriptionRef
 import { Project } from "@yodea/contracts/project"
 import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectEventStore } from "@yodea/server/db/project-event-store"
+import { ProjectEventStore } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore } from "@yodea/server/db/projection-state-store"
 import { foldProjectsInto } from "@yodea/server/domain/project"
 

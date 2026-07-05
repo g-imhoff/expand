@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
+import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@yodea/server/application/projections"
 import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
@@ -19,7 +19,7 @@ const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padSta
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
   const Store = EventStoreLayer.pipe(Layer.provide(Sql))
-  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Store))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
   const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
   return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))
