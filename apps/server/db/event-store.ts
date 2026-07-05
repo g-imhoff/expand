@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Schema, Stream } from "effect"
+import { Context, Effect, Schema, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
@@ -83,12 +83,6 @@ export const specializeEventStore = <S>(
 
     return build({ append, scan })
   })
-
-export class EventStore extends Context.Service<EventStore, EventStorePrimitives>()("yodea/EventStore", {
-  make: specializeEventStore((store) => store)
-}) {}
-
-export const EventStoreLayer = Layer.effect(EventStore, EventStore.make)
 
 interface EventRow {
   readonly seq: number

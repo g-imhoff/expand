@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
 import { streamHandlers } from "@yodea/server/rpc/stream"
 import { ProjectCreated } from "@yodea/contracts/events/project"
@@ -10,20 +10,20 @@ import { ProjectCreated } from "@yodea/contracts/events/project"
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
-const TestLayer = Layer.mergeAll(EventStoreLayer, ReplayFeedLayer, EventBusLayer).pipe(
+const TestLayer = Layer.mergeAll(ProjectEventStoreLayer, ReplayFeedLayer, EventBusLayer).pipe(
   Layer.provideMerge(SqliteClient.layer({ filename: ":memory:", disableWAL: true }))
 )
 
-const run = <A, E>(eff: Effect.Effect<A, E, EventStore | EventBus | ReplayFeed>) =>
+const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | EventBus | ReplayFeed>) =>
   Effect.runPromise(Effect.provide(Effect.scoped(eff), TestLayer))
 
 describe("Events handler — streamed backlog + live dedup gate", () => {
   it("replays the backlog then filters live events at or below the replay boundary", async () => {
     const out = await run(
       Effect.gen(function* () {
-        const store = yield* EventStore
+        const events = yield* ProjectEventStore
         const bus = yield* EventBus
-        for (let n = 1; n <= 3; n++) yield* store.append(uid(n), ev(n))
+        for (let n = 1; n <= 3; n++) yield* events.append(ev(n))
         const stream = streamHandlers.Events({ fromSeq: 0 })
         const fiber = yield* Effect.forkChild(Stream.runCollect(Stream.take(stream, 4)))
         // Give the handler time to subscribe + drain the backlog, then publish a
@@ -60,9 +60,9 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
   it("appends racing the backlog drain are delivered exactly once, in order, under every interleaving", async () => {
     const out = await run(
       Effect.gen(function* () {
-        const store = yield* EventStore
+        const events = yield* ProjectEventStore
         const bus = yield* EventBus
-        for (let n = 1; n <= 3; n++) yield* store.append(uid(n), ev(n))
+        for (let n = 1; n <= 3; n++) yield* events.append(ev(n))
         const stream = streamHandlers.Events({ fromSeq: 0 })
         const fiber = yield* Effect.forkChild(Stream.runCollect(Stream.take(stream, 5)))
         // Publish a DUPLICATE of seq 3 with NO sleep, precisely so it can RACE the
@@ -83,9 +83,9 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
         // the NEW events only; the DUPLICATE above is published sleep-free precisely
         // so it can race the drain.
         yield* Effect.sleep(50)
-        const s4 = yield* store.append(uid(4), ev(4))
+        const s4 = yield* events.append(ev(4))
         yield* bus.publish({ seq: s4, event: ev(4) })
-        const s5 = yield* store.append(uid(5), ev(5))
+        const s5 = yield* events.append(ev(5))
         yield* bus.publish({ seq: s5, event: ev(5) })
         return Array.from(yield* Fiber.join(fiber))
       })

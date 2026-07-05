@@ -2,16 +2,15 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectCreated, ProjectEvent } from "@yodea/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestLayer = Layer.mergeAll(ProjectEventStoreLayer, EventStoreLayer).pipe(Layer.provideMerge(TestSql))
+const TestLayer = ProjectEventStoreLayer.pipe(Layer.provideMerge(TestSql))
 
-const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | EventStore | SqlClient>) =>
+const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | SqlClient>) =>
   Effect.runPromise(Effect.provide(eff, TestLayer))
 
 const collect = <A, E>(s: Stream.Stream<A, E>) =>
@@ -30,14 +29,13 @@ describe("ProjectEventStore", () => {
   it("read returns only project events — a foreign family's rows are invisible", async () => {
     const out = await run(
       Effect.gen(function* () {
-        const store = yield* EventStore
         const events = yield* ProjectEventStore
         const sql = yield* SqlClient
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+        yield* events.append(ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
         // A foreign family's row with a payload the DomainEvent union cannot decode:
         // the facade's filter must exclude it in SQL, so no decode (and no defect).
         yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(9), event_type: "ConversationStarted", payload: "{\"whatever\":true}" })}`
-        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
+        yield* events.append(ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
         return {
           all: yield* collect(events.read()),
           after: yield* collect(events.read(1))

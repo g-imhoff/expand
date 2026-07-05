@@ -5,7 +5,7 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
+import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
 import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
@@ -16,14 +16,14 @@ import { ServerUseCases, ServerUseCasesLayer } from "@yodea/server/application/s
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const Sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const Store = EventStoreLayer.pipe(Layer.provide(Sql))
+const Replay = ReplayFeedLayer.pipe(Layer.provide(Sql))
 const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
 const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
 const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
 const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provide(Projection),
   Layer.provideMerge(ProjectEvents),
-  Layer.provideMerge(Store),
+  Layer.provideMerge(Replay),
   Layer.provideMerge(EventBusLayer)
 )
 const TestLayerFs = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
@@ -33,13 +33,13 @@ describe("ProjectUseCases.createProject", () => {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
-      const store = yield* EventStore
+      const feed = yield* ReplayFeed
 
       const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("hello", false)
 
       const broadcast = yield* PubSub.take(sub)
-      const persisted = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
+      const persisted = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
       const listed = yield* useCases.listProjects()
 
       return { project, broadcast, persisted, listed }
@@ -271,12 +271,12 @@ describe("ProjectUseCases.setMetadata", () => {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
-      const store = yield* EventStore
+      const feed = yield* ReplayFeed
       const { project } = yield* useCases.createProject("meta", false)
       const sub = yield* bus.subscribe
       const updated = yield* useCases.setMetadata(project.id, { description: "hi", tags: ["a", "a", "b"] })
       const broadcast = yield* PubSub.take(sub)
-      const persisted = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
+      const persisted = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
       return { project, updated, broadcast, persisted }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
 

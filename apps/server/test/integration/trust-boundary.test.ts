@@ -12,7 +12,6 @@ import { writeEndpointFile } from "@yodea/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
 import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 import { httpServerLayer } from "@yodea/server/http"
-import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
@@ -52,20 +51,18 @@ const currentEndpoint = readEndpoint.pipe(
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const store = EventStoreLayer.pipe(Layer.provide(sql))
   const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
   const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),
-    Layer.provide(store),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
     Layer.provide(BunFileSystem.layer),
     Layer.provide(BunServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, store, replay)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
 
 const probeTcp = (host: string, port: number): Promise<"open" | "closed"> =>

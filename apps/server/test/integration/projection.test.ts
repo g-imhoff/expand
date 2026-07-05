@@ -5,8 +5,7 @@ import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@yodea/server/application/projections"
 import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
@@ -18,13 +17,12 @@ const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padSta
 // boot-catch-up runs against whatever is already persisted in the file.
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
-  const Store = EventStoreLayer.pipe(Layer.provide(Sql))
   const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
   const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
-  return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))
+  return Layer.mergeAll(Projection, ProjectEvents, States).pipe(Layer.provideMerge(Sql))
 }
-const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | EventStore | ProjectionStateStore | SqlClient>) =>
+const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | ProjectEventStore | ProjectionStateStore | SqlClient>) =>
   Effect.runPromise(Effect.provide(eff, layersFor(dbPath)))
 
 const withDb = async (body: (dbPath: string) => Promise<void>) => {
@@ -46,13 +44,13 @@ describe("ProjectProjection — boot catch-up", () => {
 
   it("rebuilds from zero when there is a log but no snapshot yet", async () => {
     await withDb(async (db) => {
-      // Seed events with a Store-only build (no projection → no snapshot written).
+      // Seed events with an events-only build (no projection → no snapshot written).
       await Effect.runPromise(
         Effect.provide(
-          Effect.flatMap(EventStore, (store) =>
-            store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+          Effect.flatMap(ProjectEventStore, (events) =>
+            events.append(ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
           ),
-          EventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
+          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
         )
       )
       // Now build the projection: boot finds no snapshot, folds from zero.
@@ -65,16 +63,16 @@ describe("ProjectProjection — boot catch-up", () => {
   it("folds only the tail after a stale snapshot, and advances it", async () => {
     await withDb(async (db) => {
       // First boot over one event → writes snapshot at seq 1.
-      await on(db, Effect.flatMap(EventStore, (store) =>
-        store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+      await on(db, Effect.flatMap(ProjectEventStore, (events) =>
+        events.append(ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
       ).pipe(Effect.flatMap(() => Effect.flatMap(ProjectProjection, (p) => p.snapshot))))
       // Append more events directly (snapshot now stale at seq 1).
       await Effect.runPromise(
         Effect.provide(
-          Effect.flatMap(EventStore, (store) =>
-            store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
+          Effect.flatMap(ProjectEventStore, (events) =>
+            events.append(ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
           ),
-          EventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
+          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
         )
       )
       // Re-boot: loads snapshot@1, folds tail [seq2], reflects both, advances snapshot.
@@ -90,9 +88,9 @@ describe("ProjectProjection — boot catch-up", () => {
     await withDb(async (db) => {
       // Seed a real event, then save a bogus snapshot with a wrong foldVersion + wrong state.
       await on(db, Effect.gen(function* () {
-        const store = yield* EventStore
+        const events = yield* ProjectEventStore
         const snapshots = yield* ProjectionStateStore
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
+        yield* events.append(ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
         yield* snapshots.save(PROJECTION_NAME, { state: "[]", lastSeq: 0, foldVersion: "OLD" })
       }))
       // Re-boot: foldVersion "OLD" != current → ignore snapshot, fold from zero.
@@ -105,9 +103,9 @@ describe("ProjectProjection — boot catch-up", () => {
   it("ignores an undecodable persisted state and rebuilds from zero", async () => {
     await withDb(async (db) => {
       await on(db, Effect.gen(function* () {
-        const store = yield* EventStore
+        const events = yield* ProjectEventStore
         const snapshots = yield* ProjectionStateStore
-        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
+        yield* events.append(ProjectCreated.make({ projectId: uid(1), name: "real", occurredAt: "t1" }))
         yield* snapshots.save(PROJECTION_NAME, { state: "{ not json", lastSeq: 99, foldVersion: FOLD_VERSIONS.projects })
       }))
       const snap = await on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))

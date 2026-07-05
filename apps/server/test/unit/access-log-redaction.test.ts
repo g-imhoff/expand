@@ -7,7 +7,6 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { httpServerLayer } from "@yodea/server/http"
-import { EventStoreLayer } from "@yodea/server/db/event-store"
 import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { EventBusLayer } from "@yodea/server/application/event-bus"
 import { ProjectProjectionLayer } from "@yodea/server/application/projections"
@@ -20,20 +19,18 @@ import { ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const store = EventStoreLayer.pipe(Layer.provide(sql))
   const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
   const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),
-    Layer.provide(store),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
     Layer.provide(BunFileSystem.layer),
     Layer.provide(BunServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, store, replay)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
 
 const probeWs = (url: string): Promise<"open" | "closed"> =>

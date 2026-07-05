@@ -11,8 +11,8 @@ import type { DomainEvent } from "@yodea/contracts/events/domain"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
 } from "@yodea/contracts/events/project"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
+import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
 import { projectsFromEvents } from "@yodea/server/domain/project"
@@ -33,11 +33,10 @@ const script: ReadonlyArray<DomainEvent> = [
 
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
-  const Store = EventStoreLayer.pipe(Layer.provide(Sql))
   const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
   const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
-  return Layer.mergeAll(Projection, Store, States).pipe(Layer.provideMerge(Sql))
+  return Layer.mergeAll(Projection, States).pipe(Layer.provideMerge(Sql))
 }
 
 describe("snapshot+tail equivalence", () => {
@@ -49,25 +48,25 @@ describe("snapshot+tail equivalence", () => {
 
       for (let k = 0; k <= script.length; k++) {
         const fresh = join(dir, `k${k}.db`)
-        // Seed the whole script via a Store-only build (no snapshot written).
+        // Seed the whole script via an events-only build (no snapshot written).
         await Effect.runPromise(Effect.provide(
-          Effect.flatMap(EventStore, (store) =>
-            Effect.forEach(script, (e) => store.append((e as { projectId: string }).projectId, e), { discard: true })
+          Effect.flatMap(ProjectEventStore, (events) =>
+            Effect.forEach(script, (e) => events.append(e), { discard: true })
           ),
-          EventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: fresh })))
+          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: fresh })))
         ))
         // Force a snapshot exactly at seq k (k===0 means "no snapshot": skip the save).
         if (k > 0) {
           await Effect.runPromise(Effect.provide(
             Effect.gen(function* () {
-              const store = yield* EventStore
+              const feed = yield* ReplayFeed
               const snapshots = yield* ProjectionStateStore
-              const rows = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
+              const rows = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
               const prefix = rows.slice(0, k).map((r) => r.event)
               const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(projectsFromEvents(prefix)).pipe(Effect.orDie)
               yield* snapshots.save(PROJECTION_NAME, { state, lastSeq: k, foldVersion: FOLD_VERSIONS.projects })
             }),
-            Layer.mergeAll(EventStoreLayer, ProjectionStateStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
+            Layer.mergeAll(ReplayFeedLayer, ProjectionStateStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
           ))
         }
         // Boot the projection: it loads snapshot@k and folds the tail.
