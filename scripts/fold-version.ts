@@ -15,8 +15,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 // unsoundness — backed by the snapshot-equivalence oracle.
 const PROJECTIONS: Readonly<Record<string, ReadonlyArray<{ readonly file: string; readonly name: string }>>> = {
   projects: [
-    { file: "packages/contracts/project.ts", name: "Project" },          // class: fromCreated/applyEvent/foldList + read-model shape
-    { file: "apps/server/domain/project.ts", name: "projectsFromEvents" } // the boot-rebuild copy of the fold
+    { file: "packages/contracts/project.ts", name: "Project" },           // class: fromCreated/applyEvent/foldList + read-model shape
+    { file: "apps/server/domain/project.ts", name: "foldProjectsInto" },   // the incremental step
+    { file: "apps/server/domain/project.ts", name: "projectsFromEvents" }  // the array wrapper
   ]
 }
 
