@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ProjectEventStoreLayer } from "@yodea/server/db/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
+import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@yodea/server/application/projections"
 import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
 
@@ -131,6 +131,38 @@ describe("ProjectProjection — boot catch-up", () => {
       expect(out.stale).toBe(false) // seq 2 not ahead of current 2 → no-op
       expect(out.snap.seq).toBe(2)
       expect(out.snap.projects[0]?.name).toBe("y")
+    })
+  })
+})
+
+describe("ProjectProjection — checkpoint cadence", () => {
+  it("a debounced checkpoint advances projection_state without a reboot", async () => {
+    await withDb(async (db) => {
+      const persisted = await on(db, Effect.gen(function* () {
+        const p = yield* ProjectProjection
+        const snapshots = yield* ProjectionStateStore
+        yield* p.apply({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "x", occurredAt: "t1" }) })
+        // Wait out the debounce window inside the SAME layer build (the fiber
+        // lives in the projection's scope, which `on` closes when it returns).
+        yield* Effect.sleep(CHECKPOINT_DEBOUNCE_MS + 300)
+        return yield* snapshots.load(PROJECTION_NAME)
+      }))
+      expect(persisted?.lastSeq).toBe(1)
+    })
+  })
+
+  it("a final checkpoint is written on scope close (I-4 shutdown), even inside the debounce window", async () => {
+    await withDb(async (db) => {
+      // apply then IMMEDIATELY close the scope — the debounce fiber never fires;
+      // only the shutdown finalizer can have persisted seq 1.
+      await on(db, Effect.flatMap(ProjectProjection, (p) =>
+        p.apply({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "x", occurredAt: "t1" }) })
+      ))
+      const persisted = await Effect.runPromise(Effect.provide(
+        Effect.flatMap(ProjectionStateStore, (s) => s.load(PROJECTION_NAME)),
+        ProjectionStateStoreLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: db })))
+      ))
+      expect(persisted?.lastSeq).toBe(1)
     })
   })
 })

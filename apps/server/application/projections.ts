@@ -8,6 +8,8 @@ import { foldProjectsInto } from "@yodea/server/domain/project"
 
 export const PROJECTION_NAME = "projects"
 
+export const CHECKPOINT_DEBOUNCE_MS = 500
+
 const ProjectsFromJson = Schema.fromJsonString(Schema.Array(Project))
 
 export class ProjectProjection extends Context.Service<ProjectProjection, {
@@ -92,6 +94,24 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
     yield* saveCheckpoint(initial)
 
     const ref = yield* SubscriptionRef.make<State>(initial)
+
+    // ---- checkpoint cadence (spec §3.5, D6) ----
+    // Finalizer FIRST, fiber SECOND: scoped finalizers run in reverse, so
+    // teardown interrupts the debounce fiber before the final write — no race
+    // between an in-flight debounced UPSERT and the closing SQLite pool.
+    yield* Effect.addFinalizer(() =>
+      SubscriptionRef.get(ref).pipe(Effect.flatMap(saveCheckpoint))
+    )
+    // The fiber only ever READS consistent {projects, seq} pairs (C2) and
+    // persists them; the commit path is untouched. A checkpoint may lag the
+    // newest commit — harmless: it is valid at the seq it was taken, boot
+    // replays the tail. Debounce starvation under sustained sub-500ms writes is
+    // theoretical at human pace; the shutdown finalizer bounds it regardless.
+    yield* SubscriptionRef.changes(ref).pipe(
+      Stream.debounce(Duration.millis(CHECKPOINT_DEBOUNCE_MS)),
+      Stream.runForEach(saveCheckpoint),
+      Effect.forkScoped
+    )
 
     const apply = (sequenced: SequencedEvent) =>
       SubscriptionRef.modify(ref, (s) =>
