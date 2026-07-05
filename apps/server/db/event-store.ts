@@ -3,19 +3,26 @@ import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
 
+export const EventScanChunkSize = Context.Reference<number>("yodea/EventScanChunkSize", {
+  defaultValue: () => 1000
+})
+
 export interface ScanOptions {
   readonly afterSeq?: number
   readonly eventTypes?: ReadonlyArray<string>
-  /** Test seam: shrink to exercise chunk seams cheaply. Production callers omit it. */
-  readonly chunkSize?: number
 }
 
-export class EventStore extends Context.Service<EventStore, {
+export interface EventStorePrimitives {
   readonly append: (streamId: string, event: DomainEvent) => Effect.Effect<number, SqlError>
   readonly scan: (options?: ScanOptions) => Stream.Stream<SequencedEvent, SqlError>
-}>()("yodea/EventStore", {
-  make: Effect.gen(function* () {
+}
+
+export const specializeEventStore = <S>(
+  build: (store: EventStorePrimitives) => S
+): Effect.Effect<S, SqlError, SqlClient> =>
+  Effect.gen(function* () {
     const sql = yield* SqlClient
+    const chunkSize = yield* EventScanChunkSize
 
     yield* sql`
       CREATE TABLE IF NOT EXISTS events (
@@ -39,8 +46,6 @@ export class EventStore extends Context.Service<EventStore, {
         return rows[0]!.seq
       })
 
-    // Fail-fast decode (design D10): an undecodable row is a defect carrying full
-    // row context. Recovery is a code fix (restore decodability), never data surgery.
     const decodeRowStrict = (row: EventRow): Effect.Effect<SequencedEvent> =>
       Schema.decodeUnknownEffect(DomainEventFromJson)(row.payload).pipe(
         Effect.mapError((e) =>
@@ -62,11 +67,7 @@ export class EventStore extends Context.Service<EventStore, {
             ORDER BY seq ASC LIMIT ${limit}
           `
 
-    // Keyset pagination: each chunk is one short SQL read (WAL-friendly — no
-    // long-lived read transaction pinning the WAL end-mark). The recursion builds
-    // lazy stream descriptions; SQL runs only as the consumer pulls.
     const scan = (options?: ScanOptions): Stream.Stream<SequencedEvent, SqlError> => {
-      const chunkSize = options?.chunkSize ?? EVENT_SCAN_CHUNK_SIZE
       const eventTypes = options?.eventTypes
       const go = (afterSeq: number): Stream.Stream<SequencedEvent, SqlError> =>
         Stream.unwrap(
@@ -80,13 +81,14 @@ export class EventStore extends Context.Service<EventStore, {
       return go(options?.afterSeq ?? 0)
     }
 
-    return { append, scan } as const
+    return build({ append, scan })
   })
+
+export class EventStore extends Context.Service<EventStore, EventStorePrimitives>()("yodea/EventStore", {
+  make: specializeEventStore((store) => store)
 }) {}
 
 export const EventStoreLayer = Layer.effect(EventStore, EventStore.make)
-
-const EVENT_SCAN_CHUNK_SIZE = 1000
 
 interface EventRow {
   readonly seq: number

@@ -2,25 +2,30 @@ import { describe, expect, it } from "vitest"
 import { Cause, Effect, Layer, Pull, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
+import { EventStore, EventStoreLayer, EventScanChunkSize } from "@yodea/server/db/event-store"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestStore = EventStoreLayer.pipe(Layer.provide(TestSql))
 
-const run = <A, E>(eff: Effect.Effect<A, E, EventStore>) =>
-  Effect.runPromise(Effect.provide(eff, TestStore))
+// Chunk granularity is a build-time Reference now — override it when building the layer.
+const storeWith = (chunkSize?: number) => {
+  const base = EventStoreLayer.pipe(Layer.provideMerge(TestSql))
+  return chunkSize === undefined ? base : base.pipe(Layer.provide(Layer.succeed(EventScanChunkSize, chunkSize)))
+}
 
-const TestStoreWithSql = EventStoreLayer.pipe(Layer.provideMerge(TestSql))
+const runWith = <A, E>(chunkSize: number | undefined, eff: Effect.Effect<A, E, EventStore | SqlClient>) =>
+  Effect.runPromise(Effect.provide(eff, storeWith(chunkSize)))
 
-const runResult = <A, E>(eff: Effect.Effect<A, E, EventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(Effect.result(eff), TestStoreWithSql))
+const run = <A, E>(eff: Effect.Effect<A, E, EventStore | SqlClient>) => runWith(undefined, eff)
+
+const runResultWith = <A, E>(chunkSize: number | undefined, eff: Effect.Effect<A, E, EventStore | SqlClient>) =>
+  Effect.runPromise(Effect.provide(Effect.result(eff), storeWith(chunkSize)))
 
 const runExit = <A, E>(eff: Effect.Effect<A, E, EventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(Effect.exit(eff), TestStoreWithSql))
+  Effect.runPromise(Effect.provide(Effect.exit(eff), storeWith(undefined)))
 
 describe("EventStore", () => {
   it("append returns the monotonically increasing seq", async () => {
@@ -78,14 +83,14 @@ describe("EventStore.scan", () => {
   })
 
   it("streams all events in seq order across chunk seams (no gap, no duplicate)", async () => {
-    const out = await run(
+    const out = await runWith(2,
       Effect.gen(function* () {
         const store = yield* EventStore
         for (let n = 1; n <= 5; n++) {
           yield* store.append(uid(n), ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` }))
         }
         // chunkSize 2 forces chunks [1,2][3,4][5] — the seams are the point.
-        return yield* collect(store.scan({ chunkSize: 2 }))
+        return yield* collect(store.scan())
       })
     )
     expect(out.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5])
@@ -98,11 +103,11 @@ describe("EventStore.scan", () => {
     // triggers exactly ONE keyset SQL fetch (observed granularity with chunkSize 2:
     // one chunk per pull). So we can interleave an append strictly BETWEEN chunk
     // fetches and prove the new event lands in a later chunk, not lost, not doubled.
-    const chunks = await run(
+    const chunks = await runWith(2,
       Effect.scoped(Effect.gen(function* () {
         const store = yield* EventStore
         for (let n = 1; n <= 4; n++) yield* store.append(uid(n), ev(n))
-        const pull = yield* Stream.toPull(store.scan({ afterSeq: 0, chunkSize: 2 }))
+        const pull = yield* Stream.toPull(store.scan({ afterSeq: 0 }))
         const got: Array<Array<number>> = []
         const pullChunk = pull.pipe(
           Effect.map((chunk) => {
@@ -126,15 +131,15 @@ describe("EventStore.scan", () => {
   })
 
   it("afterSeq is strictly exclusive", async () => {
-    const out = await run(
+    const out = await runWith(2,
       Effect.gen(function* () {
         const store = yield* EventStore
         yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
         yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
         yield* store.append(uid(3), ProjectCreated.make({ projectId: uid(3), name: "c", occurredAt: "t3" }))
         return {
-          fromZero: yield* collect(store.scan({ afterSeq: 0, chunkSize: 2 })),
-          fromOne: yield* collect(store.scan({ afterSeq: 1, chunkSize: 2 })),
+          fromZero: yield* collect(store.scan({ afterSeq: 0 })),
+          fromOne: yield* collect(store.scan({ afterSeq: 1 })),
           fromLast: yield* collect(store.scan({ afterSeq: 3 }))
         }
       })
@@ -145,7 +150,7 @@ describe("EventStore.scan", () => {
   })
 
   it("eventTypes filters at the SQL level (foreign rows never reach the decoder)", async () => {
-    const out = await runResult(
+    const out = await runResultWith(1,
       Effect.gen(function* () {
         const store = yield* EventStore
         const sql = yield* SqlClient
@@ -154,7 +159,7 @@ describe("EventStore.scan", () => {
         // filter it must be excluded in SQL, so no decode (and no defect) happens.
         yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(9), event_type: "SomethingElse", payload: "{\"_tag\":\"SomethingElse\"}" })}`
         yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
-        return yield* collect(store.scan({ eventTypes: ["ProjectCreated"], chunkSize: 1 }))
+        return yield* collect(store.scan({ eventTypes: ["ProjectCreated"] }))
       })
     )
     expect(out._tag).toBe("Success")
