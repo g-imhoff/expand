@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { Cause, Effect, Layer, Stream } from "effect"
+import { Cause, Effect, Layer, Pull, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
 import { ProjectCreated } from "@yodea/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
+const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestStore = EventStoreLayer.pipe(Layer.provide(TestSql))
@@ -89,6 +90,39 @@ describe("EventStore.scan", () => {
     )
     expect(out.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5])
     expect(out.map((r) => r.event.projectId)).toEqual([uid(1), uid(2), uid(3), uid(4), uid(5)])
+  })
+
+  it("an append landing between chunk fetches surfaces in a later chunk (no gap, no duplicate)", async () => {
+    // Deterministic proof of the concurrent-append property of the streamed replay
+    // seam. beta.74 exposes `Stream.toPull`, a pull-control primitive: each pull
+    // triggers exactly ONE keyset SQL fetch (observed granularity with chunkSize 2:
+    // one chunk per pull). So we can interleave an append strictly BETWEEN chunk
+    // fetches and prove the new event lands in a later chunk, not lost, not doubled.
+    const chunks = await run(
+      Effect.scoped(Effect.gen(function* () {
+        const store = yield* EventStore
+        for (let n = 1; n <= 4; n++) yield* store.append(uid(n), ev(n))
+        const pull = yield* Stream.toPull(store.scan({ afterSeq: 0, chunkSize: 2 }))
+        const got: Array<Array<number>> = []
+        const pullChunk = pull.pipe(
+          Effect.map((chunk) => {
+            got.push(chunk.map((se) => se.seq))
+            return true
+          }),
+          Pull.catchDone(() => Effect.succeed(false)),
+          Effect.orDie
+        )
+        yield* pullChunk // first fetch → [1, 2]
+        yield* store.append(uid(5), ev(5)) // appended AFTER the [1,2] fetch, BEFORE the after-4 fetch
+        let more = true
+        while (more) more = yield* pullChunk // → [3, 4], then [5] (the new event), then Done
+        return got
+      }))
+    )
+    // Property: an append during a keyset scan appears in a later chunk exactly
+    // once — the new event surfaces in its own later chunk, seq order intact end to end.
+    expect(chunks).toEqual([[1, 2], [3, 4], [5]])
+    expect(chunks.flat()).toEqual([1, 2, 3, 4, 5])
   })
 
   it("afterSeq is strictly exclusive", async () => {
