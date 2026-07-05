@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, PubSub } from "effect"
+import { Effect, Layer, PubSub, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
@@ -38,7 +38,7 @@ describe("ProjectUseCases.createProject", () => {
       const { project } = yield* useCases.createProject("hello", false)
 
       const broadcast = yield* PubSub.take(sub)
-      const persisted = yield* store.readAll
+      const persisted = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
       const listed = yield* useCases.listProjects()
 
       return { project, broadcast, persisted, listed }
@@ -275,7 +275,7 @@ describe("ProjectUseCases.setMetadata", () => {
       const sub = yield* bus.subscribe
       const updated = yield* useCases.setMetadata(project.id, { description: "hi", tags: ["a", "a", "b"] })
       const broadcast = yield* PubSub.take(sub)
-      const persisted = yield* store.readAll
+      const persisted = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
       return { project, updated, broadcast, persisted }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
 

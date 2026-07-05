@@ -1,4 +1,4 @@
-import { Context, Effect, Exit, Layer, Schema, Stream } from "effect"
+import { Context, Effect, Layer, Schema, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
@@ -12,8 +12,6 @@ export interface ScanOptions {
 
 export class EventStore extends Context.Service<EventStore, {
   readonly append: (streamId: string, event: DomainEvent) => Effect.Effect<number, SqlError>
-  readonly readAll: Effect.Effect<ReadonlyArray<SequencedEvent>, SqlError>
-  readonly readFrom: (fromSeq: number) => Effect.Effect<ReadonlyArray<SequencedEvent>, SqlError>
   readonly scan: (options?: ScanOptions) => Stream.Stream<SequencedEvent, SqlError>
 }>()("yodea/EventStore", {
   make: Effect.gen(function* () {
@@ -82,38 +80,7 @@ export class EventStore extends Context.Service<EventStore, {
       return go(options?.afterSeq ?? 0)
     }
 
-    const decodeRows = (
-      rows: ReadonlyArray<{ readonly seq: number; readonly stream_id: string; readonly payload: string }>
-    ) =>
-      Effect.gen(function* () {
-        const out: Array<SequencedEvent> = []
-        for (const row of rows) {
-          const exit = Schema.decodeUnknownExit(DomainEventFromJson)(row.payload)
-          if (Exit.isSuccess(exit)) {
-            out.push({ seq: row.seq, event: exit.value })
-          } else {
-            yield* Effect.logWarning(`skipping undecodable event row seq=${row.seq} stream_id=${row.stream_id} cause=${exit.cause}`)
-          }
-        }
-        return out
-      })
-
-    const readAll = Effect.flatMap(
-      sql<{ readonly seq: number; readonly stream_id: string; readonly payload: string }>`
-        SELECT seq, stream_id, payload FROM events ORDER BY seq ASC
-      `,
-      decodeRows
-    )
-
-    const readFrom = (fromSeq: number) =>
-      Effect.flatMap(
-        sql<{ readonly seq: number; readonly stream_id: string; readonly payload: string }>`
-          SELECT seq, stream_id, payload FROM events WHERE seq > ${fromSeq} ORDER BY seq ASC
-        `,
-        decodeRows
-      )
-
-    return { append, readAll, readFrom, scan } as const
+    return { append, scan } as const
   })
 }) {}
 

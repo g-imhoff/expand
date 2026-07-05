@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Schema, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { mkdtempSync, rmSync } from "node:fs"
@@ -62,7 +62,7 @@ describe("snapshot+tail equivalence", () => {
             Effect.gen(function* () {
               const store = yield* EventStore
               const snapshots = yield* ProjectionStateStore
-              const rows = yield* store.readAll
+              const rows = yield* Stream.runCollect(store.scan()).pipe(Effect.map((c) => Array.from(c)))
               const prefix = rows.slice(0, k).map((r) => r.event)
               const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(projectsFromEvents(prefix)).pipe(Effect.orDie)
               yield* snapshots.save(PROJECTION_NAME, { state, lastSeq: k, foldVersion: FOLD_VERSIONS.projects })
