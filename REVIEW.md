@@ -113,18 +113,18 @@ DONE 1. `packages/contracts/events/project.ts` — refresh the event vocabulary 
 5. `application/event-bus.ts` — in-memory `PubSub` of `SequencedEvent` (the live half of the stream).
 6. `application/projects/use-cases.ts` — **the busiest, riskiest file.** Every mutation, the `Semaphore(1)` mutex, directory validation, and the uninterruptible `commit` (**append → `projection.apply` (advance the in-memory model) → publish**).
 7. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` state machine for I-4.
-8. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern; the `fromSeq` replay logic.
+8. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern. The `fromSeq` replay logic itself lives in `apps/server/rpc/stream.ts` (composed here via `...streamHandlers`).
 9. `http.ts` — WebSocket transport: `timingSafeEqual` token check, loopback bind, access log that strips the token.
 10. `composition/app.ts` → `main.ts` — lifecycle orchestration and the thin entrypoint.
 
 **Scrutinize hardest:**
 - **Concurrency:** the single `Semaphore(1)` is the *only* thing serializing read-validate-commit. Confirm every mutating use-case goes through it and uniqueness/"exactly-one-winner" guards can't be bypassed.
-- **`fromSeq` replay seam** (`rpc-handlers.ts`): subscribe → read backlog → filter live by `seq > lastReplayed`. Verify **no gap or duplicate** between backlog tail and first live event under concurrent appends. The backlog is now STREAMED (`scan`), so `lastReplayed` is a `Ref` initialized to `fromSeq` and advanced as the backlog flows; the live filter reads it only after `Stream.concat` switches over.
+- **`fromSeq` replay seam** (`apps/server/rpc/stream.ts`, composed into `rpc-handlers.ts`): subscribe → read backlog → filter live by `seq > lastReplayed`. Verify **no gap or duplicate** between backlog tail and first live event under concurrent appends. The backlog is now STREAMED (`scan`), so `lastReplayed` is a `Ref` initialized to `fromSeq` and advanced as the backlog flows; the live filter reads it only after `Stream.concat` switches over.
 - **`commit()`:** append (SQLite) + publish (PubSub) are two systems wrapped in `uninterruptible`. A failure between them desyncs bus from log — confirm "log is source of truth, bus is best-effort" is intended.
 - **Fail-fast decode:** `scan` dies on any undecodable row (defect names seq/stream_id/event_type). This deliberately REVERSES the earlier skip-with-warning trade-off (ADR 2026-07-05): silently-vanishing projects were judged worse than a refusing boot. Verify the defect carries enough context to act on, and that no caller re-introduces a silent skip.
 - **The read-model cache:** confirm the four guards that keep the persisted state equal to a replay — (1) checkpoints are written only by the projection's own scope (boot save, the debounce fiber reading consistent C2 pairs, and the shutdown finalizer — commit path writes NOTHING to projection_state), (2) each row is stamped at the state's own `seq`, (3) tail catch-up and from-zero rebuild both go through the same shared fold, and (4) a `FOLD_VERSIONS.projects` mismatch forces a from-zero rebuild. Also verify the finalizer-before-fiber registration order (teardown must interrupt the fiber BEFORE the final write).
 
-**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts` (now also asserts the snapshot advances across a restart), `test/integration/trust-boundary.test.ts`, `test/integration/snapshot-equivalence.test.ts` (the proof that state@k+tail == fold-from-zero), `test/integration/projection-state-store.test.ts`, `test/integration/project-event-store.test.ts`, the boot-matrix + checkpoint-cadence tests in `test/integration/projection.test.ts`, and `test/integration/events-handler.test.ts` (the streamed-backlog dedup gate).
+**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts` (snapshot advances across a restart; the checkpoint-write cadence itself is pinned by the checkpoint-cadence tests in `projection.test.ts`), `test/integration/trust-boundary.test.ts`, `test/integration/snapshot-equivalence.test.ts` (the proof that state@k+tail == fold-from-zero), `test/integration/projection-state-store.test.ts`, `test/integration/project-event-store.test.ts`, the boot-matrix + checkpoint-cadence tests in `test/integration/projection.test.ts`, and `test/integration/events-handler.test.ts` (the streamed-backlog dedup gate).
 
 ---
 
@@ -298,7 +298,7 @@ If you can't do the full pass, review the **load-bearing correctness cores** in 
 
 1. **Stage 0** — the four invariants (20 min). Non-negotiable context.
 2. **`contracts/project.ts`** — the single shared fold (20 min). If this is wrong, everything diverges.
-3. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (45 min). The write path and stream correctness.
+3. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (the replay handler body is `apps/server/rpc/stream.ts`) (45 min). The write path and stream correctness.
 4. **`client-core/project-store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
 5. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
 6. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
