@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Cause, Effect, Layer } from "effect"
+import { Cause, Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { EventStore, EventStoreLayer } from "@yodea/server/db/event-store"
@@ -104,6 +104,87 @@ describe("EventStore — error paths", () => {
     expect(exit._tag).toBe("Failure")
     if (exit._tag === "Failure") {
       expect(String(Cause.squash(exit.cause))).toMatch(/SqlError|no such table/i)
+    }
+  })
+})
+
+const collect = <A, E>(s: Stream.Stream<A, E>) =>
+  Stream.runCollect(s).pipe(Effect.map((c) => Array.from(c)))
+
+describe("EventStore.scan", () => {
+  it("streams an empty log as an empty stream", async () => {
+    const out = await run(Effect.flatMap(EventStore, (s) => collect(s.scan())))
+    expect(out).toEqual([])
+  })
+
+  it("streams all events in seq order across chunk seams (no gap, no duplicate)", async () => {
+    const out = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        for (let n = 1; n <= 5; n++) {
+          yield* store.append(uid(n), ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` }))
+        }
+        // chunkSize 2 forces chunks [1,2][3,4][5] — the seams are the point.
+        return yield* collect(store.scan({ chunkSize: 2 }))
+      })
+    )
+    expect(out.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5])
+    expect(out.map((r) => r.event.projectId)).toEqual([uid(1), uid(2), uid(3), uid(4), uid(5)])
+  })
+
+  it("afterSeq is strictly exclusive", async () => {
+    const out = await run(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
+        yield* store.append(uid(3), ProjectCreated.make({ projectId: uid(3), name: "c", occurredAt: "t3" }))
+        return {
+          fromZero: yield* collect(store.scan({ afterSeq: 0, chunkSize: 2 })),
+          fromOne: yield* collect(store.scan({ afterSeq: 1, chunkSize: 2 })),
+          fromLast: yield* collect(store.scan({ afterSeq: 3 }))
+        }
+      })
+    )
+    expect(out.fromZero.map((r) => r.seq)).toEqual([1, 2, 3])
+    expect(out.fromOne.map((r) => r.seq)).toEqual([2, 3])
+    expect(out.fromLast).toEqual([])
+  })
+
+  it("eventTypes filters at the SQL level (foreign rows never reach the decoder)", async () => {
+    const out = await runResult(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        const sql = yield* SqlClient
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+        // A foreign family's row with a payload our union can NOT decode: with the
+        // filter it must be excluded in SQL, so no decode (and no defect) happens.
+        yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(9), event_type: "SomethingElse", payload: "{\"_tag\":\"SomethingElse\"}" })}`
+        yield* store.append(uid(2), ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
+        return yield* collect(store.scan({ eventTypes: ["ProjectCreated"], chunkSize: 1 }))
+      })
+    )
+    expect(out._tag).toBe("Success")
+    if (out._tag === "Success") expect(out.success.map((r) => r.seq)).toEqual([1, 3])
+  })
+
+  it("dies (defect) on an undecodable row, naming seq, stream_id and event_type", async () => {
+    const exit = await runExit(
+      Effect.gen(function* () {
+        const store = yield* EventStore
+        const sql = yield* SqlClient
+        yield* store.append(uid(1), ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
+        yield* sql`INSERT INTO events ${sql.insert({ stream_id: uid(2), event_type: "ProjectCreated", payload: "{ not json" })}`
+        return yield* collect(store.scan())
+      })
+    )
+    expect(exit._tag).toBe("Failure")
+    if (exit._tag === "Failure") {
+      const msg = String(Cause.squash(exit.cause))
+      expect(msg).toMatch(/undecodable event row/)
+      expect(msg).toContain("seq=2")
+      expect(msg).toContain(`stream_id=${uid(2)}`)
+      expect(msg).toContain("event_type=ProjectCreated")
     }
   })
 })
