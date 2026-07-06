@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "yodea-architecture",
+      "name": "expand-architecture",
       "devDependencies": {
         "likec4": "^1.56.0",
       },

@@ -14,7 +14,7 @@ explicit architecture decision, not a code-review judgment call.
 **Rule.** Source files under `backend/cli/**` must never import from any
 server-only module. The CLI is a thin RPC client over WebSocket and the
 only legitimate way for it to interact with backend state is to send a
-command to the running `yodea` backend.
+command to the running `expand` backend.
 
 **Forbidden import sources** from `backend/cli/**`:
 
@@ -34,7 +34,7 @@ command to the running `yodea` backend.
 - External npm packages.
 
 **Permitted exception.** `backend/cli/commands/server.ts` is the
-`yodea server` subcommand wrapper. It is the *only* CLI file allowed to
+`expand server` subcommand wrapper. It is the *only* CLI file allowed to
 import from `backend/composition/**`, and only to start the backend. Keep
 this file as small as possible — ideally a single named import and a
 function call.
@@ -42,7 +42,7 @@ function call.
 **Why this matters.** The CLI binary and the backend live in the same
 artifact, so the import graph is the only thing physically preventing the
 CLI from instantiating a backend in-process. If a `backend/cli/**` file
-imports a server module, every `yodea <command>` invocation builds its own
+imports a server module, every `expand <command>` invocation builds its own
 Effect AppLayer with its own event bus, its own SQLite handle, and its own
 spawned ACP subprocesses — completely disconnected from any backend that
 is already running. The consequences:
@@ -70,7 +70,7 @@ the system's guarantees.
 ## I-2. One AppLayer per machine
 
 **Rule.** At most one process per user environment may host the Effect
-`AppLayer`. That process is started by `yodea server` and is the only
+`AppLayer`. That process is started by `expand server` and is the only
 container that owns the domain event bus, the SQLite event log, the ACP subprocess
 pool, and the typed service implementations. Every other process (desktop
 renderer, CLI client, future web client) is a frontend that connects to
@@ -117,7 +117,7 @@ There is no grace period and no idle timeout. Zero means dead.
 **Lifecycle.**
 
 1. A frontend (Desktop or CLI) finds no running server via the endpoint
-   file and spawns `yodea server`.
+   file and spawns `expand server`.
 2. The server starts, writes the endpoint file, and waits for its first
    connection.
 3. The spawning frontend connects. Connection count goes from 0 to 1.
@@ -143,12 +143,12 @@ t=N   Desktop quits                 connections: 1 → 0 → shutdown
 **Why no grace period.** A grace period adds a timer, a configurable
 knob, and a class of "server lingered when it shouldn't have" bugs.
 The simpler model is: if nobody is connected, nobody needs the server.
-For rapid CLI command sequences (e.g., an agent issuing several `yodea`
+For rapid CLI command sequences (e.g., an agent issuing several `expand`
 calls), the calling process should keep its WebSocket connection open
 for the duration of its work, not reconnect per command.
 
 **Why lifetime is not tied to the spawner.** The process that ran
-`yodea server` (typically the first frontend) may exit while other
+`expand server` (typically the first frontend) may exit while other
 frontends are still connected. The server does not care who spawned it —
 only how many connections are active. This prevents the "Desktop
 launched the server, CLI outlives it" class of bugs.
