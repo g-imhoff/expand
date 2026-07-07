@@ -79,4 +79,26 @@ for (const e of takeEvents(2_000)) {
 // scales are what the spec says
 assert.deepEqual(SCALES, { smoke: 1_000, "100k": 100_000, "1m": 1_000_000, "10m": 10_000_000 })
 
+// --- report ---
+import { eventsPerSec, hasBlocker, renderReport, toJsonReport } from "./report"
+import type { Measurement } from "./report"
+
+const ok: Measurement = { key: "s4-scan-drain", label: "S4 scan drain", scale: "100k", wallMs: 500, events: 100_000, rssDeltaBytes: 10 * 1024 * 1024 }
+const slow: Measurement = { key: "s2-warm-boot-t0", label: "S2 warm boot (tail 0)", scale: "1m", wallMs: 400, events: 0, rssDeltaBytes: 0 }
+const dead: Measurement = { key: "s5-rpc-replay", label: "S5 RPC replay", scale: "1m", wallMs: 0, events: null, rssDeltaBytes: 0, error: "boom" }
+
+assert.equal(eventsPerSec(ok), 200_000)
+assert.equal(eventsPerSec(dead), null)
+assert.equal(hasBlocker([ok]), false, "PASS-only run has no blocker")
+assert.equal(hasBlocker([ok, slow]), true, "FAIL blocks")
+assert.equal(hasBlocker([ok, dead]), true, "ERROR blocks")
+
+const rendered = renderReport([ok, slow, dead], 1000)
+assert.ok(rendered.includes("PASS") && rendered.includes("FAIL") && rendered.includes("ERROR"), "verdict column rendered")
+assert.ok(rendered.includes("pipeline boundedness"), "S3/S5 in-process caveat is printed with the report")
+
+const parsed = JSON.parse(toJsonReport([ok]))
+assert.equal(parsed.measurements[0].verdict, "PASS")
+assert.ok(typeof parsed.machine.bunVersion === "string")
+
 console.log("selfcheck OK")
