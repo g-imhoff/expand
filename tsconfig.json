@@ -27,7 +27,7 @@
       "@yodea/*": ["apps/cli/*"]
     }
   },
-  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture"],
+  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture", "bench"],
   "exclude": [
     "apps/desktop"
   ]
