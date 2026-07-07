@@ -28,15 +28,24 @@ export const verdictFor = (
   wallMs: number,
   events: number | null,
   rssDeltaBytes: number,
-  error?: string
+  error?: string,
+  scale?: string
 ): Verdict => {
   if (error !== undefined) return "ERROR"
   const budget = BUDGETS[key] ?? {}
   const ratios: Array<number> = [rssDeltaBytes / RSS_BUDGET_BYTES]
-  if (budget.maxMs !== undefined) ratios.push(wallMs / budget.maxMs)
-  if (budget.minEventsPerSec !== undefined && events !== null && events > 0 && wallMs > 0) {
-    const eps = events / (wallMs / 1000)
-    ratios.push(budget.minEventsPerSec / eps)
+  // Smoke policy: the spec defines --smoke as "verifying the harness itself in
+  // seconds" — a harness-sanity scale, not a measurement scale. Throughput
+  // floors are mathematically unmeetable over 1k events (fixed costs dominate),
+  // so judging smoke on perf budgets would contradict the scale's purpose.
+  // Smoke is judged on RSS boundedness and errors only; ms/throughput budgets
+  // apply unchanged at 100k/1m/10m.
+  if (scale !== "smoke") {
+    if (budget.maxMs !== undefined) ratios.push(wallMs / budget.maxMs)
+    if (budget.minEventsPerSec !== undefined && events !== null && events > 0 && wallMs > 0) {
+      const eps = events / (wallMs / 1000)
+      ratios.push(budget.minEventsPerSec / eps)
+    }
   }
   const worst = Math.max(...ratios)
   if (worst <= 1) return "PASS"

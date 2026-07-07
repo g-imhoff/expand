@@ -24,7 +24,7 @@ export interface ScenarioContext {
 export const eventsPerSec = (m: Measurement): number | null =>
   m.events !== null && m.events > 0 && m.wallMs > 0 ? Math.round(m.events / (m.wallMs / 1000)) : null
 
-export const verdictOf = (m: Measurement): Verdict => verdictFor(m.key, m.wallMs, m.events, m.rssDeltaBytes, m.error)
+export const verdictOf = (m: Measurement): Verdict => verdictFor(m.key, m.wallMs, m.events, m.rssDeltaBytes, m.error, m.scale)
 
 export const hasBlocker = (measurements: ReadonlyArray<Measurement>): boolean =>
   measurements.some((m) => {

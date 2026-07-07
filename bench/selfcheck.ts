@@ -17,6 +17,16 @@ assert.equal(verdictFor("s3-e2e-cold", 1, null, RSS_BUDGET_BYTES * 3), "FAIL", "
 assert.equal(verdictFor("s3-e2e-cold", 999_999, null, 0), "PASS", "no ms/throughput budget → RSS alone decides")
 assert.equal(verdictFor("s1-cold-boot", 1, 1, 0, "boom"), "ERROR", "error always wins")
 assert.ok(Object.keys(BUDGETS).length === 8, "all eight scenario keys budgeted")
+// smoke policy: --smoke verifies the harness, not performance — fixed costs
+// dominate at 1k events, so ms/throughput budgets are skipped at scale "smoke".
+// RSS boundedness and errors still judge; real scales are unaffected.
+// 10s for 1k events = 100 events/s — 500× under the s1 floor:
+assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, 0, undefined, "smoke"), "PASS", "smoke: grossly under throughput floor, bounded RSS → PASS")
+assert.equal(verdictFor("s2-warm-boot-t0", 400, 0, 0, undefined, "smoke"), "PASS", "smoke: >2× over ms budget, bounded RSS → PASS")
+assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, RSS_BUDGET_BYTES + 1, undefined, "smoke"), "WATCH", "smoke: RSS just over budget still WATCHes")
+assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, RSS_BUDGET_BYTES * 3, undefined, "smoke"), "FAIL", "smoke: RSS >2× budget still FAILs")
+assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, 0, "boom", "smoke"), "ERROR", "smoke: error still wins")
+assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, 0, undefined, "100k"), "FAIL", "real scale: the same measurement still FAILs — smoke policy does not leak")
 
 // --- generator ---
 import { Effect, Exit, Schema } from "effect"
