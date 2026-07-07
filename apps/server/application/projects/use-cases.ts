@@ -10,54 +10,38 @@ import { ProjectProjection } from "@yodea/server/application/projections"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
 import { newId } from "@yodea/server/lib/ids"
 
-const DIRECTORY_MAX_LENGTH = 4096
-
-// This is the system's single ingestion boundary: raw client input is validated
-// HERE — by constructing a Project from it (Schema.decodeUnknown) before any
-// event is written. A construction failure becomes a typed ProjectInvalidInput
-// that travels back over RPC. `fieldOf` walks the SchemaError's issue tree to
-// recover which field failed (e.g. "name", "tags", "description").
-const fieldOf = (e: Schema.SchemaError): string => {
-  const visit = (issue: unknown): string | undefined => {
-    if (issue === null || typeof issue !== "object") return undefined
-    const i = issue as {
-      readonly _tag?: string
-      readonly path?: ReadonlyArray<PropertyKey>
-      readonly issue?: unknown
-      readonly issues?: ReadonlyArray<unknown>
-    }
-    if (i._tag === "Pointer" && i.path !== undefined && i.path.length > 0) return String(i.path[0])
-    if (i.issue !== undefined) {
-      const found = visit(i.issue)
-      if (found !== undefined) return found
-    }
-    if (i.issues !== undefined) {
-      for (const child of i.issues) {
-        const found = visit(child)
-        if (found !== undefined) return found
-      }
-    }
-    return undefined
-  }
-  return visit(e.issue) ?? "input"
-}
-const toInvalidInput = (e: Schema.SchemaError) => new ProjectInvalidInput({ field: fieldOf(e), reason: e.message })
-
+/**
+ * Every project mutation — the only code that appends project events.
+ *
+ * @remarks
+ * One mutex serializes each read-check-commit; one uninterruptible pipeline
+ * commits (append → apply → publish, apply first so event reactions see the
+ * updated read model); input is validated by decoding the next `Project`
+ * through the contracts schema — failures become `ProjectInvalidInput`.
+ */
 export class ProjectUseCases extends Context.Service<ProjectUseCases, {
+  /** Creates a uniquely named project; `ensure: true` returns an existing one (`created: false`) instead of failing, emitting no event. */
   readonly createProject: (
     name: string,
     ensure: boolean,
     directory?: string | null
   ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput | UseCaseError>
+  /** Renames; the new name must be brand-valid and unique. */
   readonly renameProject: (id: string, name: string) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | ProjectInvalidInput | UseCaseError>
+  /** Moves to an absolute, existing directory no other project claims (symlink-canonical check included). */
   readonly changeDirectory: (id: string, directory: string) => Effect.Effect<Project, ProjectNotFound | ProjectDirectoryInvalid | ProjectDirectoryConflict | UseCaseError>
+  /** Archives (hidden from default listings); unguarded — re-archiving emits a redundant, harmless event. */
   readonly archiveProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  /** Restores; unguarded like archive. */
   readonly restoreProject: (id: string) => Effect.Effect<Project, ProjectNotFound | UseCaseError>
+  /** Patches description/tags: an absent key is untouched, `description: null` clears, tags are deduped by the fold. */
   readonly setMetadata: (
     id: string,
     patch: { description?: string | null; tags?: ReadonlyArray<string> }
   ) => Effect.Effect<Project, ProjectNotFound | ProjectInvalidInput | UseCaseError>
+  /** Tombstone: gone from the read model, history stays in the log. */
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
+  /** Zero-SQL projection read; archived filtered unless asked. Skips the mutex. */
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
 }>()("yodea/ProjectUseCases", {
   make: Effect.gen(function* () {
@@ -71,9 +55,6 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
     const commit = (event: ProjectEvent) =>
       Effect.uninterruptible(
         Effect.flatMap(projectEvents.append(event), (seq) =>
-          // Append (durable) → advance in-memory read model → publish to the bus.
-          // apply BEFORE publish so a client that receives the event and then calls
-          // ProjectList observes the already-updated projection.
           projection.apply({ seq, event }).pipe(Effect.andThen(bus.publish({ seq, event })))
         )
       )
@@ -107,7 +88,6 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const dir = typeof directory === "string" ? directory : null
         const id = newId()
         const createdAt = new Date().toISOString()
-        // Validate by building the Project: name/id/tags all checked here at once.
         const project = yield* Schema.decodeUnknownEffect(Project)({
           id, name, directory: dir, description: null, tags: [], archived: false, createdAt, updatedAt: createdAt
         }).pipe(Effect.mapError(toInvalidInput))
@@ -131,7 +111,6 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const target = all.find((p) => p.id === id)
         if (target === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
         const occurredAt = new Date().toISOString()
-        // Validate the new name by building the next Project state.
         const renamed = yield* Schema.decodeUnknownEffect(Project)({ ...target, name, updatedAt: occurredAt })
           .pipe(Effect.mapError(toInvalidInput))
         if (all.some((p) => p.id !== id && p.name === renamed.name)) {
@@ -177,7 +156,6 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
         if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
-        // Validate the patched fields by building the next Project state.
         const next = yield* Schema.decodeUnknownEffect(Project)({
           ...existing,
           ...(patch.description !== undefined ? { description: patch.description } : {}),
@@ -211,5 +189,33 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
 }) {}
 
 export const ProjectUseCasesLayer = Layer.effect(ProjectUseCases, ProjectUseCases.make)
+
+const DIRECTORY_MAX_LENGTH = 4096
+
+const fieldOf = (e: Schema.SchemaError): string => {
+  const visit = (issue: unknown): string | undefined => {
+    if (issue === null || typeof issue !== "object") return undefined
+    const i = issue as {
+      readonly _tag?: string
+      readonly path?: ReadonlyArray<PropertyKey>
+      readonly issue?: unknown
+      readonly issues?: ReadonlyArray<unknown>
+    }
+    if (i._tag === "Pointer" && i.path !== undefined && i.path.length > 0) return String(i.path[0])
+    if (i.issue !== undefined) {
+      const found = visit(i.issue)
+      if (found !== undefined) return found
+    }
+    if (i.issues !== undefined) {
+      for (const child of i.issues) {
+        const found = visit(child)
+        if (found !== undefined) return found
+      }
+    }
+    return undefined
+  }
+  return visit(e.issue) ?? "input"
+}
+const toInvalidInput = (e: Schema.SchemaError) => new ProjectInvalidInput({ field: fieldOf(e), reason: e.message })
 
 type UseCaseError = SqlError | Schema.SchemaError
