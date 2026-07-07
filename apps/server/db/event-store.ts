@@ -9,7 +9,7 @@ export const EventScanChunkSize = Context.Reference<number>("yodea/EventScanChun
 
 export interface ScanOptions {
   readonly afterSeq?: number
-  readonly eventTypes?: ReadonlyArray<string>
+  readonly eventTypes?: ReadonlyArray<DomainEvent["_tag"]>
 }
 
 export interface EventStorePrimitives {
