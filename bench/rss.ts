@@ -26,12 +26,16 @@ export const withRss = async <A>(run: () => Promise<A>): Promise<Sampled<A>> => 
   }
 }
 
-// Time ONLY the layer build (the boot fold happens inside it); the scope close —
-// which writes the projection's final checkpoint — is deliberately outside the clock.
+// Time ONLY the layer build (the boot fold happens inside it); the success-path
+// scope close — which writes the projection's final checkpoint — is deliberately
+// outside the clock. On build failure the scope is closed (finalizers fire) before
+// the error propagates, so a half-built layer can never leak resources.
 export const timedLayerBuild = <ROut, E>(layer: Layer.Layer<ROut, E>): Effect.Effect<number, E> =>
   Effect.gen(function* () {
     const scope = yield* Scope.make()
-    const [elapsed] = yield* Effect.timed(Layer.buildWithScope(layer, scope))
+    const [elapsed] = yield* Effect.timed(Layer.buildWithScope(layer, scope)).pipe(
+      Effect.onError((cause) => Scope.close(scope, Exit.failCause(cause)))
+    )
     yield* Scope.close(scope, Exit.void)
     return Duration.toMillis(elapsed)
   })
