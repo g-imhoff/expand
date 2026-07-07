@@ -64,14 +64,4 @@ describe("ProjectionStateStore", () => {
     )
     expect(r).toBe(null)
   })
-
-  it("drops the legacy snapshot table at build (disposable cache, D7)", async () => {
-    const r = await run(
-      Effect.gen(function* () {
-        const sql = yield* SqlClient
-        return yield* sql<{ readonly n: number }>`SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='snapshot'`
-      })
-    )
-    expect(r[0]?.n).toBe(0)
-  })
 })

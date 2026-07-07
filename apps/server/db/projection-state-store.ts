@@ -26,9 +26,7 @@ export interface ProjectionStateRow {
  * treat a failed `save` as a warning (the next boot just folds a longer tail)
  * and an unusable row as "rebuild from zero"; the fold-version gate is
  * enforced by the consumer, not here. The store is projection-agnostic: it
- * never interprets `state`. Building the layer also drops the legacy
- * single-row `snapshot` table it replaced — no data migration, first boot
- * after the upgrade re-folds once (D7).
+ * never interprets `state`.
  */
 export class ProjectionStateStore extends Context.Service<ProjectionStateStore, {
   /**
@@ -62,7 +60,6 @@ export class ProjectionStateStore extends Context.Service<ProjectionStateStore, 
         fold_version TEXT    NOT NULL
       ) STRICT
     `
-    yield* sql`DROP TABLE IF EXISTS snapshot`
 
     const load = (name: string) =>
       Effect.gen(function* () {
