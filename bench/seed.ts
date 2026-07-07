@@ -22,7 +22,6 @@ import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
 import { Project } from "@yodea/contracts/project"
 import { PROJECTION_NAME } from "@yodea/server/application/projections"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { foldProjectsInto } from "@yodea/server/domain/project"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 
@@ -209,7 +208,7 @@ export const deleteCheckpoint = (dbPath: string): void => {
 }
 
 // Plant a correct-by-construction checkpoint at maxSeq - tailLength: fold the
-// prefix with the production incremental fold, save via the production store.
+// prefix with the production shared fold, save via the production store.
 export const plantCheckpoint = (dbPath: string, tailLength: number): Promise<void> => {
   const target = maxSeqOf(dbPath) - tailLength
   const sql = SqliteClient.layer({ filename: dbPath })
@@ -219,13 +218,10 @@ export const plantCheckpoint = (dbPath: string, tailLength: number): Promise<voi
     const states = yield* ProjectionStateStore
     const folded = yield* Stream.runFold(
       Stream.takeWhile(events.read(0), (se) => se.seq <= target),
-      () => new Map<string, Project>(),
-      (byId, se) => {
-        foldProjectsInto(byId, se.event)
-        return byId
-      }
+      () => [] as ReadonlyArray<Project>,
+      (projects, se) => Project.foldList(projects, se.event)
     )
-    const state = yield* Schema.encodeEffect(ProjectsFromJson)([...folded.values()]).pipe(Effect.orDie)
+    const state = yield* Schema.encodeEffect(ProjectsFromJson)(folded).pipe(Effect.orDie)
     yield* states.save(PROJECTION_NAME, { state, lastSeq: target, foldVersion: FOLD_VERSIONS.projects })
   })
   return Effect.runPromise(Effect.provide(program, layer))

@@ -1,19 +1,23 @@
 import { describe, expect, it } from "vitest"
-import { projectsFromEvents } from "@yodea/server/domain/project"
+import { Project } from "@yodea/contracts/project"
+import type { DomainEvent } from "@yodea/contracts/events/domain"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
+
+const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
+  events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
 const pid = (n: number): string => uid(n)
 const pn = (s: string): string => s
 const tag = (s: string): string => s
 
-describe("projectsFromEvents", () => {
+describe("Project.foldList", () => {
   it("folds an empty log into no projects", () => {
-    expect(projectsFromEvents([])).toEqual([])
+    expect(foldAll([])).toEqual([])
   })
 
   it("folds ProjectCreated events into the read-model", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectCreated.make({ projectId: pid(2), name: pn("b"), occurredAt: "t2" })
     ])
@@ -24,7 +28,7 @@ describe("projectsFromEvents", () => {
   })
 
   it("ProjectRenamed updates name and stamps updatedAt from occurredAt", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), directory: null, occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: pid(1), name: pn("a2"), occurredAt: "t2" })
     ])
@@ -34,11 +38,11 @@ describe("projectsFromEvents", () => {
   })
 
   it("ProjectRenamed with no prior Created is a no-op (out-of-order tolerance)", () => {
-    expect(projectsFromEvents([ProjectRenamed.make({ projectId: pid(9), name: pn("x"), occurredAt: "t9" })])).toEqual([])
+    expect(foldAll([ProjectRenamed.make({ projectId: pid(9), name: pn("x"), occurredAt: "t9" })])).toEqual([])
   })
 
   it("ProjectDirectoryChanged sets directory + updatedAt on an existing project", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), directory: null, occurredAt: "t1" }),
       ProjectDirectoryChanged.make({ projectId: pid(1), directory: "/srv/p1", occurredAt: "t2" })
     ])
@@ -48,15 +52,15 @@ describe("projectsFromEvents", () => {
   })
 
   it("ProjectDirectoryChanged for an unknown id is a no-op", () => {
-    expect(projectsFromEvents([
+    expect(foldAll([
       ProjectDirectoryChanged.make({ projectId: pid(9), directory: "/srv/x", occurredAt: "t9" })
     ])).toEqual([])
   })
 })
 
-describe("projectsFromEvents — archive/restore", () => {
+describe("Project.foldList — archive/restore", () => {
   it("ProjectArchived sets archived:true and stamps updatedAt", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectArchived.make({ projectId: pid(1), occurredAt: "t2" })
     ])
@@ -65,7 +69,7 @@ describe("projectsFromEvents — archive/restore", () => {
     expect(p?.createdAt).toBe("t1")
   })
   it("ProjectRestored sets archived:false and stamps updatedAt", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectArchived.make({ projectId: pid(1), occurredAt: "t2" }),
       ProjectRestored.make({ projectId: pid(1), occurredAt: "t3" })
@@ -74,15 +78,15 @@ describe("projectsFromEvents — archive/restore", () => {
     expect(p?.updatedAt).toBe("t3")
   })
   it("ignores an archive for an unknown project (out-of-order tolerance)", () => {
-    expect(projectsFromEvents([ProjectArchived.make({ projectId: pid(9), occurredAt: "t1" })])).toEqual([])
+    expect(foldAll([ProjectArchived.make({ projectId: pid(9), occurredAt: "t1" })])).toEqual([])
   })
 })
 
-describe("projectsFromEvents — ProjectMetadataChanged", () => {
+describe("Project.foldList — ProjectMetadataChanged", () => {
   const created = ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" })
 
   it("merges only provided fields and stamps updatedAt from occurredAt", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       created,
       ProjectMetadataChanged.make({ projectId: pid(1), description: "hello", occurredAt: "t2" })
     ])
@@ -92,7 +96,7 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
   })
 
   it("dedupes tags and leaves description unchanged when absent", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       created,
       ProjectMetadataChanged.make({ projectId: pid(1), tags: [tag("x"), tag("x"), tag("y")], occurredAt: "t3" })
     ])
@@ -102,7 +106,7 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
   })
 
   it("sets description to null when description:null is provided", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectMetadataChanged.make({ projectId: pid(1), description: "x", occurredAt: "t2" }),
       ProjectMetadataChanged.make({ projectId: pid(1), description: null, occurredAt: "t3" })
@@ -111,16 +115,16 @@ describe("projectsFromEvents — ProjectMetadataChanged", () => {
   })
 
   it("is a no-op for an unknown project id (out-of-order tolerance)", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectMetadataChanged.make({ projectId: pid(9), tags: [tag("x")], occurredAt: "t2" })
     ])
     expect(projects).toEqual([])
   })
 })
 
-describe("projectsFromEvents — ProjectDeleted", () => {
+describe("Project.foldList — ProjectDeleted", () => {
   it("removes a project from the read-model (tombstone)", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectCreated.make({ projectId: pid(2), name: pn("b"), occurredAt: "t2" }),
       ProjectDeleted.make({ projectId: pid(1), occurredAt: "t3" })
@@ -128,20 +132,20 @@ describe("projectsFromEvents — ProjectDeleted", () => {
     expect(projects.map((p) => p.id)).toEqual([uid(2)])
   })
   it("a delete with no prior Created is a no-op (out-of-order tolerance)", () => {
-    expect(projectsFromEvents([ProjectDeleted.make({ projectId: pid(9), occurredAt: "t1" })])).toEqual([])
+    expect(foldAll([ProjectDeleted.make({ projectId: pid(9), occurredAt: "t1" })])).toEqual([])
   })
 })
 
-describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
+describe("Project.foldList — out-of-order & duplicate tolerance", () => {
   it("ignores a mutation that arrives before its ProjectCreated (no prior aggregate)", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectRenamed.make({ projectId: pid(9), name: pn("renamed"), occurredAt: "t2" })
     ])
     expect(projects).toEqual([])
   })
 
   it("drops on ProjectDeleted and a later mutation for the tombstoned id is a no-op", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectDeleted.make({ projectId: pid(1), occurredAt: "t2" }),
       ProjectRenamed.make({ projectId: pid(1), name: pn("b"), occurredAt: "t3" })
@@ -150,7 +154,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("stamps updatedAt from each event's time and keeps createdAt fixed", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: pid(1), name: pn("b"), occurredAt: "t5" })
     ])
@@ -158,14 +162,14 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("ProjectCreated without a directory folds directory to null (event-versioning)", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" })
     ])
     expect(p?.directory).toBeNull()
   })
 
   it("metadata is replace-style per field and dedupes tags", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectMetadataChanged.make({ projectId: pid(1), description: "first", tags: [tag("x"), tag("x"), tag("y")], occurredAt: "t2" }),
       ProjectMetadataChanged.make({ projectId: pid(1), tags: [tag("z")], occurredAt: "t3" })
@@ -174,7 +178,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("archive then restore toggles archived back to false", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectArchived.make({ projectId: pid(1), occurredAt: "t2" }),
       ProjectRestored.make({ projectId: pid(1), occurredAt: "t3" })
@@ -183,7 +187,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("a duplicate ProjectCreated for the same id does not duplicate or reset the aggregate", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("b"), occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: pid(1), name: pn("renamed"), occurredAt: "t5" }),
       ProjectCreated.make({ projectId: pid(1), name: pn("c"), occurredAt: "t9" })
@@ -197,7 +201,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("directory-changed updates directory and stamps updatedAt", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
       ProjectDirectoryChanged.make({ projectId: pid(1), directory: "/tmp/x", occurredAt: "t2" })
     ])
@@ -205,7 +209,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("folds a full realistic lifecycle: create -> rename -> change-dir -> archive -> restore -> set-metadata", () => {
-    const [p] = projectsFromEvents([
+    const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("alpha"), occurredAt: "t1" }),
       ProjectRenamed.make({ projectId: pid(1), name: pn("beta"), occurredAt: "t2" }),
       ProjectDirectoryChanged.make({ projectId: pid(1), directory: "/srv/beta", occurredAt: "t3" }),
@@ -226,7 +230,7 @@ describe("projectsFromEvents — out-of-order & duplicate tolerance", () => {
   })
 
   it("a tombstoned id never reappears even when re-created and mutated afterwards", () => {
-    const projects = projectsFromEvents([
+    const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("alpha"), occurredAt: "t1" }),
       ProjectDeleted.make({ projectId: pid(1), occurredAt: "t2" }),
       ProjectCreated.make({ projectId: pid(1), name: pn("alpha"), occurredAt: "t3" }),

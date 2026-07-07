@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as fc from "fast-check"
-import { projectsFromEvents } from "@yodea/server/domain/project"
+import { Project } from "@yodea/contracts/project"
 import {
   ProjectArchived,
   ProjectCreated,
@@ -11,6 +11,9 @@ import {
   ProjectRestored
 } from "@yodea/contracts/events/project"
 import type { DomainEvent } from "@yodea/contracts/events/domain"
+
+const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
+  events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
 
 const nameArb = fc.constantFrom("alpha", "beta", "gamma")
 const tsArb = fc.integer({ min: 1, max: 9999 }).map((n) => `t${String(n).padStart(4, "0")}`)
@@ -35,17 +38,17 @@ const logArb = fc
     fc.array(eventArbFor(fc.constantFrom(...pool)), { minLength: 0, maxLength: 30 })
   )
 
-describe("projectsFromEvents — properties", () => {
+describe("Project.foldList — properties", () => {
   it("is deterministic: same log -> same read-model", () => {
     fc.assert(fc.property(logArb, (log) => {
-      expect(projectsFromEvents(log)).toEqual(projectsFromEvents([...log]))
+      expect(foldAll(log)).toEqual(foldAll([...log]))
     }))
   })
 
   it("is idempotent under event duplication (replay-safe): doubling every event leaves the model unchanged", () => {
     fc.assert(fc.property(logArb, (log) => {
       const doubled = log.flatMap((e) => [e, e])
-      expect(projectsFromEvents(doubled)).toEqual(projectsFromEvents(log))
+      expect(foldAll(doubled)).toEqual(foldAll(log))
     }))
   })
 
@@ -68,14 +71,14 @@ describe("projectsFromEvents — properties", () => {
         ProjectDeleted.make({ projectId: pid, occurredAt: ts }),
         ProjectRenamed.make({ projectId: pid, name: "beta", occurredAt: `${ts}z` })
       ]
-      expect(projectsFromEvents(withDelete).some((p) => p.id === id)).toBe(false)
+      expect(foldAll(withDelete).some((p) => p.id === id)).toBe(false)
     }))
   })
 
   it("every surviving project has a stable createdAt and a non-empty id from a create", () => {
     fc.assert(fc.property(logArb, (log) => {
       const created = new Set(log.filter((e) => e._tag === "ProjectCreated").map((e) => e.projectId))
-      for (const p of projectsFromEvents(log)) {
+      for (const p of foldAll(log)) {
         expect(created.has(p.id)).toBe(true)
         expect(typeof p.createdAt).toBe("string")
         expect(p.createdAt.length).toBeGreaterThan(0)
@@ -85,7 +88,7 @@ describe("projectsFromEvents — properties", () => {
 
   it("output ids are unique (the fold never duplicates an aggregate)", () => {
     fc.assert(fc.property(logArb, (log) => {
-      const ids = projectsFromEvents(log).map((p) => p.id)
+      const ids = foldAll(log).map((p) => p.id)
       expect(new Set(ids).size).toBe(ids.length)
     }))
   })
@@ -107,7 +110,7 @@ describe("projectsFromEvents — properties", () => {
         ProjectCreated.make({ projectId: projId, name: "alpha", occurredAt: t1 < t2 ? t1 : t2 }),
         ProjectArchived.make({ projectId: projId, occurredAt: t1 < t2 ? t2 : t1 })
       ]
-      const result = projectsFromEvents(log)
+      const result = foldAll(log)
       expect(result).toHaveLength(1)
       expect(result[0]?.archived).toBe(true)
     }))

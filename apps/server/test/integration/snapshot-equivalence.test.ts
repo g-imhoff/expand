@@ -15,9 +15,11 @@ import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
-import { projectsFromEvents } from "@yodea/server/domain/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
+
+const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
+  events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
 
 // A representative sequence touching all 7 event types.
 const script: ReadonlyArray<DomainEvent> = [
@@ -44,7 +46,7 @@ describe("snapshot+tail equivalence", () => {
     const dir = mkdtempSync(join(tmpdir(), "yodea-equiv-"))
     const db = join(dir, "events.db")
     try {
-      const fromZero = projectsFromEvents(script)
+      const fromZero = foldAll(script)
 
       for (let k = 0; k <= script.length; k++) {
         const fresh = join(dir, `k${k}.db`)
@@ -63,7 +65,7 @@ describe("snapshot+tail equivalence", () => {
               const snapshots = yield* ProjectionStateStore
               const rows = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
               const prefix = rows.slice(0, k).map((r) => r.event)
-              const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(projectsFromEvents(prefix)).pipe(Effect.orDie)
+              const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(foldAll(prefix)).pipe(Effect.orDie)
               yield* snapshots.save(PROJECTION_NAME, { state, lastSeq: k, foldVersion: FOLD_VERSIONS.projects })
             }),
             Layer.mergeAll(ReplayFeedLayer, ProjectionStateStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
@@ -80,12 +82,6 @@ describe("snapshot+tail equivalence", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
-
-  it("the two fold implementations agree (projectsFromEvents == reduce(foldList))", () => {
-    const viaMap = projectsFromEvents(script)
-    const viaList = script.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
-    expect(sortById(viaList)).toEqual(sortById(viaMap))
   })
 })
 
