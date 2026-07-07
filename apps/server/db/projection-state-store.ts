@@ -2,21 +2,53 @@ import { Context, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 
-// A projection's persisted boot accelerator: serialized state + the last folded
-// seq + the fold version, fused in ONE row so state and cursor can never
-// disagree (the persisted mirror of the C2 invariant). The store is
-// projection-agnostic: `state` is a raw JSON string; codecs live with each
-// projection. `state` is nullable in the schema — a future SQL-materialized
-// projection may keep a checkpoint-only row (state = NULL); `load` reports
-// those as null because a snapshot-style consumer cannot resume from them.
+/**
+ * One projection's persisted checkpoint.
+ *
+ * @remarks
+ * State, cursor, and fold version are fused in one row so they can never
+ * disagree — the persisted mirror of the in-memory `{projects, seq}` pair (C2).
+ */
 export interface ProjectionStateRow {
+  /** The serialized read model — a raw JSON string; the codec lives with the projection. */
   readonly state: string
+  /** The log position the state is valid at: every event with `seq <= lastSeq` is folded in. */
   readonly lastSeq: number
+  /** Hash of the fold code that produced the state (`FOLD_VERSIONS`); a mismatch at boot forces a rebuild. */
   readonly foldVersion: string
 }
 
+/**
+ * The projections' boot accelerator: a name-keyed checkpoint table.
+ *
+ * @remarks
+ * A disposable cache, never the source of truth — the event log is. Callers
+ * treat a failed `save` as a warning (the next boot just folds a longer tail)
+ * and an unusable row as "rebuild from zero"; the fold-version gate is
+ * enforced by the consumer, not here. The store is projection-agnostic: it
+ * never interprets `state`. Building the layer also drops the legacy
+ * single-row `snapshot` table it replaced — no data migration, first boot
+ * after the upgrade re-folds once (D7).
+ */
 export class ProjectionStateStore extends Context.Service<ProjectionStateStore, {
+  /**
+   * Loads a projection's checkpoint.
+   *
+   * @remarks
+   * Returns `null` for a missing row AND for a `state = NULL` row — the
+   * latter is reserved for future SQL-materialized projections that keep a
+   * checkpoint-only cursor, which a snapshot-style consumer cannot resume from.
+   *
+   * @param name - The projection's name (e.g. `"projects"`).
+   * @returns The usable checkpoint row, or `null` when a from-zero rebuild is required.
+   */
   readonly load: (name: string) => Effect.Effect<ProjectionStateRow | null, SqlError>
+  /**
+   * Writes a projection's checkpoint as one idempotent UPSERT.
+   *
+   * @param name - The projection's name.
+   * @param row - State + cursor + fold version, persisted atomically in a single statement.
+   */
   readonly save: (name: string, row: ProjectionStateRow) => Effect.Effect<void, SqlError>
 }>()("yodea/ProjectionStateStore", {
   make: Effect.gen(function* () {
@@ -30,8 +62,6 @@ export class ProjectionStateStore extends Context.Service<ProjectionStateStore, 
         fold_version TEXT    NOT NULL
       ) STRICT
     `
-    // The single-row `snapshot` table this store replaces was a disposable
-    // cache (D7): drop it, no data migration — first boot re-folds once.
     yield* sql`DROP TABLE IF EXISTS snapshot`
 
     const load = (name: string) =>
