@@ -35,6 +35,7 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientA
   "expand/ProjectClient"
 ) {}
 
+/** @internal */
 export const ProjectClientLive: Layer.Layer<ProjectClient, never, ExpandRpcClient> = Layer.effect(
   ProjectClient,
   Effect.map(ExpandRpcClient, (client): ProjectClientApi => ({

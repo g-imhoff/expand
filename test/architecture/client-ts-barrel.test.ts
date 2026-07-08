@@ -2,9 +2,8 @@
 // ============================================================================
 // DO NOT MODIFY — pins the @expand/client-ts public boundary: external code may
 // import only the barrel (index.ts) and adapters/*. This test is part of the
-// SPECIFICATION. ADR:
-// docs/superpowers/specs/2026-07-08-client-core-to-client-ts-design.md and
-// docs/superpowers/plans/2026-07-08-client-core-to-client-ts.md.
+// SPECIFICATION. ADR: the 2026-07-08 client-ts rename design spec and plan under
+// docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { createRequire } from "node:module"
 import { execFileSync } from "node:child_process"
@@ -12,15 +11,20 @@ import { describe, expect, it } from "vitest"
 
 const load = createRequire(import.meta.url)
 const config = load("../../.dependency-cruiser.cjs") as {
-  forbidden: ReadonlyArray<{ name: string; from: unknown; to: { path?: string; pathNot?: string } }>
+  forbidden: ReadonlyArray<{
+    name: string
+    from: { path?: string; pathNot?: string }
+    to: { path?: string; pathNot?: string }
+  }>
 }
 
 describe("@expand/client-ts barrel-only boundary", () => {
   it("defines the client-ts-barrel-only forbidden rule", () => {
     const rule = config.forbidden.find((r) => r.name === "client-ts-barrel-only")
     expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
-    expect(rule!.to.path).toContain("packages/client-ts")
-    expect(rule!.to.pathNot).toContain("adapters/")
+    expect(rule!.from.pathNot).toBe("^packages/client-ts/")
+    expect(rule!.to.path).toBe("^packages/client-ts/")
+    expect(rule!.to.pathNot).toBe("^packages/client-ts/(index\\.ts$|adapters/)")
   })
 
   it("no external module deep-imports client-ts internals", () => {
