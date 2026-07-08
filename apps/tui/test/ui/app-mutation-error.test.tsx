@@ -54,7 +54,12 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     archiveProject: () => Effect.die("unused"),
     restoreProject: () => Effect.die("unused"),
     setMetadata: () => Effect.die("unused"),
-    deleteProject: () => Effect.die("unused")
+    deleteProject: () => Effect.die("unused"),
+    subscribe: (onProjects: (ps: ReadonlyArray<any>) => void) =>
+      Effect.as(
+        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
+        () => {}
+      )
   })
 
 describe("App mutation error line", () => {

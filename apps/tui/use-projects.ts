@@ -1,6 +1,6 @@
 import { useCallback, use, useEffect, useState } from "react"
-import { Effect, Fiber, Schema, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, supervised } from "@expand/client-ts"
+import { Effect, Schema } from "effect"
+import { ProjectStore } from "@expand/client-ts"
 import type { Project } from "@expand/contracts/project"
 import { RuntimeContext } from "@expand/tui/runtime"
 
@@ -35,16 +35,19 @@ export const useProjects = () => {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fiber = runtime.runFork(
-      supervised(
-        "tui projects subscription",
-        Effect.flatMap(ProjectStore, (store) =>
-          Stream.runForEach(SubscriptionRef.changes(store.projects), (ps) =>
-            Effect.sync(() => setProjects(ps))))
-      )
-    )
+    // store.subscribe forks its own scoped fiber and hands back an unsubscribe;
+    // we resolve that unsubscribe asynchronously and call it on cleanup.
+    let unsubscribe: (() => void) | undefined
+    let cancelled = false
+    void runtime
+      .runPromise(Effect.flatMap(ProjectStore, (store) => store.subscribe((ps) => setProjects(ps))))
+      .then((stop) => {
+        if (cancelled) stop()
+        else unsubscribe = stop
+      })
     return () => {
-      runtime.runFork(Fiber.interrupt(fiber))
+      cancelled = true
+      unsubscribe?.()
     }
   }, [runtime])
 

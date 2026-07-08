@@ -1,5 +1,8 @@
 # `@expand/client-ts` — how it works
 
+> Internal design doc. For the **consumer quickstart** (install, happy path,
+> which layer to use, error handling) see [README.md](./README.md).
+
 The client-side library of the Expand monorepo. It discovers/spawns the backend
 server, opens an RPC-over-WebSocket session, and maintains a reactive,
 event-sourced mirror of project state. Built on **Bun + Effect v4 beta**.
@@ -30,12 +33,12 @@ Everything is wired with **Effect Layers**. Two facts make the rest readable:
 
 ## 1. Startup: from a Layer to a live socket
 
-An app builds either `ClientLayer(adapter)` (`client-layer.ts:9`) or
-`ProjectStoreLayer(adapter)` (`project-store.ts:182`). Both ultimately call
-**`acquireClient(adapter)`** (`rpc-client.ts:26`). That function is the whole
+An app builds either `ClientLayer(adapter)` (`client-layer.ts`) or
+`ProjectStoreLayer(adapter)` (`project-store.ts`). Both ultimately call
+**`acquireClient(adapter)`** (`rpc-client.ts`). That function is the whole
 connection story, and it has two stages.
 
-### Stage A — find or spawn the backend (`discovery.ts:109`)
+### Stage A — find or spawn the backend (`findOrSpawnBackend` in `spawn.ts`)
 
 ```
 findOrSpawnBackend:
@@ -46,40 +49,40 @@ findOrSpawnBackend:
                               (Effect.ensuring(releaseLock) — lock always freed)
 ```
 
-- **`readEndpoint`** (`discovery.ts:20`) reads `endpointFilePath()` (a JSON file
+- **`readEndpoint`** (`discovery.ts`) reads `endpointFilePath()` (a JSON file
   like `server.json`), decodes it against the `EndpointFromJson` schema, then
   applies three gates, each returning `Option.none()`: file missing → JSON
   invalid → `protocolVersion !== PROTOCOL_VERSION` → **PID not alive**
-  (`process.kill(pid, 0)`, `discovery.ts:11`). Only a file that survives all
+  (`process.kill(pid, 0)`, `isProcessAlive` in `discovery.ts`). Only a file that survives all
   gates counts as a running backend.
-- **The lock dance** (`discovery.ts:62-90`) prevents a thundering herd of spawns.
+- **The lock dance** (`tryAcquireLock`/`createLockOnce` in `spawn.ts`) prevents a thundering herd of spawns.
   `createLockOnce` uses `openSync(path, "wx")` — O_EXCL exclusive create, which
   atomically fails if the file exists. If creation fails, `isLockStale()`
-  (`discovery.ts:45`) checks for a crashed spawner: lock older than 30s **or**
+  (`isLockStale` in `spawn.ts`) checks for a crashed spawner: lock older than 30s **or**
   its recorded PID is dead → delete and retry once. So exactly one process
   spawns; the rest wait.
-- **`awaitEndpoint`** (`discovery.ts:92`) polls `readEndpoint` every 50ms
+- **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 50ms
   (failing `"pending"` until it appears), with a 5s overall timeout →
   `BackendUnavailable("backend did not start in time")`.
 
-### Stage B — connect and handshake (`rpc-client.ts:38-62`)
+### Stage B — connect and handshake (`acquireClient` in `rpc-client.ts`)
 
 With an endpoint in hand:
 
 1. `Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))` builds the
-   WebSocket protocol stack into a context. `endpointWsUrl` (`rpc-client.ts:16`)
+   WebSocket protocol stack into a context. `endpointWsUrl` (`rpc-client.ts`)
    appends the auth token as a query param: `…?token=<encoded>`.
 2. `RpcClient.make(ExpandRpcs)` produces the typed `client` — one method per RPC
    in the contract (`client.Health()`, `client.ProjectList()`,
    `client.Connect()`, `client.Events()`, …).
 3. **The handshake**: it forks a supervised drain of the streaming RPC
    `client.Connect()`, and the *first emission* fires `Deferred.succeed(ready)`
-   (`rpc-client.ts:43-50`). Then `Deferred.await(ready)` waits up to
+   (`acquireClient` in `rpc-client.ts`). Then `Deferred.await(ready)` waits up to
    `CONNECT_TIMEOUT = 3s`; on timeout it fails with `StaleEndpoint`
-   (`rpc-client.ts:51-59`). So "connected" means *the server actually pushed
+   (`acquireClient` in `rpc-client.ts`). So "connected" means *the server actually pushed
    presence over the live socket*, not merely "TCP opened."
 
-### Stage B's self-healing retry (`rpc-client.ts:65-73`)
+### Stage B's self-healing retry (`acquireClient` in `rpc-client.ts`)
 
 The endpoint file can point at a dead server. So the whole of stage A+B is
 wrapped:
@@ -96,7 +99,7 @@ exactly what the `find-or-spawn` regression test guards.
 
 ### The adapter seam (`adapter.ts`, `adapters/*.ts`)
 
-`RuntimeAdapter` is just two members (`adapter.ts:5`): `protocolLayer(url)` and
+`RuntimeAdapter` is just two members (`adapter.ts`): `protocolLayer(url)` and
 `spawnBackend`. The two implementations differ only in platform primitives:
 
 |                 | Bun (`adapters/bun.ts`)                       | Node (`adapters/node.ts`)                                              |
@@ -113,25 +116,32 @@ readiness is confirmed by Stage A's `awaitEndpoint`, not by the spawn itself.
 
 ## 2. The ProjectStore engine — the real machinery
 
-`makeStore(adapter)` (`project-store.ts:70`) is where the interesting runtime
+`makeStore(adapter)` (`project-store.ts`) is where the interesting runtime
 behavior lives. On build it creates:
 
 - **`state: SubscriptionRef<{projects, seq}>`** — the *single source of truth*.
-  projects and seq are always written together (`project-store.ts:78`).
+  projects and seq are always written together (`makeStore` in `project-store.ts`).
 - **`projects: SubscriptionRef<ReadonlyArray<Project>>`** — the public,
   read-only mirror consumers subscribe to.
 - `status` (`"disconnected" | "reconnecting" | "connected"`), a `PubSub` event
   `hub`, a `clientRef` holding the current live client, and a `ready: Deferred`
   barrier.
-- `hooked = withConnectionHooks(adapter, status)` (`project-store.ts:49`) —
+- `hooked = withConnectionHooks(adapter, status)` (`project-store.ts`) —
   wraps the adapter so the RPC layer's own `onDisconnect` hook flips
   `status → "reconnecting"` the instant the socket drops.
 
-**The public mirror is a strict projection** (`project-store.ts:88-93`): a forked
+**The public mirror is a strict projection** (`makeStore` in `project-store.ts`): a forked
 fiber runs `Stream.changes` over `state.projects` and writes each new value into
 `projects`. The public ref can never diverge from `state`.
 
-### The session loop (`project-store.ts:95-124`)
+Consumers read the mirror either directly (`SubscriptionRef.changes(store.projects)`)
+or via **`store.subscribe(onProjects)`** — a framework-agnostic helper (backed by
+the `subscribeRef` seam) that forks a fiber *into the store's scope*, pushes the
+current value then every change into the callback, and returns a synchronous
+unsubscribe. It exists so UI code (e.g. the TUI's `use-projects` hook) stops
+hand-rolling `Stream.runForEach` + `Fiber.interrupt`.
+
+### The session loop (`makeStore` in `project-store.ts`)
 
 ```
 acquireClient(hooked) → client
@@ -152,7 +162,7 @@ Two ordering decisions make this correct:
 - **`Math.max` on seq** so a reconnect's fresh snapshot can never move seq
   backward.
 
-### The C2 atomic fold (`project-store.ts:113-119`)
+### The C2 atomic fold (`makeStore` in `project-store.ts`)
 
 Every incoming event is applied in *one* atomic `SubscriptionRef.modify`:
 
@@ -166,14 +176,14 @@ modify(state, s =>
 ```
 
 This is the **C2 invariant**: because `{projects, seq}` move together
-atomically, `store.snapshot` (`= SubscriptionRef.get(state)`, line 149) can
+atomically, `store.snapshot` (`= SubscriptionRef.get(state)`, the `snapshot` field of `makeStore`) can
 *never* observe a `seq` ahead of the projects it returns. The
 `snapshot-consistency` test races 40 concurrent reads against this and asserts
 `snapshot.projects` always equals `foldList(events where seq ≤ snapshot.seq)`.
 The hub only ever sees *applied* events, so `store.events` is a clean,
 deduplicated, ordered stream.
 
-### Readiness + the connection loop (`project-store.ts:126-140`)
+### Readiness + the connection loop (`makeStore` in `project-store.ts`)
 
 ```
 connectionLoop =
@@ -198,10 +208,10 @@ loop runs in the background.
 
 ## 3. A mutation round-trip — and why it's not optimistic
 
-`store.createProject(name)` (`project-store.ts:151`) does **not** touch local
+`store.createProject(name)` (`makeStore` in `project-store.ts`) does **not** touch local
 state. It:
 
-1. reads the live client via `current` (`project-store.ts:142` — dies if somehow null),
+1. reads the live client via `current` (`makeStore` in `project-store.ts` — dies if somehow null),
 2. calls `client.ProjectCreate({ name, ensure: true, …directory })`,
 3. `.map(r => r.project)`,
 4. `.catchTag("ProjectAlreadyExists", Effect.die)` — because `ensure: true` makes
@@ -213,8 +223,7 @@ command, emits a `SequencedEvent`, and that event flows back through `Events` �
 the C2 fold → `state` → the mirror. **The server's event stream is the single
 writer of local state.** That's why the `cross-store-sync` test works: a
 mutation in runtime A shows up in runtime B's store, because both just replay the
-same server event stream. (`directory`/`tags`/`description` are spread
-conditionally, lines 154/172-173, so explicit `undefined` is never sent over the
+same server event stream. (`directory`/`tags`/`description` are spread conditionally in `createProject` and `setMetadata`, so explicit `undefined` is never sent over the
 wire.)
 
 ---
@@ -231,7 +240,7 @@ monotonic so no event is double-applied. Event-sourced state survives — the
 `reconnect` test kills the backend and asserts both pre-kill and post-kill
 projects end up present. An *interrupt-only* exit (deliberate shutdown) instead
 propagates via `failCause` and stops the loop cleanly — and `supervised`
-(`supervise.ts:3`) makes sure a real crash is logged while a normal interrupt
+(`supervised` in `supervise.ts`) makes sure a real crash is logged while a normal interrupt
 stays silent.
 
 ---
@@ -244,7 +253,7 @@ stays silent.
   just `health()`.
 - **`ClientLayer(adapter)`** merges those two facades over a *single shared*
   `ExpandRpcClient` connection.
-- **`withClient(adapter, use)`** (`with-client.ts:5`) is the one-shot path:
+- **`withClient(adapter, use)`** (`withClient` in `with-client.ts`) is the one-shot path:
   acquire the raw client, run `use`, tear down the scope — for ad-hoc RPC calls
   without standing up the full layer.
 
@@ -266,21 +275,36 @@ server's event stream into an atomic reactive replica, surviving reconnects.**
 
 ## Public API surface
 
-External consumers use exactly two entrypoints:
+External consumers use exactly two entrypoints. The barrel (`index.ts`) groups
+its exports into labelled sections; the list below mirrors them.
 
 - `@expand/client-ts` (the barrel) — the platform-neutral public API:
-  `ProjectStore` / `ProjectStoreLayer`, `ProjectClient` / `ProjectClientLayer`,
-  `ServerClient` / `ServerClientLayer`, `ClientLayer`, `withClient`,
-  `supervised`, `RuntimeAdapter` (type), `BackendUnavailable`, `readEndpoint`,
-  `deleteEndpoint`, `endpointWsUrl`, `ConnectionStatus`, `ProjectStoreShape`,
-  and the `*Api` types (`ProjectClientApi`, `ServerClientApi`,
-  `ExpandRpcClientApi` — the client `withClient` hands to its callback).
+  - **Reactive store**: `ProjectStore` / `ProjectStoreLayer`, and the types
+    `ProjectStoreApi` (the service shape, including `subscribe`) and
+    `ConnectionStatus`.
+  - **Composition**: `ClientLayer`, `resolveBackendCommand` (+
+    `ResolveBackendCommandOptions`).
+  - **Platform**: `RuntimeAdapter` (type only).
+  - **Errors**: `BackendUnavailable`, `RpcClientError` (type).
+  - **Typed facades**: `ProjectClient` / `ProjectClientLayer` /
+    `ProjectClientApi`, `ServerClient` / `ServerClientLayer` / `ServerClientApi`,
+    `withClient`.
+  - **Advanced / plumbing**: `ExpandRpcClientApi` (the client `withClient` hands
+    its callback), `readEndpoint`, `supervised`.
+  - **Contract vocabulary** (re-exported from `@expand/contracts`): `Project`,
+    `ProjectCreateResult`, `ProjectDeleteResult`, `SequencedEvent`, and the
+    domain errors `ProjectNotFound`, `ProjectAlreadyExists`,
+    `ProjectNameConflict`, `ProjectDirectoryInvalid`, `ProjectDirectoryConflict`,
+    `ProjectInvalidInput`.
 - `@expand/client-ts/adapters/bun` and `@expand/client-ts/adapters/node` — the
-  platform seams (kept separate because each imports platform-only deps).
+  platform seams (`makeBunAdapter` / `makeNodeAdapter`, and the `bunAdapter`
+  convenience singleton). Kept separate because each imports platform-only deps.
 
-Everything else (`acquireClient`, discovery internals, `makeStore`, the raw
-`ExpandRpcClient` service and `ExpandRpcClientLive` layer, the `*Live` facades)
-is internal: not re-exported from the barrel, tagged `@internal` where exported,
-and unreachable from outside by the `client-ts-barrel-only` dependency-cruiser
-rule. `supervised` is public for now but is a candidate to move to a shared
+Everything else is internal: not re-exported from the barrel, tagged `@internal`
+where exported, and unreachable from outside by the `client-ts-barrel-only`
+dependency-cruiser rule. That includes `acquireClient`, `endpointWsUrl` and
+`deleteEndpoint`, the discovery/spawn internals (`findOrSpawnBackend`,
+`awaitEndpoint`, the lock helpers), `makeStore` and its `subscribeRef` seam, the
+raw `ExpandRpcClient` service and `ExpandRpcClientLayer`, and the `*Live`
+facades. `supervised` is public for now but is a candidate to move to a shared
 effect-utils package later.

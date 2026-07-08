@@ -42,6 +42,11 @@ const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
     deleteProject: (id: string) =>
       SubscriptionRef.update(ref, (c) => c.filter((p: any) => p.id !== id)).pipe(
         Effect.as({ id, deleted: true } as const)
+      ),
+    subscribe: (onProjects: (ps: ReadonlyArray<any>) => void) =>
+      Effect.as(
+        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
+        () => {}
       )
   })
 

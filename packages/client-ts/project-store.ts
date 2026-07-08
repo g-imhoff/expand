@@ -1,4 +1,4 @@
-import { Cause, Context, Deferred, Effect, Exit, Layer, PubSub, Queue, Schedule, Stream, SubscriptionRef } from "effect"
+import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer, PubSub, Queue, Schedule, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
 import { Project } from "@expand/contracts/project"
@@ -39,6 +39,19 @@ export interface ProjectStoreApi {
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectInvalidInput>
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
   readonly events: Stream.Stream<SequencedEvent>
+  /**
+   * Framework-agnostic subscription to the reactive `projects` mirror. Invokes
+   * `onProjects` with the current value immediately, then again on every
+   * subsequent change, from a fiber forked into the store's own scope.
+   *
+   * Returns an unsubscribe function that stops delivery. The fiber is also torn
+   * down automatically when the store's scope closes, so forgetting to
+   * unsubscribe leaks nothing beyond the store's own lifetime.
+   *
+   * Prefer this over hand-rolling `Stream.runForEach(SubscriptionRef.changes(
+   * store.projects), …)` + `Fiber.interrupt` inside UI effects.
+   */
+  readonly subscribe: (onProjects: (projects: ReadonlyArray<Project>) => void) => Effect.Effect<() => void>
 }
 
 export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreApi>()(
@@ -70,12 +83,42 @@ const toUnavailable = (e: { readonly _tag: string }): BackendUnavailable =>
     ? (e as BackendUnavailable)
     : new BackendUnavailable({ reason: String(e) })
 
+/**
+ * Bridge a {@link SubscriptionRef} to an imperative callback: fork a fiber (into
+ * `scope`, so it dies with the store) that pushes the current value and every
+ * subsequent change into `onValue`, and return a synchronous unsubscribe that
+ * interrupts that fiber. Backs {@link ProjectStoreApi.subscribe}; the seam is
+ * exported so it can be unit-tested against a plain ref without a live backend.
+ *
+ * @internal
+ */
+export const subscribeRef = <A>(
+  ref: SubscriptionRef.SubscriptionRef<A>,
+  scope: Scope.Scope,
+  onValue: (value: A) => void
+): Effect.Effect<() => void> =>
+  Effect.map(
+    Effect.forkIn(
+      supervised(
+        "project-store-subscription",
+        Stream.runForEach(SubscriptionRef.changes(ref), (value) => Effect.sync(() => onValue(value)))
+      ),
+      scope
+    ),
+    (fiber) => () => {
+      Effect.runFork(Fiber.interrupt(fiber))
+    }
+  )
+
 const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   ProjectStoreApi,
   BackendUnavailable,
   FileSystem.FileSystem | Scope.Scope
 > =>
   Effect.gen(function* () {
+    // The store's own scope — subscription fibers are forked into it so they are
+    // interrupted when the store is torn down (see subscribe / subscribeRef).
+    const scope = yield* Effect.scope
     // Single source of truth: projects and seq are written/read together, so a
     // snapshot can never observe a seq ahead of the projects it returns (C2).
     const state = yield* SubscriptionRef.make<{ projects: ReadonlyArray<Project>; seq: number }>({ projects: [], seq: 0 })
@@ -178,7 +221,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
           )
         ),
       deleteProject: (id: string) =>
-        current.pipe(Effect.flatMap((client) => client.ProjectDelete({ id })))
+        current.pipe(Effect.flatMap((client) => client.ProjectDelete({ id }))),
+      subscribe: (onProjects) => subscribeRef(projects, scope, onProjects)
     }
   })
 
