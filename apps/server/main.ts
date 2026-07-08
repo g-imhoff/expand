@@ -38,6 +38,12 @@ const program = Effect.gen(function* () {
   yield* runServer({ dbPath: paths.dbPath })
 })
 
+// Every file this process creates — the SQLite event store (+ WAL/SHM), the
+// endpoint file that carries the auth token, the logs — is private to this
+// user. Born-owner-only (0600 files, 0700 dirs) is the floor, so set a strict
+// umask before the logger or anything else touches the filesystem.
+process.umask(0o077)
+
 BunRuntime.runMain(
   program.pipe(
     Effect.provide(loggerLayer),

@@ -243,6 +243,41 @@ describe.sequential("trust boundary", () => {
     expect(await Effect.runPromise(program)).toBe(0o600)
   })
 
+  it("secures the db, WAL, SHM, and data dir even when the ambient umask is permissive", async () => {
+    // The event store on disk IS the events the token is meant to gate. A
+    // different OS user who can traverse the data dir could read the whole
+    // history straight off disk, bypassing the token — so boot must leave the
+    // dir 0700 and every db file 0600 regardless of the inherited umask, and
+    // regardless of the data dir having been pre-created world-traversable
+    // (as main.ts does before runServer runs).
+    const previousUmask = process.umask(0o002)
+    try {
+      const dataDir = join(dir, "datadir")
+      const program = Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.makeDirectory(dataDir, { recursive: true }) // mode-less, like main.ts
+        const dbPath = join(dataDir, "events.db")
+        const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+        yield* awaitEndpointUp
+        const mode = (p: string) => Effect.map(fs.stat(p), (s) => Number(s.mode & 0o777))
+        const db = yield* mode(dbPath)
+        const wal = yield* mode(`${dbPath}-wal`)
+        const shm = yield* mode(`${dbPath}-shm`)
+        const dirMode = yield* mode(dataDir)
+        yield* Fiber.interrupt(serverFiber)
+        return { db, wal, shm, dirMode }
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dataDir).layer))
+
+      const r = await Effect.runPromise(program)
+      expect(r.db, "events.db must be owner-only").toBe(0o600)
+      expect(r.wal, "events.db-wal must be owner-only").toBe(0o600)
+      expect(r.shm, "events.db-shm must be owner-only").toBe(0o600)
+      expect(r.dirMode, "data dir must be owner-only").toBe(0o700)
+    } finally {
+      process.umask(previousUmask)
+    }
+  })
+
   it("rejects a same-length wrong token and accepts the real token on a raw socket", async () => {
     const program = Effect.gen(function* () {
       const dbPath = join(dir, "events.db")

@@ -1,4 +1,5 @@
 import { Effect, Exit, FileSystem, Layer, Scope } from "effect"
+import { dirname } from "node:path"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
@@ -20,24 +21,6 @@ export interface RunServerOptions {
   readonly port?: number
 }
 
-const HTTP_SHUTDOWN_GRACE = "1 second"
-
-const coreLayer = (dbPath: string) => {
-  const sql = SqliteClient.layer({ filename: dbPath })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
-  const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
-  const projectUseCases = ProjectUseCasesLayer.pipe(
-    Layer.provide(projectEvents),
-    Layer.provide(EventBusLayer),
-    Layer.provide(projection),
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunServices.layer)
-  )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
-}
-
 export const runServer = (options: RunServerOptions) => {
   const core = coreLayer(options.dbPath)
   const portHint = options.port ?? 0
@@ -48,7 +31,7 @@ export const runServer = (options: RunServerOptions) => {
     BunServices.layer
   )
 
-  const program = Effect.gen(function* () {
+  const program = Effect.gen(function*() {
     const tracker = yield* ConnectionTracker
     const fs = yield* FileSystem.FileSystem
 
@@ -62,9 +45,10 @@ export const runServer = (options: RunServerOptions) => {
     const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
     const url = `ws://127.0.0.1:${boundPort}/rpc`
 
-    yield* Effect.ignore(fs.chmod(options.dbPath, 0o600))
-    yield* Effect.ignore(fs.chmod(`${options.dbPath}-wal`, 0o600))
-    yield* Effect.ignore(fs.chmod(`${options.dbPath}-shm`, 0o600))
+    yield* fs.chmod(dirname(options.dbPath), 0o700)
+    yield* fs.chmod(options.dbPath, 0o600)
+    yield* secureIfPresent(fs, `${options.dbPath}-wal`)
+    yield* secureIfPresent(fs, `${options.dbPath}-shm`)
 
     const endpointFile = yield* writeEndpointFile({
       url,
@@ -92,4 +76,25 @@ export const runServer = (options: RunServerOptions) => {
     Effect.provide(Layer.mergeAll(core, BunServices.layer)),
     Effect.scoped
   )
+}
+
+const HTTP_SHUTDOWN_GRACE = "1 second"
+
+const secureIfPresent = (fs: FileSystem.FileSystem, path: string) =>
+  Effect.flatMap(fs.exists(path), (present) => (present ? fs.chmod(path, 0o600) : Effect.void))
+
+const coreLayer = (dbPath: string) => {
+  const sql = SqliteClient.layer({ filename: dbPath })
+  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
+  const projectUseCases = ProjectUseCasesLayer.pipe(
+    Layer.provide(projectEvents),
+    Layer.provide(EventBusLayer),
+    Layer.provide(projection),
+    Layer.provide(BunFileSystem.layer),
+    Layer.provide(BunServices.layer)
+  )
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
