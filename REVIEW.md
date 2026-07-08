@@ -112,9 +112,9 @@ DONE 3. `db/projection-state-store.ts` + `application/projections.ts` — the re
 DONE 4. `application/event-bus.ts` — in-memory `PubSub` of `SequencedEvent` (the live half of the stream).
 DONE 5. `application/projects/use-cases.ts` — **the busiest, riskiest file.** Every mutation, the `Semaphore(1)` mutex, directory validation, and the uninterruptible `commit` (**append via `ProjectEventStore` → `projection.apply` (advance the in-memory model) → publish** — `commit(event)` takes only the event; the stream id derives inside the facade).
 DONE 6. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` state machine for I-4.
-7. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern. The `fromSeq` replay logic itself lives in `apps/server/rpc/stream.ts` (composed here via `...streamHandlers`).
-8. `http.ts` — WebSocket transport: `timingSafeEqual` token check, loopback bind, access log that strips the token.
-9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the thin entrypoint.
+DONE 7. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern. The `fromSeq` replay logic itself lives in `apps/server/rpc/stream.ts` (composed here via `...streamHandlers`).
+DONE 8. `http.ts` — WebSocket transport: `timingSafeEqual` token check, loopback bind, access log that strips the token.
+DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the thin entrypoint.
 
 **Scrutinize hardest:**
 - **Concurrency:** the single `Semaphore(1)` is the *only* thing serializing read-validate-commit. Confirm every mutating use-case goes through it and uniqueness/"exactly-one-winner" guards can't be bypassed.
@@ -134,7 +134,7 @@ DONE 6. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` s
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
 **Read in order:**
-1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough.
+DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough.
 2. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 3. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
 4. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.

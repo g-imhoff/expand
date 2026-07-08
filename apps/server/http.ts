@@ -6,6 +6,19 @@ import { timingSafeEqual } from "node:crypto"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc-handlers"
 
+export const httpServerLayer = (port: number, token: string) => {
+  const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
+  const rpc = RpcServer.layer(ExpandRpcs).pipe(
+    Layer.provide(ExpandHandlers),
+    Layer.provide(guardedRpcWebsocket(token)),
+    Layer.provide(RpcSerialization.layerNdjson)
+  )
+  return Layer.mergeAll(
+    HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }),
+    bun
+  ).pipe(Layer.provide(bun))
+}
+
 const accessLogger = HttpMiddleware.make((httpApp) =>
   Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
     const path = request.url.split("?")[0]
@@ -47,13 +60,13 @@ const timingSafeEqualStrings = (a: string, b: string): boolean => {
 
 const guardedRpcWebsocket = (token: string) =>
   Layer.effect(RpcServer.Protocol)(
-    Effect.gen(function* () {
+    Effect.gen(function*() {
       const { httpEffect, protocol } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket
       const router = yield* HttpRouter.HttpRouter
       yield* router.add(
         "GET",
         "/rpc",
-        Effect.gen(function* () {
+        Effect.gen(function*() {
           const params = yield* HttpServerRequest.ParsedSearchParams
           const presented = params.token
           if (typeof presented !== "string" || !timingSafeEqualStrings(presented, token)) {
@@ -65,16 +78,3 @@ const guardedRpcWebsocket = (token: string) =>
       return protocol
     })
   )
-
-export const httpServerLayer = (port: number, token: string) => {
-  const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
-  const rpc = RpcServer.layer(ExpandRpcs).pipe(
-    Layer.provide(ExpandHandlers),
-    Layer.provide(guardedRpcWebsocket(token)),
-    Layer.provide(RpcSerialization.layerNdjson)
-  )
-  return Layer.mergeAll(
-    HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }),
-    bun
-  ).pipe(Layer.provide(bun))
-}

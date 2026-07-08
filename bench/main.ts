@@ -64,11 +64,17 @@ const bail = (msg: string): never => {
 const main = async (): Promise<void> => {
   const opts = parseCli(process.argv.slice(2))
   const measurements: Array<Measurement> = []
+  // Untimed setup: scales seed into separate cache files, so fan out. Deduped —
+  // two concurrent seeds of the same path would race the rm + insert sequence.
+  const uniqueScales = [...new Set(opts.scales)]
+  console.log(`\n== seeding ${uniqueScales.join(", ")} (cache hit is instant; --reseed forces) ==`)
+  const dbPaths = new Map(
+    await Promise.all(uniqueScales.map(async (scale) => [scale, await ensureSeed(scale, { reseed: opts.reseed })] as const))
+  )
   for (const scale of opts.scales) {
-    console.log(`\n== ${scale}: seeding (cache hit is instant; --reseed forces) ==`)
-    const dbPath = await ensureSeed(scale, { reseed: opts.reseed })
+    console.log(`\n== ${scale} ==`)
     const ctx: ScenarioContext = {
-      dbPath,
+      dbPath: dbPaths.get(scale)!,
       scale,
       eventCount: SCALES[scale]!,
       ...(opts.chunkSize !== undefined ? { chunkSize: opts.chunkSize } : {})
