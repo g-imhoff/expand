@@ -129,19 +129,20 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 
 ### Stage 3 — `packages/client-ts`  ·  75–90 min  ·  🔴 high
 
-**What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), find-or-spawn discovery, the RPC session + presence handshake, and the reactive `ProjectStore` that mirrors backend state and survives reconnects. Hosts no `AppLayer` (I-2); reaches the backend only via the discovery file (I-3) and never imports `apps/server` (I-1).
+**What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), find-or-spawn discovery, the RPC session + presence handshake, and the reactive `ProjectStore` that mirrors backend state and survives reconnects. Hosts no `AppLayer` (I-2); reaches the backend only via the discovery file (I-3) and never imports `apps/server` (I-1). Its public API is a **curated, Effect-native SDK surface**: external code enters *only* through the single barrel `@expand/client-ts` or the two platform entrypoints `@expand/client-ts/adapters/{bun,node}` — every other module is internal (tagged `@internal`) and made unreachable from outside by the `client-ts-barrel-only` dependency-cruiser rule (see Stage 7).
 
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
-**Read in order:**
-DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough.
-2. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
-3. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
-4. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
-5. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn).
-6. `project-store.ts` — **the core engine:** the session loop, the **C2 atomic fold**, the public mirror, the reconnect loop, and the mutation methods.
-7. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
-8. `project-client.ts` + `client-layer.ts` — the stateless facades and how layers share one connection.
+**Read in order:** *(public surface = the barrel `index.ts` + `adapters/{bun,node}`; everything else is package-internal)*
+DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what the barrel re-exports and what is `@internal`.
+2. `index.ts` — the public barrel: the curated list of supported exports and the *only* external entrypoint besides `adapters/*`.
+3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
+4. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
+5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
+6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the *only* public subpath entrypoints.
+7. `project-store.ts` — **the core engine:** the session loop, the **C2 atomic fold**, the public mirror, the reconnect loop, and the mutation methods.
+8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
+9. `project-client.ts` + `client-layer.ts` — the stateless facades and how layers share one connection.
 
 **Scrutinize hardest:**
 - **The C2 atomic fold** (`project-store.ts`): `{projects, seq}` live in one `SubscriptionRef` mutated together (gate `seq <= s.seq` → `foldList` → bump seq → publish), so a reader can never see a `seq` ahead of its `projects`. This is the central correctness claim.
@@ -149,8 +150,9 @@ DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced w
 - **Stale-lock recovery** (`discovery.ts`): the dead-pid/30s heuristic and `ensuring(releaseLock)` — a crashed spawner used to wedge every future client.
 - **Reconnect classification** (`project-store.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown (propagate) from a dropped socket (retry with backoff). Misclassifying either hangs or busy-loops.
 - **Non-optimistic state:** mutations only call the RPC; state changes only when the server's event flows back. Confirm there's no optimistic local write.
+- **Barrel boundary** (`index.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the barrel or `adapters/*`; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current tests already go through the barrel).
 
-**Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof — 40 concurrent reads), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`.
+**Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof — 40 concurrent reads), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary).
 
 ---
 
@@ -265,9 +267,9 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 #### 7a — `test/architecture`  ·  30–45 min  ·  🟢 low
 
-**What:** Ten "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
+**What:** Eleven "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the per-projection fold-node hashes via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSIONS` is current — the build fails until you `bun run gen:fold-version` and commit) → `no-dead-code.test.ts` (runs **Knip** over both workspaces and fails on any unused file / export / exported type / dependency — the standing "no dead code" gate; config and every suppression are justified in `knip.jsonc`).
+**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `client-ts-barrel.test.ts` (pins the `client-ts` public API — only the barrel + `adapters/*` are importable from outside; asserts the `client-ts-barrel-only` rule's exact `from`/`to` shape and a clean cruise) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the per-projection fold-node hashes via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSIONS` is current — the build fails until you `bun run gen:fold-version` and commit) → `no-dead-code.test.ts` (runs **Knip** over both workspaces and fails on any unused file / export / exported type / dependency — the standing "no dead code" gate; config and every suppression are justified in `knip.jsonc`).
 
 **Scrutinize hardest:**
 - **Non-vacuity:** do the depcruise-backed tests actually *fail* when a real forbidden import is introduced (not just assert a name is absent + exit 0)?
@@ -280,7 +282,7 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, and the compiled-binary smoke test.
 
-**Read in order:** `.dependency-cruiser.cjs` (the six forbidden import rules — the I-1 engine in code) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps) → `CODEOWNERS`.
+**Read in order:** `.dependency-cruiser.cjs` (the eight forbidden import rules — the I-1 engine in code, now including `client-ts-barrel-only`, the `client-ts` public-API boundary) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps) → `CODEOWNERS`.
 
 **Scrutinize hardest:**
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path would silently escape I-1.
