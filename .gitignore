@@ -10,6 +10,7 @@ node_modules/
 # Build/test output
 coverage/
 dist/
+dist-publish/
 build/
 apps/desktop/out/
 .cache/

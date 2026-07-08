@@ -8,6 +8,11 @@
     "./*": "./*.ts",
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "stage:publish": "node scripts/prepare-publish.mjs",
+    "pack:tgz": "bun run build && bun run stage:publish && npm pack ./dist-publish"
+  },
   "dependencies": {
     "effect": "4.0.0-beta.74"
   }
