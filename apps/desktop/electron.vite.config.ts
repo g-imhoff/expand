@@ -7,7 +7,6 @@ import { resolve } from "node:path"
 const here = import.meta.dirname
 const repo = resolve(here, "../..")
 const alias = {
-  "@expand/contracts": resolve(repo, "packages/contracts"),
   "@expand/client-ts": resolve(repo, "packages/client-ts"),
   "@expand/electron-ipc": resolve(repo, "packages/electron-ipc"),
   "@expand/desktop": resolve(here, "src")

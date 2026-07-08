@@ -14,6 +14,15 @@ export default defineConfig({
     globals: false,
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    server: {
+      deps: {
+        // @expand/* workspace packages resolve to TypeScript source via their
+        // package.json "exports". Inline them so Vite transforms that source
+        // instead of externalizing it to the runtime loader (which cannot load
+        // a .ts entry). Covers current and future @expand workspace packages.
+        inline: [/@expand\//]
+      }
+    },
     coverage: {
       provider: "istanbul",
       reporter: ["text", "json-summary", "html"],
@@ -34,15 +43,19 @@ export default defineConfig({
     }
   },
   resolve: {
-    alias: {
-      "@expand/contracts": new URL("./packages/contracts", import.meta.url).pathname,
-      "@expand/client-ts": new URL("./packages/client-ts", import.meta.url).pathname,
-      "@expand/tui": new URL("./apps/tui", import.meta.url).pathname,
-      "@expand/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
-      "@expand/server": new URL("./apps/server", import.meta.url).pathname,
-      "@expand/electron-ipc": new URL("./packages/electron-ipc", import.meta.url).pathname,
-      "@expand/ink-input": new URL("./packages/ink-input", import.meta.url).pathname,
-      "@expand": new URL("./apps/cli", import.meta.url).pathname
-    }
+    // Array form so the bare "@expand" fallback can be a RegExp. @expand/contracts
+    // is intentionally NOT aliased: it resolves through node_modules to its
+    // package.json "exports" (source .ts), which vitest transforms thanks to the
+    // `test.server.deps.inline` entry above. The negative lookahead keeps the bare
+    // "@expand" -> apps/cli fallback from greedily swallowing @expand/contracts/*.
+    alias: [
+      { find: "@expand/client-ts", replacement: new URL("./packages/client-ts", import.meta.url).pathname },
+      { find: "@expand/tui", replacement: new URL("./apps/tui", import.meta.url).pathname },
+      { find: "@expand/desktop", replacement: new URL("./apps/desktop/src", import.meta.url).pathname },
+      { find: "@expand/server", replacement: new URL("./apps/server", import.meta.url).pathname },
+      { find: "@expand/electron-ipc", replacement: new URL("./packages/electron-ipc", import.meta.url).pathname },
+      { find: "@expand/ink-input", replacement: new URL("./packages/ink-input", import.meta.url).pathname },
+      { find: /^@expand\/(?!contracts\/)(.*)$/, replacement: new URL("./apps/cli", import.meta.url).pathname + "/$1" }
+    ]
   }
 })

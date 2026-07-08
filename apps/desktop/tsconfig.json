@@ -5,7 +5,6 @@
     "types": ["node", "react", "react-dom"],
     "baseUrl": "../..",
     "paths": {
-      "@expand/contracts/*": ["packages/contracts/*"],
       "@expand/client-ts": ["packages/client-ts/index.ts"],
       "@expand/client-ts/*": ["packages/client-ts/*"],
       "@expand/desktop/*": ["apps/desktop/src/*"],
