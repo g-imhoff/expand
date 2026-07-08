@@ -28,3 +28,7 @@ fresh temp dir per run for exactly this reason.
   for each subfolder of a given directory, deduping against existing projects and
   skipping conflicts. Prints `bootstrap: created <N>, skipped <M>`.
   Run: `bun run examples/client-ts/bootstrap-projects.ts <dir>`
+- **[`archive-stale.ts`](./archive-stale.ts)** — list the active projects and archive
+  any whose `directory` no longer exists on disk. Prints
+  `archive-stale: archived <N> of <M> active`.
+  Run: `bun run examples/client-ts/archive-stale.ts`
