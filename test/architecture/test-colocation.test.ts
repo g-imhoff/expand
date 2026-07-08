@@ -20,7 +20,10 @@ describe("test colocation", () => {
     const all = walk(repoRoot).filter(isTestFile).map((p) => p.slice(repoRoot.length))
     const misplaced = all.filter((rel) => {
       if (rel.startsWith("test/architecture/")) return false
-      const ok = /^apps\/[^/]+\/test\//.test(rel) || /^packages\/[^/]+\/test\//.test(rel)
+      const ok =
+        /^apps\/[^/]+\/test\//.test(rel) ||
+        /^packages\/[^/]+\/test\//.test(rel) ||
+        /^examples\/[^/]+\/test\//.test(rel)
       return !ok
     })
     expect(misplaced).toEqual([])

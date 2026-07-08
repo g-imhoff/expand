@@ -24,4 +24,7 @@ fresh temp dir per run for exactly this reason.
 
 ## Examples
 
-_(added in later tasks)_
+- **[`bootstrap-projects.ts`](./bootstrap-projects.ts)** — create an Expand project
+  for each subfolder of a given directory, deduping against existing projects and
+  skipping conflicts. Prints `bootstrap: created <N>, skipped <M>`.
+  Run: `bun run examples/client-ts/bootstrap-projects.ts <dir>`
