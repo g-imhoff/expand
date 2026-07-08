@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
-import { ServerClient } from "@expand/client-core"
+import { ServerClient } from "@expand/client-ts"
 import { defineCommand } from "@expand/cli/_command"
 
 export const healthCommand = defineCommand(

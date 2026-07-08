@@ -3,7 +3,7 @@ import { Effect, Exit, Layer, Stream, SubscriptionRef } from "effect"
 import type { Project } from "@expand/contracts/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ProjectCreated } from "@expand/contracts/events/project"
-import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-ts"
 import { connectionHandlers } from "@expand/desktop/main/rpc/connection-handlers"
 import { healthHandlers } from "@expand/desktop/main/rpc/health-handlers"
 

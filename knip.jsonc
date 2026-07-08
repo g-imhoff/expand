@@ -8,7 +8,7 @@
   // values (const/function/class) are un-exported in code, never hidden here.
   "ignoreExportsUsedInFile": { "type": true, "interface": true },
 
-  // ws / @types/ws ARE used: packages/client-core/adapters/node.ts imports the
+  // ws / @types/ws ARE used: packages/client-ts/adapters/node.ts imports the
   // Node `WebSocket` and is consumed by the Electron main process (apps/desktop,
   // a workspace whose package.json declares no deps). Knip can't credit a root
   // dependency across that workspace boundary, so this is a false positive, not

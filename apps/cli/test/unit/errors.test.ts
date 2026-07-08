@@ -4,7 +4,7 @@ import { ProjectExists, ProjectNotFoundCli, mapProjectError } from "@expand/cli/
 import { BackendUnreachable, Unexpected, mapServerError } from "@expand/cli/errors/server-errors"
 import { mapContractError } from "@expand/cli/errors"
 import { ProjectAlreadyExists, ProjectNotFound } from "@expand/contracts/rpc"
-import { BackendUnavailable } from "@expand/client-core"
+import { BackendUnavailable } from "@expand/client-ts"
 
 describe("cli errors", () => {
   it("ProjectExists -> code/exit 5/non-retryable envelope", () => {

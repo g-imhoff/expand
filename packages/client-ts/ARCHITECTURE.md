@@ -1,4 +1,4 @@
-# `@expand/client-core` — how it works
+# `@expand/client-ts` — how it works
 
 The client-side library of the Expand monorepo. It discovers/spawns the backend
 server, opens an RPC-over-WebSocket session, and maintains a reactive,

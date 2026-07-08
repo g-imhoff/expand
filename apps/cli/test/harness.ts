@@ -1,7 +1,7 @@
 import { Cause, Console, Effect, Layer, Runtime } from "effect"
 import { CliOutput, Command } from "effect/unstable/cli"
 import { BunServices } from "@effect/platform-bun"
-import { ProjectClient, ServerClient, type ProjectClientApi, type ServerClientApi } from "@expand/client-core"
+import { ProjectClient, ServerClient, type ProjectClientApi, type ServerClientApi } from "@expand/client-ts"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
 import { renderErrors } from "@expand/cli/run"
 

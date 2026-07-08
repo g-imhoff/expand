@@ -1,7 +1,7 @@
 import { Effect, Queue, type Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-core"
+import { ProjectStore } from "@expand/client-ts"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
 import { supervised } from "@expand/desktop/main/lib/supervised"
 

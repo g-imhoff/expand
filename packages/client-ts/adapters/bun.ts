@@ -2,8 +2,8 @@ import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
 import { Effect, Layer } from "effect"
 import { BunSocket } from "@effect/platform-bun"
 import { existsSync } from "node:fs"
-import type { RuntimeAdapter } from "@expand/client-core/adapter"
-import { BackendUnavailable } from "@expand/client-core/discovery"
+import type { RuntimeAdapter } from "@expand/client-ts/adapter"
+import { BackendUnavailable } from "@expand/client-ts/discovery"
 
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(

@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 
-// The proxy forwards to the client-core store; a transport failure (RpcClientError)
+// The proxy forwards to the client-ts store; a transport failure (RpcClientError)
 // is an internal defect, never a wire-recoverable error. Refinement form (mirroring
 // the server guard) narrows the result error to `Exclude<E, RpcClientError>`;
 // `catchTag` cannot narrow over a generic `E` inside this helper.

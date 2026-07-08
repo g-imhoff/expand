@@ -1,6 +1,6 @@
 // S5 — RPC replay: a real WebSocket client drains the full backlog through
 // Events({ fromSeq: 0 }). Queue.take per event is exactly what production
-// clients pay (client-core drains one take at a time). Budget: ≥ 20k events/s.
+// clients pay (client-ts drains one take at a time). Budget: ≥ 20k events/s.
 import { Duration, Effect, Queue } from "effect"
 import { plantCheckpoint } from "../seed"
 import { withRss } from "../rss"

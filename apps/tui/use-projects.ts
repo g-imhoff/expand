@@ -1,6 +1,6 @@
 import { useCallback, use, useEffect, useState } from "react"
 import { Effect, Fiber, Schema, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, supervised } from "@expand/client-core"
+import { ProjectStore, supervised } from "@expand/client-ts"
 import type { Project } from "@expand/contracts/project"
 import { RuntimeContext } from "@expand/tui/runtime"
 

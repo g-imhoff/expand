@@ -4,9 +4,9 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectStore } from "@expand/client-core"
-import { ProjectStoreLayer } from "@expand/client-core/project-store"
-import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { ProjectStore } from "@expand/client-ts"
+import { ProjectStoreLayer } from "@expand/client-ts/project-store"
+import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string

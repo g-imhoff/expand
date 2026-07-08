@@ -1,6 +1,6 @@
 import { Effect } from "effect"
-import type { RuntimeAdapter } from "@expand/client-core/adapter"
-import { ExpandRpcClient, ExpandRpcClientLive, type ExpandRpcClientApi } from "@expand/client-core/rpc-client"
+import type { RuntimeAdapter } from "@expand/client-ts/adapter"
+import { ExpandRpcClient, ExpandRpcClientLive, type ExpandRpcClientApi } from "@expand/client-ts/rpc-client"
 
 export const withClient = <A, E, R>(
   adapter: RuntimeAdapter,

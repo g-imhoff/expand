@@ -12,12 +12,17 @@
 // docs/superpowers/plans/2026-05-30-electron-ink-frontends.md.
 //
 // Desktop architecture redesign (typed RPC seam over a MessagePort; the
-// `renderer-must-not-import-client-core` rule extended to cover the preload,
+// `renderer-must-not-import-client-ts` rule extended to cover the preload,
 // which exposes only the registry-derived typed IPC surface (originally a pure
 // port broker; amended by the 2026-06-12 typed-IPC ADR)). Re-proven non-vacuous: a forbidden
-// preload -> client-core import trips the rule. ADR:
+// preload -> client-ts import trips the rule. ADR:
 // docs/superpowers/specs/2026-06-01-desktop-architecture-design.md and
 // docs/superpowers/plans/2026-06-01-desktop-architecture.md.
+//
+// Client library rename (the shared client package moved to packages/client-ts;
+// the I-1 glob and the `renderer-must-not-import-client-ts` rule name follow).
+// ADR: the 2026-07-08 client-ts rename design spec and plan under
+// docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { execFileSync } from "node:child_process"
 import { describe, expect, it } from "vitest"
@@ -28,7 +33,7 @@ describe("I-1: CLI client isolation", () => {
     let code = 0
     try {
       // Cruise the full frontend + shared-client surface: apps (cli, tui, desktop)
-      // and packages (contracts, client-core). I-1 now guards every frontend.
+      // and packages (contracts, client-ts). I-1 now guards every frontend.
       output = execFileSync(
         "bunx",
         ["depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"],
@@ -40,7 +45,7 @@ describe("I-1: CLI client isolation", () => {
     }
     expect(output).not.toContain("frontends-must-not-import-backend")
     expect(output).not.toContain("composition-only-from-server-subcommand")
-    expect(output).not.toContain("renderer-must-not-import-client-core")
+    expect(output).not.toContain("renderer-must-not-import-client-ts")
     expect(code).toBe(0)
   })
 })

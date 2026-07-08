@@ -6,8 +6,8 @@
     "baseUrl": "../..",
     "paths": {
       "@expand/contracts/*": ["packages/contracts/*"],
-      "@expand/client-core": ["packages/client-core/index.ts"],
-      "@expand/client-core/*": ["packages/client-core/*"],
+      "@expand/client-ts": ["packages/client-ts/index.ts"],
+      "@expand/client-ts/*": ["packages/client-ts/*"],
       "@expand/desktop/*": ["apps/desktop/src/*"],
       "@expand/electron-ipc/*": ["packages/electron-ipc/*"]
     },

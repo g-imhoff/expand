@@ -12,12 +12,12 @@ explicit architecture decision, not a code-review judgment call.
 ## I-1. Frontend isolation
 
 **Rule (generalized).** No frontend — `apps/cli/cli`, `apps/tui`,
-`apps/desktop` — and no shared client code (`packages/client-core`) may
+`apps/desktop` — and no shared client code (`packages/client-ts`) may
 import backend-internal modules (`apps/server/**`). Frontends depend ONLY
 on the pure contract (`packages/contracts`) and the connection brain
-(`packages/client-core`). Additionally, the Electron **renderer and
+(`packages/client-ts`). Additionally, the Electron **renderer and
 preload** (`apps/desktop/src/{renderer,preload}`) may not import
-`packages/client-core` or the Electron **main** process; they reach the
+`packages/client-ts` or the Electron **main** process; they reach the
 backend exclusively through the typed `ExpandRpcs` contract carried over
 the `MessagePort`. The preload exposes exactly the surface derived from
 the `ExpandIpc` registry (`apps/desktop/src/shared/ipc/channels.ts`,
@@ -28,7 +28,7 @@ hand-written bridge code. Registry channels are restricted to
 domain/backend interaction flows exclusively through `ExpandRpcs` over the
 MessagePort. The `event` channel kind may carry only pre-port bootstrap
 messages — domain push is stream RPCs on the port. Enforced by
-`.dependency-cruiser.cjs` (`renderer-must-not-import-client-core`,
+`.dependency-cruiser.cjs` (`renderer-must-not-import-client-ts`,
 `electron-ipc-package-isolated`, `shared-ipc-stays-pure`,
 `preload-imports-allowlist`) + `test/architecture/i1-cli-isolation.test.ts`
 + `test/architecture/ipc-boundary.test.ts`.
@@ -39,7 +39,7 @@ WebSocket and the only legitimate way for any frontend to interact with
 backend state is to send a command to the running `expand` backend.
 
 **Forbidden import sources** from every frontend (`apps/cli/cli/**`,
-`apps/tui/**`, `apps/desktop/src/**`) and from `packages/client-core/**`:
+`apps/tui/**`, `apps/desktop/src/**`) and from `packages/client-ts/**`:
 
 - `apps/server/**` — the entire backend: composition root, db, domain,
   application, http transport, rpc-handlers, endpoint-file,
@@ -49,7 +49,7 @@ backend state is to send a command to the running `expand` backend.
 
 - `packages/contracts/**` — RPC contracts (Effect Schema) and shared
   schema types.
-- `packages/client-core/**` — discovery, RPC client, project store
+- `packages/client-ts/**` — discovery, RPC client, project store
   (except from the Electron renderer/preload, which reach the backend
   only through the MessagePort seam).
 - External npm packages.
@@ -79,7 +79,7 @@ This is precisely the architecture this design was created to avoid.
 **Enforcement.** An architectural-fitness test must verify the rule on
 every CI run. The implementation is `dependency-cruiser` configured with
 the forbidden rules `frontends-must-not-import-backend`,
-`renderer-must-not-import-client-core`, `electron-ipc-package-isolated`,
+`renderer-must-not-import-client-ts`, `electron-ipc-package-isolated`,
 `shared-ipc-stays-pure`, and `preload-imports-allowlist`, wrapped in
 vitest tests under `test/architecture/` (`i1-cli-isolation.test.ts` and
 `ipc-boundary.test.ts`). The cruiser's

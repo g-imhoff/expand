@@ -17,8 +17,8 @@
     "baseUrl": ".",
     "paths": {
       "@expand/contracts/*": ["packages/contracts/*"],
-      "@expand/client-core/*": ["packages/client-core/*"],
-      "@expand/client-core": ["packages/client-core/index.ts"],
+      "@expand/client-ts/*": ["packages/client-ts/*"],
+      "@expand/client-ts": ["packages/client-ts/index.ts"],
       "@expand/tui/*": ["apps/tui/*"],
       "@expand/desktop/*": ["apps/desktop/src/*"],
       "@expand/server/*": ["apps/server/*"],

@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
-import { withClient } from "@expand/client-core"
-import { bunAdapter } from "@expand/client-core/adapters/bun"
-import { readEndpoint } from "@expand/client-core/discovery"
+import { withClient } from "@expand/client-ts"
+import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { readEndpoint } from "@expand/client-ts/discovery"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
@@ -32,7 +32,7 @@ describe.sequential("durability across a backend restart", () => {
     const dbPath = join(dir, "events.db")
     const boot = (
       use: (
-        c: import("@expand/client-core/rpc-client").ExpandRpcClientApi
+        c: import("@expand/client-ts/rpc-client").ExpandRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
@@ -76,7 +76,7 @@ describe.sequential("durability across a backend restart", () => {
     const workdir = mkdtempSync(join(tmpdir(), "expand-durable-dir-"))
     const boot = (
       use: (
-        c: import("@expand/client-core/rpc-client").ExpandRpcClientApi
+        c: import("@expand/client-ts/rpc-client").ExpandRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
@@ -120,7 +120,7 @@ describe.sequential("durability across a backend restart", () => {
   it("persists a snapshot that the reboot reads (snapshot seq matches the log)", async () => {
     const dbPath = join(dir, "events.db")
     const boot = (
-      use: (c: import("@expand/client-core/rpc-client").ExpandRpcClientApi) => Effect.Effect<unknown, unknown, never>
+      use: (c: import("@expand/client-ts/rpc-client").ExpandRpcClientApi) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))

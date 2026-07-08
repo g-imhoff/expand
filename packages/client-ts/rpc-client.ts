@@ -3,9 +3,9 @@ import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
-import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@expand/client-core/discovery"
-import { supervised } from "@expand/client-core/supervise"
-import type { RuntimeAdapter } from "@expand/client-core/adapter"
+import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@expand/client-ts/discovery"
+import { supervised } from "@expand/client-ts/supervise"
+import type { RuntimeAdapter } from "@expand/client-ts/adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 

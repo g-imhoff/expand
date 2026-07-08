@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-ts"
 import { RuntimeContext } from "@expand/tui/runtime"
 import { App } from "@expand/tui/components/app"
 

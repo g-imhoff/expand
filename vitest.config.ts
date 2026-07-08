@@ -36,7 +36,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@expand/contracts": new URL("./packages/contracts", import.meta.url).pathname,
-      "@expand/client-core": new URL("./packages/client-core", import.meta.url).pathname,
+      "@expand/client-ts": new URL("./packages/client-ts", import.meta.url).pathname,
       "@expand/tui": new URL("./apps/tui", import.meta.url).pathname,
       "@expand/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
       "@expand/server": new URL("./apps/server", import.meta.url).pathname,

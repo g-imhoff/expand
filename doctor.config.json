@@ -96,7 +96,7 @@
       // allowlist, harden-web-contents.ts, window-options.ts sandbox). The rule fired
       // only on lexical `WebSocket` + `spawn` proximity.
       {
-        "files": ["packages/client-core/adapters/node.ts"],
+        "files": ["packages/client-ts/adapters/node.ts"],
         "rules": ["react-doctor/local-rpc-native-bridge-risk"]
       }
     ]

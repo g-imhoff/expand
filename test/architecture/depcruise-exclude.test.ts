@@ -6,6 +6,11 @@
 // lets source files whose names merely contain "test"/"out"/"dist" silently
 // drop out of boundary enforcement. Changes require architecture-owner review;
 // CODEOWNERS routes this path.
+//
+// Client library rename (the shared client package moved to packages/client-ts;
+// the `packages/client-ts/attestation.ts` path literal follows). ADR: the
+// 2026-07-08 client-ts rename design spec and plan under
+// docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
@@ -22,7 +27,7 @@ const matchedByAny = (path: string): boolean => patterns.some((re) => re.test(pa
 
 const MUST_STAY_CRUISED = [
   "apps/desktop/src/renderer/latest.ts",
-  "packages/client-core/attestation.ts",
+  "packages/client-ts/attestation.ts",
   "apps/cli/cli/protest.ts"
 ] as const
 

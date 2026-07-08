@@ -4,23 +4,23 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectStore } from "@expand/client-core"
-import { ProjectStoreLayer } from "@expand/client-core/project-store"
-import { makeBunAdapter } from "@expand/client-core/adapters/bun"
+import { ProjectStore } from "@expand/client-ts"
+import { ProjectStoreLayer } from "@expand/client-ts/project-store"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-bun-spawn-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-node-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-describe("Bun adapter (explicit backendCommand)", () => {
-  it("spawns the real backend + reflects a create in the live ref", async () => {
-    const adapter = makeBunAdapter({
-      backendCommand: [process.execPath, join(process.cwd(), "apps/server/main.ts")]
+describe("Node adapter", () => {
+  it("spawns + connects + creates via ws transport", async () => {
+    const adapter = makeNodeAdapter({
+      backendCommand: ["bun", join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(
       ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
@@ -29,18 +29,18 @@ describe("Bun adapter (explicit backendCommand)", () => {
       const store = await rt.runPromise(ProjectStore)
       const seen = rt.runPromise(
         SubscriptionRef.changes(store.projects).pipe(
-          Stream.filter((ps) => ps.some((p) => p.name === "spawned")),
+          Stream.filter((ps) => ps.some((p) => p.name === "via-node")),
           Stream.take(1),
           Stream.runDrain,
           Effect.timeout("5 seconds")
         )
       )
-      const created = await rt.runPromise(store.createProject("spawned"))
-      expect(created.name).toBe("spawned")
+      const created = await rt.runPromise(store.createProject("via-node"))
+      expect(created.name).toBe("via-node")
       await seen
 
       const list = await rt.runPromise(SubscriptionRef.get(store.projects))
-      expect(list.map((p) => p.name)).toContain("spawned")
+      expect(list.map((p) => p.name)).toContain("via-node")
     } finally {
       await rt.dispose()
     }

@@ -20,7 +20,7 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
                             │  (everyone imports this, it imports no one)
         ┌───────────────────┼─────────────────────────────┐
         ▼                                                   ▼
-   apps/server   ── the ONE backend ──┐          packages/client-core
+   apps/server   ── the ONE backend ──┐          packages/client-ts
    (SQLite event log, sequencing,     │          the "connection brain":
     event bus, lifecycle, RPC)        │          discover/spawn backend,
         ▲                             │          one RPC session, reactive
@@ -42,7 +42,7 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 
 | | Invariant | In plain terms |
 |---|---|---|
-| **I-1** | Frontend isolation | No frontend (`cli`/`tui`/`desktop`) and no `client-core` may import `apps/server/**`. The desktop renderer is stricter still: it reaches the backend *only* through a transferred `MessagePort`. This is what physically prevents a UI from booting its own private backend. |
+| **I-1** | Frontend isolation | No frontend (`cli`/`tui`/`desktop`) and no `client-ts` may import `apps/server/**`. The desktop renderer is stricter still: it reaches the backend *only* through a transferred `MessagePort`. This is what physically prevents a UI from booting its own private backend. |
 | **I-2** | One AppLayer per machine | Only `apps/server` hosts the Effect `AppLayer` (the DB, event bus, subprocesses). Everyone else is a client. |
 | **I-3** | Single discovery file | The backend writes one endpoint file (`url`, `token`, `pid`, `protocolVersion`) on boot; clients find-or-spawn through it. |
 | **I-4** | Zero-connection shutdown | The backend counts live WebSocket connections; the instant the count returns to 0, it shuts down. No grace period. |
@@ -89,7 +89,7 @@ DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
 MOVED 7. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**
-- **Single fold, no second copy.** Confirm `foldList`/`applyEvent` here are genuinely the *only* projection and that server + client-core reuse them (any divergence breaks snapshot-vs-replay consistency).
+- **Single fold, no second copy.** Confirm `foldList`/`applyEvent` here are genuinely the *only* projection and that server + client-ts reuse them (any divergence breaks snapshot-vs-replay consistency).
 - **`applyEvent` semantics:** `MetadataChanged` is a partial patch keyed on `!== undefined` (omission keeps a field; `null` clears it). Tags dedupe via `new Set`. Check `undefined` vs `null` intent.
 - **`foldList` replay-safety:** create is idempotent, delete tombstones, unknown ids are no-ops — must match how the server sequences and the client gates by `seq`.
 - **Validation bounds are the system trust boundary:** name/tag regex, UUIDv4 ids, description ≤ 2048, directory ≤ 4096 — the *same* limits must apply on both the event and RPC schemas.
@@ -127,7 +127,7 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 
 ---
 
-### Stage 3 — `packages/client-core`  ·  75–90 min  ·  🔴 high
+### Stage 3 — `packages/client-ts`  ·  75–90 min  ·  🔴 high
 
 **What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), find-or-spawn discovery, the RPC session + presence handshake, and the reactive `ProjectStore` that mirrors backend state and survives reconnects. Hosts no `AppLayer` (I-2); reaches the backend only via the discovery file (I-3) and never imports `apps/server` (I-1).
 
@@ -158,7 +158,7 @@ DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced w
 
 **What:** A thin, agent-friendly CLI that turns shell verbs into typed RPC calls and prints stable, versioned JSON envelopes (`apiVersion "expand/v1"`) with distinct per-error exit codes. Holds no business logic.
 
-**Why here:** It's the **simplest complete frontend** — review it first among the UIs to see the full `frontend → client-core → RPC → backend` loop without any UI complexity.
+**Why here:** It's the **simplest complete frontend** — review it first among the UIs to see the full `frontend → client-ts → RPC → backend` loop without any UI complexity.
 
 **Read in order:**
 1. `cli/main.ts` — composition root: builds the command tree, wires the real Bun client layer, installs the JSON error formatter (`makeExpand` factory + `import.meta.main` guard).
@@ -197,7 +197,7 @@ Read the input framework first, then the TUI that consumes it.
 
 **What:** The Ink terminal frontend — a one-screen project manager driven by a **pure unidirectional pipeline**: `useKeyRouter → route() (pure) → uiReduce() (pure) → runEffect (the single impure seam) → ProjectStore`.
 
-**Why here:** Depends on `contracts` + `client-core` + `ink-input`.
+**Why here:** Depends on `contracts` + `client-ts` + `ink-input`.
 
 **Read in order:** `runtime.ts` (client-only `ManagedRuntime`) → `main.tsx` → `input/state.ts` (the vocabulary) → `input/bindings.ts` → `input/route.ts` (modal top-down, text first-refusal) → `input/reduce.ts` (state transitions + `DomainEffect` data + `reconcile()`) → `use-projects.ts` (the Effect↔React bridge) → `components/app.tsx` (the only stateful component, holds `runEffect`) → `components/project-list.tsx`.
 
@@ -230,7 +230,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 #### 6b — `apps/desktop` (main process)  ·  45–60 min  ·  🔴 high
 
-**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-core's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
+**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-ts's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
 **Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
@@ -298,7 +298,7 @@ If you can't do the full pass, review the **load-bearing correctness cores** in 
 1. **Stage 0** — the four invariants (20 min). Non-negotiable context.
 2. **`contracts/project.ts`** — the single shared fold (20 min). If this is wrong, everything diverges.
 3. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (the replay handler body is `apps/server/rpc/stream.ts`) (45 min). The write path and stream correctness.
-4. **`client-core/project-store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
+4. **`client-ts/project-store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
 5. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
 6. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
 
@@ -313,7 +313,7 @@ Reading the matching "best tests" alongside each gives you the intended behavior
 | 0 | architecture docs | foundation | 🟢 | ~20 min |
 | 1 | `packages/contracts` | foundation | 🟡 | 35–45 min |
 | 2 | `apps/server` | backend | 🔴 | 75–90 min |
-| 3 | `packages/client-core` | shared client | 🔴 | 75–90 min |
+| 3 | `packages/client-ts` | shared client | 🔴 | 75–90 min |
 | 4 | `apps/cli` | frontend | 🟢 | 30–45 min |
 | 5a | `packages/ink-input` | shared client | 🟢 | 20–30 min |
 | 5b | `apps/tui` | frontend | 🟡 | 40–55 min |

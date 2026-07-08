@@ -11,9 +11,9 @@ import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ProjectCreated } from "@expand/contracts/events/project"
 import { Project } from "@expand/contracts/project"
-import { ProjectStore } from "@expand/client-core"
-import { ProjectStoreLayer } from "@expand/client-core/project-store"
-import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { ProjectStore } from "@expand/client-ts"
+import { ProjectStoreLayer } from "@expand/client-ts/project-store"
+import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string

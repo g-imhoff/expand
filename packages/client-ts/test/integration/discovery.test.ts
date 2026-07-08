@@ -4,7 +4,7 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readEndpoint } from "@expand/client-core/discovery"
+import { readEndpoint } from "@expand/client-ts/discovery"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
