@@ -6,11 +6,6 @@ import type { RuntimeAdapter } from "@expand/client-ts/adapter"
 import { BackendUnavailable } from "@expand/client-ts/errors"
 import { readEndpoint } from "@expand/client-ts/discovery"
 
-interface LockInfo {
-  readonly pid: number
-  readonly startedAt: number
-}
-
 const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -95,3 +90,8 @@ export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
       Effect.ensuring(releaseLock(lockPath))
     )
   })
+
+interface LockInfo {
+  readonly pid: number
+  readonly startedAt: number
+}

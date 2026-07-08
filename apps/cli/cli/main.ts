@@ -4,27 +4,20 @@ import { Effect, Layer } from "effect"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
-import { ClientLayer, ProjectClient, ServerClient } from "@expand/client-ts"
+import { ClientLayer, ProjectClient, ServerClient, resolveBackendCommand } from "@expand/client-ts"
 import { Format, Quiet } from "@expand/cli/global-flags"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
 import { renderErrors } from "@expand/cli/run"
 import { healthCommand } from "@expand/cli/commands/health"
 import { projectCommand } from "@expand/cli/commands/project"
-const backendCommand = (): ReadonlyArray<string> => {
-  const override = process.env.EXPAND_BACKEND_CMD
-  if (override) {
-    const parsed = JSON.parse(override) as ReadonlyArray<string>
-    if (!Array.isArray(parsed) || parsed.some((s) => typeof s !== "string")) {
-      throw new Error("EXPAND_BACKEND_CMD must be a JSON array of strings")
-    }
-    return parsed
-  }
-  const entry = fileURLToPath(import.meta.url)
-  if (/\.(ts|js|mjs|cjs)$/.test(entry)) {
-    return [process.execPath, join(entry, "..", "..", "..", "server", "main.ts")]
-  }
-  return [join(dirname(process.execPath), "expand-server")]
-}
+// From source (apps/cli/cli/main.ts) the sibling apps/server/main.ts exists →
+// `bun apps/server/main.ts`; from the compiled binary it does not → the
+// packaged `expand-server` next to the executable.
+const backendCommand = (): ReadonlyArray<string> =>
+  resolveBackendCommand({
+    sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts"),
+    binaryArgs: [join(dirname(process.execPath), "expand-server")]
+  })
 
 export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerClient, E, R>) => {
   const health = healthCommand.pipe(

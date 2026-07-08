@@ -1,6 +1,6 @@
 import { Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
-import { ProjectStore, type BackendUnavailable } from "@expand/client-ts"
+import { ProjectStore, resolveBackendCommand, type BackendUnavailable } from "@expand/client-ts"
 import { ProjectStoreLayer } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { join } from "node:path"
@@ -11,17 +11,10 @@ export type ExpandRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendU
 export const defaultBackendEntry = (moduleUrl: string): string =>
   join(fileURLToPath(moduleUrl), "..", "..", "..", "..", "server", "main.ts")
 
-const backendCommand = (): ReadonlyArray<string> => {
-  const override = process.env.EXPAND_BACKEND_CMD
-  if (override) {
-    const parsed = JSON.parse(override) as ReadonlyArray<string>
-    if (!Array.isArray(parsed) || parsed.some((s) => typeof s !== "string")) {
-      throw new Error("EXPAND_BACKEND_CMD must be a JSON array of strings")
-    }
-    return parsed
-  }
-  return ["bun", defaultBackendEntry(import.meta.url)]
-}
+// Electron's process.execPath is the Electron binary, not a JS runtime, so the
+// backend is spawned via `bun` explicitly (binaryArgs) rather than source mode.
+const backendCommand = (): ReadonlyArray<string> =>
+  resolveBackendCommand({ binaryArgs: ["bun", defaultBackendEntry(import.meta.url)] })
 
 export const makeRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(

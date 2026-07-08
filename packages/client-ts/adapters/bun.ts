@@ -1,9 +1,9 @@
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
 import { Effect, Layer } from "effect"
 import { BunSocket } from "@effect/platform-bun"
-import { existsSync } from "node:fs"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
 import { BackendUnavailable } from "@expand/client-ts/errors"
+import { resolveBackendCommand } from "@expand/client-ts/backend-command"
 
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(
@@ -11,11 +11,11 @@ const protocolLayer = (url: string) =>
     Layer.provide(BunSocket.layerWebSocket(url))
   )
 
-const defaultBackendCommand = (): ReadonlyArray<string> => {
-  const entry = Bun.main
-  const fromSource = existsSync(entry) && /\.(ts|js|mjs|cjs)$/.test(entry)
-  return fromSource ? [process.execPath, entry, "server"] : [process.execPath, "server"]
-}
+// Robust default (symmetric with the Node adapter): honour EXPAND_BACKEND_CMD,
+// else re-invoke this binary against its own entrypoint with a `server`
+// subcommand — from source `bun <Bun.main> server`, once compiled `<self> server`.
+const defaultBackendCommand = (): ReadonlyArray<string> =>
+  resolveBackendCommand({ sourceEntry: Bun.main, sourceArgs: ["server"], binaryArgs: [process.execPath, "server"] })
 
 export interface BunAdapterOptions {
   readonly backendCommand?: ReadonlyArray<string> | (() => ReadonlyArray<string>)
@@ -50,4 +50,12 @@ export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
   return { protocolLayer, spawnBackend }
 }
 
+/**
+ * Convenience Bun adapter using {@link defaultBackendCommand} (env override →
+ * `<runtime> <entry> server`). Frontends normally build their own adapter via
+ * {@link makeBunAdapter} with an explicit `backendCommand` (see
+ * `resolveBackendCommand`); this singleton is for callers — chiefly the
+ * integration suite and benches — that either connect to an already-running
+ * backend or accept the self-re-invoking default.
+ */
 export const bunAdapter: RuntimeAdapter = makeBunAdapter()

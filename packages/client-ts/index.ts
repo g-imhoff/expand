@@ -6,6 +6,7 @@ export { ProjectClient, ProjectClientLayer, type ProjectClientApi } from "@expan
 export { ServerClient, ServerClientLayer, type ServerClientApi } from "@expand/client-ts/server-client"
 export { ClientLayer } from "@expand/client-ts/client-layer"
 export { withClient } from "@expand/client-ts/with-client"
+export { resolveBackendCommand, type ResolveBackendCommandOptions } from "@expand/client-ts/backend-command"
 export { ProjectStore, ProjectStoreLayer, type ConnectionStatus, type ProjectStoreApi } from "@expand/client-ts/project-store"
 export { supervised } from "@expand/client-ts/supervise"
 
