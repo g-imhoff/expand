@@ -8,29 +8,24 @@ export class ConnectionTracker extends Context.Service<ConnectionTracker, {
   readonly count: Effect.Effect<number>
 }>()("yodea/ConnectionTracker", {
   make: Effect.gen(function* () {
-    const count = yield* Ref.make(0)
-    const armed = yield* Ref.make(false)
+    const state = yield* Ref.make({ count: 0, armed: false })
     const shutdown = yield* Deferred.make<void>()
 
-    const onConnect = Effect.andThen(
-      Ref.update(count, (n) => n + 1),
-      Ref.set(armed, true)
-    )
+    const onConnect = Ref.update(state, (s) => ({ count: s.count + 1, armed: true }))
 
-    const onDisconnect = Effect.gen(function* () {
-      const n = yield* Ref.updateAndGet(count, (c) => Math.max(0, c - 1))
-      const isArmed = yield* Ref.get(armed)
-      if (isArmed && n === 0) {
-        yield* Deferred.succeed(shutdown, undefined)
-      }
-    })
+    // The fire decision is computed in the SAME atomic step as the decrement, so
+    // a connect interleaved between them can never race a stale zero.
+    const onDisconnect = Ref.modify(state, (s) => {
+      const count = Math.max(0, s.count - 1)
+      return [s.armed && count === 0, { ...s, count }] as const
+    }).pipe(Effect.flatMap((fire) => (fire ? Effect.asVoid(Deferred.succeed(shutdown, undefined)) : Effect.void)))
 
     return {
       onConnect,
       onDisconnect,
       awaitShutdown: Deferred.await(shutdown),
       isShuttingDown: Deferred.isDone(shutdown),
-      count: Ref.get(count)
+      count: Effect.map(Ref.get(state), (s) => s.count)
     } as const
   })
 }) {}
