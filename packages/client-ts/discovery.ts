@@ -102,6 +102,7 @@ export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
     yield* fs.remove(paths.endpointFile).pipe(Effect.ignore)
   })
 
+/** @internal */
 export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
   Effect.gen(function* () {
     const { paths } = yield* AppContext

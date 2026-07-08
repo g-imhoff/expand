@@ -261,3 +261,26 @@ supplies.
 That's the whole flow: **adapter abstracts the platform → `acquireClient`
 finds/spawns/connects/heals → `ProjectStore` seeds, subscribes, and folds the
 server's event stream into an atomic reactive replica, surviving reconnects.**
+
+---
+
+## Public API surface
+
+External consumers use exactly two entrypoints:
+
+- `@expand/client-ts` (the barrel) — the platform-neutral public API:
+  `ProjectStore` / `ProjectStoreLayer`, `ProjectClient` / `ProjectClientLayer`,
+  `ServerClient` / `ServerClientLayer`, `ClientLayer`, `withClient`,
+  `supervised`, `RuntimeAdapter` (type), `BackendUnavailable`, `readEndpoint`,
+  `deleteEndpoint`, `endpointWsUrl`, `ConnectionStatus`, `ProjectStoreShape`,
+  and the `*Api` types (`ProjectClientApi`, `ServerClientApi`,
+  `ExpandRpcClientApi` — the client `withClient` hands to its callback).
+- `@expand/client-ts/adapters/bun` and `@expand/client-ts/adapters/node` — the
+  platform seams (kept separate because each imports platform-only deps).
+
+Everything else (`acquireClient`, discovery internals, `makeStore`, the raw
+`ExpandRpcClient` service and `ExpandRpcClientLive` layer, the `*Live` facades)
+is internal: not re-exported from the barrel, tagged `@internal` where exported,
+and unreachable from outside by the `client-ts-barrel-only` dependency-cruiser
+rule. `supervised` is public for now but is a candidate to move to a shared
+effect-utils package later.

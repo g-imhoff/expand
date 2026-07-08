@@ -9,6 +9,7 @@ import type { RuntimeAdapter } from "@expand/client-ts/adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
+/** @internal */
 export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcClientApi>()(
   "expand/ExpandRpcClient"
 ) {}
@@ -23,6 +24,7 @@ class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
   readonly reason: string
 }> {}
 
+/** @internal */
 export const acquireClient = (
   adapter: RuntimeAdapter
 ): Effect.Effect<
@@ -73,6 +75,7 @@ export const acquireClient = (
   )
 }
 
+/** @internal */
 export const ExpandRpcClientLive = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
