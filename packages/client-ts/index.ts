@@ -46,11 +46,9 @@ export { withClient } from "@expand/client-ts/with-client"
 // Advanced / plumbing — rarely needed directly.
 //   ExpandRpcClientApi — the raw client type `withClient` hands its callback.
 //   readEndpoint       — read/validate the backend endpoint descriptor file.
-//   supervised         — log-on-crash wrapper for background fibers.
 // ─────────────────────────────────────────────────────────────────────────────
 export { type ExpandRpcClientApi } from "@expand/client-ts/rpc-client"
 export { readEndpoint } from "@expand/client-ts/discovery"
-export { supervised } from "@expand/client-ts/supervise"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Contract vocabulary re-exports.

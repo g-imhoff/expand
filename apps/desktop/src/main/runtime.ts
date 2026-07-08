@@ -12,9 +12,11 @@ export const defaultBackendEntry = (moduleUrl: string): string =>
   join(fileURLToPath(moduleUrl), "..", "..", "..", "..", "server", "main.ts")
 
 // Electron's process.execPath is the Electron binary, not a JS runtime, so the
-// backend is spawned via `bun` explicitly (binaryArgs) rather than source mode.
+// backend runs under `bun` (execPath) against the absolute source entry. Going
+// through source mode (rather than an explicit fallback) keeps the resolver's
+// source/compiled existence check and its EXPAND_BACKEND_CMD override.
 const backendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({ binaryArgs: ["bun", defaultBackendEntry(import.meta.url)] })
+  resolveBackendCommand({ execPath: "bun", sourceEntry: defaultBackendEntry(import.meta.url) })
 
 export const makeRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(

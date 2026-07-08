@@ -45,6 +45,10 @@ export const useProjects = () => {
         if (cancelled) stop()
         else unsubscribe = stop
       })
+      // First-connect failure rejects the ManagedRuntime layer build (e.g.
+      // BackendUnavailable). Surface it via the same error path the component
+      // already uses instead of dropping it as an unhandled rejection.
+      .catch((cause) => setError(describeError(cause)))
     return () => {
       cancelled = true
       unsubscribe?.()

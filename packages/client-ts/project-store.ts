@@ -48,6 +48,10 @@ export interface ProjectStoreApi {
    * down automatically when the store's scope closes, so forgetting to
    * unsubscribe leaks nothing beyond the store's own lifetime.
    *
+   * `onProjects` MUST NOT throw: it runs inside the delivery fiber, so a thrown
+   * error kills that fiber and terminates delivery for the rest of the store's
+   * lifetime. Keep the callback total (e.g. wrap risky work in try/catch).
+   *
    * Prefer this over hand-rolling `Stream.runForEach(SubscriptionRef.changes(
    * store.projects), …)` + `Fiber.interrupt` inside UI effects.
    */

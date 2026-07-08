@@ -50,6 +50,11 @@ describe("resolveBackendCommand", () => {
       expect(cmd).toEqual([process.execPath, realSource, "server"])
     })
 
+    it("uses an explicit execPath for the source-mode command (e.g. Electron's bun)", () => {
+      const cmd = resolveBackendCommand({ env: {}, execPath: "bun", sourceEntry: realSource, sourceArgs: ["server"] })
+      expect(cmd).toEqual(["bun", realSource, "server"])
+    })
+
     it("falls back to binaryArgs when the source entry does not exist", () => {
       const cmd = resolveBackendCommand({ env: {}, sourceEntry: missingSource, binaryArgs: ["expand-server"] })
       expect(cmd).toEqual(["expand-server"])

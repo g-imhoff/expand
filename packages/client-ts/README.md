@@ -40,13 +40,19 @@ usually, a **backend command** (how to spawn the server) resolved via
 
 ```ts
 import { Layer, ManagedRuntime } from "effect"
+import { fileURLToPath } from "node:url"
 import { BunServices } from "@effect/platform-bun"
 import { ProjectStore, ProjectStoreLayer, resolveBackendCommand } from "@expand/client-ts"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
+// Resolve the server entry to an ABSOLUTE path relative to this module — a bare
+// relative path would resolve against the process cwd and break when the app is
+// launched from anywhere but the repo root.
+const serverEntry = fileURLToPath(new URL("../server/main.ts", import.meta.url))
+
 const adapter = makeBunAdapter({
   // How to start the backend if one isn't already running.
-  backendCommand: () => resolveBackendCommand({ sourceEntry: "apps/server/main.ts" })
+  backendCommand: () => resolveBackendCommand({ sourceEntry: serverEntry })
 })
 
 const runtime = ManagedRuntime.make(
@@ -70,9 +76,26 @@ unsubscribe()
 await runtime.dispose()
 ```
 
-Node/Electron consumers use `makeNodeAdapter` + `NodeServices.layer` identically.
-Electron's `process.execPath` is not a JS runtime, so pass an explicit
-`backendCommand` (e.g. `resolveBackendCommand({ binaryArgs: ["bun", entry] })`).
+Node/Electron consumers use `makeNodeAdapter` + `NodeServices.layer` identically,
+except `makeNodeAdapter` **requires** a `backendCommand` (there is no safe
+default: Electron's `process.execPath` is the Electron binary, not a JS runtime).
+Run the source entry under a real JS runtime by passing `execPath`, which keeps
+the resolver's source/compiled existence check:
+`resolveBackendCommand({ execPath: "bun", sourceEntry: absoluteEntry })`.
+
+#### Overriding the backend command
+
+`resolveBackendCommand` honours an **`EXPAND_BACKEND_CMD`** environment variable —
+a JSON array of strings (e.g. `EXPAND_BACKEND_CMD='["expand-server","--data-dir","/tmp"]'`)
+— which wins over both source mode and `binaryArgs`. Handy for pointing a build
+at a prebuilt binary without touching code.
+
+Caveat: the override only applies when the command flows through
+`resolveBackendCommand`. Passing a **literal array** straight to
+`makeBunAdapter`/`makeNodeAdapter` (`backendCommand: ["bun", entry]`) bypasses the
+resolver entirely, so `EXPAND_BACKEND_CMD` is ignored. Wrap it in
+`resolveBackendCommand` (or `() => resolveBackendCommand({...})`) to keep the env
+override live.
 
 ### Typed facades (CLI / scripts)
 

@@ -17,9 +17,17 @@ export interface ResolveBackendCommandOptions {
   /**
    * Path to the server source entry (e.g. `.../apps/server/main.ts`). When this
    * file exists and looks like a runnable script, the command becomes
-   * `[process.execPath, sourceEntry, ...sourceArgs]` ("source mode").
+   * `[execPath, sourceEntry, ...sourceArgs]` ("source mode").
    */
   readonly sourceEntry?: string | undefined
+  /**
+   * Runtime executable used to run {@link sourceEntry} in source mode. Defaults
+   * to `process.execPath`. Electron consumers pass an explicit JS runtime (e.g.
+   * `"bun"`) because Electron's `process.execPath` is the Electron binary, not a
+   * JS runtime — this lets them keep the source/compiled existence check instead
+   * of hard-coding an explicit fallback command.
+   */
+  readonly execPath?: string | undefined
   /**
    * Extra arguments appended after {@link sourceEntry} in source mode (e.g. a
    * `["server"]` subcommand). Ignored when source mode does not apply.
@@ -58,7 +66,8 @@ const parseOverride = (raw: string): ReadonlyArray<string> => {
  * 1. `env.EXPAND_BACKEND_CMD` — parsed as a JSON array of strings (throws with a
  *    clear message on malformed JSON or a non-string-array).
  * 2. Source mode — if {@link ResolveBackendCommandOptions.sourceEntry} exists on
- *    disk and looks runnable, `[process.execPath, sourceEntry, ...sourceArgs]`.
+ *    disk and looks runnable, `[execPath, sourceEntry, ...sourceArgs]` (where
+ *    `execPath` defaults to `process.execPath`).
  * 3. {@link ResolveBackendCommandOptions.binaryArgs} — the compiled/explicit
  *    fallback.
  *
@@ -72,9 +81,9 @@ export const resolveBackendCommand = (opts: ResolveBackendCommandOptions = {}): 
   if (override !== undefined && override !== "") {
     return parseOverride(override)
   }
-  const { sourceEntry, sourceArgs = [], binaryArgs } = opts
+  const { sourceEntry, sourceArgs = [], binaryArgs, execPath = process.execPath } = opts
   if (sourceEntry !== undefined && SOURCE_ENTRY_RE.test(sourceEntry) && existsSync(sourceEntry)) {
-    return [process.execPath, sourceEntry, ...sourceArgs]
+    return [execPath, sourceEntry, ...sourceArgs]
   }
   if (binaryArgs !== undefined) {
     return binaryArgs
