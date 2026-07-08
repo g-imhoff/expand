@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
-import { readEndpoint } from "@expand/client-ts/discovery"
+import { readEndpoint } from "@expand/client-ts"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 

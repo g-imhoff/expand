@@ -1,7 +1,7 @@
 import { Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { ProjectStore, type BackendUnavailable } from "@expand/client-ts"
-import { ProjectStoreLayer } from "@expand/client-ts/project-store"
+import { ProjectStoreLayer } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"

@@ -20,10 +20,10 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
-import { readEndpoint } from "@expand/client-ts/discovery"
+import { readEndpoint } from "@expand/client-ts"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
-import { endpointWsUrl } from "@expand/client-ts/rpc-client"
+import { endpointWsUrl } from "@expand/client-ts"
 
 let dir: string
 beforeEach(() => {
