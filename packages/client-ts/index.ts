@@ -1,5 +1,6 @@
 export type { RuntimeAdapter } from "@expand/client-ts/adapter"
-export { readEndpoint, BackendUnavailable } from "@expand/client-ts/discovery"
+export { readEndpoint } from "@expand/client-ts/discovery"
+export { BackendUnavailable } from "@expand/client-ts/errors"
 export { type ExpandRpcClientApi } from "@expand/client-ts/rpc-client"
 export { ProjectClient, ProjectClientLayer, type ProjectClientApi } from "@expand/client-ts/project-client"
 export { ServerClient, ServerClientLayer, type ServerClientApi } from "@expand/client-ts/server-client"

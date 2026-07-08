@@ -4,7 +4,7 @@ import { Socket } from "effect/unstable/socket"
 import { WebSocket as WS } from "ws"
 import { spawn } from "node:child_process"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { BackendUnavailable } from "@expand/client-ts/discovery"
+import { BackendUnavailable } from "@expand/client-ts/errors"
 
 const wsConstructor = Layer.succeed(
   Socket.WebSocketConstructor,

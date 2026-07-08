@@ -6,7 +6,7 @@ import type { ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { BackendUnavailable } from "@expand/client-ts/discovery"
+import { BackendUnavailable } from "@expand/client-ts/errors"
 import { acquireClient, type ExpandRpcClientApi } from "@expand/client-ts/rpc-client"
 import { supervised } from "@expand/client-ts/supervise"
 

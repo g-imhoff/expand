@@ -1,9 +1,9 @@
 import { Context, Effect, Layer } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem } from "effect"
-import type { BackendUnavailable } from "@expand/client-ts/discovery"
+import type { BackendUnavailable } from "@expand/client-ts/errors"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { ExpandRpcClient, ExpandRpcClientLive } from "@expand/client-ts/rpc-client"
+import { ExpandRpcClient, ExpandRpcClientLayer } from "@expand/client-ts/rpc-client"
 
 export interface ServerClientApi {
   readonly health: () => Effect.Effect<string, RpcClientError.RpcClientError>
@@ -24,4 +24,4 @@ export const ServerClientLive: Layer.Layer<ServerClient, never, ExpandRpcClient>
 export const ServerClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ServerClient, BackendUnavailable, FileSystem.FileSystem> =>
-  ServerClientLive.pipe(Layer.provide(ExpandRpcClientLive(adapter)))
+  ServerClientLive.pipe(Layer.provide(ExpandRpcClientLayer(adapter)))

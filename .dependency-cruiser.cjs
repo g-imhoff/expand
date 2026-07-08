@@ -61,6 +61,16 @@ module.exports = {
       to: { path: "^(apps/|packages/(?!ink-input))" }
     },
     {
+      name: "client-ts-no-circular",
+      severity: "error",
+      comment:
+        "No import cycles inside the @expand/client-ts SDK (Phase B structural cleanup). " +
+        "Scoped to packages/client-ts to catch SDK-internal cycles without asserting on " +
+        "pre-existing cycles elsewhere in the repo.",
+      from: { path: "^packages/client-ts/" },
+      to: { path: "^packages/client-ts/", circular: true }
+    },
+    {
       name: "renderer-no-node-appcontext",
       severity: "error",
       comment: "packages/contracts/app-context pulls node:os/fs — the renderer/preload must never import it.",

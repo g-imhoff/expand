@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { BunSocket } from "@effect/platform-bun"
 import { existsSync } from "node:fs"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { BackendUnavailable } from "@expand/client-ts/discovery"
+import { BackendUnavailable } from "@expand/client-ts/errors"
 
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(

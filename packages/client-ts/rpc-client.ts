@@ -3,7 +3,9 @@ import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
-import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@expand/client-ts/discovery"
+import { BackendUnavailable } from "@expand/client-ts/errors"
+import { deleteEndpoint } from "@expand/client-ts/discovery"
+import { findOrSpawnBackend } from "@expand/client-ts/spawn"
 import { supervised } from "@expand/client-ts/supervise"
 import type { RuntimeAdapter } from "@expand/client-ts/adapter"
 
@@ -77,7 +79,7 @@ export const acquireClient = (
 }
 
 /** @internal */
-export const ExpandRpcClientLive = (
+export const ExpandRpcClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
   Layer.effect(ExpandRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))
