@@ -2,9 +2,9 @@ import { Effect, Option, Schedule } from "effect"
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
-import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { BackendUnavailable } from "@expand/client-ts/errors"
-import { readEndpoint } from "@expand/client-ts/discovery"
+import type { RuntimeAdapter } from "./adapter"
+import { BackendUnavailable } from "./errors"
+import { readEndpoint } from "./discovery"
 
 const isProcessAlive = (pid: number): boolean => {
   try {

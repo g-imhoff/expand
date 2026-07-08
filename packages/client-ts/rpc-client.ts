@@ -3,11 +3,11 @@ import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
-import { BackendUnavailable } from "@expand/client-ts/errors"
-import { deleteEndpoint } from "@expand/client-ts/discovery"
-import { findOrSpawnBackend } from "@expand/client-ts/spawn"
-import { supervised } from "@expand/client-ts/supervise"
-import type { RuntimeAdapter } from "@expand/client-ts/adapter"
+import { BackendUnavailable } from "./errors"
+import { deleteEndpoint } from "./discovery"
+import { findOrSpawnBackend } from "./spawn"
+import { supervised } from "./supervise"
+import type { RuntimeAdapter } from "./adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
@@ -16,8 +16,7 @@ export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcC
   "expand/ExpandRpcClient"
 ) {}
 
-/** @internal */
-export const endpointWsUrl = (endpoint: Endpoint): string =>
+const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`
 
 const CONNECT_TIMEOUT = "3 seconds"

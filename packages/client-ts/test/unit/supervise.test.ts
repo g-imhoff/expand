@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Fiber, Logger } from "effect"
-import { supervised } from "@expand/client-ts/supervise"
+import { supervised } from "../../supervise"
 
 const captureLogger = (entries: Array<string>) =>
   Logger.make((options) => {

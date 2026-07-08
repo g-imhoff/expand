@@ -8,6 +8,7 @@
         "@effect/platform-bun": "4.0.0-beta.74",
         "@effect/platform-node": "4.0.0-beta.74",
         "@effect/sql-sqlite-bun": "4.0.0-beta.74",
+        "@expand/client-ts": "workspace:*",
         "@expand/contracts": "workspace:*",
         "@tanstack/react-router": "^1.95.0",
         "clsx": "^2.1.1",
@@ -47,6 +48,19 @@
         "typescript": "6.0.3",
         "typescript-eslint": "^8.61.1",
         "vitest": "4.1.7",
+      },
+    },
+    "packages/client-ts": {
+      "name": "@expand/client-ts",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.0-beta.74",
+        "@expand/contracts": "workspace:*",
+        "effect": "4.0.0-beta.74",
+        "ws": "^8.21.0",
+      },
+      "devDependencies": {
+        "@types/ws": "^8.18.1",
       },
     },
     "packages/contracts": {
@@ -181,6 +195,8 @@
     "@eslint/object-schema": ["@eslint/object-schema@3.0.5", "", {}, "sha512-vqTaUEgxzm+YDSdElad6PiRoX4t8VGDjCtt05zn4nU810UIx/uNEV7/lZJ6KwFThKZOzOxzXy48da+No7HZaMw=="],
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.7.2", "", { "dependencies": { "@eslint/core": "^1.2.1", "levn": "^0.4.1" } }, "sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A=="],
+
+    "@expand/client-ts": ["@expand/client-ts@workspace:packages/client-ts"],
 
     "@expand/contracts": ["@expand/contracts@workspace:packages/contracts"],
 

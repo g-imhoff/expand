@@ -44,18 +44,18 @@ export default defineConfig({
   },
   resolve: {
     // Array form so the bare "@expand" fallback can be a RegExp. @expand/contracts
-    // is intentionally NOT aliased: it resolves through node_modules to its
-    // package.json "exports" (source .ts), which vitest transforms thanks to the
-    // `test.server.deps.inline` entry above. The negative lookahead keeps the bare
-    // "@expand" -> apps/cli fallback from greedily swallowing @expand/contracts/*.
+    // and @expand/client-ts are intentionally NOT aliased: they resolve through
+    // node_modules to their package.json "exports" (source .ts), which vitest
+    // transforms thanks to the `test.server.deps.inline` entry above. The negative
+    // lookahead keeps the bare "@expand" -> apps/cli fallback from greedily
+    // swallowing @expand/contracts/* or @expand/client-ts (barrel + subpaths).
     alias: [
-      { find: "@expand/client-ts", replacement: new URL("./packages/client-ts", import.meta.url).pathname },
       { find: "@expand/tui", replacement: new URL("./apps/tui", import.meta.url).pathname },
       { find: "@expand/desktop", replacement: new URL("./apps/desktop/src", import.meta.url).pathname },
       { find: "@expand/server", replacement: new URL("./apps/server", import.meta.url).pathname },
       { find: "@expand/electron-ipc", replacement: new URL("./packages/electron-ipc", import.meta.url).pathname },
       { find: "@expand/ink-input", replacement: new URL("./packages/ink-input", import.meta.url).pathname },
-      { find: /^@expand\/(?!contracts\/)(.*)$/, replacement: new URL("./apps/cli", import.meta.url).pathname + "/$1" }
+      { find: /^@expand\/(?!contracts\/|client-ts(?:\/|$))(.*)$/, replacement: new URL("./apps/cli", import.meta.url).pathname + "/$1" }
     ]
   }
 })

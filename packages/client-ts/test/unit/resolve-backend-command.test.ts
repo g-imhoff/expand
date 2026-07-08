@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { fileURLToPath } from "node:url"
-import { resolveBackendCommand } from "@expand/client-ts"
+import { resolveBackendCommand } from "../../index"
 
 // A file that definitely exists and looks runnable: this very test module.
 const realSource = fileURLToPath(import.meta.url)

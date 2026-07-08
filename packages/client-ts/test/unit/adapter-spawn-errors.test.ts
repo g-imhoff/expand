@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { tmpdir } from "node:os"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
-import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { makeBunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 
 const dir = tmpdir()
 

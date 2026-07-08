@@ -1,0 +1,22 @@
+{
+  "name": "@expand/client-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./index.ts",
+    "./adapters/bun": "./adapters/bun.ts",
+    "./adapters/node": "./adapters/node.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "4.0.0-beta.74",
+    "@expand/contracts": "workspace:*",
+    "effect": "4.0.0-beta.74",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

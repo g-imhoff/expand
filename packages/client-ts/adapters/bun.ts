@@ -1,9 +1,9 @@
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
 import { Effect, Layer } from "effect"
 import { BunSocket } from "@effect/platform-bun"
-import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { BackendUnavailable } from "@expand/client-ts/errors"
-import { resolveBackendCommand } from "@expand/client-ts/backend-command"
+import type { RuntimeAdapter } from "../adapter"
+import { BackendUnavailable } from "../errors"
+import { resolveBackendCommand } from "../backend-command"
 
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(

@@ -1,10 +1,10 @@
 import { Layer } from "effect"
 import type { FileSystem } from "effect"
-import type { BackendUnavailable } from "@expand/client-ts/errors"
-import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { ProjectClient, ProjectClientLive } from "@expand/client-ts/project-client"
-import { ServerClient, ServerClientLive } from "@expand/client-ts/server-client"
-import { ExpandRpcClientLayer } from "@expand/client-ts/rpc-client"
+import type { BackendUnavailable } from "./errors"
+import type { RuntimeAdapter } from "./adapter"
+import { ProjectClient, ProjectClientLive } from "./project-client"
+import { ServerClient, ServerClientLive } from "./server-client"
+import { ExpandRpcClientLayer } from "./rpc-client"
 
 export const ClientLayer = (
   adapter: RuntimeAdapter

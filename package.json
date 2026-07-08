@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/contracts"],
+  "workspaces": ["packages/contracts", "packages/client-ts"],
   "module": "apps/cli/cli/main.ts",
   "bin": {
     "expand": "apps/cli/cli/main.ts"
@@ -38,6 +38,7 @@
     "@effect/platform-bun": "4.0.0-beta.74",
     "@effect/platform-node": "4.0.0-beta.74",
     "@effect/sql-sqlite-bun": "4.0.0-beta.74",
+    "@expand/client-ts": "workspace:*",
     "@expand/contracts": "workspace:*",
     "@tanstack/react-router": "^1.95.0",
     "clsx": "^2.1.1",

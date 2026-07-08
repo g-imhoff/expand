@@ -23,7 +23,6 @@ import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 import { readEndpoint } from "@expand/client-ts"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
-import { endpointWsUrl } from "@expand/client-ts/rpc-client"
 
 let dir: string
 beforeEach(() => {
@@ -288,7 +287,9 @@ describe.sequential("trust boundary", () => {
       const sameLengthWrong = yield* Effect.promise(() =>
         probeWs(`${endpoint.url}?token=${encodeURIComponent(flipped)}`)
       )
-      const realToken = yield* Effect.promise(() => probeWs(endpointWsUrl(endpoint)))
+      const realToken = yield* Effect.promise(() =>
+        probeWs(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
+      )
       yield* Fiber.interrupt(serverFiber)
       return { sameLengthWrong, realToken }
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))

@@ -3,9 +3,9 @@ import type { FileSystem } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
-import type { BackendUnavailable } from "@expand/client-ts/errors"
-import type { RuntimeAdapter } from "@expand/client-ts/adapter"
-import { ExpandRpcClient, ExpandRpcClientLayer } from "@expand/client-ts/rpc-client"
+import type { BackendUnavailable } from "./errors"
+import type { RuntimeAdapter } from "./adapter"
+import { ExpandRpcClient, ExpandRpcClientLayer } from "./rpc-client"
 
 // Raw strings in; the backend validates at ingestion (ProjectInvalidInput on
 // failure). The client never references the branded vocabulary.
