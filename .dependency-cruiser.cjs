@@ -17,6 +17,18 @@ module.exports = {
       to: { path: "^(packages/client-ts|apps/desktop/src/main)(/|$)" }
     },
     {
+      name: "client-ts-barrel-only",
+      severity: "error",
+      comment:
+        "BOUNDARIES.md: @expand/client-ts exposes only its barrel (index.ts) and " +
+        "adapters/* — external code must not deep-import its internals.",
+      from: { pathNot: "^packages/client-ts/" },
+      to: {
+        path: "^packages/client-ts/",
+        pathNot: "^packages/client-ts/(index\\.ts$|adapters/)"
+      }
+    },
+    {
       name: "electron-ipc-package-isolated",
       severity: "error",
       comment:
