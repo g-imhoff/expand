@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore } from "react"
-import type { Project } from "@yodea/contracts/project"
-import { useAppHandle } from "@yodea/desktop/renderer/app/AppHandleProvider"
+import type { Project } from "@expand/contracts/project"
+import { useAppHandle } from "@expand/desktop/renderer/app/AppHandleProvider"
 
 export interface MutationState<I, A> {
   readonly mutate: (input: I, options?: MutationOptions<A>) => void

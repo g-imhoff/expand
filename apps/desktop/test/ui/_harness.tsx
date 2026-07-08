@@ -1,10 +1,10 @@
 import { type ReactElement, type ReactNode } from "react"
 import { Schema } from "effect"
 import { render } from "@testing-library/react"
-import type { Project, ProjectDeleteResult } from "@yodea/contracts/project"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import type { AppHandle } from "@yodea/desktop/renderer/app/app-handle"
-import { AppHandleProvider } from "@yodea/desktop/renderer/app/AppHandleProvider"
+import type { Project, ProjectDeleteResult } from "@expand/contracts/project"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import type { AppHandle } from "@expand/desktop/renderer/app/app-handle"
+import { AppHandleProvider } from "@expand/desktop/renderer/app/AppHandleProvider"
 
 export const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

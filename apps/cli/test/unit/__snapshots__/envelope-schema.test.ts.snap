@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapshot 1`] = `
+exports[`envelope contract (expand/v1) > matches the frozen envelope-shape snapshot 1`] = `
 {
   "ErrorEnvelope": {
     "definitions": {},
@@ -10,7 +10,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "properties": {
         "apiVersion": {
           "enum": [
-            "yodea/v1",
+            "expand/v1",
           ],
           "type": "string",
         },
@@ -78,7 +78,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "properties": {
         "apiVersion": {
           "enum": [
-            "yodea/v1",
+            "expand/v1",
           ],
           "type": "string",
         },
@@ -117,7 +117,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "properties": {
         "apiVersion": {
           "enum": [
-            "yodea/v1",
+            "expand/v1",
           ],
           "type": "string",
         },
@@ -234,7 +234,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "properties": {
         "apiVersion": {
           "enum": [
-            "yodea/v1",
+            "expand/v1",
           ],
           "type": "string",
         },
@@ -342,7 +342,7 @@ exports[`envelope contract (yodea/v1) > matches the frozen envelope-shape snapsh
       "properties": {
         "apiVersion": {
           "enum": [
-            "yodea/v1",
+            "expand/v1",
           ],
           "type": "string",
         },

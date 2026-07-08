@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Schema } from "effect"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import type { Project } from "@yodea/contracts/project"
-import { RendererRpcClient, type RendererRpcClientApi } from "@yodea/desktop/renderer/rpc/transport"
-import { ProjectRpc, ProjectRpcLayer } from "@yodea/desktop/renderer/rpc/project-rpc"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import type { Project } from "@expand/contracts/project"
+import { RendererRpcClient, type RendererRpcClientApi } from "@expand/desktop/renderer/rpc/transport"
+import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

@@ -1,14 +1,14 @@
 import { Cause, Context, Deferred, Effect, Exit, Layer, PubSub, Queue, Schedule, Stream, SubscriptionRef } from "effect"
 import { RpcClient, type RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem, Scope } from "effect"
-import { Project } from "@yodea/contracts/project"
-import type { ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
-import { BackendUnavailable } from "@yodea/client-core/discovery"
-import { acquireClient, type YodeaRpcClientApi } from "@yodea/client-core/rpc-client"
-import { supervised } from "@yodea/client-core/supervise"
+import { Project } from "@expand/contracts/project"
+import type { ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import type { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
+import { BackendUnavailable } from "@expand/client-core/discovery"
+import { acquireClient, type ExpandRpcClientApi } from "@expand/client-core/rpc-client"
+import { supervised } from "@expand/client-core/supervise"
 
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
@@ -42,7 +42,7 @@ export interface ProjectStoreShape {
 }
 
 export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreShape>()(
-  "yodea/ProjectStore"
+  "expand/ProjectStore"
 ) {}
 
 const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
@@ -83,7 +83,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
     const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")
     const hub = yield* PubSub.unbounded<SequencedEvent>()
-    const clientRef = yield* SubscriptionRef.make<YodeaRpcClientApi | null>(null)
+    const clientRef = yield* SubscriptionRef.make<ExpandRpcClientApi | null>(null)
     const ready = yield* Deferred.make<void, BackendUnavailable>()
     const hooked = withConnectionHooks(adapter, status)
 

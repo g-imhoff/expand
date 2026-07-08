@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { ProjectClient, type ProjectClientApi } from "@yodea/client-core"
-import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
+import { ProjectClient, type ProjectClientApi } from "@expand/client-core"
+import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 
 const stub = (projects: ReadonlyArray<{ id: string; name: string }>) =>
   Layer.succeed(ProjectClient, { list: () => Effect.succeed({ projects, seq: 0 }) } as unknown as ProjectClientApi)

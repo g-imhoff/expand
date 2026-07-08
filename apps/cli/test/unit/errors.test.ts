@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { Runtime } from "effect"
-import { ProjectExists, ProjectNotFoundCli, mapProjectError } from "@yodea/cli/errors/project-errors"
-import { BackendUnreachable, Unexpected, mapServerError } from "@yodea/cli/errors/server-errors"
-import { mapContractError } from "@yodea/cli/errors"
-import { ProjectAlreadyExists, ProjectNotFound } from "@yodea/contracts/rpc"
-import { BackendUnavailable } from "@yodea/client-core"
+import { ProjectExists, ProjectNotFoundCli, mapProjectError } from "@expand/cli/errors/project-errors"
+import { BackendUnreachable, Unexpected, mapServerError } from "@expand/cli/errors/server-errors"
+import { mapContractError } from "@expand/cli/errors"
+import { ProjectAlreadyExists, ProjectNotFound } from "@expand/contracts/rpc"
+import { BackendUnavailable } from "@expand/client-core"
 
 describe("cli errors", () => {
   it("ProjectExists -> code/exit 5/non-retryable envelope", () => {

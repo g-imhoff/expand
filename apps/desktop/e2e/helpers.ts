@@ -15,12 +15,12 @@ export const launchApp = async (): Promise<LaunchedApp> => {
   // its AppContext base from the `--data-dir` argv we pass here, and the node
   // adapter forwards that same dir to the spawned server via `--data-dir`, so both
   // sides rendezvous on the same endpoint file without any env override.
-  const dataHome = mkdtempSync(resolve(tmpdir(), "yodea-e2e-home-"))
+  const dataHome = mkdtempSync(resolve(tmpdir(), "expand-e2e-home-"))
   const app = await electron.launch({
     args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs"), "--data-dir", dataHome],
     env: {
       ...process.env,
-      YODEA_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
+      EXPAND_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
     }
   })
   const win = await app.firstWindow()

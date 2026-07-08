@@ -7,8 +7,8 @@ import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { DomainEventFromJson } from "@yodea/contracts/events/domain"
-import type { ProjectEvent } from "@yodea/contracts/events/project"
+import { DomainEventFromJson } from "@expand/contracts/events/domain"
+import type { ProjectEvent } from "@expand/contracts/events/project"
 import {
   ProjectArchived,
   ProjectCreated,
@@ -17,13 +17,13 @@ import {
   ProjectMetadataChanged,
   ProjectRenamed,
   ProjectRestored
-} from "@yodea/contracts/events/project"
-import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
-import { Project } from "@yodea/contracts/project"
-import { PROJECTION_NAME } from "@yodea/server/application/projections"
-import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
+} from "@expand/contracts/events/project"
+import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
+import { Project } from "@expand/contracts/project"
+import { PROJECTION_NAME } from "@expand/server/application/projections"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 
 export const GENERATOR_VERSION = 1
 export const PRNG_SEED = 42

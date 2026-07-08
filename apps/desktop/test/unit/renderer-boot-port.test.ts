@@ -1,8 +1,8 @@
 // apps/desktop/test/unit/renderer-boot-port.test.ts
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Fiber } from "effect"
-import { acquireRpcPort } from "@yodea/desktop/renderer/app/runtime"
-import type { MessageEventLike, RendererWindowLike } from "@yodea/electron-ipc/renderer"
+import { acquireRpcPort } from "@expand/desktop/renderer/app/runtime"
+import type { MessageEventLike, RendererWindowLike } from "@expand/electron-ipc/renderer"
 
 interface FakeWindow extends RendererWindowLike {
   fire: (event: MessageEventLike) => void
@@ -30,7 +30,7 @@ describe("acquireRpcPort", () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(requests).toEqual(["n-1"])
     win.fire({
-      data: { _tag: "IpcPortGrant", channel: "yodea:rpcPort", nonce: "n-1" },
+      data: { _tag: "IpcPortGrant", channel: "expand:rpcPort", nonce: "n-1" },
       source: win,
       ports: [fakePort]
     })

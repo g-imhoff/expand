@@ -11,7 +11,7 @@ import { join } from "node:path"
 // for the real DB, this fails.
 describe("SQLite production config", () => {
   it("a file-backed client runs in WAL journal mode (matches composition/app.ts)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "yodea-wal-"))
+    const dir = mkdtempSync(join(tmpdir(), "expand-wal-"))
     const dbPath = join(dir, "events.db")
     const Sql = SqliteClient.layer({ filename: dbPath })
     const mode = await Effect.runPromise(

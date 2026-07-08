@@ -1,9 +1,9 @@
 import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { ProjectUseCases } from "@yodea/server/application/projects/use-cases"
-import { ProjectProjection } from "@yodea/server/application/projections"
-import { guard } from "@yodea/server/rpc/guard"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { ProjectUseCases } from "@expand/server/application/projects/use-cases"
+import { ProjectProjection } from "@expand/server/application/projections"
+import { guard } from "@expand/server/rpc/guard"
 
 export const projectHandlers = {
   ProjectCreate: ({ name, ensure, directory }) =>
@@ -39,4 +39,4 @@ export const projectHandlers = {
   | "ProjectRestore" | "ProjectSetMetadata" | "ProjectDelete" | "ProjectList"
 >
 
-type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof YodeaRpcs>>
+type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

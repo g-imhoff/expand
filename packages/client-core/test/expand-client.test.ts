@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { ProjectClient, ServerClient } from "@yodea/client-core"
+import { ProjectClient, ServerClient } from "@expand/client-core"
 
 const projectStub = Layer.succeed(ProjectClient, {
   create: ({ name }: { name: string; ensure: boolean }) =>

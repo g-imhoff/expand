@@ -1,7 +1,7 @@
 import { exportsOnTop } from "./exports-on-top.mjs"
 import { noExportStar } from "./no-export-star.mjs"
 
-/** Local ESLint plugin holding Yodea-specific layout/architecture rules. */
+/** Local ESLint plugin holding Expand-specific layout/architecture rules. */
 export default {
   meta: { name: "local" },
   rules: {

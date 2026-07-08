@@ -4,13 +4,13 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-disc-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-disc-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })

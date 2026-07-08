@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import { render, fireEvent } from "@testing-library/react"
-import { BootError } from "@yodea/desktop/renderer/app/BootError"
+import { BootError } from "@expand/desktop/renderer/app/BootError"
 
 describe("BootError", () => {
   it("renders the failure in a role=alert block with a Retry button", () => {

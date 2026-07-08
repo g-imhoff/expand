@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { ProjectAlreadyExists, YodeaRpcs } from "@yodea/contracts/rpc"
+import { ProjectAlreadyExists, ExpandRpcs } from "@expand/contracts/rpc"
 
 describe("contracts/rpc ProjectAlreadyExists", () => {
   it("is a tagged error carrying the conflicting name", () => {
@@ -20,7 +20,7 @@ describe("contracts/rpc ProjectAlreadyExists", () => {
 // boundary (see apps/server use-cases + packages/contracts project verbs). These
 // tests pin that the wire accepts raw strings, including ones the server rejects.
 describe("contracts/rpc payloads are plain strings (validation is server-side)", () => {
-  const payloadOf = (tag: string) => YodeaRpcs.requests.get(tag)!.payloadSchema
+  const payloadOf = (tag: string) => ExpandRpcs.requests.get(tag)!.payloadSchema
 
   it("ProjectCreate accepts any string name, including ones the server will reject", () => {
     const create = payloadOf("ProjectCreate")

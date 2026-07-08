@@ -2,8 +2,8 @@
 // fail-fast decode throughput, no consumer work, no wire. Budget: ≥100k events/s.
 import { Duration, Effect, Layer, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { EventScanChunkSize } from "@yodea/server/db/event-store"
-import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
+import { EventScanChunkSize } from "@expand/server/db/event-store"
+import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { withRss } from "../rss"
 import type { Measurement, ScenarioContext } from "../report"
 

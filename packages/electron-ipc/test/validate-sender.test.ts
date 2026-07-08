@@ -7,7 +7,7 @@ import {
   type IpcMainEventLike,
   type OriginRule,
   type WindowTargetLike
-} from "@yodea/electron-ipc/main"
+} from "@expand/electron-ipc/main"
 
 const RULES: ReadonlyArray<OriginRule> = [
   { _tag: "fileProtocol" },

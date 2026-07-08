@@ -1,17 +1,17 @@
 import { Context, Effect, Layer, Queue, Ref, Stream, SubscriptionRef } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import { Project } from "@yodea/contracts/project"
-import type { ProjectDeleteResult } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
+import { Project } from "@expand/contracts/project"
+import type { ProjectDeleteResult } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type {
   ProjectDirectoryConflict,
   ProjectDirectoryInvalid,
   ProjectInvalidInput,
   ProjectNameConflict,
   ProjectNotFound
-} from "@yodea/contracts/rpc"
-import { ProjectRpc } from "@yodea/desktop/renderer/rpc/project-rpc"
-import { supervised } from "@yodea/desktop/renderer/lib/supervised"
+} from "@expand/contracts/rpc"
+import { ProjectRpc } from "@expand/desktop/renderer/rpc/project-rpc"
+import { supervised } from "@expand/desktop/renderer/lib/supervised"
 
 // Mutations take raw strings and forward them to the backend, which validates at
 // ingestion (ProjectInvalidInput on failure). The renderer never brands.
@@ -41,7 +41,7 @@ export interface RendererProjectStoreShape {
 }
 
 export class RendererProjectStore extends Context.Service<RendererProjectStore, RendererProjectStoreShape>()(
-  "yodea/desktop/RendererProjectStore"
+  "expand/desktop/RendererProjectStore"
 ) {}
 
 export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never, ProjectRpc> = Layer.effect(

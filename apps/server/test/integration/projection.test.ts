@@ -5,11 +5,11 @@ import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@yodea/server/application/projections"
-import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
-import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@expand/server/application/projections"
+import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
+import { ProjectCreated, ProjectRenamed } from "@expand/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -26,7 +26,7 @@ const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | P
   Effect.runPromise(Effect.provide(eff, layersFor(dbPath)))
 
 const withDb = async (body: (dbPath: string) => Promise<void>) => {
-  const dir = mkdtempSync(join(tmpdir(), "yodea-proj-"))
+  const dir = mkdtempSync(join(tmpdir(), "expand-proj-"))
   try {
     await body(join(dir, "events.db"))
   } finally {

@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import type { DomainEvent } from "@expand/contracts/events/domain"
 
 export class Project extends Schema.Class<Project>("Project")({
   id: Schema.String.pipe(Schema.check(Schema.isUUID(4)), Schema.brand("ProjectId")),

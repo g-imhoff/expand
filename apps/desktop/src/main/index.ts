@@ -2,20 +2,20 @@ import { app, BrowserWindow, MessageChannelMain, session } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
-import type { ProjectStore } from "@yodea/client-core"
-import { bindIpc } from "@yodea/electron-ipc/main"
-import { electronBindDeps } from "@yodea/electron-ipc/main-electron"
-import { makeRuntime } from "@yodea/desktop/main/runtime"
-import { connectPort } from "@yodea/desktop/main/rpc/transport"
-import { hardenWebContents } from "@yodea/desktop/main/security/harden-web-contents"
-import { windowOptions } from "@yodea/desktop/main/security/window-options"
-import { originRulesFor } from "@yodea/desktop/main/ipc/origin-rules"
-import { wirePortLifecycle } from "@yodea/desktop/main/ipc/port-lifecycle"
-import { YodeaIpc } from "@yodea/desktop/shared/ipc/channels"
+import type { ProjectStore } from "@expand/client-core"
+import { bindIpc } from "@expand/electron-ipc/main"
+import { electronBindDeps } from "@expand/electron-ipc/main-electron"
+import { makeRuntime } from "@expand/desktop/main/runtime"
+import { connectPort } from "@expand/desktop/main/rpc/transport"
+import { hardenWebContents } from "@expand/desktop/main/security/harden-web-contents"
+import { windowOptions } from "@expand/desktop/main/security/window-options"
+import { originRulesFor } from "@expand/desktop/main/ipc/origin-rules"
+import { wirePortLifecycle } from "@expand/desktop/main/ipc/port-lifecycle"
+import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-if (!app.isPackaged && process.env["YODEA_DEVTOOLS_CDP"] === "1") {
+if (!app.isPackaged && process.env["EXPAND_DEVTOOLS_CDP"] === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9222")
 }
 
@@ -56,8 +56,8 @@ const createWindow = () => {
   // Explicit type params: the rpcPort handler is `Effect.sync` (R = never), so
   // inference leaves bindIpc's R as `unknown`, which then fights runtime.runPromise
   // (R = ProjectStore). Pin R/Port to the real services and transferable port type.
-  const bound = bindIpc<typeof YodeaIpc, ProjectStore, Electron.MessagePortMain>(
-    YodeaIpc,
+  const bound = bindIpc<typeof ExpandIpc, ProjectStore, Electron.MessagePortMain>(
+    ExpandIpc,
     {
       rpcPort: () =>
         Effect.sync(() => {

@@ -1,5 +1,5 @@
 {
-  "name": "@yodea/desktop",
+  "name": "@expand/desktop",
   "version": "0.0.0",
   "private": true,
   "main": "out/main/index.mjs"

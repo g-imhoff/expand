@@ -52,7 +52,7 @@ describe("typed IPC boundary", () => {
     const imports = [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1])
     for (const specifier of imports) {
       expect(
-        specifier === "@yodea/desktop/shared/ipc/channels" || specifier!.startsWith("@yodea/electron-ipc/"),
+        specifier === "@expand/desktop/shared/ipc/channels" || specifier!.startsWith("@expand/electron-ipc/"),
         `preload imports forbidden module: ${specifier}`
       ).toBe(true)
     }
@@ -62,7 +62,7 @@ describe("typed IPC boundary", () => {
     const files = [...walk("apps/desktop/src")]
     for (const file of files) {
       const source = read(file)
-      expect(source, `${file} contains a legacy channel literal`).not.toMatch(/"yodea:port-request"|"yodea:port"/)
+      expect(source, `${file} contains a legacy channel literal`).not.toMatch(/"expand:port-request"|"expand:port"/)
     }
   })
 

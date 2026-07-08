@@ -1,14 +1,14 @@
 import { Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import { Project } from "@yodea/contracts/project"
-import type { ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
-import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import { ProjectEventStore } from "@yodea/server/application/projects/project-event-store"
-import type { ProjectEvent } from "@yodea/contracts/events/project"
-import { EventBus } from "@yodea/server/application/event-bus"
-import { ProjectProjection } from "@yodea/server/application/projections"
-import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
-import { newId } from "@yodea/server/lib/ids"
+import { Project } from "@expand/contracts/project"
+import type { ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
+import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
+import { ProjectEventStore } from "@expand/server/application/projects/project-event-store"
+import type { ProjectEvent } from "@expand/contracts/events/project"
+import { EventBus } from "@expand/server/application/event-bus"
+import { ProjectProjection } from "@expand/server/application/projections"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@expand/contracts/events/project"
+import { newId } from "@expand/server/lib/ids"
 
 /**
  * Every project mutation — the only code that appends project events.
@@ -43,7 +43,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, ProjectNotFound | UseCaseError>
   /** Zero-SQL projection read; archived filtered unless asked. Skips the mutex. */
   readonly listProjects: (includeArchived?: boolean) => Effect.Effect<ReadonlyArray<Project>, UseCaseError>
-}>()("yodea/ProjectUseCases", {
+}>()("expand/ProjectUseCases", {
   make: Effect.gen(function* () {
     const projectEvents = yield* ProjectEventStore
     const bus = yield* EventBus

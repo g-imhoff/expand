@@ -1,16 +1,16 @@
 import { RpcClient, RpcClientError } from "effect/unstable/rpc"
 import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import type { Endpoint } from "@yodea/contracts/endpoint"
-import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@yodea/client-core/discovery"
-import { supervised } from "@yodea/client-core/supervise"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import type { Endpoint } from "@expand/contracts/endpoint"
+import { BackendUnavailable, deleteEndpoint, findOrSpawnBackend } from "@expand/client-core/discovery"
+import { supervised } from "@expand/client-core/supervise"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
 
-export type YodeaRpcClientApi = RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>
+export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-export class YodeaRpcClient extends Context.Service<YodeaRpcClient, YodeaRpcClientApi>()(
-  "yodea/YodeaRpcClient"
+export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcClientApi>()(
+  "expand/ExpandRpcClient"
 ) {}
 
 export const endpointWsUrl = (endpoint: Endpoint): string =>
@@ -26,7 +26,7 @@ class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
 export const acquireClient = (
   adapter: RuntimeAdapter
 ): Effect.Effect<
-  { readonly client: YodeaRpcClientApi; readonly endpoint: Endpoint },
+  { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
   FileSystem.FileSystem | Scope.Scope
 > => {
@@ -38,7 +38,7 @@ export const acquireClient = (
     Effect.flatMap((endpoint) =>
       Effect.gen(function* () {
         const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))
-        const client = yield* RpcClient.make(YodeaRpcs).pipe(Effect.provideContext(protocol))
+        const client = yield* RpcClient.make(ExpandRpcs).pipe(Effect.provideContext(protocol))
         const ready = yield* Deferred.make<void>()
         yield* Effect.forkScoped(
           supervised(
@@ -73,7 +73,7 @@ export const acquireClient = (
   )
 }
 
-export const YodeaRpcClientLive = (
+export const ExpandRpcClientLive = (
   adapter: RuntimeAdapter
-): Layer.Layer<YodeaRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
-  Layer.effect(YodeaRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))
+): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
+  Layer.effect(ExpandRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))

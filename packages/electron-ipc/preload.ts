@@ -2,8 +2,8 @@
 // preload-electron.ts does) and carries no Effect runtime — the preload stays a
 // small auditable artifact. One closed-over function per channel; no exposed
 // function ever accepts a channel name (Doyensec/Discord RCE lesson).
-import type { AnyIpcChannel, IpcContract } from "@yodea/electron-ipc/contract"
-import { portGrantName, portRequestName, wireName } from "@yodea/electron-ipc/contract"
+import type { AnyIpcChannel, IpcContract } from "@expand/electron-ipc/contract"
+import { portGrantName, portRequestName, wireName } from "@expand/electron-ipc/contract"
 
 export interface PreloadIpcEvent {
   readonly ports: ReadonlyArray<unknown>

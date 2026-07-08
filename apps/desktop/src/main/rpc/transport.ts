@@ -1,8 +1,8 @@
 import { Effect, Fiber } from "effect"
 import type { ManagedRuntime } from "effect"
-import type { BackendUnavailable, ProjectStore } from "@yodea/client-core"
-import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
-import { supervised } from "@yodea/desktop/main/lib/supervised"
+import type { BackendUnavailable, ProjectStore } from "@expand/client-core"
+import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
+import { supervised } from "@expand/desktop/main/lib/supervised"
 
 export interface ConnectPortDeps {
   readonly port: MainPortLike

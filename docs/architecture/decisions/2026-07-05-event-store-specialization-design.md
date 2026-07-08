@@ -66,7 +66,7 @@ Effect's context system is a capability system: using a service requires *naming
 export class ProjectEventStore extends Context.Service<ProjectEventStore, {
   readonly read: (fromSeq?: number) => Stream.Stream<SequencedEvent, SqlError>
   readonly append: (event: ProjectEvent) => Effect.Effect<number, SqlError>
-}>()("yodea/ProjectEventStore", {
+}>()("expand/ProjectEventStore", {
   make: specializeEventStore((store) => ({
     read: (fromSeq = 0) => store.scan({ afterSeq: fromSeq, eventTypes: PROJECT_EVENT_TAGS }),
     append: (event) => store.append(event.projectId, event)   // stream_id DERIVED — the
@@ -82,7 +82,7 @@ export class ProjectEventStore extends Context.Service<ProjectEventStore, {
 export class ReplayFeed extends Context.Service<ReplayFeed, {
   /** The unfiltered, seq-ordered feed — backlog replay today, the sync feed tomorrow. */
   readonly read: (fromSeq: number) => Stream.Stream<SequencedEvent, SqlError>
-}>()("yodea/ReplayFeed", {
+}>()("expand/ReplayFeed", {
   make: specializeEventStore((store) => ({
     read: (fromSeq) => store.scan({ afterSeq: fromSeq })
   }))
@@ -112,7 +112,7 @@ Retarget, don't re-prove — semantics are identical:
 - This ADR.
 - `REVIEW.md`: Stage 2 item 2 rewritten (base factory + the two specializations and their locations); the `fromSeq` scrutinize bullet's `scan` mention → `ReplayFeed.read`; item 6's `commit` description notes the dropped `id` parameter. Affected items are unreviewed — no new `REREVIEW` markers required.
 - `test/architecture/backend-ownership.test.ts`: existence list gains `apps/server/application/projects/project-event-store.ts` and `apps/server/db/replay-feed.ts`.
-- `docs/architecture/yodea.c4`: unchanged (storage description already accurate). No invariant changes; I-1..I-4 unaffected.
+- `docs/architecture/expand.c4`: unchanged (storage description already accurate). No invariant changes; I-1..I-4 unaffected.
 
 ## 6. Out of scope
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import * as fc from "fast-check"
-import { Project } from "@yodea/contracts/project"
+import { Project } from "@expand/contracts/project"
 import {
   ProjectArchived,
   ProjectCreated,
@@ -9,8 +9,8 @@ import {
   ProjectMetadataChanged,
   ProjectRenamed,
   ProjectRestored
-} from "@yodea/contracts/events/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+} from "@expand/contracts/events/project"
+import type { DomainEvent } from "@expand/contracts/events/domain"
 
 const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
   events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])

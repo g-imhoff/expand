@@ -1,9 +1,9 @@
 import { Effect, Ref, Stream } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { EventBus } from "@yodea/server/application/event-bus"
-import { ConnectionTracker } from "@yodea/server/connection-tracker"
-import { ReplayFeed } from "@yodea/server/db/replay-feed"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { EventBus } from "@expand/server/application/event-bus"
+import { ConnectionTracker } from "@expand/server/connection-tracker"
+import { ReplayFeed } from "@expand/server/db/replay-feed"
 
 export const streamHandlers = {
   Connect: () =>
@@ -45,4 +45,4 @@ export const streamHandlers = {
         )
 } satisfies Pick<Handlers, "Connect" | "Events">
 
-type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof YodeaRpcs>>
+type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

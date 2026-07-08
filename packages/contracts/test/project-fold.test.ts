@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { Project } from "@yodea/contracts/project"
+import { Project } from "@expand/contracts/project"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged,
   ProjectMetadataChanged, ProjectRenamed, ProjectRestored
-} from "@yodea/contracts/events/project"
+} from "@expand/contracts/events/project"
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
 const created = ProjectCreated.make({ projectId: uid(1), name: "alpha", directory: null, occurredAt: "t1" })

@@ -1,13 +1,13 @@
 import { Context, Effect, Layer, Queue, type Scope, Stream } from "effect"
 import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
-import { supervised } from "@yodea/desktop/renderer/lib/supervised"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
+import { supervised } from "@expand/desktop/renderer/lib/supervised"
 
-export type RendererRpcClientApi = RpcClient.FromGroup<typeof YodeaRpcs, RpcClientError.RpcClientError>
+export type RendererRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
 export class RendererRpcClient extends Context.Service<RendererRpcClient, RendererRpcClientApi>()(
-  "yodea/desktop/RendererRpcClient"
+  "expand/desktop/RendererRpcClient"
 ) {}
 
 const makePortProtocol = (port: RendererPortLike) =>
@@ -43,7 +43,7 @@ const makePortProtocol = (port: RendererPortLike) =>
 export const buildRendererClient = (
   port: RendererPortLike
 ): Effect.Effect<RendererRpcClientApi, never, Scope.Scope> =>
-  RpcClient.make(YodeaRpcs).pipe(
+  RpcClient.make(ExpandRpcs).pipe(
     Effect.provideServiceEffect(RpcClient.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )

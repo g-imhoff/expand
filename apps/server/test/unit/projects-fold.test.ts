@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { Project } from "@yodea/contracts/project"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
-import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@yodea/contracts/events/project"
+import { Project } from "@expand/contracts/project"
+import type { DomainEvent } from "@expand/contracts/events/domain"
+import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@expand/contracts/events/project"
 
 const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
   events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])

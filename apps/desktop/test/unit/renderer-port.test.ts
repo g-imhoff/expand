@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { makeRendererPort } from "@yodea/desktop/renderer/rpc/renderer-port"
+import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
 
 const makeFakeMessagePort = () => {
   const sent: Array<unknown> = []

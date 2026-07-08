@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { wirePortLifecycle } from "@yodea/desktop/main/ipc/port-lifecycle"
+import { wirePortLifecycle } from "@expand/desktop/main/ipc/port-lifecycle"
 
 describe("wirePortLifecycle (spec §8: reload hardening)", () => {
   const harness = () => {

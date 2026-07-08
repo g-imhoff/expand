@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   confirmDeleteBindings, createBindings, listBindings, metadataBindings,
   textOverlayBindings
-} from "@yodea/tui/input/bindings"
+} from "@expand/tui/input/bindings"
 
 const allTables = [
   ["list", listBindings], ["create", createBindings],

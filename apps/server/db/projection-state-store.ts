@@ -48,7 +48,7 @@ export class ProjectionStateStore extends Context.Service<ProjectionStateStore, 
    * @param row - State + cursor + fold version, persisted atomically in a single statement.
    */
   readonly save: (name: string, row: ProjectionStateRow) => Effect.Effect<void, SqlError>
-}>()("yodea/ProjectionStateStore", {
+}>()("expand/ProjectionStateStore", {
   make: Effect.gen(function* () {
     const sql = yield* SqlClient
 

@@ -9,8 +9,8 @@ import type {
   IpcContract,
   PortExchangeChannel,
   SendChannel
-} from "@yodea/electron-ipc/contract"
-import { isPortGrantMessage, isResultEnvelope, wireName } from "@yodea/electron-ipc/contract"
+} from "@expand/electron-ipc/contract"
+import { isPortGrantMessage, isResultEnvelope, wireName } from "@expand/electron-ipc/contract"
 
 export class IpcTransportError extends Data.TaggedError("IpcTransportError")<{
   readonly reason: "bridge-missing" | "transport" | "decode" | "timeout"

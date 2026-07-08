@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, use } from "react"
-import type { AppHandle } from "@yodea/desktop/renderer/app/app-handle"
+import type { AppHandle } from "@expand/desktop/renderer/app/app-handle"
 
 const AppHandleContext = createContext<AppHandle | null>(null)
 

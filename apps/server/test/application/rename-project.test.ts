@@ -5,11 +5,11 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
+import { EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
@@ -79,7 +79,7 @@ describe("ProjectUseCases.renameProject", () => {
   })
 
   it("an archived project's directory stays reserved -> ProjectDirectoryConflict", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-arch-dir-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-arch-dir-"))
     try {
       const exit = await run(Effect.gen(function* () {
         const u = yield* ProjectUseCases

@@ -30,8 +30,8 @@ assert.equal(verdictFor("s1-cold-boot", 10_000, 1_000, 0, undefined, "100k"), "F
 
 // --- generator ---
 import { Effect, Exit, Schema } from "effect"
-import { DomainEventFromJson } from "@yodea/contracts/events/domain"
-import { Project } from "@yodea/contracts/project"
+import { DomainEventFromJson } from "@expand/contracts/events/domain"
+import { Project } from "@expand/contracts/project"
 import { generateEvents, LIVE_PROJECT_CAP, ProjectsFromJson, SCALES } from "./seed"
 
 const takeEvents = (n: number, seed?: number) => {

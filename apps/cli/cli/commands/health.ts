@@ -1,7 +1,7 @@
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
-import { ServerClient } from "@yodea/client-core"
-import { defineCommand } from "@yodea/cli/_command"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import { ServerClient } from "@expand/client-core"
+import { defineCommand } from "@expand/cli/_command"
 
 export const healthCommand = defineCommand(
   "health",

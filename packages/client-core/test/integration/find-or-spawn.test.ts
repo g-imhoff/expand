@@ -4,15 +4,15 @@ import { BunServices } from "@effect/platform-bun"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { findOrSpawnBackend } from "@yodea/client-core/discovery"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { findOrSpawnBackend } from "@expand/client-core/discovery"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 import { Layer } from "effect"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-spawn-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-spawn-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })

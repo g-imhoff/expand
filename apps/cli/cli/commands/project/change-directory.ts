@@ -1,10 +1,10 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
-import type { Project } from "@yodea/contracts/project"
-import { ProjectClient } from "@yodea/client-core"
-import { defineCommand } from "@yodea/cli/_command"
-import { resolveProjectTarget } from "@yodea/cli/commands/project/_resolve"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import type { Project } from "@expand/contracts/project"
+import { ProjectClient } from "@expand/client-core"
+import { defineCommand } from "@expand/cli/_command"
+import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 
 const target = Argument.string("project")
 const directory = Argument.string("directory")

@@ -13,7 +13,7 @@ This guide orders the review by the **dependency graph**: you read each layer on
 
 ## The big picture (read this first)
 
-Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural skeleton**: a strictly layered monorepo (Bun + **Effect v4 beta** — framework code lives under `effect/unstable/*`) where exactly **one** process owns all state and every UI is a thin client.
+Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural skeleton**: a strictly layered monorepo (Bun + **Effect v4 beta** — framework code lives under `effect/unstable/*`) where exactly **one** process owns all state and every UI is a thin client.
 
 ```
                       packages/contracts          ← shared vocabulary (schemas, RPC, events)
@@ -67,7 +67,7 @@ Yodea is an AI-assisted dev-workflow tool. This branch lays its **architectural 
 
 **Read in order:**
 DONE 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it's enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
-DONE 2. `docs/architecture/yodea.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
+DONE 2. `docs/architecture/expand.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
 
 **Scrutinize:** Whether the prose rules are specific enough to be enforceable (they are later turned into tests in Stage 7 — keep them in mind).
 
@@ -84,9 +84,9 @@ REREVIEW (2026-07-05: fold versions became per-projection — re-read the FOLD_V
 DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
-DONE 5. `rpc.ts` — the `YodeaRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
+DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-MOVED 7. `cli.ts` — the stable `yodea/v1` JSON envelopes the CLI prints.
+MOVED 7. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**
 - **Single fold, no second copy.** Confirm `foldList`/`applyEvent` here are genuinely the *only* projection and that server + client-core reuse them (any divergence breaks snapshot-vs-replay consistency).
@@ -156,12 +156,12 @@ DONE 6. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` s
 
 ### Stage 4 — `apps/cli`  ·  30–45 min  ·  🟢 low
 
-**What:** A thin, agent-friendly CLI that turns shell verbs into typed RPC calls and prints stable, versioned JSON envelopes (`apiVersion "yodea/v1"`) with distinct per-error exit codes. Holds no business logic.
+**What:** A thin, agent-friendly CLI that turns shell verbs into typed RPC calls and prints stable, versioned JSON envelopes (`apiVersion "expand/v1"`) with distinct per-error exit codes. Holds no business logic.
 
 **Why here:** It's the **simplest complete frontend** — review it first among the UIs to see the full `frontend → client-core → RPC → backend` loop without any UI complexity.
 
 **Read in order:**
-1. `cli/main.ts` — composition root: builds the command tree, wires the real Bun client layer, installs the JSON error formatter (`makeYodea` factory + `import.meta.main` guard).
+1. `cli/main.ts` — composition root: builds the command tree, wires the real Bun client layer, installs the JSON error formatter (`makeExpand` factory + `import.meta.main` guard).
 2. `cli/_command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
 3. `cli/output.ts` + `cli/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags.
 4. `packages/contracts/cli.ts` — the envelope schemas being hand-built.
@@ -230,7 +230,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 #### 6b — `apps/desktop` (main process)  ·  45–60 min  ·  🔴 high
 
-**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-core's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `YodeaRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
+**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-core's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
 **Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
@@ -249,7 +249,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 **Scrutinize hardest:**
 - **Bootstrap window** in `project-store.ts` (fork events pump → list snapshot → set `lastSeq` → fork fold loop): must neither drop the first post-snapshot event nor double-apply a stale one; check resubscribe/reconnect behavior.
-- **MessagePort seam integrity (I-1):** renderer code reaches the backend *only* via the port; `window.yodea` is the only bridge.
+- **MessagePort seam integrity (I-1):** renderer code reaches the backend *only* via the port; `window.expand` is the only bridge.
 - **Inbound decode trust** (`transport.ts`): `parser.decode(event.data)` is cast to the message type with no validation — a hostile message on the port is assumed well-typed. Assess.
 - **Effect/React lifecycle:** detached mirror fiber + `Effect.scoped` boot under `Effect.never` — verify scopes/fibers aren't orphaned.
 
@@ -280,7 +280,7 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, and the compiled-binary smoke test.
 
-**Read in order:** `.dependency-cruiser.cjs` (the six forbidden import rules — the I-1 engine in code) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@yodea/*` alias maps) → `CODEOWNERS`.
+**Read in order:** `.dependency-cruiser.cjs` (the six forbidden import rules — the I-1 engine in code) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps) → `CODEOWNERS`.
 
 **Scrutinize hardest:**
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path would silently escape I-1.

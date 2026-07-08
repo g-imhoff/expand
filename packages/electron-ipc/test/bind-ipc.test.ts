@@ -2,14 +2,14 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { Schema } from "effect"
-import { IpcChannel, IpcContract } from "@yodea/electron-ipc/contract"
+import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
 import {
   bindIpc,
   type FrameLike,
   type IpcMainEventLike,
   type IpcMainLike,
   type WindowTargetLike
-} from "@yodea/electron-ipc/main"
+} from "@expand/electron-ipc/main"
 
 class AddFailed extends Schema.TaggedErrorClass<AddFailed>()("AddFailed", { reason: Schema.String }) {}
 

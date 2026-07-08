@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { Deferred, Effect, Layer, PubSub, Stream, SubscriptionRef, Schema } from "effect"
-import { ProjectCreated, ProjectRenamed } from "@yodea/contracts/events/project"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import type { Project } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectRpc, type ProjectRpcApi } from "@yodea/desktop/renderer/rpc/project-rpc"
-import { RendererProjectStore, RendererProjectStoreLayer } from "@yodea/desktop/renderer/features/projects/data/project-store"
+import { ProjectCreated, ProjectRenamed } from "@expand/contracts/events/project"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import type { Project } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectRpc, type ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
+import { RendererProjectStore, RendererProjectStoreLayer } from "@expand/desktop/renderer/features/projects/data/project-store"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

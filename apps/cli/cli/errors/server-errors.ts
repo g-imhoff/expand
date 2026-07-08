@@ -1,12 +1,12 @@
 import { Data, Runtime } from "effect"
-import type { ErrorEnvelope } from "@yodea/cli/contract/envelope"
-import { makeEnvelope, tagOf } from "@yodea/cli/errors/envelope"
+import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
+import { makeEnvelope, tagOf } from "@expand/cli/errors/envelope"
 
 export class BackendUnreachable extends Data.TaggedError("BackendUnreachable")<{ readonly reason: string }> {
   readonly [Runtime.errorExitCode] = 6
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("BACKEND_UNREACHABLE", `could not reach a Yodea backend: ${this.reason}`, true, {
+    return makeEnvelope("BACKEND_UNREACHABLE", `could not reach a Expand backend: ${this.reason}`, true, {
       hint: "retry; a backend will be auto-spawned"
     })
   }

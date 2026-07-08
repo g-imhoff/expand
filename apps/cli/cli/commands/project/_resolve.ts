@@ -1,6 +1,6 @@
 import { Effect } from "effect"
-import { ProjectNotFound } from "@yodea/contracts/rpc"
-import { ProjectClient } from "@yodea/client-core"
+import { ProjectNotFound } from "@expand/contracts/rpc"
+import { ProjectClient } from "@expand/client-core"
 
 // A target token is an id when it looks like a UUID; otherwise it's a name to
 // resolve. This is a transport-level shape check, not Project's private rule.

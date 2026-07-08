@@ -2,7 +2,7 @@
 // Pure module — must never import "ink". Bindings are data: the same table
 // drives the router's dispatch AND the hint bar, so visible help always
 // equals fireable keys.
-import type { KeyName } from "@yodea/ink-input/key-name"
+import type { KeyName } from "@expand/ink-input/key-name"
 
 export type Binding<A> = {
   readonly keys: readonly [KeyName, ...Array<KeyName>]

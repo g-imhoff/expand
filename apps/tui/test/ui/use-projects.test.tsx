@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { RuntimeContext } from "@yodea/tui/runtime"
-import { App } from "@yodea/tui/components/app"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { RuntimeContext } from "@expand/tui/runtime"
+import { App } from "@expand/tui/components/app"
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 

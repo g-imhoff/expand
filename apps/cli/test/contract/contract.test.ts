@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
-import { makeYodea } from "@yodea/cli/main"
+import { makeExpand } from "@expand/cli/main"
 import { runCli, stubLayer } from "../harness"
 
 // The backend validates names/tags at its ingestion boundary and returns a typed
@@ -58,7 +58,7 @@ const downClient = {
   ProjectCreate: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" }),
   ProjectList: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" })
 }
-const tree = (stub: object) => makeYodea(stubLayer(stub))
+const tree = (stub: object) => makeExpand(stubLayer(stub))
 
 describe("CLI contract", () => {
   it("project create -> Project envelope, exit 0, stdout pure JSON, stderr empty", async () => {
@@ -334,12 +334,12 @@ describe("CLI help (#3)", () => {
   it("health --help explains it is a backend reachability probe", async () => {
     const r = await runCli(tree(okClient), ["health", "--help"])
     const out = r.stdout.join("\n")
-    expect(out).toContain("check that a Yodea backend is reachable")
+    expect(out).toContain("check that a Expand backend is reachable")
   })
 
-  it("yodea --help lists health with its description", async () => {
+  it("expand --help lists health with its description", async () => {
     const r = await runCli(tree(okClient), ["--help"])
     const out = r.stdout.join("\n")
-    expect(out).toMatch(/health\s+check that a Yodea backend is reachable/)
+    expect(out).toMatch(/health\s+check that a Expand backend is reachable/)
   })
 })

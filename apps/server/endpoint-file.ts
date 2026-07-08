@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Path, Schema } from "effect"
-import type { Endpoint } from "@yodea/contracts/endpoint"
-import { EndpointFromJson } from "@yodea/contracts/endpoint"
-import { AppContext } from "@yodea/contracts/app-context"
+import type { Endpoint } from "@expand/contracts/endpoint"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
+import { AppContext } from "@expand/contracts/app-context"
 
 export const writeEndpointFile = (endpoint: Endpoint) =>
   Effect.acquireRelease(

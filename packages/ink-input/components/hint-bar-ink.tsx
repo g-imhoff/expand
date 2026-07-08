@@ -2,7 +2,7 @@
 // Ink adapter — renders any binding table as a hint line. Render-only.
 import React from "react"
 import { Box, Text } from "ink"
-import type { Binding } from "@yodea/ink-input/bindings"
+import type { Binding } from "@expand/ink-input/bindings"
 
 export const HintBar = <A,>({ bindings }: { bindings: ReadonlyArray<Binding<A>> }) => (
   <Box>

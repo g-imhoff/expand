@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import { render, fireEvent } from "@testing-library/react"
-import { ProjectInvalidInput } from "@yodea/contracts/rpc"
-import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
+import { ProjectInvalidInput } from "@expand/contracts/rpc"
+import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

@@ -1,6 +1,6 @@
-# `@yodea/client-core` — how it works
+# `@expand/client-core` — how it works
 
-The client-side library of the Yodea monorepo. It discovers/spawns the backend
+The client-side library of the Expand monorepo. It discovers/spawns the backend
 server, opens an RPC-over-WebSocket session, and maintains a reactive,
 event-sourced mirror of project state. Built on **Bun + Effect v4 beta**.
 
@@ -11,7 +11,7 @@ Three concentric layers, each depending only on the one beneath it:
 ```
 ProjectStore / ServerClient / ProjectClient   ← state + typed facades  (what apps use)
         │
-   YodeaRpcClient (acquireClient)              ← a live, connected RPC-over-WS session
+   ExpandRpcClient (acquireClient)              ← a live, connected RPC-over-WS session
         │
    RuntimeAdapter (Bun | Node)                 ← platform seam: how to open a socket / spawn a process
 ```
@@ -69,7 +69,7 @@ With an endpoint in hand:
 1. `Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))` builds the
    WebSocket protocol stack into a context. `endpointWsUrl` (`rpc-client.ts:16`)
    appends the auth token as a query param: `…?token=<encoded>`.
-2. `RpcClient.make(YodeaRpcs)` produces the typed `client` — one method per RPC
+2. `RpcClient.make(ExpandRpcs)` produces the typed `client` — one method per RPC
    in the contract (`client.Health()`, `client.ProjectList()`,
    `client.Connect()`, `client.Events()`, …).
 3. **The handshake**: it forks a supervised drain of the streaming RPC
@@ -239,17 +239,17 @@ stays silent.
 ## 5. The facades and the two entry points
 
 - **`ProjectClient` / `ServerClient`** (`project-client.ts`, `server-client.ts`)
-  are *stateless* — `Layer.effect` maps a resolved `YodeaRpcClient` into a thin
+  are *stateless* — `Layer.effect` maps a resolved `ExpandRpcClient` into a thin
   typed API, one method delegating to one RPC. `ServerClientApi` is currently
   just `health()`.
 - **`ClientLayer(adapter)`** merges those two facades over a *single shared*
-  `YodeaRpcClient` connection.
+  `ExpandRpcClient` connection.
 - **`withClient(adapter, use)`** (`with-client.ts:5`) is the one-shot path:
   acquire the raw client, run `use`, tear down the scope — for ad-hoc RPC calls
   without standing up the full layer.
 
 Note the architectural split: `ProjectClient`/`ServerClient`/`withClient` share
-the `YodeaRpcClient` *service* (one connection acquired at layer build), but
+the `ExpandRpcClient` *service* (one connection acquired at layer build), but
 **`ProjectStore` owns its own connection** — it calls `acquireClient(hooked)`
 directly inside its session so it can attach connection hooks, re-acquire on
 every reconnect, and manage the lifecycle itself. Both `ClientLayer` and

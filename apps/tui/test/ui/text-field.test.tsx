@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
-import { textField } from "@yodea/ink-input/text-field"
-import { TextField } from "@yodea/tui/components/text-field"
+import { textField } from "@expand/ink-input/text-field"
+import { TextField } from "@expand/tui/components/text-field"
 
 describe("TextField", () => {
   it("renders label and value", () => {

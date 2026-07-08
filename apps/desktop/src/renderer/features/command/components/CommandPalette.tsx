@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react"
 import { PlusIcon } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
-import type { Project } from "@yodea/contracts/project"
+import type { Project } from "@expand/contracts/project"
 import {
   CommandDialog,
   CommandEmpty,
@@ -9,12 +9,12 @@ import {
   CommandInput,
   CommandItem,
   CommandList
-} from "@yodea/desktop/renderer/components/ui/command"
-import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@yodea/desktop/renderer/features/projects/data/use-projects"
-import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
-import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/components/EditMetadataDialog"
-import { useCommandPalette } from "@yodea/desktop/renderer/features/command/model/command-store"
-import { useCommandPaletteHotkey } from "@yodea/desktop/renderer/features/command/model/use-command-palette-hotkey"
+} from "@expand/desktop/renderer/components/ui/command"
+import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@expand/desktop/renderer/features/projects/data/use-projects"
+import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
+import { EditMetadataDialog } from "@expand/desktop/renderer/features/projects/components/EditMetadataDialog"
+import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
+import { useCommandPaletteHotkey } from "@expand/desktop/renderer/features/command/model/use-command-palette-hotkey"
 
 export const CommandPalette = () => {
   useCommandPaletteHotkey()

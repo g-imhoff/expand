@@ -1,7 +1,7 @@
 import { Context, Effect, Schema, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
-import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@yodea/contracts/events/domain"
+import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@expand/contracts/events/domain"
 
 /**
  * The raw event-log capability shape.
@@ -51,7 +51,7 @@ export interface EventStorePrimitives {
  *
  * @defaultValue 1000
  */
-export const EventScanChunkSize = Context.Reference<number>("yodea/EventScanChunkSize", {
+export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChunkSize", {
   defaultValue: () => 1000
 })
 
@@ -85,7 +85,7 @@ export interface ScanOptions {
  * ```ts
  * class ReplayFeed extends Context.Service<ReplayFeed, {
  *   readonly read: (fromSeq: number) => Stream.Stream<SequencedEvent, SqlError>
- * }>()("yodea/ReplayFeed", {
+ * }>()("expand/ReplayFeed", {
  *   make: specializeEventStore((store) => ({
  *     read: (fromSeq) => store.scan({ afterSeq: fromSeq })
  *   }))

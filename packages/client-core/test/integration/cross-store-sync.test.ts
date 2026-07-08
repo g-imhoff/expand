@@ -4,15 +4,15 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectStore } from "@yodea/client-core"
-import { ProjectStoreLayer } from "@yodea/client-core/project-store"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { ProjectStore } from "@expand/client-core"
+import { ProjectStoreLayer } from "@expand/client-core/project-store"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-xstore-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-xstore-"))
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })

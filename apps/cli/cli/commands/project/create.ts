@@ -1,8 +1,8 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
-import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
-import { ProjectClient } from "@yodea/client-core"
-import { defineCommand } from "@yodea/cli/_command"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import { ProjectClient } from "@expand/client-core"
+import { defineCommand } from "@expand/cli/_command"
 
 // Raw string: the backend validates the name at ingestion (ProjectInvalidInput).
 const name = Argument.string("name")

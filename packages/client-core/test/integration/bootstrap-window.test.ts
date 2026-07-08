@@ -6,19 +6,19 @@ import { BunHttpServer, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectRenamed } from "@yodea/contracts/events/project"
-import { Project } from "@yodea/contracts/project"
-import { ProjectStore } from "@yodea/client-core"
-import { ProjectStoreLayer } from "@yodea/client-core/project-store"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectRenamed } from "@expand/contracts/events/project"
+import { Project } from "@expand/contracts/project"
+import { ProjectStore } from "@expand/client-core"
+import { ProjectStoreLayer } from "@expand/client-core/project-store"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-window-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-window-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
@@ -36,7 +36,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
       const pubsub = yield* PubSub.unbounded<SequencedEvent>()
       const subscribed = yield* Deferred.make<void>()
 
-      const handlers = YodeaRpcs.toLayer({
+      const handlers = ExpandRpcs.toLayer({
         Health: () => Effect.succeed("ok"),
         ProjectCreate: () => Effect.die("unused"),
         ProjectRename: () => Effect.die("unused"),
@@ -63,7 +63,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
           )
       })
 
-      const rpc = RpcServer.layer(YodeaRpcs).pipe(
+      const rpc = RpcServer.layer(ExpandRpcs).pipe(
         Layer.provide(handlers),
         Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
         Layer.provide(RpcSerialization.layerNdjson)

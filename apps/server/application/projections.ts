@@ -1,9 +1,9 @@
 import { Context, Duration, Effect, Exit, Layer, Schema, Stream, SubscriptionRef } from "effect"
-import { Project } from "@yodea/contracts/project"
-import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectEventStore } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStore } from "@yodea/server/db/projection-state-store"
+import { Project } from "@expand/contracts/project"
+import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectEventStore } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStore } from "@expand/server/db/projection-state-store"
 
 export const PROJECTION_NAME = "projects"
 
@@ -18,7 +18,7 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
   // an event whose seq is not ahead of the current state is a no-op. Returns true
   // iff it was applied. Called by the single writer inside commit().
   readonly apply: (sequenced: SequencedEvent) => Effect.Effect<boolean>
-}>()("yodea/ProjectProjection", {
+}>()("expand/ProjectProjection", {
   make: Effect.gen(function* () {
     const events = yield* ProjectEventStore
     const states = yield* ProjectionStateStore

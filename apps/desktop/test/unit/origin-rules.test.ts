@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { originRulesFor, prodOriginRules } from "@yodea/desktop/main/ipc/origin-rules"
+import { originRulesFor, prodOriginRules } from "@expand/desktop/main/ipc/origin-rules"
 
 describe("origin rules", () => {
   it("prod rules are file-protocol only — the dev carve-out cannot ship (spec §10.2 pin)", () => {

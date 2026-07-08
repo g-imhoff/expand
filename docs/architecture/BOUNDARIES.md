@@ -18,14 +18,14 @@ on the pure contract (`packages/contracts`) and the connection brain
 (`packages/client-core`). Additionally, the Electron **renderer and
 preload** (`apps/desktop/src/{renderer,preload}`) may not import
 `packages/client-core` or the Electron **main** process; they reach the
-backend exclusively through the typed `YodeaRpcs` contract carried over
+backend exclusively through the typed `ExpandRpcs` contract carried over
 the `MessagePort`. The preload exposes exactly the surface derived from
-the `YodeaIpc` registry (`apps/desktop/src/shared/ipc/channels.ts`,
+the `ExpandIpc` registry (`apps/desktop/src/shared/ipc/channels.ts`,
 rendered by `packages/electron-ipc` — see the ADR
 `docs/superpowers/specs/2026-06-12-typed-ipc-framework-design.md`); no
 hand-written bridge code. Registry channels are restricted to
 **desktop-shell concerns** (port bootstrap, window lifecycle); all
-domain/backend interaction flows exclusively through `YodeaRpcs` over the
+domain/backend interaction flows exclusively through `ExpandRpcs` over the
 MessagePort. The `event` channel kind may carry only pre-port bootstrap
 messages — domain push is stream RPCs on the port. Enforced by
 `.dependency-cruiser.cjs` (`renderer-must-not-import-client-core`,
@@ -36,7 +36,7 @@ messages — domain push is stream RPCs on the port. Enforced by
 The original CLI-only statement (kept below for the rationale it documents)
 is now a special case of this rule: the CLI is a thin RPC client over
 WebSocket and the only legitimate way for any frontend to interact with
-backend state is to send a command to the running `yodea` backend.
+backend state is to send a command to the running `expand` backend.
 
 **Forbidden import sources** from every frontend (`apps/cli/cli/**`,
 `apps/tui/**`, `apps/desktop/src/**`) and from `packages/client-core/**`:
@@ -54,17 +54,17 @@ backend state is to send a command to the running `yodea` backend.
   only through the MessagePort seam).
 - External npm packages.
 
-**No permitted exception.** The former `yodea server` subcommand wrapper
+**No permitted exception.** The former `expand server` subcommand wrapper
 (`apps/cli/cli/commands/server.ts`, which imported the backend
 composition root) was removed when the backend gained its dedicated
 entrypoint `apps/server/main.ts`; `test/architecture/server-app-split.test.ts`
 asserts the file and its dependency-cruiser exception stay gone.
 
-**Why this matters.** The CLI client (`dist/yodea`) and the backend
-(`dist/yodea-server`) ship as separate binaries, and the import graph is
+**Why this matters.** The CLI client (`dist/expand`) and the backend
+(`dist/expand-server`) ship as separate binaries, and the import graph is
 what physically prevents any frontend from instantiating a backend
 in-process. If a frontend file
-imports a server module, every `yodea <command>` invocation builds its own
+imports a server module, every `expand <command>` invocation builds its own
 Effect AppLayer with its own event bus, its own SQLite handle, and its own
 spawned ACP subprocesses — completely disconnected from any backend that
 is already running. The consequences:
@@ -100,7 +100,7 @@ the system's guarantees.
 
 **Rule.** At most one process per user environment may host the Effect
 `AppLayer`. That process is the dedicated backend entrypoint
-(`apps/server/main.ts`, shipped as `dist/yodea-server`) and is the only
+(`apps/server/main.ts`, shipped as `dist/expand-server`) and is the only
 container that owns the domain event bus, the SQLite event log, the ACP subprocess
 pool, and the typed service implementations. Every other process (desktop
 renderer, CLI client, future web client) is a frontend that connects to
@@ -147,7 +147,7 @@ There is no grace period and no idle timeout. Zero means dead.
 **Lifecycle.**
 
 1. A frontend (Desktop or CLI) finds no running server via the endpoint
-   file and spawns the backend binary (`dist/yodea-server`; from source,
+   file and spawns the backend binary (`dist/expand-server`; from source,
    `apps/server/main.ts`).
 2. The server starts, writes the endpoint file, and waits for its first
    connection.
@@ -174,7 +174,7 @@ t=N   Desktop quits                 connections: 1 → 0 → shutdown
 **Why no grace period.** A grace period adds a timer, a configurable
 knob, and a class of "server lingered when it shouldn't have" bugs.
 The simpler model is: if nobody is connected, nobody needs the server.
-For rapid CLI command sequences (e.g., an agent issuing several `yodea`
+For rapid CLI command sequences (e.g., an agent issuing several `expand`
 calls), the calling process should keep its WebSocket connection open
 for the duration of its work, not reconnect per command.
 

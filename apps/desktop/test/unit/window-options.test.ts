@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { windowOptions } from "@yodea/desktop/main/security/window-options"
+import { windowOptions } from "@expand/desktop/main/security/window-options"
 
 describe("windowOptions (spec §10.2: webPreferences pin — every published Electron RCE chain starts here)", () => {
   it("pins sandbox, contextIsolation, nodeIntegration", () => {

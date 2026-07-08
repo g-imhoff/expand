@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer, Stream, SubscriptionRef } from "effect"
-import type { Project } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectCreated } from "@yodea/contracts/events/project"
-import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { connectionHandlers } from "@yodea/desktop/main/rpc/connection-handlers"
-import { healthHandlers } from "@yodea/desktop/main/rpc/health-handlers"
+import type { Project } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectCreated } from "@expand/contracts/events/project"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { connectionHandlers } from "@expand/desktop/main/rpc/connection-handlers"
+import { healthHandlers } from "@expand/desktop/main/rpc/health-handlers"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

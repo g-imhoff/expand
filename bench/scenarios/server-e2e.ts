@@ -7,12 +7,12 @@ import { join } from "node:path"
 import { Duration, Effect, Fiber, Option, Schedule } from "effect"
 import type { Scope } from "effect"
 import { BunServices } from "@effect/platform-bun"
-import { runServer } from "@yodea/server/composition/app"
-import { withClient } from "@yodea/client-core"
-import type { YodeaRpcClientApi } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { runServer } from "@expand/server/composition/app"
+import { withClient } from "@expand/client-core"
+import type { ExpandRpcClientApi } from "@expand/client-core"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 import { deleteCheckpoint, plantCheckpoint } from "../seed"
 import { withRss } from "../rss"
 import type { Measurement, ScenarioContext } from "../report"
@@ -28,9 +28,9 @@ export const withServer = <A>(
   dbPath: string,
   // `use` may require Scope: client.Events({ asQueue: true }) yields a scoped Queue.
   // withClient's internal Effect.scoped provides that scope, so this stays sound.
-  use: (client: YodeaRpcClientApi) => Effect.Effect<A, unknown, Scope.Scope>
+  use: (client: ExpandRpcClientApi) => Effect.Effect<A, unknown, Scope.Scope>
 ): Promise<E2eRun<A>> => {
-  const dir = mkdtempSync(join(tmpdir(), "yodea-bench-"))
+  const dir = mkdtempSync(join(tmpdir(), "expand-bench-"))
   const awaitEndpointUp = readEndpoint.pipe(
     Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
     Effect.retry(Schedule.spaced("25 millis")),

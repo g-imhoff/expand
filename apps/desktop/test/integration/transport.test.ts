@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, ManagedRuntime, PubSub, Stream, SubscriptionRef, Schema } from "effect"
-import type { Project } from "@yodea/contracts/project"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { connectPort } from "@yodea/desktop/main/rpc/transport"
+import type { Project } from "@expand/contracts/project"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { connectPort } from "@expand/desktop/main/rpc/transport"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

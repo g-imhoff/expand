@@ -2,17 +2,17 @@
 // Pure module — no ink imports. THE routing decision: top-down, first match
 // returns and stops. A key can never reach two consumers because there is no
 // second lookup. ctrl+c is Ink's built-in exit and never reaches us.
-import type { Project } from "@yodea/contracts/project"
-import type { KeyName } from "@yodea/ink-input/key-name"
-import { resolveBinding } from "@yodea/ink-input/bindings"
-import { textFieldConsumes } from "@yodea/ink-input/text-field"
+import type { Project } from "@expand/contracts/project"
+import type { KeyName } from "@expand/ink-input/key-name"
+import { resolveBinding } from "@expand/ink-input/bindings"
+import { textFieldConsumes } from "@expand/ink-input/text-field"
 import {
   assertNever, type Action, type UiState
-} from "@yodea/tui/input/state"
+} from "@expand/tui/input/state"
 import {
   confirmDeleteBindings, createBindings, listBindings, metadataBindings,
   textOverlayBindings
-} from "@yodea/tui/input/bindings"
+} from "@expand/tui/input/bindings"
 
 export const route = (
   ui: UiState,

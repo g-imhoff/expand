@@ -3,17 +3,17 @@
 //   useKeyRouter → route (pure) → uiReduce (pure) → setUi + runEffect.
 import React, { useEffect, useState } from "react"
 import { Box } from "ink"
-import { useKeyRouter } from "@yodea/ink-input/use-key-router-ink"
-import { HintBar } from "@yodea/ink-input/components/hint-bar-ink"
-import { ProjectList } from "@yodea/tui/components/project-list"
-import { TextField } from "@yodea/tui/components/text-field"
-import { ConfirmDelete } from "@yodea/tui/components/confirm-delete"
-import { ErrorLine } from "@yodea/tui/components/error-line"
-import { useProjects } from "@yodea/tui/use-projects"
-import { initialUiState, assertNever, type Overlay } from "@yodea/tui/input/state"
-import { activeBindings } from "@yodea/tui/input/bindings"
-import { route } from "@yodea/tui/input/route"
-import { uiReduce, type DomainEffect } from "@yodea/tui/input/reduce"
+import { useKeyRouter } from "@expand/ink-input/use-key-router-ink"
+import { HintBar } from "@expand/ink-input/components/hint-bar-ink"
+import { ProjectList } from "@expand/tui/components/project-list"
+import { TextField } from "@expand/tui/components/text-field"
+import { ConfirmDelete } from "@expand/tui/components/confirm-delete"
+import { ErrorLine } from "@expand/tui/components/error-line"
+import { useProjects } from "@expand/tui/use-projects"
+import { initialUiState, assertNever, type Overlay } from "@expand/tui/input/state"
+import { activeBindings } from "@expand/tui/input/bindings"
+import { route } from "@expand/tui/input/route"
+import { uiReduce, type DomainEffect } from "@expand/tui/input/reduce"
 
 export const App = () => {
   const {

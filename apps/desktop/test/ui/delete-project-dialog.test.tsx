@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, fireEvent } from "@testing-library/react"
-import { DeleteProjectDialog } from "@yodea/desktop/renderer/features/projects/components/DeleteProjectDialog"
+import { DeleteProjectDialog } from "@expand/desktop/renderer/features/projects/components/DeleteProjectDialog"
 
 describe("DeleteProjectDialog", () => {
   it("shows the project name and calls onConfirm when Delete is clicked", () => {

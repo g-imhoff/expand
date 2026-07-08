@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef, Schema } from "effect"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import type { Project } from "@yodea/contracts/project"
-import { ProjectCreated } from "@yodea/contracts/events/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
-import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { buildRendererClient } from "@yodea/desktop/renderer/rpc/transport"
-import type { RendererPortLike } from "@yodea/desktop/renderer/rpc/renderer-port"
-import { type MainPortLike, runRpcServer } from "@yodea/desktop/main/rpc/server"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import type { Project } from "@expand/contracts/project"
+import { ProjectCreated } from "@expand/contracts/events/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { buildRendererClient } from "@expand/desktop/renderer/rpc/transport"
+import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
+import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

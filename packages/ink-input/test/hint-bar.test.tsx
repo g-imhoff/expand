@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
-import { HintBar } from "@yodea/ink-input/components/hint-bar-ink"
-import type { Binding } from "@yodea/ink-input/bindings"
+import { HintBar } from "@expand/ink-input/components/hint-bar-ink"
+import type { Binding } from "@expand/ink-input/bindings"
 
 const bindings: ReadonlyArray<Binding<null>> = [
   { keys: ["j", "down"], label: "next", action: null },

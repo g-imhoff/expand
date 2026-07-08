@@ -1,11 +1,11 @@
 {
-  "name": "yodea",
+  "name": "expand",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "module": "apps/cli/cli/main.ts",
   "bin": {
-    "yodea": "apps/cli/cli/main.ts"
+    "expand": "apps/cli/cli/main.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -18,8 +18,8 @@
     "arch": "depcruise apps packages --config .dependency-cruiser.cjs",
     "knip": "knip-bun",
     "build": "bun run build:cli && bun run build:server",
-    "build:cli": "bun build apps/cli/cli/main.ts --compile --define __YODEA_CHANNEL__='\"release\"' --no-compile-autoload-dotenv --outfile dist/yodea",
-    "build:server": "bun build apps/server/main.ts --compile --define __YODEA_CHANNEL__='\"release\"' --no-compile-autoload-dotenv --outfile dist/yodea-server",
+    "build:cli": "bun build apps/cli/cli/main.ts --compile --define __EXPAND_CHANNEL__='\"release\"' --no-compile-autoload-dotenv --outfile dist/expand",
+    "build:server": "bun build apps/server/main.ts --compile --define __EXPAND_CHANNEL__='\"release\"' --no-compile-autoload-dotenv --outfile dist/expand-server",
     "cert:cli:build": "bun run build && bash scripts/binary-smoke.sh",
     "dev:cli": "bun apps/cli/cli/main.ts",
     "dev:server": "bun apps/server/main.ts",

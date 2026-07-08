@@ -1,8 +1,8 @@
 // apps/tui/input/state.ts
 // Pure module — no ink imports. The TUI's input state machine vocabulary.
-import type { Project } from "@yodea/contracts/project"
-import { emptyTextField, type TextFieldState } from "@yodea/ink-input/text-field"
-import type { KeyName } from "@yodea/ink-input/key-name"
+import type { Project } from "@expand/contracts/project"
+import { emptyTextField, type TextFieldState } from "@expand/ink-input/text-field"
+import type { KeyName } from "@expand/ink-input/key-name"
 
 export type Focus = "list" | "create"
 

@@ -2,14 +2,14 @@ import { BunFileSystem, BunRuntime, BunServices } from "@effect/platform-bun"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
 import type { LogLevel } from "effect"
 import { join } from "node:path"
-import { AppContext } from "@yodea/contracts/app-context"
-import { migrateLegacyHome } from "@yodea/server/migrate-legacy-home"
-import { runServer } from "@yodea/server/composition/app"
+import { AppContext } from "@expand/contracts/app-context"
+import { migrateLegacyHome } from "@expand/server/migrate-legacy-home"
+import { runServer } from "@expand/server/composition/app"
 
 const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
 
 const minimumLogLevel = (): LogLevel.LogLevel => {
-  const raw = process.env.YODEA_LOG_LEVEL
+  const raw = process.env.EXPAND_LOG_LEVEL
   return raw !== undefined && (LOG_LEVELS as ReadonlyArray<string>).includes(raw)
     ? (raw as LogLevel.LogLevel)
     : "Info"

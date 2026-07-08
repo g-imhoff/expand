@@ -7,27 +7,27 @@ import { connect } from "node:net"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
-import { runServer } from "@yodea/server/composition/app"
-import { writeEndpointFile } from "@yodea/server/endpoint-file"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
-import { httpServerLayer } from "@yodea/server/http"
-import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
-import { ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
-import { ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { withClient } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { endpointWsUrl } from "@yodea/client-core/rpc-client"
+import { runServer } from "@expand/server/composition/app"
+import { writeEndpointFile } from "@expand/server/endpoint-file"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { httpServerLayer } from "@expand/server/http"
+import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
+import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { withClient } from "@expand/client-core"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { endpointWsUrl } from "@expand/client-core/rpc-client"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-trust-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-trust-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
@@ -179,7 +179,7 @@ describe.sequential("trust boundary", () => {
   })
 
   it("writes the endpoint file 0600 inside a 0700 directory", async () => {
-    const home = join(dir, "yodea-home")
+    const home = join(dir, "expand-home")
     const file = makeTestAppContext(home).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem

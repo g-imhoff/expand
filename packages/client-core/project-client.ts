@@ -1,11 +1,11 @@
 import { Context, Effect, Layer } from "effect"
 import type { FileSystem } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
-import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@yodea/contracts/rpc"
-import type { BackendUnavailable } from "@yodea/client-core/discovery"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
-import { YodeaRpcClient, YodeaRpcClientLive } from "@yodea/client-core/rpc-client"
+import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
+import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
+import type { BackendUnavailable } from "@expand/client-core/discovery"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
+import { ExpandRpcClient, ExpandRpcClientLive } from "@expand/client-core/rpc-client"
 
 // Raw strings in; the backend validates at ingestion (ProjectInvalidInput on
 // failure). The client never references the branded vocabulary.
@@ -32,12 +32,12 @@ export interface ProjectClientApi {
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientApi>()(
-  "yodea/ProjectClient"
+  "expand/ProjectClient"
 ) {}
 
-export const ProjectClientLive: Layer.Layer<ProjectClient, never, YodeaRpcClient> = Layer.effect(
+export const ProjectClientLive: Layer.Layer<ProjectClient, never, ExpandRpcClient> = Layer.effect(
   ProjectClient,
-  Effect.map(YodeaRpcClient, (client): ProjectClientApi => ({
+  Effect.map(ExpandRpcClient, (client): ProjectClientApi => ({
     create: (payload) => client.ProjectCreate(payload),
     rename: (payload) => client.ProjectRename(payload),
     changeDirectory: (payload) => client.ProjectChangeDirectory(payload),
@@ -52,4 +52,4 @@ export const ProjectClientLive: Layer.Layer<ProjectClient, never, YodeaRpcClient
 export const ProjectClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ProjectClient, BackendUnavailable, FileSystem.FileSystem> =>
-  ProjectClientLive.pipe(Layer.provide(YodeaRpcClientLive(adapter)))
+  ProjectClientLive.pipe(Layer.provide(ExpandRpcClientLive(adapter)))

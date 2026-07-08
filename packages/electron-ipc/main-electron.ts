@@ -3,7 +3,7 @@
 // objects to the structural interfaces of main.ts (same idiom as MainPortLike).
 import { ipcMain } from "electron"
 import type { BrowserWindow, MessagePortMain, WebFrameMain } from "electron"
-import type { FrameLike, IpcMainLike, WindowTargetLike } from "@yodea/electron-ipc/main"
+import type { FrameLike, IpcMainLike, WindowTargetLike } from "@expand/electron-ipc/main"
 
 const toFrameLike = (frame: WebFrameMain | null): FrameLike | null => {
   if (frame === null) return null
@@ -25,7 +25,7 @@ export const electronBindDeps = (win: BrowserWindow): ElectronBindDeps => ({
       ),
     // Electron's removeListener removes by reference; our wrapper breaks that, so
     // unbind clears the whole channel instead — safe because the registry is the
-    // only writer on yodea:* channels (architecture-tested).
+    // only writer on expand:* channels (architecture-tested).
     removeListener: (channel) => ipcMain.removeAllListeners(channel),
     handle: (channel, handler) =>
       ipcMain.handle(channel, (event, payload: unknown) =>

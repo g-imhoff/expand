@@ -4,16 +4,16 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runServer } from "@yodea/server/composition/app"
-import { withClient } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { runServer } from "@expand/server/composition/app"
+import { withClient } from "@expand/client-core"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-e2e-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-e2e-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })

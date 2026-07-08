@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Data, Effect, Exit, Schema } from "effect"
-import { guard } from "@yodea/server/rpc/guard"
+import { guard } from "@expand/server/rpc/guard"
 
 class DomainError extends Data.TaggedError("DomainError")<{ readonly why: string }> {}
 

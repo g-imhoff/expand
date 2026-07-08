@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectCreated, ProjectEvent } from "@yodea/contracts/events/project"
+import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectCreated, ProjectEvent } from "@expand/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

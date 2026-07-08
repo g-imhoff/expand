@@ -1,7 +1,7 @@
 import { Data, Effect, Runtime } from "effect"
 import type { CliError } from "effect/unstable/cli"
-import { mapContractError, type YodeaCliError } from "@yodea/cli/errors"
-import { writeErr } from "@yodea/cli/output"
+import { mapContractError, type ExpandCliError } from "@expand/cli/errors"
+import { writeErr } from "@expand/cli/output"
 
 class UsageExit extends Data.TaggedError("UsageExit")<{}> {
   readonly [Runtime.errorExitCode] = 2
@@ -10,9 +10,9 @@ class UsageExit extends Data.TaggedError("UsageExit")<{}> {
 
 export const renderErrors = <A, R>(
   program: Effect.Effect<A, unknown, R>
-): Effect.Effect<A | void, UsageExit | YodeaCliError, R> =>
+): Effect.Effect<A | void, UsageExit | ExpandCliError, R> =>
   program.pipe(
-    Effect.catch((e): Effect.Effect<void, UsageExit | YodeaCliError> => {
+    Effect.catch((e): Effect.Effect<void, UsageExit | ExpandCliError> => {
       if (typeof e === "object" && e !== null && "_tag" in e && (e as { _tag: string })._tag === "ShowHelp") {
         return (e as CliError.ShowHelp).errors.length > 0 ? Effect.fail(new UsageExit()) : Effect.void
       }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, PubSub } from "effect"
-import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectCreated } from "@yodea/contracts/events/project"
+import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectCreated } from "@expand/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

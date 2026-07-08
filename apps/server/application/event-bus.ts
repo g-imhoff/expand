@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, PubSub, Scope, Stream } from "effect"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
 
 /**
  * In-process broadcast of freshly committed events — the live half of the
@@ -20,7 +20,7 @@ export class EventBus extends Context.Service<EventBus, {
   readonly subscribe: Effect.Effect<PubSub.Subscription<SequencedEvent>, never, Scope.Scope>
   /** Live feed; subscribes only when run — use `subscribe` when the subscription point must be explicit. */
   readonly stream: Stream.Stream<SequencedEvent>
-}>()("yodea/EventBus", {
+}>()("expand/EventBus", {
   make: Effect.gen(function*() {
     const pubsub = yield* PubSub.unbounded<SequencedEvent>()
     return {

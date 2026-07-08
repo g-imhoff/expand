@@ -2,18 +2,18 @@ import { Effect, Exit, FileSystem, Layer, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
-import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
-import { ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
-import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
-import { httpServerLayer } from "@yodea/server/http"
-import { writeEndpointFile } from "@yodea/server/endpoint-file"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { newId } from "@yodea/server/lib/ids"
+import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
+import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/connection-tracker"
+import { httpServerLayer } from "@expand/server/http"
+import { writeEndpointFile } from "@expand/server/endpoint-file"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { newId } from "@expand/server/lib/ids"
 
 export interface RunServerOptions {
   readonly dbPath: string
@@ -72,7 +72,7 @@ export const runServer = (options: RunServerOptions) => {
       pid: process.pid,
       protocolVersion: PROTOCOL_VERSION
     })
-    yield* Effect.logInfo(`yodea backend listening on ${url} (pid ${process.pid})`)
+    yield* Effect.logInfo(`expand backend listening on ${url} (pid ${process.pid})`)
 
     yield* tracker.awaitShutdown
     yield* Effect.logInfo("last connection closed — shutting down")

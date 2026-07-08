@@ -6,7 +6,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle
-} from "@yodea/desktop/renderer/components/ui/dialog"
+} from "@expand/desktop/renderer/components/ui/dialog"
 
 const describeError = (error: unknown): string => {
   if (typeof error === "object" && error !== null && (error as { _tag?: string })._tag === "ProjectInvalidInput") {

@@ -3,8 +3,8 @@ import { Effect, Layer } from "effect"
 import { Socket } from "effect/unstable/socket"
 import { WebSocket as WS } from "ws"
 import { spawn } from "node:child_process"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
-import { BackendUnavailable } from "@yodea/client-core/discovery"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
+import { BackendUnavailable } from "@expand/client-core/discovery"
 
 const wsConstructor = Layer.succeed(
   Socket.WebSocketConstructor,

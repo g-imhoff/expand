@@ -1,7 +1,7 @@
 import { Command } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { Format, Quiet } from "@yodea/cli/global-flags"
-import { successLine, writeOut } from "@yodea/cli/output"
+import { Format, Quiet } from "@expand/cli/global-flags"
+import { successLine, writeOut } from "@expand/cli/output"
 
 export interface ResultSpec<R> {
   readonly envelope: (r: R) => object

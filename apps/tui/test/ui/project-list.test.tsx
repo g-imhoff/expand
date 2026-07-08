@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { render } from "ink-testing-library"
-import { ProjectList } from "@yodea/tui/components/project-list"
-import { type Project } from "@yodea/contracts/project"
+import { ProjectList } from "@expand/tui/components/project-list"
+import { type Project } from "@expand/contracts/project"
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 

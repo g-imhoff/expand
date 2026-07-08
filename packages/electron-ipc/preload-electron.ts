@@ -1,5 +1,5 @@
 // The ONLY preload-side module that imports "electron". Everything else is pure.
-import type { PreloadIpcDeps } from "@yodea/electron-ipc/preload"
+import type { PreloadIpcDeps } from "@expand/electron-ipc/preload"
 import { contextBridge, ipcRenderer } from "electron"
 import type { IpcRendererEvent } from "electron"
 

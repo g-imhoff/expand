@@ -3,8 +3,8 @@
 
 import { Layer } from "effect"
 import { join } from "node:path"
-import { channel } from "@yodea/contracts/channel"
-import { AppContext, type AppContextShape, type AppPath } from "@yodea/contracts/app-context"
+import { channel } from "@expand/contracts/channel"
+import { AppContext, type AppContextShape, type AppPath } from "@expand/contracts/app-context"
 
 export interface TestAppContext {
   readonly layer: Layer.Layer<never>

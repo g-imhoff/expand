@@ -1,12 +1,12 @@
 // Derived window typing — never hand-write bridge methods here. The single
-// source of truth is the YodeaIpc registry (shared/ipc/channels.ts).
-import type { IpcBridgeOf } from "@yodea/electron-ipc/contract"
+// source of truth is the ExpandIpc registry (shared/ipc/channels.ts).
+import type { IpcBridgeOf } from "@expand/electron-ipc/contract"
 
-type YodeaRegistry = (typeof import("@yodea/desktop/shared/ipc/channels"))["YodeaIpc"]
+type ExpandRegistry = (typeof import("@expand/desktop/shared/ipc/channels"))["ExpandIpc"]
 
 declare global {
   interface Window {
-    yodea: IpcBridgeOf<YodeaRegistry>
+    expand: IpcBridgeOf<ExpandRegistry>
   }
 }
 

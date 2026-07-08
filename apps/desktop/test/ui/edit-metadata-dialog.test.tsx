@@ -2,9 +2,9 @@
 import { describe, expect, it, vi } from "vitest"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { Schema } from "effect"
-import { Project as ProjectClass } from "@yodea/contracts/project"
-import { ProjectInvalidInput } from "@yodea/contracts/rpc"
-import { EditMetadataDialog } from "@yodea/desktop/renderer/features/projects/components/EditMetadataDialog"
+import { Project as ProjectClass } from "@expand/contracts/project"
+import { ProjectInvalidInput } from "@expand/contracts/rpc"
+import { EditMetadataDialog } from "@expand/desktop/renderer/features/projects/components/EditMetadataDialog"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

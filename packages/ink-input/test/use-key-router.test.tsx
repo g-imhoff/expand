@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest"
 import React from "react"
 import { Text } from "ink"
 import { render } from "ink-testing-library"
-import { useKeyRouter } from "@yodea/ink-input/use-key-router-ink"
-import type { KeyName } from "@yodea/ink-input/key-name"
+import { useKeyRouter } from "@expand/ink-input/use-key-router-ink"
+import type { KeyName } from "@expand/ink-input/key-name"
 
 const Probe = ({ log }: { log: Array<{ keyName: KeyName; input: string }> }) => {
   useKeyRouter((keyName, input) => { log.push({ keyName, input }) })

@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest"
 import React from "react"
 import { render } from "ink-testing-library"
 import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, type ConnectionStatus } from "@yodea/client-core"
-import { ProjectInvalidInput, ProjectNameConflict } from "@yodea/contracts/rpc"
-import { RuntimeContext } from "@yodea/tui/runtime"
-import { App } from "@yodea/tui/components/app"
+import { ProjectStore, type ConnectionStatus } from "@expand/client-core"
+import { ProjectInvalidInput, ProjectNameConflict } from "@expand/contracts/rpc"
+import { RuntimeContext } from "@expand/tui/runtime"
+import { App } from "@expand/tui/components/app"
 
 // The backend validates names at its ingestion boundary; the fake store mirrors that.
 const KEBAB = /^[a-z0-9][a-z0-9-]{0,63}$/

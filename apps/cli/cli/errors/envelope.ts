@@ -1,4 +1,4 @@
-import { ENVELOPE_VERSION, type ErrorCode, type ErrorEnvelope } from "@yodea/cli/contract/envelope"
+import { ENVELOPE_VERSION, type ErrorCode, type ErrorEnvelope } from "@expand/cli/contract/envelope"
 
 export const makeEnvelope = (
   code: ErrorCode,

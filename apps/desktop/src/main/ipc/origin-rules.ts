@@ -1,4 +1,4 @@
-import type { OriginRule } from "@yodea/electron-ipc/main"
+import type { OriginRule } from "@expand/electron-ipc/main"
 
 /** Production sender allowlist. Pinned by test: file protocol ONLY — never add dev origins here. */
 export const prodOriginRules: ReadonlyArray<OriginRule> = [{ _tag: "fileProtocol" }]

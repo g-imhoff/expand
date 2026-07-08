@@ -20,10 +20,10 @@ model {
   }
 
   acpServer = externalSystem 'Coding agent (ACP subprocess)' {
-    description 'Third-party agent spawned by yodea. Communicates via ACP (JSON-RPC over stdio). The yodea CLI is exposed as a tool.'
+    description 'Third-party agent spawned by expand. Communicates via ACP (JSON-RPC over stdio). The expand CLI is exposed as a tool.'
   }
 
-  yodea = system 'Yodea' {
+  expand = system 'Expand' {
     description 'AI-assisted development workflow tool.'
 
     desktop = container 'Desktop app' {
@@ -54,8 +54,8 @@ model {
       rpcClient -> discovery 'resolves backend'
     }
 
-    cli = container 'yodea CLI (client)' {
-      description 'Thin RPC client. Separate binary (dist/yodea) from the backend (dist/yodea-server); never instantiates an AppLayer — always talks to a running backend. See BOUNDARIES.md I-1 for the isolation invariant.'
+    cli = container 'expand CLI (client)' {
+      description 'Thin RPC client. Separate binary (dist/expand) from the backend (dist/expand-server); never instantiates an AppLayer — always talks to a running backend. See BOUNDARIES.md I-1 for the isolation invariant.'
       technology 'TypeScript · Effect · @effect/cli'
 
       cliEntry = component 'CLI entrypoint' {
@@ -76,7 +76,7 @@ model {
       cliRpcClient -> cliDiscovery 'resolves backend'
     }
 
-    backend = container 'yodea Backend service' {
+    backend = container 'expand Backend service' {
       description 'Single long-running process hosting the AppLayer. All state lives here. See BOUNDARIES.md I-2 for single-instance rule, I-4 for lifetime.'
       technology 'TypeScript · Effect · WebSocket'
 
@@ -176,42 +176,42 @@ model {
     cli.cliDiscovery  -> backend.endpointFile 'discovers backend'
   }
 
-  user -> yodea.desktop        'uses UI'
-  user -> yodea.cli.cliEntry   'invokes commands'
+  user -> expand.desktop        'uses UI'
+  user -> expand.cli.cliEntry   'invokes commands'
 
-  yodea.backend.acpClient -> acpServer          'ACP'
-  acpServer               -> yodea.cli.cliEntry 'invokes yodea CLI'
+  expand.backend.acpClient -> acpServer          'ACP'
+  acpServer               -> expand.cli.cliEntry 'invokes expand CLI'
 }
 
 views {
 
-  view overall of yodea {
+  view overall of expand {
     title 'Overall Architecture'
     include *
   }
 
-  view backend of yodea.backend {
+  view backend of expand.backend {
     title 'Backend Architecture'
     include *
   }
 
-  view desktop of yodea.desktop {
+  view desktop of expand.desktop {
     title 'Desktop Architecture'
     include *
   }
 
-  view cli of yodea.cli {
+  view cli of expand.cli {
     title 'CLI Architecture'
     include *
   }
 
-  view services of yodea.backend.services {
+  view services of expand.backend.services {
     title 'Backend Services'
     include *
   }
 
   view context {
     title 'System Context'
-    include user, yodea, acpServer
+    include user, expand, acpServer
   }
 }

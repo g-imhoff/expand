@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { Project } from "@yodea/contracts/project"
-import { textField } from "@yodea/ink-input/text-field"
-import { initialUiState, type UiState } from "@yodea/tui/input/state"
-import { route } from "@yodea/tui/input/route"
+import type { Project } from "@expand/contracts/project"
+import { textField } from "@expand/ink-input/text-field"
+import { initialUiState, type UiState } from "@expand/tui/input/state"
+import { route } from "@expand/tui/input/route"
 
 const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number, over: Partial<Project> = {}): Project => ({

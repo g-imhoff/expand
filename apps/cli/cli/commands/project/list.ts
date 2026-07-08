@@ -1,9 +1,9 @@
 import { Flag } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@yodea/cli/contract/envelope"
-import type { Project } from "@yodea/contracts/project"
-import { ProjectClient } from "@yodea/client-core"
-import { defineCommand } from "@yodea/cli/_command"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import type { Project } from "@expand/contracts/project"
+import { ProjectClient } from "@expand/client-core"
+import { defineCommand } from "@expand/cli/_command"
 
 const sorted = (ps: ReadonlyArray<Project>) =>
   [...ps].sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt.localeCompare(b.createdAt)))

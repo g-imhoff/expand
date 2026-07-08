@@ -7,10 +7,10 @@ import { resolve } from "node:path"
 const here = import.meta.dirname
 const repo = resolve(here, "../..")
 const alias = {
-  "@yodea/contracts": resolve(repo, "packages/contracts"),
-  "@yodea/client-core": resolve(repo, "packages/client-core"),
-  "@yodea/electron-ipc": resolve(repo, "packages/electron-ipc"),
-  "@yodea/desktop": resolve(here, "src")
+  "@expand/contracts": resolve(repo, "packages/contracts"),
+  "@expand/client-core": resolve(repo, "packages/client-core"),
+  "@expand/electron-ipc": resolve(repo, "packages/electron-ipc"),
+  "@expand/desktop": resolve(here, "src")
 }
 
 const nodeBuiltins = [

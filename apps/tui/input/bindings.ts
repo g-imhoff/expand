@@ -2,8 +2,8 @@
 // Pure module — no ink imports. The concrete key tables. These same arrays
 // drive the router (route.ts) and the hint bar (app.tsx): help cannot drift
 // from behavior.
-import type { Binding } from "@yodea/ink-input/bindings"
-import { assertNever, type Action, type ListIntent, type UiState } from "@yodea/tui/input/state"
+import type { Binding } from "@expand/ink-input/bindings"
+import { assertNever, type Action, type ListIntent, type UiState } from "@expand/tui/input/state"
 
 export const listBindings: ReadonlyArray<Binding<ListIntent>> = [
   { keys: ["j", "down"], label: "next", action: "SelectNext" },

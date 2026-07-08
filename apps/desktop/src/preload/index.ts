@@ -1,5 +1,5 @@
-import { exposeBridge } from "@yodea/electron-ipc/preload"
-import { electronPreloadDeps } from "@yodea/electron-ipc/preload-electron"
-import { YodeaIpc } from "@yodea/desktop/shared/ipc/channels"
+import { exposeBridge } from "@expand/electron-ipc/preload"
+import { electronPreloadDeps } from "@expand/electron-ipc/preload-electron"
+import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 
-exposeBridge(YodeaIpc, YodeaIpc.prefix, electronPreloadDeps())
+exposeBridge(ExpandIpc, ExpandIpc.prefix, electronPreloadDeps())

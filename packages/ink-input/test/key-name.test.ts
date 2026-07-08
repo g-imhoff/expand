@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { toKeyName, type InkKey } from "@yodea/ink-input/key-name"
+import { toKeyName, type InkKey } from "@expand/ink-input/key-name"
 
 const noKeys: InkKey = {
   upArrow: false, downArrow: false, leftArrow: false, rightArrow: false,

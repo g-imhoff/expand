@@ -1,9 +1,9 @@
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { projectHandlers } from "@yodea/server/rpc/projects"
-import { serverHandlers } from "@yodea/server/rpc/server"
-import { streamHandlers } from "@yodea/server/rpc/stream"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { projectHandlers } from "@expand/server/rpc/projects"
+import { serverHandlers } from "@expand/server/rpc/server"
+import { streamHandlers } from "@expand/server/rpc/stream"
 
-export const YodeaHandlers = YodeaRpcs.toLayer({
+export const ExpandHandlers = ExpandRpcs.toLayer({
   ...projectHandlers,
   ...serverHandlers,
   ...streamHandlers

@@ -19,8 +19,8 @@ import type {
   IpcHandlersOf,
   IpcSenderInfo,
   ResultEnvelope
-} from "@yodea/electron-ipc/contract"
-import { portGrantName, portRequestName, wireName } from "@yodea/electron-ipc/contract"
+} from "@expand/electron-ipc/contract"
+import { portGrantName, portRequestName, wireName } from "@expand/electron-ipc/contract"
 
 export type OriginRule =
   /**

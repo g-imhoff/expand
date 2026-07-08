@@ -1,7 +1,7 @@
 import { Context } from "effect"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { channel, type Channel } from "@yodea/contracts/channel"
+import { channel, type Channel } from "@expand/contracts/channel"
 
 export interface AppPath {
   readonly dataDir: string
@@ -15,13 +15,13 @@ export interface AppContextShape {
   readonly paths: AppPath
 }
 
-export const AppContext = Context.Reference<AppContextShape>("yodea/AppContext", {
+export const AppContext = Context.Reference<AppContextShape>("expand/AppContext", {
   defaultValue: () => deriveContext(processDataDir())
 })
 
 const NAMES = {
-  home: ".yodea",
-  channel: { dev: "yodea-dev", release: "yodea" },
+  home: ".expand",
+  channel: { dev: "expand-dev", release: "expand" },
   db: "events.db",
   endpoint: "server.json",
   logs: "logs"

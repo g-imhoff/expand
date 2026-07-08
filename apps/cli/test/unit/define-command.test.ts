@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest"
 import { Argument, Command, GlobalFlag } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { defineCommand } from "@yodea/cli/_command"
-import { Format, Quiet } from "@yodea/cli/global-flags"
-import { ProjectClient } from "@yodea/client-core"
+import { defineCommand } from "@expand/cli/_command"
+import { Format, Quiet } from "@expand/cli/global-flags"
+import { ProjectClient } from "@expand/client-core"
 import { runCli, stubLayer } from "../harness"
 
 const create = defineCommand(
@@ -11,7 +11,7 @@ const create = defineCommand(
   { name: Argument.string("name") },
   {
     envelope: (r: { created: boolean; project: { id: string; name: string; createdAt: string } }) => ({
-      apiVersion: "yodea/v1", kind: "Project", created: r.created, data: r.project
+      apiVersion: "expand/v1", kind: "Project", created: r.created, data: r.project
     }),
     text: (r) => `created ${r.project.id}  ${r.project.name}`,
     quiet: (r) => r.project.id
@@ -34,7 +34,7 @@ describe("defineCommand seam", () => {
     const r = await runCli(tree(okClient), ["make", "foo"])
     expect(r.code).toBe(0)
     expect(r.stderr).toEqual([])
-    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ apiVersion: "yodea/v1", kind: "Project", created: true, data: { name: "foo" } })
+    expect(JSON.parse(r.stdout.join(""))).toMatchObject({ apiVersion: "expand/v1", kind: "Project", created: true, data: { name: "foo" } })
   })
   it("--quiet emits the bare id", async () => {
     const r = await runCli(tree(okClient), ["make", "foo", "--quiet"])

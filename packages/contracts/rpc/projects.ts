@@ -1,6 +1,6 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
-import { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
+import { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 
 export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
   "ProjectAlreadyExists",

@@ -1,8 +1,8 @@
 import { useCallback, use, useEffect, useState } from "react"
 import { Effect, Fiber, Schema, Stream, SubscriptionRef } from "effect"
-import { ProjectStore, supervised } from "@yodea/client-core"
-import type { Project } from "@yodea/contracts/project"
-import { RuntimeContext } from "@yodea/tui/runtime"
+import { ProjectStore, supervised } from "@expand/client-core"
+import type { Project } from "@expand/contracts/project"
+import { RuntimeContext } from "@expand/tui/runtime"
 
 const describeError = (cause: unknown): string => {
   if (typeof cause === "object" && cause !== null && "_tag" in cause) {

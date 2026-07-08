@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { DomainEventMeta, withMeta } from "@yodea/contracts/events/meta"
+import { DomainEventMeta, withMeta } from "@expand/contracts/events/meta"
 
 const ProjectEventMeta = {
   projectId: Schema.String

@@ -6,15 +6,15 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { httpServerLayer } from "@yodea/server/http"
-import { ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
-import { ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
-import { ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
+import { httpServerLayer } from "@expand/server/http"
+import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
+import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
@@ -53,7 +53,7 @@ const probeWs = (url: string): Promise<"open" | "closed"> =>
 
 describe("access log redaction", () => {
   it("never writes the rpc token into http.url log annotations", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "yodea-redact-"))
+    const dir = mkdtempSync(join(tmpdir(), "expand-redact-"))
     const records: Array<Record<string, unknown>> = []
     const captureLogger = Logger.make(({ fiber }) => {
       records.push({ ...fiber.getRef(References.CurrentLogAnnotations) })

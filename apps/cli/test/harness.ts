@@ -1,9 +1,9 @@
 import { Cause, Console, Effect, Layer, Runtime } from "effect"
 import { CliOutput, Command } from "effect/unstable/cli"
 import { BunServices } from "@effect/platform-bun"
-import { ProjectClient, ServerClient, type ProjectClientApi, type ServerClientApi } from "@yodea/client-core"
-import { jsonCliErrorFormatter } from "@yodea/cli/errors"
-import { renderErrors } from "@yodea/cli/run"
+import { ProjectClient, ServerClient, type ProjectClientApi, type ServerClientApi } from "@expand/client-core"
+import { jsonCliErrorFormatter } from "@expand/cli/errors"
+import { renderErrors } from "@expand/cli/run"
 
 export interface CliResult { readonly stdout: ReadonlyArray<string>; readonly stderr: ReadonlyArray<string>; readonly code: number }
 

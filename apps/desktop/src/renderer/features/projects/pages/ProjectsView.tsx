@@ -1,9 +1,9 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@yodea/desktop/renderer/features/projects/data/use-projects"
-import { RenameDialog } from "@yodea/desktop/renderer/features/projects/components/RenameDialog"
-import { ChangeDirectoryDialog } from "@yodea/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
-import { DeleteProjectDialog } from "@yodea/desktop/renderer/features/projects/components/DeleteProjectDialog"
+import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@expand/desktop/renderer/features/projects/data/use-projects"
+import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
+import { ChangeDirectoryDialog } from "@expand/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
+import { DeleteProjectDialog } from "@expand/desktop/renderer/features/projects/components/DeleteProjectDialog"
 
 export const ProjectsView = () => {
   const { data: projects = [], error } = useProjects()
@@ -24,7 +24,7 @@ export const ProjectsView = () => {
   const visible = projects.filter((p) => !p.archived)
   return (
     <main style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>Yodea — Projects ({visible.length})</h1>
+      <h1>Expand — Projects ({visible.length})</h1>
       <form onSubmit={submit}>
         <input
           aria-label="project name"

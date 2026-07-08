@@ -1,9 +1,9 @@
 import { RpcGroup } from "effect/unstable/rpc"
-import { ProjectRpcs } from "@yodea/contracts/rpc/projects"
-import { ServerRpcs } from "@yodea/contracts/rpc/server"
-import { StreamRpcs } from "@yodea/contracts/rpc/stream"
+import { ProjectRpcs } from "@expand/contracts/rpc/projects"
+import { ServerRpcs } from "@expand/contracts/rpc/server"
+import { StreamRpcs } from "@expand/contracts/rpc/stream"
 
-export class YodeaRpcs extends RpcGroup
+export class ExpandRpcs extends RpcGroup
   .make()
   .merge(ProjectRpcs, ServerRpcs, StreamRpcs)
 { }
@@ -15,4 +15,4 @@ export {
   ProjectDirectoryInvalid,
   ProjectDirectoryConflict,
   ProjectInvalidInput
-} from "@yodea/contracts/rpc/projects"
+} from "@expand/contracts/rpc/projects"

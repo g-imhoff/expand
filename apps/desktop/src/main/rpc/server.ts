@@ -1,9 +1,9 @@
 import { Effect, Queue, type Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { ProjectStore } from "@yodea/client-core"
-import { DesktopRpcHandlers } from "@yodea/desktop/main/rpc/handlers"
-import { supervised } from "@yodea/desktop/main/lib/supervised"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { ProjectStore } from "@expand/client-core"
+import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
+import { supervised } from "@expand/desktop/main/lib/supervised"
 
 export interface MainPortLike {
   postMessage: (message: unknown) => void
@@ -48,7 +48,7 @@ const makePortProtocol = (port: MainPortLike) =>
 export const runRpcServer = (
   port: MainPortLike
 ): Effect.Effect<never, never, ProjectStore | Scope.Scope> =>
-  RpcServer.make(YodeaRpcs).pipe(
+  RpcServer.make(ExpandRpcs).pipe(
     Effect.provide(DesktopRpcHandlers),
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)

@@ -5,13 +5,13 @@ import { BunFileSystem, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { EventBus, EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjection, ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
-import { ServerUseCases, ServerUseCasesLayer } from "@yodea/server/application/server/use-cases"
+import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjection, ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { ServerUseCases, ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -80,7 +80,7 @@ describe("ProjectUseCases.createProject", () => {
 
 describe("ProjectUseCases.changeDirectory", () => {
   it("sets a valid absolute existing directory and reflects it in the projection", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-"))
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdok", false)
@@ -116,7 +116,7 @@ describe("ProjectUseCases.changeDirectory", () => {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdmiss", false)
-      return yield* u.changeDirectory(project.id, "/this/does/not/exist/yodea").pipe(Effect.result)
+      return yield* u.changeDirectory(project.id, "/this/does/not/exist/expand").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
@@ -124,7 +124,7 @@ describe("ProjectUseCases.changeDirectory", () => {
     expect(f.reason).toBe("not-found")
   })
   it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-"))
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const a = (yield* u.createProject("cda", false)).project
@@ -138,7 +138,7 @@ describe("ProjectUseCases.changeDirectory", () => {
   })
 
   it("fails ProjectDirectoryInvalid(not-a-directory) when the path is a file", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cd-file-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-file-"))
     const file = join(tmp, "plain.txt")
     writeFileSync(file, "x")
     const program = Effect.gen(function* () {
@@ -154,8 +154,8 @@ describe("ProjectUseCases.changeDirectory", () => {
   })
 
   it("fails ProjectDirectoryConflict when a symlink resolves to a directory another project already uses", async () => {
-    const real = mkdtempSync(join(tmpdir(), "yodea-cd-real-"))
-    const linkParent = mkdtempSync(join(tmpdir(), "yodea-cd-link-"))
+    const real = mkdtempSync(join(tmpdir(), "expand-cd-real-"))
+    const linkParent = mkdtempSync(join(tmpdir(), "expand-cd-link-"))
     const link = join(linkParent, "alias")
     symlinkSync(real, link)
     const program = Effect.gen(function* () {
@@ -174,7 +174,7 @@ describe("ProjectUseCases.changeDirectory", () => {
 
 describe("ProjectUseCases.createProject with directory", () => {
   it("creates with a valid absolute existing unique directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cr-"))
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("crdir", false, tmp)
@@ -207,7 +207,7 @@ describe("ProjectUseCases.createProject with directory", () => {
   it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
-      return yield* u.createProject("crmiss", false, "/this/does/not/exist/yodea").pipe(Effect.result)
+      return yield* u.createProject("crmiss", false, "/this/does/not/exist/expand").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = await Effect.runPromise(program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
@@ -215,7 +215,7 @@ describe("ProjectUseCases.createProject with directory", () => {
     expect(f.reason).toBe("not-found")
   })
   it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cr-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cr-"))
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const a = (yield* u.createProject("crconfa", false, tmp)).project

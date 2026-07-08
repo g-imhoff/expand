@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
-import type { Project } from "@yodea/contracts/project"
+import type { Project } from "@expand/contracts/project"
 import { fakeProject, makeFakeAppHandle, renderWithHandle, uid } from "./_harness"
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>
 }))
 
-const { ProjectsView } = await import("@yodea/desktop/renderer/features/projects/pages/ProjectsView")
+const { ProjectsView } = await import("@expand/desktop/renderer/features/projects/pages/ProjectsView")
 
 const renderView = (projects: ReadonlyArray<Project>) =>
   renderWithHandle(<ProjectsView />, makeFakeAppHandle(projects))

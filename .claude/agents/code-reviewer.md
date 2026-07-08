@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Independently reviews a completed Yodea task's diff for correctness bugs, invariant violations (BOUNDARIES.md I-1..I-4), and placeholder code. Read-only — reports findings, does not fix.
+description: Independently reviews a completed Expand task's diff for correctness bugs, invariant violations (BOUNDARIES.md I-1..I-4), and placeholder code. Read-only — reports findings, does not fix.
 tools: Read, Bash, Grep, Glob
 ---
 

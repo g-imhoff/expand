@@ -4,12 +4,12 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runServer } from "@yodea/server/composition/app"
-import { withClient } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { runServer } from "@expand/server/composition/app"
+import { withClient } from "@expand/client-core"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
@@ -25,7 +25,7 @@ import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-race-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-race-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })

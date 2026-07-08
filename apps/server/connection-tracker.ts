@@ -21,7 +21,7 @@ export class ConnectionTracker extends Context.Service<ConnectionTracker, {
   readonly isShuttingDown: Effect.Effect<boolean>
   /** Observability (used by tests): the current live-connection count. */
   readonly count: Effect.Effect<number>
-}>()("yodea/ConnectionTracker", {
+}>()("expand/ConnectionTracker", {
   make: Effect.gen(function* () {
     const state = yield* Ref.make({ count: 0, armed: false })
     const shutdown = yield* Deferred.make<void>()

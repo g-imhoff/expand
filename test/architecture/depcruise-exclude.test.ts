@@ -30,7 +30,7 @@ const MUST_BE_EXCLUDED = [
   "apps/server/test/unit/x.test.ts",
   "node_modules/effect/index.js",
   "apps/desktop/out/main/index.mjs",
-  "dist/yodea",
+  "dist/expand",
   "apps/desktop/test-results/foo.png"
 ] as const
 

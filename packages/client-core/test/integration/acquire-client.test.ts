@@ -4,14 +4,14 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { acquireClient } from "@yodea/client-core/rpc-client"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { acquireClient } from "@expand/client-core/rpc-client"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-acquire-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-acquire-"))
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })

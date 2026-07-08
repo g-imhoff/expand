@@ -2,7 +2,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { describe, expect, it } from "vitest"
-import { defaultBackendEntry } from "@yodea/desktop/main/runtime"
+import { defaultBackendEntry } from "@expand/desktop/main/runtime"
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url))
 

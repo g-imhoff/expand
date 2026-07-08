@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
-import { ConnectionTracker, ConnectionTrackerLayer } from "@yodea/server/connection-tracker"
+import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 
 const run = <A, E>(eff: Effect.Effect<A, E, ConnectionTracker>) =>
   Effect.runPromise(Effect.provide(Effect.scoped(eff), ConnectionTrackerLayer))

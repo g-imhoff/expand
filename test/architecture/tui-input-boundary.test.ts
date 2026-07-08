@@ -43,12 +43,12 @@ describe("TUI input boundary", () => {
     }
   })
 
-  it("ink-input is a leaf: no @yodea or effect imports", () => {
+  it("ink-input is a leaf: no @expand or effect imports", () => {
     const files = walk("packages/ink-input").filter((f) => !f.includes(join("packages/ink-input", "test")))
     for (const file of files) {
       const source = read(file)
-      expect(source, `${file} must not import @yodea/* (except own modules) or effect`)
-        .not.toMatch(/from\s+"(@yodea\/(?!ink-input\/)|effect)/)
+      expect(source, `${file} must not import @expand/* (except own modules) or effect`)
+        .not.toMatch(/from\s+"(@expand\/(?!ink-input\/)|effect)/)
     }
   })
 

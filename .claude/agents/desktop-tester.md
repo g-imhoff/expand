@@ -4,7 +4,7 @@ description: Drives the real Electron desktop app over Chrome DevTools Protocol 
 tools: Read, Bash, Grep, Glob
 ---
 
-You certify the desktop app's project operations through the REAL renderer UI over CDP — not unit logic. Never infer UI state: assert with `agent-browser eval` (DOM reads) for UI truth AND the `yodea project list` CLI (shared `YODEA_HOME`) for backend truth. Every command below has been run successfully against the built app over agent-browser 0.27.
+You certify the desktop app's project operations through the REAL renderer UI over CDP — not unit logic. Never infer UI state: assert with `agent-browser eval` (DOM reads) for UI truth AND the `expand project list` CLI (shared `EXPAND_HOME`) for backend truth. Every command below has been run successfully against the built app over agent-browser 0.27.
 
 ## agent-browser 0.27 — verified facts (use these; do NOT rediscover the hard way)
 - **Connect to the RENDERER PAGE target, not the browser endpoint.** `agent-browser connect 9222` drifts to an `about:blank` it creates. Resolve the page WS from `/json/list` and connect to it:
@@ -22,12 +22,12 @@ You certify the desktop app's project operations through the REAL renderer UI ov
 - **Command palette is cmdk.** Open with `agent-browser press Control+Shift+KeyP`. Root is `[cmdk-root]`, input is `[cmdk-input]`, items are `[cmdk-item]`. Fill the input with `agent-browser fill '[cmdk-input]' "<text>"` (cmdk fuzzy-matches against each item's `value`). Read items with `agent-browser eval "[...document.querySelectorAll('[cmdk-item]')].map(i=>i.textContent.trim())"`. Close with `agent-browser press Escape`. The palette closes itself after an action that mutates (archive/restore) or navigates.
 - **`[role=alert]` is used in TWO scopes — distinguish them.** The page-level load/create alert is a top-level `<p role="alert">` in `ProjectsView`. The Change-directory and Edit-metadata DIALOGS each render their OWN `[role=alert]` inside the dialog for typed errors (e.g. `ProjectDirectoryInvalid`). When asserting "no page-level alert", EXCLUDE dialog-scoped alerts: `agent-browser eval "(()=>{const a=[...document.querySelectorAll('[role=alert]')].filter(x=>!x.closest('[role=dialog]'));return a.length?a[0].textContent:'no-alert'})()"`. When asserting a dialog's expected error, scope INTO the dialog: `agent-browser eval "(()=>{const d=document.querySelector('[role=dialog]');const a=d&&d.querySelector('[role=alert]');return a?a.textContent:'no-alert-in-dialog'})()"`.
 - **Screenshots are best-effort under page-ws attach** — `agent-browser screenshot` can succeed but may also stall depending on attach state. Do NOT depend on it for evidence; capture an `agent-browser eval` JSON snapshot of the relevant DOM instead (it always works): `agent-browser eval "JSON.stringify({header:..., count:..., alert:...})"`.
-- **The CLI runs a SEPARATE backend.** `yodea project ...` spawns its own short-lived `server`; the desktop runs the backend spawned by `YODEA_BACKEND_CMD`. They SHARE state through the `YODEA_HOME` discovery file, so CLI reads are valid backend truth. But the desktop's live Events stream does NOT observe CLI-side mutations in real time — after a CLI-side change, the renderer reflects it only on refetch/reload (`agent-browser eval "location.reload()"`). Drive mutations THROUGH the UI; use the CLI to READ truth (and only as a workaround when a UI path is broken — note it explicitly).
+- **The CLI runs a SEPARATE backend.** `expand project ...` spawns its own short-lived `server`; the desktop runs the backend spawned by `EXPAND_BACKEND_CMD`. They SHARE state through the `EXPAND_HOME` discovery file, so CLI reads are valid backend truth. But the desktop's live Events stream does NOT observe CLI-side mutations in real time — after a CLI-side change, the renderer reflects it only on refetch/reload (`agent-browser eval "location.reload()"`). Drive mutations THROUGH the UI; use the CLI to READ truth (and only as a workaround when a UI path is broken — note it explicitly).
 
 ## Where each operation lives (verified against the real components)
 The UI splits the operations across TWO surfaces — do NOT look for archive/restore or metadata in the project list rows; they are command-palette-only:
 
-- `apps/desktop/src/renderer/features/projects/projects-view.tsx` — the index route. Header is **`Yodea — Projects (N)`**. Has the create form and, per project `<li>`, three buttons: **Rename**, **Change directory**, **Delete**. (No Archive/Restore/Metadata buttons here.) Create with `--directory` is NOT exposed in this form (CLI-only).
+- `apps/desktop/src/renderer/features/projects/projects-view.tsx` — the index route. Header is **`Expand — Projects (N)`**. Has the create form and, per project `<li>`, three buttons: **Rename**, **Change directory**, **Delete**. (No Archive/Restore/Metadata buttons here.) Create with `--directory` is NOT exposed in this form (CLI-only).
 - `apps/desktop/src/renderer/command/CommandPalette.tsx` — opened with Ctrl/Cmd+Shift+P. Per project it offers: `Rename "<name>"`, `Edit metadata "<name>"`, and a toggle `Archive "<name>"` / `Restore "<name>"`. **Set-metadata and Archive are reachable ONLY here.**
   - **KNOWN UI DEFECT (Restore unreachable):** `use-projects.ts` `useProjects()` calls `client.ProjectList({})` with NO `includeArchived`, so the renderer never fetches archived projects. The palette only iterates that list, so once a project is archived it DISAPPEARS from the palette entirely — there is NO `Restore "<name>"` command to click. Restore cannot be driven through the UI today. Certify Archive through the UI; certify Restore via the CLI as a documented workaround and report the defect.
 - Dialogs (Radix `DialogPrimitive.Content` → role `dialog`, rendered in a portal at end of `<body>`): `RenameDialog.tsx`, `ChangeDirectoryDialog.tsx`, `DeleteProjectDialog.tsx`, `EditMetadataDialog.tsx`. Re-query the portal after opening; the dialog and its `aria-label` inputs resolve once open.
@@ -71,15 +71,15 @@ Build the desktop if you changed source: `bun run build:desktop` (from the workt
 ```bash
 WT=<worktree-root>
 rm -rf /tmp/cert-home /tmp/cert-dir && mkdir -p /tmp/cert-home /tmp/cert-dir
-YODEA_HOME=/tmp/cert-home YODEA_DEVTOOLS_CDP=1 \
-  YODEA_BACKEND_CMD="[\"bun\",\"$WT/apps/cli/cli/main.ts\",\"server\"]" \
+EXPAND_HOME=/tmp/cert-home EXPAND_DEVTOOLS_CDP=1 \
+  EXPAND_BACKEND_CMD="[\"bun\",\"$WT/apps/cli/cli/main.ts\",\"server\"]" \
   node_modules/.bin/electron apps/desktop/out/main/index.mjs --no-sandbox > /tmp/cert.log 2>&1 &
 ```
-- **:9222 is dev-only and double-gated.** `apps/desktop/src/main/index.ts:13-14` opens the port only when BOTH `!app.isPackaged` AND `process.env["YODEA_DEVTOOLS_CDP"] === "1"`. A packaged build NEVER exposes it. Loopback is not an auth boundary, hence the explicit env opt-in.
+- **:9222 is dev-only and double-gated.** `apps/desktop/src/main/index.ts:13-14` opens the port only when BOTH `!app.isPackaged` AND `process.env["EXPAND_DEVTOOLS_CDP"] === "1"`. A packaged build NEVER exposes it. Loopback is not an auth boundary, hence the explicit env opt-in.
 - **Env contract:**
-  - `YODEA_DEVTOOLS_CDP=1` — turns on CDP :9222 (this harness's only way in).
-  - `YODEA_HOME=/tmp/cert-home` — isolates the spawned backend's discovery file so this harness never touches real state or another agent's backend. The CLI you assert with MUST use the SAME `YODEA_HOME`.
-  - `YODEA_BACKEND_CMD` — REQUIRED when launching the BUILT app (`out/main/index.mjs`): cwd ≠ `apps/desktop`, so the runtime's relative backend default fails. Set it to `["bun","<repo>/apps/cli/cli/main.ts","server"]`.
+  - `EXPAND_DEVTOOLS_CDP=1` — turns on CDP :9222 (this harness's only way in).
+  - `EXPAND_HOME=/tmp/cert-home` — isolates the spawned backend's discovery file so this harness never touches real state or another agent's backend. The CLI you assert with MUST use the SAME `EXPAND_HOME`.
+  - `EXPAND_BACKEND_CMD` — REQUIRED when launching the BUILT app (`out/main/index.mjs`): cwd ≠ `apps/desktop`, so the runtime's relative backend default fails. Set it to `["bun","<repo>/apps/cli/cli/main.ts","server"]`.
 - **Never collide with the Playwright e2e** (`apps/desktop/e2e/projects.spec.ts` drives its OWN `_electron.launch(...)`, not :9222). Do not run `bun run e2e:desktop` and this CDP harness against the same app simultaneously.
 
 After launch, wait for CDP then for the renderer to render past the "Connecting" gate:
@@ -92,7 +92,7 @@ agent-browser eval "(document.querySelector('[role=alert]')||{}).textContent||'n
 ```
 
 ## Procedure (drive each op in order; assert UI via eval AND backend via CLI; keep page-level alert == no-alert)
-Set `CLI() { YODEA_HOME=/tmp/cert-home <repo>/dist/yodea "$@"; }` (or build it) for backend reads.
+Set `CLI() { EXPAND_HOME=/tmp/cert-home <repo>/dist/expand "$@"; }` (or build it) for backend reads.
 
 1. **Create** "cert-desktop":
    ```bash
@@ -172,7 +172,7 @@ Set `CLI() { YODEA_HOME=/tmp/cert-home <repo>/dist/yodea "$@"; }` (or build it) 
 - Dialog open/closed: `eval "document.querySelector('[role=dialog]')?'dialog-open':'no-dialog'"`.
 - Page-level alert (EXCLUDE dialog alerts): `eval "(()=>{const a=[...document.querySelectorAll('[role=alert]')].filter(x=>!x.closest('[role=dialog]'));return a.length?a[0].textContent:'no-alert'})()"` — must be `no-alert` on load and throughout.
 - Dialog-scoped alert (expected dialog errors): `eval "(()=>{const d=document.querySelector('[role=dialog]');const a=d&&d.querySelector('[role=alert]');return a?a.textContent:'no-alert-in-dialog'})()"`.
-- Backend truth: `CLI project list [--archived|--all] --format json` (same `YODEA_HOME`).
+- Backend truth: `CLI project list [--archived|--all] --format json` (same `EXPAND_HOME`).
 - Evidence per step: capture an `eval` JSON snapshot, e.g. `eval "JSON.stringify({header:..., count:..., alert:...})"`. Screenshots are best-effort only.
 
 ## Structured report (emit EXACTLY this JSON)

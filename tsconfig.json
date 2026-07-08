@@ -16,15 +16,15 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@yodea/contracts/*": ["packages/contracts/*"],
-      "@yodea/client-core/*": ["packages/client-core/*"],
-      "@yodea/client-core": ["packages/client-core/index.ts"],
-      "@yodea/tui/*": ["apps/tui/*"],
-      "@yodea/desktop/*": ["apps/desktop/src/*"],
-      "@yodea/server/*": ["apps/server/*"],
-      "@yodea/electron-ipc/*": ["packages/electron-ipc/*"],
-      "@yodea/ink-input/*": ["packages/ink-input/*"],
-      "@yodea/*": ["apps/cli/*"]
+      "@expand/contracts/*": ["packages/contracts/*"],
+      "@expand/client-core/*": ["packages/client-core/*"],
+      "@expand/client-core": ["packages/client-core/index.ts"],
+      "@expand/tui/*": ["apps/tui/*"],
+      "@expand/desktop/*": ["apps/desktop/src/*"],
+      "@expand/server/*": ["apps/server/*"],
+      "@expand/electron-ipc/*": ["packages/electron-ipc/*"],
+      "@expand/ink-input/*": ["packages/ink-input/*"],
+      "@expand/*": ["apps/cli/*"]
     }
   },
   "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture", "bench"],

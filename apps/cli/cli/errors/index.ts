@@ -1,9 +1,9 @@
-import { mapProjectError, type ProjectCliError } from "@yodea/cli/errors/project-errors"
-import { mapServerError, mapUnexpectedError, type ServerCliError } from "@yodea/cli/errors/server-errors"
+import { mapProjectError, type ProjectCliError } from "@expand/cli/errors/project-errors"
+import { mapServerError, mapUnexpectedError, type ServerCliError } from "@expand/cli/errors/server-errors"
 
-export { jsonCliErrorFormatter } from "@yodea/cli/errors/parser-errors"
+export { jsonCliErrorFormatter } from "@expand/cli/errors/parser-errors"
 
-export type YodeaCliError = ProjectCliError | ServerCliError
+export type ExpandCliError = ProjectCliError | ServerCliError
 
-export const mapContractError = (e: unknown): YodeaCliError =>
+export const mapContractError = (e: unknown): ExpandCliError =>
   mapProjectError(e) ?? mapServerError(e) ?? mapUnexpectedError(e)

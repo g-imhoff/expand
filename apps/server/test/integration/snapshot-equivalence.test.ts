@@ -5,16 +5,16 @@ import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Project } from "@yodea/contracts/project"
-import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
-import type { DomainEvent } from "@yodea/contracts/events/domain"
+import { Project } from "@expand/contracts/project"
+import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
+import type { DomainEvent } from "@expand/contracts/events/domain"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
-} from "@yodea/contracts/events/project"
-import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStore, ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@yodea/server/application/projections"
+} from "@expand/contracts/events/project"
+import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@expand/server/application/projections"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -43,7 +43,7 @@ const layersFor = (dbPath: string) => {
 
 describe("snapshot+tail equivalence", () => {
   it("booting from a snapshot at any k equals folding the whole log from zero", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "yodea-equiv-"))
+    const dir = mkdtempSync(join(tmpdir(), "expand-equiv-"))
     const db = join(dir, "events.db")
     try {
       const fromZero = foldAll(script)

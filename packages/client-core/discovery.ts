@@ -1,9 +1,9 @@
 import { Data, Effect, FileSystem, Option, Schedule, Schema } from "effect"
 import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, writeSync } from "node:fs"
 import { dirname } from "node:path"
-import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
-import { AppContext } from "@yodea/contracts/app-context"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
+import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { AppContext } from "@expand/contracts/app-context"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string

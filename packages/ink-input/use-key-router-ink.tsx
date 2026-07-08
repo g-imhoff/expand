@@ -6,7 +6,7 @@
 // in the consumer's pure route function, never here.
 // ============================================================================
 import { useInput } from "ink"
-import { toKeyName, type KeyName } from "@yodea/ink-input/key-name"
+import { toKeyName, type KeyName } from "@expand/ink-input/key-name"
 
 export const useKeyRouter = (
   onKey: (keyName: KeyName, input: string) => void

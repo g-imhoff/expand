@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { Schema } from "effect"
-import type { Project } from "@yodea/contracts/project"
+import type { Project } from "@expand/contracts/project"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle
-} from "@yodea/desktop/renderer/components/ui/dialog"
+} from "@expand/desktop/renderer/components/ui/dialog"
 
 const describeError = (cause: unknown): string => {
   if (typeof cause === "object" && cause !== null && (cause as { _tag?: string })._tag === "ProjectInvalidInput") {

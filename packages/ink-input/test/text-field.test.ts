@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   emptyTextField, textField, textFieldConsumes, textFieldReduce
-} from "@yodea/ink-input/text-field"
+} from "@expand/ink-input/text-field"
 
 describe("textFieldConsumes", () => {
   it("consumes printable input (keyName === input)", () => {

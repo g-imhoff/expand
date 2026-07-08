@@ -1,8 +1,8 @@
 import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { ProjectStore } from "@yodea/client-core"
-import { dieOnRpcClientError } from "@yodea/desktop/main/rpc/guard"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { ProjectStore } from "@expand/client-core"
+import { dieOnRpcClientError } from "@expand/desktop/main/rpc/guard"
 
 export const projectHandlers: Pick<
   Handlers,
@@ -49,4 +49,4 @@ export const projectHandlers: Pick<
     )
 }
 
-type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof YodeaRpcs>>
+type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

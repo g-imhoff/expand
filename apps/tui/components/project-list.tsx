@@ -1,7 +1,7 @@
 // Render-only.
 import React from "react"
 import { Box, Text } from "ink"
-import type { Project } from "@yodea/contracts/project"
+import type { Project } from "@expand/contracts/project"
 
 export const ProjectList = ({
   projects, selectedId, focused

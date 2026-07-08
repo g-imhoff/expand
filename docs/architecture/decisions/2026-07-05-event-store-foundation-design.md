@@ -3,7 +3,7 @@
 - **Status:** approved (design), not yet implemented
 - **Date:** 2026-07-05
 - **Branch:** `feat/architectural-foundation`
-- **Drives changes to:** `apps/server/db/*`, `apps/server/application/projections.ts`, `apps/server/rpc/stream.ts`, `scripts/fold-version.ts`, `docs/architecture/yodea.c4` (storage description), `REVIEW.md`
+- **Drives changes to:** `apps/server/db/*`, `apps/server/application/projections.ts`, `apps/server/rpc/stream.ts`, `scripts/fold-version.ts`, `docs/architecture/expand.c4` (storage description), `REVIEW.md`
 
 ## 1. Problem
 
@@ -135,7 +135,7 @@ New:
 ## 6. Documentation deliverables (same-commit discipline)
 
 - **This ADR** — the architecture decision record for: store API reshape, projection generalization, and the D10 reversal of the skip-with-warning trade-off. Invariants I-1…I-4 are **not modified**; no BOUNDARIES.md rule changes.
-- **`docs/architecture/yodea.c4`** — storage component description updated (`Event log + snapshots` → event log + projection state; mention streamed reads).
+- **`docs/architecture/expand.c4`** — storage component description updated (`Event log + snapshots` → event log + projection state; mention streamed reads).
 - **`REVIEW.md`** (D12):
   - Rewrite Stage 2 item 2 (`db/event-store.ts`: `scan`, fail-fast decode) and item 4 (`ProjectionStateStore` + checkpoint cadence).
   - Rewrite scrutinize bullets at lines 124 (silent row-skip → fail-fast rationale) and 125 (guard (1) "written only at boot" → debounced cadence + shutdown write; guards (2)–(4) unchanged).

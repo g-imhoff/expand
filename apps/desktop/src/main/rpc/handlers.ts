@@ -1,9 +1,9 @@
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { healthHandlers } from "@yodea/desktop/main/rpc/health-handlers"
-import { projectHandlers } from "@yodea/desktop/main/rpc/project-handlers"
-import { connectionHandlers } from "@yodea/desktop/main/rpc/connection-handlers"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { healthHandlers } from "@expand/desktop/main/rpc/health-handlers"
+import { projectHandlers } from "@expand/desktop/main/rpc/project-handlers"
+import { connectionHandlers } from "@expand/desktop/main/rpc/connection-handlers"
 
-export const DesktopRpcHandlers = YodeaRpcs.toLayer({
+export const DesktopRpcHandlers = ExpandRpcs.toLayer({
   ...healthHandlers,
   ...projectHandlers,
   ...connectionHandlers

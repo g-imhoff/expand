@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit, Fiber, Schema, Stream } from "effect"
-import { IpcChannel, IpcContract } from "@yodea/electron-ipc/contract"
-import { IpcTransportError, makeIpcClient, type MessageEventLike, type RendererWindowLike } from "@yodea/electron-ipc/renderer"
+import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
+import { IpcTransportError, makeIpcClient, type MessageEventLike, type RendererWindowLike } from "@expand/electron-ipc/renderer"
 
 class AddFailed extends Schema.TaggedErrorClass<AddFailed>()("AddFailed", { reason: Schema.String }) {}
 
@@ -173,7 +173,7 @@ describe("portExchange acquire", () => {
     grant(win, { other: "window" }, { _tag: "IpcPortGrant", channel: "sample:rpcPort", nonce: "fixed-nonce" })
     grant(win, win, { _tag: "IpcPortGrant", channel: "sample:other", nonce: "fixed-nonce" })
     grant(win, win, { _tag: "IpcPortGrant", channel: "sample:rpcPort", nonce: "wrong" })
-    grant(win, win, "yodea:port") // legacy/garbage data
+    grant(win, win, "expand:port") // legacy/garbage data
     const exit = await Effect.runPromiseExit(Fiber.join(fiber)) // 200ms timeout
     expect(Exit.isFailure(exit)).toBe(true)
   })

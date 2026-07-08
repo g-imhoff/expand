@@ -1,21 +1,21 @@
 import { Context, Effect, Layer } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem } from "effect"
-import type { BackendUnavailable } from "@yodea/client-core/discovery"
-import type { RuntimeAdapter } from "@yodea/client-core/adapter"
-import { YodeaRpcClient, YodeaRpcClientLive } from "@yodea/client-core/rpc-client"
+import type { BackendUnavailable } from "@expand/client-core/discovery"
+import type { RuntimeAdapter } from "@expand/client-core/adapter"
+import { ExpandRpcClient, ExpandRpcClientLive } from "@expand/client-core/rpc-client"
 
 export interface ServerClientApi {
   readonly health: () => Effect.Effect<string, RpcClientError.RpcClientError>
 }
 
 export class ServerClient extends Context.Service<ServerClient, ServerClientApi>()(
-  "yodea/ServerClient"
+  "expand/ServerClient"
 ) {}
 
-export const ServerClientLive: Layer.Layer<ServerClient, never, YodeaRpcClient> = Layer.effect(
+export const ServerClientLive: Layer.Layer<ServerClient, never, ExpandRpcClient> = Layer.effect(
   ServerClient,
-  Effect.map(YodeaRpcClient, (client): ServerClientApi => ({
+  Effect.map(ExpandRpcClient, (client): ServerClientApi => ({
     health: () => client.Health()
   }))
 )
@@ -23,4 +23,4 @@ export const ServerClientLive: Layer.Layer<ServerClient, never, YodeaRpcClient> 
 export const ServerClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ServerClient, BackendUnavailable, FileSystem.FileSystem> =>
-  ServerClientLive.pipe(Layer.provide(YodeaRpcClientLive(adapter)))
+  ServerClientLive.pipe(Layer.provide(ExpandRpcClientLive(adapter)))

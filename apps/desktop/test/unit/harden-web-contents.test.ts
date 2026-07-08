@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { hardenWebContents, type HardenDeps } from "@yodea/desktop/main/security/harden-web-contents"
+import { hardenWebContents, type HardenDeps } from "@expand/desktop/main/security/harden-web-contents"
 
 const makeDeps = () => {
   const navHandlers: Array<(e: { preventedDefault: boolean; url: string }) => void> = []

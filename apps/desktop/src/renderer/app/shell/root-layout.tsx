@@ -1,5 +1,5 @@
 import { Outlet } from "@tanstack/react-router"
-import { CommandPalette } from "@yodea/desktop/renderer/features/command/components/CommandPalette"
+import { CommandPalette } from "@expand/desktop/renderer/features/command/components/CommandPalette"
 
 export const RootLayout = () => (
   <>

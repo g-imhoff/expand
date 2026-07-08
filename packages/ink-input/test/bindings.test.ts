@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { resolveBinding, type Binding } from "@yodea/ink-input/bindings"
+import { resolveBinding, type Binding } from "@expand/ink-input/bindings"
 
 const table: ReadonlyArray<Binding<string>> = [
   { keys: ["j", "down"], label: "next", action: "next" },

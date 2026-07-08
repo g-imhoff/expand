@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { Project } from "@yodea/contracts/project"
-import { textField } from "@yodea/ink-input/text-field"
-import { initialUiState, type UiState } from "@yodea/tui/input/state"
-import { uiReduce } from "@yodea/tui/input/reduce"
+import type { Project } from "@expand/contracts/project"
+import { textField } from "@expand/ink-input/text-field"
+import { initialUiState, type UiState } from "@expand/tui/input/state"
+import { uiReduce } from "@expand/tui/input/reduce"
 
 const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number): Project => ({

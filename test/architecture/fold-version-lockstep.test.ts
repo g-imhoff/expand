@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { computeFoldHashes } from "../../scripts/fold-version"
-import { FOLD_VERSIONS } from "@yodea/contracts/fold-version.generated"
+import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 
 // Guards that the committed FOLD_VERSIONS map is never stale relative to the fold
 // source, projection by projection. Importing computeFoldHashes also pulls

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { ProjectEvent } from "@yodea/contracts/events/project"
+import { ProjectEvent } from "@expand/contracts/events/project"
 
 export const DomainEvent = Schema.Union(Object.values(ProjectEvent.cases)).pipe(Schema.toTaggedUnion("_tag"))
 export type DomainEvent = typeof DomainEvent.Type

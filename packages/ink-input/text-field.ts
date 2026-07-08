@@ -1,7 +1,7 @@
 // packages/ink-input/text-field.ts
 // Pure module — must never import "ink". Generic text-entry semantics shared
 // by every text field. Cursor support can be added here later, in one place.
-import type { KeyName } from "@yodea/ink-input/key-name"
+import type { KeyName } from "@expand/ink-input/key-name"
 
 export type TextFieldState = { readonly value: string }
 

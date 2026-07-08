@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { useRunMutation } from "@yodea/desktop/renderer/features/projects/data/use-projects"
+import { useRunMutation } from "@expand/desktop/renderer/features/projects/data/use-projects"
 
 describe("useRunMutation", () => {
   it("resolves, fires onSuccess, and clears isPending", async () => {

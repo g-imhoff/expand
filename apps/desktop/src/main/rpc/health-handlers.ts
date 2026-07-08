@@ -1,7 +1,7 @@
 import { Effect, SubscriptionRef } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { ProjectStore } from "@yodea/client-core"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { ProjectStore } from "@expand/client-core"
 
 export const healthHandlers: Pick<Handlers, "Health"> = {
   Health: () =>
@@ -12,4 +12,4 @@ export const healthHandlers: Pick<Handlers, "Health"> = {
     )
 }
 
-type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof YodeaRpcs>>
+type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

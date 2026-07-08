@@ -1,6 +1,6 @@
 import { render } from "ink"
-import { App } from "@yodea/tui/components/app"
-import { RuntimeContext, makeProductionRuntime } from "@yodea/tui/runtime"
+import { App } from "@expand/tui/components/app"
+import { RuntimeContext, makeProductionRuntime } from "@expand/tui/runtime"
 
 const runtime = makeProductionRuntime()
 const { waitUntilExit } = render(

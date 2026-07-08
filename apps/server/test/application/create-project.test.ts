@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
 import { BunFileSystem, BunServices } from "@effect/platform-bun"
-import { EventBusLayer } from "@yodea/server/application/event-bus"
-import { ProjectProjectionLayer } from "@yodea/server/application/projections"
-import { ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectionStateStoreLayer } from "@yodea/server/db/projection-state-store"
-import { ProjectUseCases, ProjectUseCasesLayer } from "@yodea/server/application/projects/use-cases"
+import { EventBusLayer } from "@expand/server/application/event-bus"
+import { ProjectProjectionLayer } from "@expand/server/application/projections"
+import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { ProjectUseCases, ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })

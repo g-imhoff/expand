@@ -1,4 +1,4 @@
 export type Channel = "dev" | "release"
 
 export const channel: Channel =
-  typeof __YODEA_CHANNEL__ !== "undefined" ? __YODEA_CHANNEL__ : "dev"
+  typeof __EXPAND_CHANNEL__ !== "undefined" ? __EXPAND_CHANNEL__ : "dev"

@@ -1,6 +1,6 @@
 import { Data, Runtime } from "effect"
-import type { ErrorEnvelope } from "@yodea/cli/contract/envelope"
-import { makeEnvelope, tagOf } from "@yodea/cli/errors/envelope"
+import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
+import { makeEnvelope, tagOf } from "@expand/cli/errors/envelope"
 
 export class ProjectExists extends Data.TaggedError("ProjectExists")<{ readonly name: string }> {
   readonly [Runtime.errorExitCode] = 5
@@ -19,7 +19,7 @@ export class ProjectNotFoundCli extends Data.TaggedError("ProjectNotFoundCli")<{
   toEnvelope(): ErrorEnvelope {
     return makeEnvelope("PROJECT_NOT_FOUND", `project '${this.id}' not found`, false, {
       input: { id: this.id },
-      hint: "check the project name or id (try `yodea project list`)"
+      hint: "check the project name or id (try `expand project list`)"
     })
   }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Fiber, Logger } from "effect"
-import { supervised } from "@yodea/client-core/supervise"
+import { supervised } from "@expand/client-core/supervise"
 
 const captureLogger = (entries: Array<string>) =>
   Logger.make((options) => {

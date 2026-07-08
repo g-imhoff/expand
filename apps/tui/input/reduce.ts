@@ -1,11 +1,11 @@
 // apps/tui/input/reduce.ts
 // Pure module — no ink imports. State transitions + descriptive effects.
 // Effects are data; app.tsx's runEffect is the only place they meet useProjects.
-import type { Project } from "@yodea/contracts/project"
-import { emptyTextField, textField, textFieldReduce } from "@yodea/ink-input/text-field"
+import type { Project } from "@expand/contracts/project"
+import { emptyTextField, textField, textFieldReduce } from "@expand/ink-input/text-field"
 import {
   assertNever, type Action, type Overlay, type UiState
-} from "@yodea/tui/input/state"
+} from "@expand/tui/input/state"
 
 export type DomainEffect =
   | { readonly _tag: "Create"; readonly name: string }

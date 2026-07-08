@@ -35,14 +35,14 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@yodea/contracts": new URL("./packages/contracts", import.meta.url).pathname,
-      "@yodea/client-core": new URL("./packages/client-core", import.meta.url).pathname,
-      "@yodea/tui": new URL("./apps/tui", import.meta.url).pathname,
-      "@yodea/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
-      "@yodea/server": new URL("./apps/server", import.meta.url).pathname,
-      "@yodea/electron-ipc": new URL("./packages/electron-ipc", import.meta.url).pathname,
-      "@yodea/ink-input": new URL("./packages/ink-input", import.meta.url).pathname,
-      "@yodea": new URL("./apps/cli", import.meta.url).pathname
+      "@expand/contracts": new URL("./packages/contracts", import.meta.url).pathname,
+      "@expand/client-core": new URL("./packages/client-core", import.meta.url).pathname,
+      "@expand/tui": new URL("./apps/tui", import.meta.url).pathname,
+      "@expand/desktop": new URL("./apps/desktop/src", import.meta.url).pathname,
+      "@expand/server": new URL("./apps/server", import.meta.url).pathname,
+      "@expand/electron-ipc": new URL("./packages/electron-ipc", import.meta.url).pathname,
+      "@expand/ink-input": new URL("./packages/ink-input", import.meta.url).pathname,
+      "@expand": new URL("./apps/cli", import.meta.url).pathname
     }
   }
 })

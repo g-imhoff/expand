@@ -2,8 +2,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 import { Schema } from "effect"
 import type { Effect } from "effect"
-import { IpcChannel, IpcContract } from "@yodea/electron-ipc/contract"
-import type { IpcBridgeOf, IpcEmitterOf, IpcHandlersOf, IpcSenderInfo, WireName } from "@yodea/electron-ipc/contract"
+import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
+import type { IpcBridgeOf, IpcEmitterOf, IpcHandlersOf, IpcSenderInfo, WireName } from "@expand/electron-ipc/contract"
 
 const Sample = IpcContract.make("sample", {
   ping: IpcChannel.send({ payload: Schema.Struct({ at: Schema.Number }) }),

@@ -4,15 +4,15 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectStore } from "@yodea/client-core"
-import { ProjectStoreLayer } from "@yodea/client-core/project-store"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { ProjectStore } from "@expand/client-core"
+import { ProjectStoreLayer } from "@expand/client-core/project-store"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 let bunMainBefore: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-store-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-store-"))
   bunMainBefore = (Bun as unknown as { main: string }).main
   ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
@@ -69,7 +69,7 @@ describe("ProjectStore", () => {
   it("changeDirectory updates the reactive projects ref", async () => {
     const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
     const rt = ManagedRuntime.make(appLayer)
-    const tmp = mkdtempSync(join(tmpdir(), "yodea-cds-"))
+    const tmp = mkdtempSync(join(tmpdir(), "expand-cds-"))
     try {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("cdstore"))

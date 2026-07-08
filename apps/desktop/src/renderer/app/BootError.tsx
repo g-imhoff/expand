@@ -5,7 +5,7 @@ export interface BootErrorProps {
 
 export const BootError = ({ message, onRetry = () => window.location.reload() }: BootErrorProps) => (
   <div role="alert" style={{ fontFamily: "system-ui", padding: 24 }}>
-    <p>Yodea failed to start: {message}</p>
+    <p>Expand failed to start: {message}</p>
     <button type="button" onClick={onRetry}>Retry</button>
   </div>
 )

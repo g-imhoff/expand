@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, type Stream } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@yodea/contracts/project"
-import type { SequencedEvent } from "@yodea/contracts/events/domain"
+import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type {
   ProjectAlreadyExists,
   ProjectDirectoryConflict,
@@ -9,8 +9,8 @@ import type {
   ProjectInvalidInput,
   ProjectNameConflict,
   ProjectNotFound
-} from "@yodea/contracts/rpc"
-import { RendererRpcClient } from "@yodea/desktop/renderer/rpc/transport"
+} from "@expand/contracts/rpc"
+import { RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 
 // Raw strings in; the backend validates at ingestion (ProjectInvalidInput).
 export interface ProjectRpcApi {
@@ -55,7 +55,7 @@ export interface ProjectRpcApi {
 }
 
 export class ProjectRpc extends Context.Service<ProjectRpc, ProjectRpcApi>()(
-  "yodea/desktop/ProjectRpc"
+  "expand/desktop/ProjectRpc"
 ) {}
 
 export const ProjectRpcLayer: Layer.Layer<ProjectRpc, never, RendererRpcClient> = Layer.effect(

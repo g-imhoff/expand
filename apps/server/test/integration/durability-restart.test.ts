@@ -4,15 +4,15 @@ import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runServer } from "@yodea/server/composition/app"
-import { withClient } from "@yodea/client-core"
-import { bunAdapter } from "@yodea/client-core/adapters/bun"
-import { readEndpoint } from "@yodea/client-core/discovery"
-import { makeTestAppContext } from "@yodea/contracts/app-context.testkit"
+import { runServer } from "@expand/server/composition/app"
+import { withClient } from "@expand/client-core"
+import { bunAdapter } from "@expand/client-core/adapters/bun"
+import { readEndpoint } from "@expand/client-core/discovery"
+import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 let dir: string
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "yodea-durable-"))
+  dir = mkdtempSync(join(tmpdir(), "expand-durable-"))
 })
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
@@ -32,7 +32,7 @@ describe.sequential("durability across a backend restart", () => {
     const dbPath = join(dir, "events.db")
     const boot = (
       use: (
-        c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi
+        c: import("@expand/client-core/rpc-client").ExpandRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
@@ -73,10 +73,10 @@ describe.sequential("durability across a backend restart", () => {
 
   it("a deleted project stays gone, a renamed+moved one persists after restart", async () => {
     const dbPath = join(dir, "events.db")
-    const workdir = mkdtempSync(join(tmpdir(), "yodea-durable-dir-"))
+    const workdir = mkdtempSync(join(tmpdir(), "expand-durable-dir-"))
     const boot = (
       use: (
-        c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi
+        c: import("@expand/client-core/rpc-client").ExpandRpcClientApi
       ) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
@@ -120,7 +120,7 @@ describe.sequential("durability across a backend restart", () => {
   it("persists a snapshot that the reboot reads (snapshot seq matches the log)", async () => {
     const dbPath = join(dir, "events.db")
     const boot = (
-      use: (c: import("@yodea/client-core/rpc-client").YodeaRpcClientApi) => Effect.Effect<unknown, unknown, never>
+      use: (c: import("@expand/client-core/rpc-client").ExpandRpcClientApi) => Effect.Effect<unknown, unknown, never>
     ) =>
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))

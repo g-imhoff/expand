@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest"
 import { Cause, Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { ReplayFeed, ReplayFeedLayer } from "@yodea/server/db/replay-feed"
-import { ProjectEventStore, ProjectEventStoreLayer } from "@yodea/server/application/projects/project-event-store"
-import { ProjectCreated } from "@yodea/contracts/events/project"
+import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
+import { ProjectCreated } from "@expand/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })

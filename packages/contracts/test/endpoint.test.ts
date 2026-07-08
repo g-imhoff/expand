@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { EndpointFromJson, PROTOCOL_VERSION } from "@yodea/contracts/endpoint"
+import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 
 describe("Endpoint", () => {
   it("roundtrips through JSON text", () => {

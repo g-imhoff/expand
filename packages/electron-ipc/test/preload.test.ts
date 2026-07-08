@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { IpcChannel, IpcContract } from "@yodea/electron-ipc/contract"
-import { exposeBridge, type PreloadIpcDeps, type PreloadIpcEvent } from "@yodea/electron-ipc/preload"
+import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
+import { exposeBridge, type PreloadIpcDeps, type PreloadIpcEvent } from "@expand/electron-ipc/preload"
 
 const Sample = IpcContract.make("sample", {
   ping: IpcChannel.send({ payload: Schema.Struct({ at: Schema.Number }) }),

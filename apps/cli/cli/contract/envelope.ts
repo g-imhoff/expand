@@ -1,7 +1,7 @@
 import { Schema } from "effect"
-import { Project, ProjectDeleteResult } from "@yodea/contracts/project"
+import { Project, ProjectDeleteResult } from "@expand/contracts/project"
 
-export const ENVELOPE_VERSION = "yodea/v1" as const
+export const ENVELOPE_VERSION = "expand/v1" as const
 
 export const ErrorCode = Schema.Literals([
   "UNEXPECTED",

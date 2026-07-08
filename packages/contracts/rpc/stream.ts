@@ -1,6 +1,6 @@
 import { Rpc, RpcGroup } from "effect/unstable/rpc"
 import { Schema } from "effect"
-import { SequencedEvent } from "@yodea/contracts/events/domain"
+import { SequencedEvent } from "@expand/contracts/events/domain"
 
 export class StreamRpcs extends RpcGroup.make(
   Rpc.make("Connect", { success: Schema.Boolean, stream: true }),

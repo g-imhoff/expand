@@ -3,8 +3,8 @@ import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpSer
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer } from "@effect/platform-bun"
 import { timingSafeEqual } from "node:crypto"
-import { YodeaRpcs } from "@yodea/contracts/rpc"
-import { YodeaHandlers } from "@yodea/server/rpc-handlers"
+import { ExpandRpcs } from "@expand/contracts/rpc"
+import { ExpandHandlers } from "@expand/server/rpc-handlers"
 
 const accessLogger = HttpMiddleware.make((httpApp) =>
   Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
@@ -68,8 +68,8 @@ const guardedRpcWebsocket = (token: string) =>
 
 export const httpServerLayer = (port: number, token: string) => {
   const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
-  const rpc = RpcServer.layer(YodeaRpcs).pipe(
-    Layer.provide(YodeaHandlers),
+  const rpc = RpcServer.layer(ExpandRpcs).pipe(
+    Layer.provide(ExpandHandlers),
     Layer.provide(guardedRpcWebsocket(token)),
     Layer.provide(RpcSerialization.layerNdjson)
   )

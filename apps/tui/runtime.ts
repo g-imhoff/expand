@@ -3,20 +3,20 @@ import { Layer, ManagedRuntime } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
-import { ProjectStore, type BackendUnavailable } from "@yodea/client-core"
-import { ProjectStoreLayer } from "@yodea/client-core/project-store"
-import { makeBunAdapter } from "@yodea/client-core/adapters/bun"
+import { ProjectStore, type BackendUnavailable } from "@expand/client-core"
+import { ProjectStoreLayer } from "@expand/client-core/project-store"
+import { makeBunAdapter } from "@expand/client-core/adapters/bun"
 
-export type YodeaRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
+export type ExpandRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
 
-export const RuntimeContext = createContext<YodeaRuntime | null>(null)
+export const RuntimeContext = createContext<ExpandRuntime | null>(null)
 
 const resolveBackendCommand = (): ReadonlyArray<string> => {
-  const override = process.env.YODEA_BACKEND_CMD
+  const override = process.env.EXPAND_BACKEND_CMD
   if (override) {
     const parsed = JSON.parse(override) as ReadonlyArray<string>
     if (!Array.isArray(parsed) || parsed.some((s) => typeof s !== "string")) {
-      throw new Error("YODEA_BACKEND_CMD must be a JSON array of strings")
+      throw new Error("EXPAND_BACKEND_CMD must be a JSON array of strings")
     }
     return parsed
   }
@@ -25,7 +25,7 @@ const resolveBackendCommand = (): ReadonlyArray<string> => {
   return [process.execPath, backendEntry]
 }
 
-export const makeProductionRuntime = (): YodeaRuntime =>
+export const makeProductionRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
     ProjectStoreLayer(makeBunAdapter({ backendCommand: resolveBackendCommand })).pipe(
       Layer.provide(BunServices.layer)
