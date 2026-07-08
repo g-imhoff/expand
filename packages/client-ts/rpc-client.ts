@@ -14,6 +14,7 @@ export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcC
   "expand/ExpandRpcClient"
 ) {}
 
+/** @internal */
 export const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`
 

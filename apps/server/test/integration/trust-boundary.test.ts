@@ -23,7 +23,7 @@ import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 import { readEndpoint } from "@expand/client-ts"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
-import { endpointWsUrl } from "@expand/client-ts"
+import { endpointWsUrl } from "@expand/client-ts/rpc-client"
 
 let dir: string
 beforeEach(() => {

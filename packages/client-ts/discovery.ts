@@ -95,6 +95,7 @@ const awaitEndpoint = readEndpoint.pipe(
   })
 )
 
+/** @internal */
 export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem

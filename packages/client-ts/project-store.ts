@@ -15,7 +15,7 @@ export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 // Mutations take raw strings and forward them to the backend, which validates
 // at its ingestion boundary (invalid input returns ProjectInvalidInput). The
 // store never brands or validates — it only mirrors the server's event stream.
-export interface ProjectStoreShape {
+export interface ProjectStoreApi {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   readonly status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
   readonly snapshot: Effect.Effect<{ readonly projects: ReadonlyArray<Project>; readonly seq: number }>
@@ -41,7 +41,7 @@ export interface ProjectStoreShape {
   readonly events: Stream.Stream<SequencedEvent>
 }
 
-export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreShape>()(
+export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreApi>()(
   "expand/ProjectStore"
 ) {}
 
@@ -71,7 +71,7 @@ const toUnavailable = (e: { readonly _tag: string }): BackendUnavailable =>
     : new BackendUnavailable({ reason: String(e) })
 
 const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
-  ProjectStoreShape,
+  ProjectStoreApi,
   BackendUnavailable,
   FileSystem.FileSystem | Scope.Scope
 > =>
