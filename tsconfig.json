@@ -24,7 +24,7 @@
       "@expand/*": ["apps/cli/*"]
     }
   },
-  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture", "bench"],
+  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture", "bench", "examples"],
   "exclude": [
     "apps/desktop"
   ]

@@ -4,6 +4,9 @@
 // import only the barrel (index.ts) and adapters/*. This test is part of the
 // SPECIFICATION. ADR: the 2026-07-08 client-ts rename design spec and plan under
 // docs/superpowers/specs/ and docs/superpowers/plans/.
+// The cruise scope was widened to include `examples` per the 2026-07-09
+// client-ts-examples design spec/plan (examples/client-ts is a barrel-enforced
+// external consumer), so the barrel rule now guards example code too.
 // ============================================================================
 import { createRequire } from "node:module"
 import { execFileSync } from "node:child_process"
@@ -33,7 +36,7 @@ describe("@expand/client-ts barrel-only boundary", () => {
     try {
       output = execFileSync(
         "bunx",
-        ["depcruise", "apps", "packages", "bench", "--config", ".dependency-cruiser.cjs"],
+        ["depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
       )
     } catch (e: any) {
