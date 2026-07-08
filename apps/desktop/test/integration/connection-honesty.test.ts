@@ -18,9 +18,10 @@ const health = healthHandlers.Health as () => Effect.Effect<string, never, Proje
 const fakeStore = (
   status: SubscriptionRef.SubscriptionRef<ConnectionStatus>,
   events: Stream.Stream<SequencedEvent>
-) =>
-  Layer.succeed(ProjectStore, {
-    projects: Effect.runSync(SubscriptionRef.make<ReadonlyArray<Project>>([])),
+) => {
+  const projects = Effect.runSync(SubscriptionRef.make<ReadonlyArray<Project>>([]))
+  return Layer.succeed(ProjectStore, {
+    projects,
     status,
     events,
     snapshot: Effect.succeed({ projects: [], seq: 0 }),
@@ -30,8 +31,14 @@ const fakeStore = (
     archiveProject: () => Effect.die("unused"),
     restoreProject: () => Effect.die("unused"),
     setMetadata: () => Effect.die("unused"),
-    deleteProject: () => Effect.die("unused")
+    deleteProject: () => Effect.die("unused"),
+    subscribe: (onProjects: (ps: ReadonlyArray<Project>) => void) =>
+      Effect.as(
+        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(projects), (ps) => Effect.sync(() => onProjects(ps)))),
+        () => {}
+      )
   })
+}
 
 const sequenced = (seq: number): SequencedEvent => ({
   seq,
