@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "types": ["bun", "node"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0",
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    "removeComments": false,
+    "emitDeclarationOnly": true,
+    "stripInternal": true,
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": ["*.ts", "adapters/*.ts", "../contracts/globals.d.ts"],
+  "exclude": ["test", "dist", "node_modules", "**/*.test.ts", "tsup.config.ts", "tsconfig.build.json"]
+}

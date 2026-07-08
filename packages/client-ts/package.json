@@ -10,6 +10,11 @@
     "./adapters/node": "./adapters/node.ts",
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json",
+    "stage:publish": "node scripts/prepare-publish.mjs",
+    "pack:tgz": "bun run build && bun run stage:publish && npm pack ./dist-publish"
+  },
   "dependencies": {
     "@effect/platform-bun": "4.0.0-beta.74",
     "@expand/contracts": "workspace:*",
@@ -17,6 +22,8 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@microsoft/api-extractor": "^7.58.9",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1"
   }
 }
