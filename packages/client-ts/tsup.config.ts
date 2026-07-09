@@ -17,6 +17,8 @@ import { defineConfig } from "tsup"
 export default defineConfig({
   entry: {
     "index": "index.ts",
+    "project": "project.ts",
+    "server": "server.ts",
     "adapters/bun": "adapters/bun.ts",
     "adapters/node": "adapters/node.ts"
   },
@@ -27,7 +29,10 @@ export default defineConfig({
   tsconfig: "tsconfig.build.json",
   dts: false,
   clean: true,
-  splitting: false,
+  // With multiple entries sharing internals (rpc-client.ts is reachable from
+  // index, project, AND server), splitting emits shared chunks so each internal
+  // module exists ONCE in dist — no duplicated module state across entrypoints.
+  splitting: true,
   sourcemap: false,
   treeshake: false,
   // Do NOT bundle dependencies — ship references, resolved from the consumer's

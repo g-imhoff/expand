@@ -51,6 +51,16 @@ const publishPkg = {
       import: "./dist/index.js",
       default: "./dist/index.js"
     },
+    "./project": {
+      types: "./dist/project.d.ts",
+      import: "./dist/project.js",
+      default: "./dist/project.js"
+    },
+    "./server": {
+      types: "./dist/server.d.ts",
+      import: "./dist/server.js",
+      default: "./dist/server.js"
+    },
     "./adapters/bun": {
       types: "./dist/adapters/bun.d.ts",
       import: "./dist/adapters/bun.js",
@@ -73,4 +83,4 @@ cpSync(distDir, join(stageDir, "dist"), { recursive: true })
 writeFileSync(join(stageDir, "package.json"), JSON.stringify(publishPkg, null, 2) + "\n")
 
 console.log(`[prepare-publish] staged ${src.name}@${src.version} -> ${stageDir}`)
-console.log(`[prepare-publish] exports -> dist (barrel-only); pack with:  npm pack ${stageDir}`)
+console.log(`[prepare-publish] exports -> dist (entrypoints-only); pack with:  npm pack ${stageDir}`)
