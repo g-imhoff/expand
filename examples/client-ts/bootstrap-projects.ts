@@ -41,5 +41,9 @@ const program = Effect.gen(function* () {
 const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
-  (err) => { console.error(err); runtime.dispose(); process.exit(1) }
+  (err) => {
+    console.error(err)
+    // Let dispose() run the scope finalizers (socket close) *before* exiting.
+    return runtime.dispose().finally(() => process.exit(1))
+  }
 )
