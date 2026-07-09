@@ -36,3 +36,15 @@ fresh temp dir per run for exactly this reason.
   project mutation to a JSONL file (`{ seq, tag, projectId, at }` per line); runs until
   interrupted (SIGINT).
   Run: `bun run examples/client-ts/audit-log.ts <outfile>`
+
+Each example has a subprocess smoke test in [`test/`](./test) that runs it
+against an isolated backend and asserts its output, so an API change that breaks
+an example fails CI.
+
+## Findings
+
+Writing these against the public surface is a dogfooding exercise: the payoff is
+[`ERGONOMICS.md`](./ERGONOMICS.md), a set of concrete, file-referenced notes on
+what felt awkward to build with — which command surface to pick and why,
+boilerplate the SDK doesn't yet absorb, and where the "public API only" promise
+leaks. It feeds a future ergonomics pass.
