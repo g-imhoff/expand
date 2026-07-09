@@ -18,15 +18,19 @@ it by name, no registry install:
 { "dependencies": { "@expand/client-ts": "workspace:*" } }
 ```
 
-## Two entrypoints
+## Entrypoints
 
 | Import                                                    | What it gives you                                                     |
-| -------------------------------------------------------- | -------------------------------------------------------------------- |
-| `@expand/client-ts` (the **barrel**)                     | The platform-neutral API: store, facades, `ClientLayer`, errors, contract vocabulary. |
+| -------------------------------------------------------- | --------------------------------------------------------------------- |
+| `@expand/client-ts` (the **root**)                        | The connection core: `ClientLayer`, `resolveBackendCommand`, `withClient`, transport errors, `RuntimeAdapter`, `ConnectionStatus`, `SequencedEvent`. |
+| `@expand/client-ts/project`                               | The project domain: `ProjectStore` / `ProjectStoreLayer`, `ProjectClient`, and the project contract vocabulary (`Project`, domain error tags). |
+| `@expand/client-ts/server`                                | The server domain: the `ServerClient` health/presence facade. |
 | `@expand/client-ts/adapters/bun` \| `.../adapters/node`  | The platform seam — `makeBunAdapter` / `makeNodeAdapter`. Kept separate because each pulls in platform-only deps. |
 
-Everything else is internal and unreachable (enforced by the
-`client-ts-barrel-only` dependency-cruiser rule).
+Exactly **one canonical import path per symbol** — the root does not re-export
+the domain surfaces. Everything else is internal and unreachable (enforced by
+the `client-ts-barrel-only` dependency-cruiser rule, which allows only these
+entrypoints).
 
 ## Happy path
 
@@ -42,7 +46,8 @@ usually, a **backend command** (how to spawn the server) resolved via
 import { Layer, ManagedRuntime } from "effect"
 import { fileURLToPath } from "node:url"
 import { BunServices } from "@effect/platform-bun"
-import { ProjectStore, ProjectStoreLayer, resolveBackendCommand } from "@expand/client-ts"
+import { resolveBackendCommand } from "@expand/client-ts"
+import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
 // Resolve the server entry to an ABSOLUTE path relative to this module — a bare
@@ -102,7 +107,8 @@ override live.
 ```ts
 import { Effect } from "effect"
 import { BunServices } from "@effect/platform-bun"
-import { ClientLayer, ServerClient } from "@expand/client-ts"
+import { ClientLayer } from "@expand/client-ts"
+import { ServerClient } from "@expand/client-ts/server"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
 const program = Effect.flatMap(ServerClient, (server) => server.health()).pipe(
@@ -132,7 +138,8 @@ Rules of thumb:
 
 ## Error handling
 
-The SDK's errors are re-exported from the barrel so you can catch and
+The SDK's errors are importable from its entrypoints — transport errors from the
+root, domain errors from `@expand/client-ts/project` — so you can catch and
 pattern-match without deep-importing `@expand/contracts`:
 
 - **`BackendUnavailable`** — the backend couldn't be found, spawned, or reached.
@@ -147,7 +154,7 @@ pattern-match without deep-importing `@expand/contracts`:
 
 ```ts
 import { Effect } from "effect"
-import { ProjectNameConflict } from "@expand/client-ts"
+import { ProjectNameConflict } from "@expand/client-ts/project"
 
 store.renameProject(id, "taken").pipe(
   Effect.catchTag("ProjectNameConflict", (e: ProjectNameConflict) =>
@@ -160,6 +167,6 @@ strings and surfaces `ProjectInvalidInput` rather than branding client-side.
 
 ## Contract vocabulary
 
-`Project`, `ProjectCreateResult`, `ProjectDeleteResult`, and `SequencedEvent`
-(the shape of `store.events`) are re-exported from the barrel so you can name the
-values the API returns without a second import.
+`Project`, `ProjectCreateResult`, and `ProjectDeleteResult` are re-exported from
+`@expand/client-ts/project`; `SequencedEvent` (the shape of `store.events`) from
+the root — so you can name the values the API returns without a second import.

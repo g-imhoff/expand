@@ -275,36 +275,35 @@ server's event stream into an atomic reactive replica, surviving reconnects.**
 
 ## Public API surface
 
-External consumers use exactly two entrypoints. The barrel (`index.ts`) groups
-its exports into labelled sections; the list below mirrors them.
+External consumers use four entrypoint kinds, with exactly one canonical import
+path per symbol (the root does not re-export the domain surfaces):
 
-- `@expand/client-ts` (the barrel) — the platform-neutral public API:
-  - **Reactive store**: `ProjectStore` / `ProjectStoreLayer`, and the types
-    `ProjectStoreApi` (the service shape, including `subscribe`) and
-    `ConnectionStatus`.
+- `@expand/client-ts` (root) — the connection core:
   - **Composition**: `ClientLayer`, `resolveBackendCommand` (+
     `ResolveBackendCommandOptions`).
+  - **Connection state**: `ConnectionStatus` (type).
+  - **Escape hatch**: `withClient`.
   - **Platform**: `RuntimeAdapter` (type only).
   - **Errors**: `BackendUnavailable`, `RpcClientError` (type).
-  - **Typed facades**: `ProjectClient` / `ProjectClientLayer` /
-    `ProjectClientApi`, `ServerClient` / `ServerClientLayer` / `ServerClientApi`,
-    `withClient`.
-  - **Advanced / plumbing**: `ExpandRpcClientApi` (the client `withClient` hands
-    its callback), `readEndpoint`, `supervised`.
-  - **Contract vocabulary** (re-exported from `@expand/contracts`): `Project`,
-    `ProjectCreateResult`, `ProjectDeleteResult`, `SequencedEvent`, and the
-    domain errors `ProjectNotFound`, `ProjectAlreadyExists`,
-    `ProjectNameConflict`, `ProjectDirectoryInvalid`, `ProjectDirectoryConflict`,
-    `ProjectInvalidInput`.
+  - **Plumbing**: `ExpandRpcClientApi` (the client `withClient` hands its
+    callback), `readEndpoint`.
+  - **Stream vocabulary**: `SequencedEvent`.
+- `@expand/client-ts/project` — the project domain: `ProjectStore` /
+  `ProjectStoreLayer` / `ProjectStoreApi`, `ProjectClient` / `ProjectClientLayer`
+  / `ProjectClientApi`, and the contract vocabulary `Project`,
+  `ProjectCreateResult`, `ProjectDeleteResult`, `ProjectNotFound`,
+  `ProjectAlreadyExists`, `ProjectNameConflict`, `ProjectDirectoryInvalid`,
+  `ProjectDirectoryConflict`, `ProjectInvalidInput`.
+- `@expand/client-ts/server` — the server domain: `ServerClient` /
+  `ServerClientLayer` / `ServerClientApi`.
 - `@expand/client-ts/adapters/bun` and `@expand/client-ts/adapters/node` — the
   platform seams (`makeBunAdapter` / `makeNodeAdapter`, and the `bunAdapter`
   convenience singleton). Kept separate because each imports platform-only deps.
 
-Everything else is internal: not re-exported from the barrel, tagged `@internal`
-where exported, and unreachable from outside by the `client-ts-barrel-only`
-dependency-cruiser rule. That includes `acquireClient`, `endpointWsUrl` and
-`deleteEndpoint`, the discovery/spawn internals (`findOrSpawnBackend`,
-`awaitEndpoint`, the lock helpers), `makeStore` and its `subscribeRef` seam, the
-raw `ExpandRpcClient` service and `ExpandRpcClientLayer`, and the `*Live`
-facades. `supervised` is public for now but is a candidate to move to a shared
-effect-utils package later.
+Everything else is internal: not re-exported from any entrypoint, tagged
+`@internal` where exported, and unreachable from outside by the
+`client-ts-barrel-only` dependency-cruiser rule. That includes `acquireClient`,
+`endpointWsUrl` and `deleteEndpoint`, the discovery/spawn internals
+(`findOrSpawnBackend`, `awaitEndpoint`, the lock helpers), `makeStore` and its
+`subscribeRef` seam, the raw `ExpandRpcClient` service and `ExpandRpcClientLayer`,
+the `*Live` facades, and `supervised`.

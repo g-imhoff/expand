@@ -176,6 +176,18 @@ disposes on SIGINT.
 
 ---
 
+## 9. One flat barrel for four concerns (addressed: scoped entrypoints)
+
+The whole public surface used to funnel through a single `index.ts` whose export
+list needed section comments (store / composition / facades / vocabulary) — when
+a barrel needs headers, the sections want to be modules. Addressed on
+2026-07-09: the surface is now scoped — root = connection core,
+`@expand/client-ts/project`, `@expand/client-ts/server`, `adapters/*` — with
+exactly one canonical import path per symbol (see the scoped-entrypoints design
+spec).
+
+---
+
 ### Net take
 
 The Effect-native surface is genuinely good where it's typed — the error
