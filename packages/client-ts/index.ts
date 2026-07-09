@@ -1,30 +1,35 @@
 /**
- * `@expand/client-ts` — the client SDK for the Expand backend: discover or spawn the
- * local backend, hold one RPC-over-WebSocket session, and mirror project state in a
- * live, reconnecting store.
+ * `@expand/client-ts` — the connection core of the Expand client SDK: discover or
+ * spawn the local backend, hold one RPC-over-WebSocket session, and compose the
+ * domain services over it.
  *
  * @remarks
- * The public surface is organized in tiers (in export order below):
+ * The root entrypoint is **strictly connection-level** — domain surfaces live on
+ * scoped subpaths, with exactly one canonical import path per symbol:
  *
- * - **Reactive store** — {@link ProjectStore} / {@link ProjectStoreLayer}: the primary
- *   API for GUI/TUI consumers. A live, reconnecting, event-sourced mirror of project
- *   state ({@link ProjectStoreApi.subscribe}, `ProjectStoreApi.projects`) plus command
- *   methods.
+ * - `@expand/client-ts/project` — the project domain: the `ProjectStore` reactive
+ *   mirror, the `ProjectClient` facade, and the project contract vocabulary.
+ * - `@expand/client-ts/server` — the server domain: the `ServerClient`
+ *   health/presence facade.
+ * - `@expand/client-ts/adapters/{bun,node}` — the platform seams
+ *   (`makeBunAdapter` / `makeNodeAdapter`).
+ *
+ * What lives here (in export order below):
+ *
  * - **Composition** — {@link ClientLayer} / {@link resolveBackendCommand}: build a
- *   `Layer` for a platform adapter, and resolve the command used to spawn the backend.
- * - **Typed facades** — {@link ProjectClient} / {@link ServerClient} / {@link withClient}:
- *   stateless one-RPC-per-method clients over a shared connection, plus a one-shot
- *   escape hatch for ad-hoc calls.
+ *   `Layer` for a platform adapter, and resolve the command used to spawn the
+ *   backend.
+ * - **Connection state** — {@link ConnectionStatus}: the session state the domain
+ *   stores emit.
+ * - **Escape hatch** — {@link withClient}: a one-shot RPC call without a standing
+ *   layer.
+ * - **Platform** — {@link RuntimeAdapter}: the adapter seam (type only).
  * - **Errors** — {@link BackendUnavailable} / {@link RpcClientError}: transport-level
- *   failures. Domain errors ({@link ProjectNotFound}, …) come from the contract
- *   vocabulary re-exported below.
- * - **Platform** — {@link RuntimeAdapter}: the adapter seam (type only). Concrete
- *   adapters are constructed via `makeBunAdapter` / `makeNodeAdapter` from the separate
- *   `@expand/client-ts/adapters/{bun,node}` subpaths.
- *
- * The API signatures are phrased in terms of `@expand/contracts` symbols, which are
- * re-exported here so consumers can name and pattern-match on the surface without
- * deep-importing `@expand/contracts`.
+ *   failures. Domain errors (`ProjectNotFound`, …) come from the domain subpaths.
+ * - **Plumbing** — {@link ExpandRpcClientApi} / {@link readEndpoint}: rarely needed
+ *   directly.
+ * - **Stream vocabulary** — {@link SequencedEvent}: the `{seq, event}` envelope
+ *   every domain event stream emits.
  *
  * See `README.md` for a quickstart and `ARCHITECTURE.md` for internals.
  *
@@ -33,22 +38,20 @@
 
 import type { RpcClientError as RpcClientErrorNS } from "effect/unstable/rpc"
 
-// Reactive store
-export { ProjectStore, ProjectStoreLayer, type ProjectStoreApi, type ConnectionStatus } from "./project-store"
-
 // Composition
 export { ClientLayer } from "./client-layer"
 export { resolveBackendCommand, type ResolveBackendCommandOptions } from "./backend-command"
 
-// Typed facades
-export { ProjectClient, ProjectClientLayer, type ProjectClientApi } from "./project-client"
-export { ServerClient, ServerClientLayer, type ServerClientApi } from "./server-client"
+// Connection state (type only — the domain stores emit it)
+export type { ConnectionStatus } from "./project-store"
+
+// Escape hatch
 export { withClient } from "./with-client"
 
 // Platform (adapter seam — type only)
 export type { RuntimeAdapter } from "./adapter"
 
-// Errors (transport-level; domain errors come from the contract vocabulary below)
+// Errors (transport-level; domain errors live on the domain subpaths)
 export { BackendUnavailable } from "./errors"
 export type RpcClientError = RpcClientErrorNS.RpcClientError
 
@@ -56,15 +59,5 @@ export type RpcClientError = RpcClientErrorNS.RpcClientError
 export { type ExpandRpcClientApi } from "./rpc-client"
 export { readEndpoint } from "./discovery"
 
-// Contract vocabulary — re-exported from @expand/contracts so the SDK surface is
-// nameable without a deep import. Tagged-error / schema classes are value+type.
-export { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
-export {
-  ProjectNotFound,
-  ProjectAlreadyExists,
-  ProjectNameConflict,
-  ProjectDirectoryInvalid,
-  ProjectDirectoryConflict,
-  ProjectInvalidInput
-} from "@expand/contracts/rpc"
+// Stream vocabulary — the envelope every domain event stream emits
 export { SequencedEvent } from "@expand/contracts/events/domain"
