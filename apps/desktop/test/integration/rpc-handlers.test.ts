@@ -3,7 +3,8 @@ import { Effect, Layer, PubSub, Stream, SubscriptionRef, Schema } from "effect"
 import { Project as ProjectClass } from "@expand/contracts/project"
 import type { Project } from "@expand/contracts/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
-import { ProjectStore, type ConnectionStatus } from "@expand/client-ts"
+import type { ConnectionStatus } from "@expand/client-ts"
+import { ProjectStore } from "@expand/client-ts/project"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")

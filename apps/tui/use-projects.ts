@@ -1,6 +1,6 @@
 import { useCallback, use, useEffect, useState } from "react"
 import { Effect, Schema } from "effect"
-import { ProjectStore } from "@expand/client-ts"
+import { ProjectStore } from "@expand/client-ts/project"
 import type { Project } from "@expand/contracts/project"
 import { RuntimeContext } from "@expand/tui/runtime"
 

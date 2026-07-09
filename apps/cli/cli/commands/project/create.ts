@@ -1,7 +1,7 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
 import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
-import { ProjectClient } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/_command"
 
 // Raw string: the backend validates the name at ingestion (ProjectInvalidInput).

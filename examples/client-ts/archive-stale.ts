@@ -1,7 +1,8 @@
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { existsSync } from "node:fs"
-import { ClientLayer, ProjectClient } from "@expand/client-ts"
+import { ClientLayer } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 
 const program = Effect.gen(function*() {
@@ -19,11 +20,10 @@ const program = Effect.gen(function*() {
 })
 
 const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
-try {
-  await runtime.runPromise(program)
-} catch (err) {
-  console.error(err)
-  process.exitCode = 1
-} finally {
-  await runtime.dispose()
-}
+runtime.runPromise(program).then(
+  () => runtime.dispose(),
+  (err) => {
+    console.error(err)
+    return runtime.dispose().finally(() => process.exit(1))
+  }
+)

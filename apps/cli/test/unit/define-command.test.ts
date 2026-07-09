@@ -3,7 +3,7 @@ import { Argument, Command, GlobalFlag } from "effect/unstable/cli"
 import { Effect } from "effect"
 import { defineCommand } from "@expand/cli/_command"
 import { Format, Quiet } from "@expand/cli/global-flags"
-import { ProjectClient } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
 import { runCli, stubLayer } from "../harness"
 
 const create = defineCommand(

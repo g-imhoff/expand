@@ -3,8 +3,8 @@ import { Layer, ManagedRuntime } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
-import { ProjectStore, resolveBackendCommand, type BackendUnavailable } from "@expand/client-ts"
-import { ProjectStoreLayer } from "@expand/client-ts"
+import { resolveBackendCommand, type BackendUnavailable } from "@expand/client-ts"
+import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>

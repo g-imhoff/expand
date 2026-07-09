@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { ProjectClient, type ProjectClientApi } from "@expand/client-ts"
+import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 
 const stub = (projects: ReadonlyArray<{ id: string; name: string }>) =>

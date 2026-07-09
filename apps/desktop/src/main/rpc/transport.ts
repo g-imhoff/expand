@@ -1,6 +1,7 @@
 import { Effect, Fiber } from "effect"
 import type { ManagedRuntime } from "effect"
-import type { BackendUnavailable, ProjectStore } from "@expand/client-ts"
+import type { BackendUnavailable } from "@expand/client-ts"
+import type { ProjectStore } from "@expand/client-ts/project"
 import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
 import { supervised } from "@expand/desktop/main/lib/supervised"
 

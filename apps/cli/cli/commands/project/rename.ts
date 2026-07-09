@@ -2,7 +2,7 @@ import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
 import type { Project } from "@expand/contracts/project"
 import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
-import { ProjectClient } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/_command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 

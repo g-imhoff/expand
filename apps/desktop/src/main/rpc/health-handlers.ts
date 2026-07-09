@@ -1,7 +1,7 @@
 import { Effect, SubscriptionRef } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-ts"
+import { ProjectStore } from "@expand/client-ts/project"
 
 export const healthHandlers: Pick<Handlers, "Health"> = {
   Health: () =>

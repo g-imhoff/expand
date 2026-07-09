@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { appendFileSync } from "node:fs"
-import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts"
+import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 
 const outfile = process.argv[2]
@@ -25,11 +25,10 @@ const program = Effect.scoped(Effect.gen(function*() {
 }))
 
 const runtime = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer)))
-try {
-  await runtime.runPromise(program)
-} catch (err) {
-  console.error(err)
-  process.exitCode = 1
-} finally {
-  await runtime.dispose()
-}
+runtime.runPromise(program).then(
+  () => runtime.dispose(),
+  (err) => {
+    console.error(err)
+    return runtime.dispose().finally(() => process.exit(1))
+  }
+)

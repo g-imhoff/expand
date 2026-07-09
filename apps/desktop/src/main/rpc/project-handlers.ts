@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-ts"
+import { ProjectStore } from "@expand/client-ts/project"
 import { dieOnRpcClientError } from "@expand/desktop/main/rpc/guard"
 
 export const projectHandlers: Pick<
