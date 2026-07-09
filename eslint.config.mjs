@@ -17,7 +17,7 @@ export default tseslint.config(
     ]
   },
   {
-    files: ["apps/**/*.{ts,tsx}", "packages/**/*.{ts,tsx}"],
+    files: ["apps/**/*.{ts,tsx}", "packages/**/*.{ts,tsx}", "examples/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } }
