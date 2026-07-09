@@ -38,6 +38,24 @@ export const runExample = async (
   }
 }
 
+export interface ExampleHandle { readonly kill: () => void }
+
+/**
+ * Spawn a long-running example against a caller-owned `dataDir` and return a handle
+ * immediately (without awaiting exit), so a test can let it run then `kill()` it.
+ * Output is inherited to the parent for debugging; the caller owns `dataDir`.
+ */
+export const spawnExample = (
+  relPath: string,
+  args: ReadonlyArray<string>,
+  dataDir: string
+): ExampleHandle => {
+  const proc = Bun.spawn(["bun", "run", join(examplesDir, relPath), ...args, "--data-dir", dataDir], {
+    stdout: "inherit", stderr: "inherit", env: { ...process.env }
+  })
+  return { kill: () => proc.kill() }
+}
+
 /** Create a temp dir containing the named subdirectories; returns its path. Caller removes it. */
 export const makeFixtureDir = (subdirs: ReadonlyArray<string>): string => {
   const dir = mkdtempSync(join(tmpdir(), "expand-fixture-"))

@@ -32,3 +32,7 @@ fresh temp dir per run for exactly this reason.
   any whose `directory` no longer exists on disk. Prints
   `archive-stale: archived <N> of <M> active`.
   Run: `bun run examples/client-ts/archive-stale.ts`
+- **[`audit-log.ts`](./audit-log.ts)** — tail the store's change stream and append every
+  project mutation to a JSONL file (`{ seq, tag, projectId, at }` per line); runs until
+  interrupted (SIGINT).
+  Run: `bun run examples/client-ts/audit-log.ts <outfile>`
