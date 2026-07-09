@@ -4,7 +4,6 @@ import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import {
   ClientLayer, ProjectClient,
-  ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput
 } from "@expand/client-ts"
 import { adapter } from "./adapter"
 
@@ -15,7 +14,7 @@ const subdirs = readdirSync(root).filter((n) => {
   try { return statSync(join(root, n)).isDirectory() } catch { return false }
 })
 
-const program = Effect.gen(function* () {
+const program = Effect.gen(function*() {
   const client = yield* ProjectClient
   const existing = yield* client.list({ includeArchived: true })
   const known = new Set(existing.projects.map((p) => String(p.name)))
@@ -39,11 +38,11 @@ const program = Effect.gen(function* () {
 })
 
 const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
-runtime.runPromise(program).then(
-  () => runtime.dispose(),
-  (err) => {
-    console.error(err)
-    // Let dispose() run the scope finalizers (socket close) *before* exiting.
-    return runtime.dispose().finally(() => process.exit(1))
-  }
-)
+try {
+  await runtime.runPromise(program)
+} catch (err) {
+  console.error(err)
+  process.exitCode = 1
+} finally {
+  await runtime.dispose()
+}

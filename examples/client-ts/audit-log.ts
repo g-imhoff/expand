@@ -7,13 +7,8 @@ import { adapter } from "./adapter"
 const outfile = process.argv[2]
 if (!outfile || outfile.startsWith("--")) { console.error("usage: audit-log <outfile>"); process.exit(2) }
 
-const program = Effect.scoped(Effect.gen(function* () {
+const program = Effect.scoped(Effect.gen(function*() {
   const store = yield* ProjectStore
-  // `store.events` is a *tail* of the backend's event stream (PubSub-backed): only
-  // events published *after* we subscribe are delivered — there is no backlog. So
-  // we acquire the subscription first (`Stream.toPull` subscribes synchronously),
-  // and only *then* announce readiness. A consumer that waits for this banner can
-  // safely assume the audit log is actually tailing, not merely connected.
   const pull = yield* Stream.toPull(store.events)
   console.log(`audit-log: writing to ${outfile}`)
   yield* Effect.forever(
@@ -30,11 +25,11 @@ const program = Effect.scoped(Effect.gen(function* () {
 }))
 
 const runtime = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer)))
-runtime.runPromise(program).then(
-  () => runtime.dispose(),
-  (err) => {
-    console.error(err)
-    // Let dispose() run the scope finalizers (socket close) *before* exiting.
-    return runtime.dispose().finally(() => process.exit(1))
-  }
-)
+try {
+  await runtime.runPromise(program)
+} catch (err) {
+  console.error(err)
+  process.exitCode = 1
+} finally {
+  await runtime.dispose()
+}
