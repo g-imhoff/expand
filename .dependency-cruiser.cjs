@@ -20,12 +20,13 @@ module.exports = {
       name: "client-ts-barrel-only",
       severity: "error",
       comment:
-        "BOUNDARIES.md: @expand/client-ts exposes only its barrel (index.ts) and " +
+        "Scoped-entrypoints spec (2026-07-09): @expand/client-ts exposes only its " +
+        "entrypoints — index.ts (connection core), project.ts, server.ts, and " +
         "adapters/* — external code must not deep-import its internals.",
       from: { pathNot: "^packages/client-ts/" },
       to: {
         path: "^packages/client-ts/",
-        pathNot: "^packages/client-ts/(index\\.ts$|adapters/)"
+        pathNot: "^packages/client-ts/(index\\.ts$|project\\.ts$|server\\.ts$|adapters/)"
       }
     },
     {

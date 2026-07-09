@@ -1,12 +1,11 @@
 // test/architecture/client-ts-barrel.test.ts
 // ============================================================================
 // DO NOT MODIFY — pins the @expand/client-ts public boundary: external code may
-// import only the barrel (index.ts) and adapters/*. This test is part of the
-// SPECIFICATION. ADR: the 2026-07-08 client-ts rename design spec and plan under
-// docs/superpowers/specs/ and docs/superpowers/plans/.
-// The cruise scope was widened to include `examples` per the 2026-07-09
-// client-ts-examples design spec/plan (examples/client-ts is a barrel-enforced
-// external consumer), so the barrel rule now guards example code too.
+// import only the entrypoints (index.ts, project.ts, server.ts) and adapters/*.
+// This test is part of the SPECIFICATION. ADRs: the 2026-07-08 client-ts rename
+// spec, the 2026-07-09 client-ts-examples spec (cruise scope includes examples),
+// and the 2026-07-09 scoped-entrypoints spec (strict-core root + /project +
+// /server), under docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { createRequire } from "node:module"
 import { execFileSync } from "node:child_process"
@@ -27,7 +26,9 @@ describe("@expand/client-ts barrel-only boundary", () => {
     expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
     expect(rule!.from.pathNot).toBe("^packages/client-ts/")
     expect(rule!.to.path).toBe("^packages/client-ts/")
-    expect(rule!.to.pathNot).toBe("^packages/client-ts/(index\\.ts$|adapters/)")
+    expect(rule!.to.pathNot).toBe(
+      "^packages/client-ts/(index\\.ts$|project\\.ts$|server\\.ts$|adapters/)"
+    )
   })
 
   it("no external module deep-imports client-ts internals", () => {
