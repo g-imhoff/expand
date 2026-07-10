@@ -136,7 +136,7 @@ cleanup
     expect(result.stdout).not.toContain("424242")
   })
 
-  it("reaps cached status before polling endpoint removal", async () => {
+  it("retires job eligibility before reaping cached status and polling endpoint removal", async () => {
     const source = await readSmokeSource()
     const functions = extractFunctions(source)
     const root = await mkdtemp(join(tmpdir(), "expand-smoke-cached-"))
@@ -161,7 +161,7 @@ jobs() {
 }
 
 wait() {
-  printf 'wait:%s\n' "$1"
+  printf 'wait:%s job:%s\n' "$1" "$SERVER_JOB_SPEC"
   rm -f -- "$ENDPOINT_FILE"
   return 29
 }
@@ -180,7 +180,7 @@ printf 'status:%s job:%s\n' "$status" "$SERVER_JOB_SPEC"
       const result = await runShell(script)
       expect(result.stderr).toBe("")
       expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe("wait:%4\nstatus:29 job:\n")
+      expect(result.stdout).toBe("wait:%4 job:\nstatus:29 job:\n")
     } finally {
       await rm(root, { force: true, recursive: true })
     }

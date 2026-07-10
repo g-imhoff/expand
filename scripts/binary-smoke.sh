@@ -64,8 +64,8 @@ wait_for_server_job_exit() {
 reap_server_job() {
   local job_spec="$SERVER_JOB_SPEC"
   local status=0
-  wait "$job_spec" || status=$?
   SERVER_JOB_SPEC=""
+  wait "$job_spec" || status=$?
   return "$status"
 }
 
