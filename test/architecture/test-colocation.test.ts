@@ -16,14 +16,15 @@ const walk = (dir: string): ReadonlyArray<string> => {
 const isTestFile = (p: string): boolean => p.endsWith(".test.ts") || p.endsWith(".test.tsx")
 
 describe("test colocation", () => {
-  it("every test outside test/architecture lives under an app or package test/ folder", () => {
+  it("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () => {
     const all = walk(repoRoot).filter(isTestFile).map((p) => p.slice(repoRoot.length))
     const misplaced = all.filter((rel) => {
       if (rel.startsWith("test/architecture/")) return false
       const ok =
         /^apps\/[^/]+\/test\//.test(rel) ||
         /^packages\/[^/]+\/test\//.test(rel) ||
-        /^examples\/[^/]+\/test\//.test(rel)
+        /^examples\/[^/]+\/test\//.test(rel) ||
+        /^scripts\/[^/]+\.test\.tsx?$/.test(rel)
       return !ok
     })
     expect(misplaced).toEqual([])
