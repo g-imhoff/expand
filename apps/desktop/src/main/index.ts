@@ -19,6 +19,11 @@ if (!app.isPackaged && process.env["EXPAND_DEVTOOLS_CDP"] === "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9222")
 }
 
+// GPU-less remote dev over forwarded X11: SwiftShader software-GL wastes VPS CPU
+if (process.env["SSH_CONNECTION"]) {
+  app.disableHardwareAcceleration()
+}
+
 const runtime = makeRuntime()
 
 const devUrl = process.env["ELECTRON_RENDERER_URL"]

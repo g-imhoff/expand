@@ -26,7 +26,7 @@
     "dev:cli": "bun apps/cli/cli/main.ts",
     "dev:server": "bun apps/server/main.ts",
     "dev:tui": "bun apps/tui/main.tsx",
-    "dev:desktop": "cd apps/desktop && electron-vite dev",
+    "dev:desktop": "cd apps/desktop && electron-vite dev -w",
     "build:desktop": "cd apps/desktop && electron-vite build",
     "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
     "e2e:desktop": "bun run build:desktop && playwright test -c apps/desktop/e2e/playwright.config.ts",
