@@ -6,8 +6,8 @@
   "sideEffects": false,
   "exports": {
     ".": "./index.ts",
-    "./project": "./project.ts",
-    "./server": "./server.ts",
+    "./project": "./project/index.ts",
+    "./server": "./server/index.ts",
     "./adapters/bun": "./adapters/bun.ts",
     "./adapters/node": "./adapters/node.ts",
     "./package.json": "./package.json"

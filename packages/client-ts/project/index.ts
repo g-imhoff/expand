@@ -19,10 +19,10 @@
  */
 
 // Reactive store
-export { ProjectStore, ProjectStoreLayer, type ProjectStoreApi } from "./project-store"
+export { ProjectStore, ProjectStoreLayer, type ProjectStoreApi } from "./store"
 
 // Typed facade
-export { ProjectClient, ProjectClientLayer, type ProjectClientApi } from "./project-client"
+export { ProjectClient, ProjectClientLayer, type ProjectClientApi } from "./client"
 
 // Contract vocabulary — re-exported from @expand/contracts so the domain surface
 // is nameable without a deep import. Tagged-error / schema classes are value+type.

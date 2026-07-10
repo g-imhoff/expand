@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { ProjectClient } from "../project-client"
-import { ServerClient } from "../server-client"
+import { ProjectClient } from "../project/client"
+import { ServerClient } from "../server/client"
 
 const projectStub = Layer.succeed(ProjectClient, {
   create: ({ name }: { name: string; ensure: boolean }) =>

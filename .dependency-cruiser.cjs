@@ -21,12 +21,12 @@ module.exports = {
       severity: "error",
       comment:
         "Scoped-entrypoints spec (2026-07-09): @expand/client-ts exposes only its " +
-        "entrypoints — index.ts (connection core), project.ts, server.ts, and " +
-        "adapters/* — external code must not deep-import its internals.",
+        "entrypoints — index.ts (connection core), project/index.ts, server/index.ts, " +
+        "and adapters/* — external code must not deep-import its internals.",
       from: { pathNot: "^packages/client-ts/" },
       to: {
         path: "^packages/client-ts/",
-        pathNot: "^packages/client-ts/(index\\.ts$|project\\.ts$|server\\.ts$|adapters/)"
+        pathNot: "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
       }
     },
     {

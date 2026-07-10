@@ -8,4 +8,4 @@
  *
  * @packageDocumentation
  */
-export { ServerClient, ServerClientLayer, type ServerClientApi } from "./server-client"
+export { ServerClient, ServerClientLayer, type ServerClientApi } from "./client"

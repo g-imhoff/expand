@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, SubscriptionRef } from "effect"
-import { subscribeRef } from "../../project-store"
+import { subscribeRef } from "../../project/store"
 
 // subscribeRef backs ProjectStoreApi.subscribe. Testing it against a plain
 // SubscriptionRef exercises the exact delivery + teardown path the store method

@@ -1,7 +1,7 @@
 // test/architecture/client-ts-barrel.test.ts
 // ============================================================================
 // DO NOT MODIFY — pins the @expand/client-ts public boundary: external code may
-// import only the entrypoints (index.ts, project.ts, server.ts) and adapters/*.
+// import only the entrypoints (index.ts, project/index.ts, server/index.ts) and adapters/*.
 // This test is part of the SPECIFICATION. ADRs: the 2026-07-08 client-ts rename
 // spec, the 2026-07-09 client-ts-examples spec (cruise scope includes examples),
 // and the 2026-07-09 scoped-entrypoints spec (strict-core root + /project +
@@ -27,7 +27,7 @@ describe("@expand/client-ts barrel-only boundary", () => {
     expect(rule!.from.pathNot).toBe("^packages/client-ts/")
     expect(rule!.to.path).toBe("^packages/client-ts/")
     expect(rule!.to.pathNot).toBe(
-      "^packages/client-ts/(index\\.ts$|project\\.ts$|server\\.ts$|adapters/)"
+      "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
     )
   })
 

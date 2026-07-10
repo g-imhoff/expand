@@ -17,8 +17,8 @@ import { defineConfig } from "tsup"
 export default defineConfig({
   entry: {
     "index": "index.ts",
-    "project": "project.ts",
-    "server": "server.ts",
+    "project/index": "project/index.ts",
+    "server/index": "server/index.ts",
     "adapters/bun": "adapters/bun.ts",
     "adapters/node": "adapters/node.ts"
   },

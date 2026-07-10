@@ -53,14 +53,14 @@ const publishPkg = {
       default: "./dist/index.js"
     },
     "./project": {
-      types: "./dist/project.d.ts",
-      import: "./dist/project.js",
-      default: "./dist/project.js"
+      types: "./dist/project/index.d.ts",
+      import: "./dist/project/index.js",
+      default: "./dist/project/index.js"
     },
     "./server": {
-      types: "./dist/server.d.ts",
-      import: "./dist/server.js",
-      default: "./dist/server.js"
+      types: "./dist/server/index.d.ts",
+      import: "./dist/server/index.js",
+      default: "./dist/server/index.js"
     },
     "./adapters/bun": {
       types: "./dist/adapters/bun.d.ts",

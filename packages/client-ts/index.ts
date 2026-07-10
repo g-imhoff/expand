@@ -43,7 +43,7 @@ export { ClientLayer } from "./client-layer"
 export { resolveBackendCommand, type ResolveBackendCommandOptions } from "./backend-command"
 
 // Connection state (type only — the domain stores emit it)
-export type { ConnectionStatus } from "./project-store"
+export type { ConnectionStatus } from "./project/store"
 
 // Escape hatch
 export { withClient } from "./with-client"
