@@ -4,9 +4,10 @@
 // in-repo resolution (which relies on `exports` -> source `.ts`) keeps working.
 //
 // Two client-ts specifics beyond the contracts recipe:
-//   1. Exports stay BARREL-ONLY — only ".", "./adapters/bun", "./adapters/node"
-//      and "./package.json" are exposed; internal modules (rpc-client, spawn, …)
-//      are unreachable. (They are also physically absent: tsup bundles each entry.)
+//   1. Exports stay SCOPED-ENTRYPOINTS-ONLY — only ".", "./project", "./server",
+//      "./adapters/bun", "./adapters/node" and "./package.json" are exposed;
+//      internal modules (rpc-client, spawn, …) are unreachable. (They are also
+//      physically absent: tsup bundles each entry.)
 //   2. The `@expand/contracts` dependency is rewritten from the in-repo
 //      `workspace:*` protocol to the real version from packages/contracts, so the
 //      published tarball is installable outside the workspace.
@@ -37,7 +38,7 @@ if (typeof dependencies["@expand/contracts"] === "string" && dependencies["@expa
 }
 
 // Publish-time package.json: source `exports` (-> ./*.ts) swapped for dist
-// (-> ./dist/*), keeping the barrel-only surface.
+// (-> ./dist/*), keeping the scoped-entrypoints surface.
 const publishPkg = {
   name: src.name,
   version: src.version,

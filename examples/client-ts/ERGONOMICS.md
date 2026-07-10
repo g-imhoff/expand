@@ -21,7 +21,7 @@ was the first real decision in every example:
   `projects`/`status`/`events`/`snapshot` mirror (`project-store.ts:18`).
 - **`withClient(adapter, use)`** — a one-shot escape hatch handing you the raw
   `ExpandRpcClientApi` with PascalCase RPC names (`client.ProjectCreate({…})`)
-  (`with-client.ts:5`, `index.ts:46`).
+  (`with-client.ts:5`, `index.ts:49`).
 
 `bootstrap-projects.ts` and `archive-stale.ts` both landed on `ProjectClient`,
 and *not* because the reactive store looked heavier — because the store's
@@ -35,8 +35,8 @@ an error from the recoverable channel. That is not discoverable from the names.
 
 The naming split compounds it: `create` vs `createProject`, `archive` vs
 `archiveProject`, payload-object vs positional. Two vocabularies for the same
-operations, and you can't tell from the barrel which tier owns the semantics you
-want.
+operations, and you can't tell from the `/project` entrypoint which tier owns
+the semantics you want.
 
 **Possible cleanup:** either give `ProjectStore` command methods parity with the
 facade's error channel (don't `die` on a domain error), or document loudly that
@@ -123,9 +123,10 @@ reflects the corrected set.
 
 So: the types are a genuine asset (you cannot ship a `catchTags` over the wrong
 union), but the create-vs-rename split of which conflict is which is not
-obvious, and all six tags being flat on the barrel (`index.ts:62-69`) means
-nothing narrows them for you per call. Reading the method signature is
-mandatory; the barrel alone will mislead.
+obvious, and all six tags being flat on the `/project` entrypoint (formerly the
+barrel's `index.ts:62-69`; now `project.ts:30-36`) means nothing narrows them
+for you per call. Reading the method signature is mandatory; the entrypoint
+alone will mislead.
 
 ## 6. `store.events` is tail-only — no backlog, and no gapless snapshot+subscribe
 
