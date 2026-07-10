@@ -1,8 +1,8 @@
 # Deterministic Codex and Claude agent roster
 
 - **Date:** 2026-07-10
-- **Status:** Approved (design) — pending implementation plan
-- **Goal:** Give Expand a project-scoped, auditable roster of specialized Codex and Claude agents whose model and reasoning settings are explicit, whose responsibilities align with Superpowers, and whose generated mirrors cannot silently drift.
+- **Status:** Approved (design, including the `--data-dir` amendment) — pending implementation plan
+- **Goal:** Give Expand a project-scoped, auditable roster of specialized Codex and Claude agents whose model and reasoning settings are explicit, whose responsibilities align with Superpowers, whose generated mirrors cannot silently drift, and whose test agents use a real global CLI data-directory contract.
 
 ## Problem
 
@@ -13,10 +13,12 @@ project-specific review, TDD, desktop, and CLI testing contracts.
 
 The current Claude tester definitions also contain stale assumptions. In
 particular, they use `EXPAND_HOME` as an isolation control even though the
-current runtime derives its data directory from `--data-dir` or, by default,
-`~/.expand/<channel>`. Running those instructions unchanged can connect to or
-modify real user state. The desktop instructions also encode UI defects and
-source paths as permanent facts even after the implementation changes.
+runtime ignores that variable. The underlying `AppContext` notices a raw
+`--data-dir` process argument, but the Effect CLI does not declare that flag and
+therefore rejects an actual CLI invocation with `INVALID_OPTION`. Running the
+existing instructions can consequently connect to or modify real user state.
+The desktop instructions also encode UI defects and source paths as permanent
+facts even after the implementation changes.
 
 The solution must work with the Superpowers workflow rather than duplicating
 each skill as another permanent agent. Brainstorming, planning, worktree setup,
@@ -42,6 +44,10 @@ fresh context, a specialized prompt, or an explicit model tier.
    requires a distinct per-task spec-and-quality gate, while final completion
    verification must be performed afresh by the controller and cannot be
    delegated as authoritative evidence.
+8. Add a real optional global `--data-dir` CLI flag before rewriting the tester
+   instructions. The CLI consumes the parsed value and provides `AppContext`
+   explicitly; it does not rely on an ignored environment variable or on
+   rereading raw CLI arguments as its primary configuration path.
 
 ## Roster and exact model policy
 
@@ -113,6 +119,54 @@ No permanent `orchestrator`, `planner`, `fixer`, `verifier`, `worktree-manager`,
 or `branch-finisher` is added. Those would either duplicate a Superpowers skill,
 split decisions away from the controller that owns their context, or delegate a
 user-facing integration decision that must remain with the controller.
+
+## Global `--data-dir` prerequisite
+
+The agent roster depends on a first-class CLI isolation contract. Add `DataDir`
+to `apps/cli/cli/global-flags.ts` as a `GlobalFlag.setting("data-dir")`. Its flag
+is an optional directory path with `mustExist: false` and a help description
+that states it overrides Expand's state directory. Effect CLI resolves the
+value to an absolute path, accepts an existing directory or a path that does not
+exist yet, and rejects an existing non-directory.
+
+The flag is declared at the root command beside `Format` and `Quiet`, so it is
+accepted before or after a selected subcommand and appears under global flags in
+every relevant help view. Omitting it preserves the existing channel-specific
+default under `~/.expand/<channel>`.
+
+Export a production `makeAppContext(dataDir?: string): AppContextShape` from
+`packages/contracts/app-context.ts`. The default `AppContext` reference uses
+that constructor and retains raw-process-argument support for the standalone
+backend and Electron, which do not run through the Effect CLI parser. The CLI's
+real client layer instead receives an `AppContext` layer built from the parsed
+`DataDir` setting. When the client starts a backend, the existing runtime adapter
+passes that same absolute directory to the backend as `--data-dir`, so endpoint
+discovery, the SQLite database, logs, and the spawned process all agree on one
+location.
+
+Also export `defaultDataDir(): string` and make the backend run
+`migrateLegacyHome` only when `paths.dataDir === defaultDataDir()`. An explicit
+override must never relocate a user's legacy `~/.expand` tree. The current file
+logger happens to create the override directory before migration checks it, but
+that incidental ordering is not the safety contract and must not be relied on.
+
+This is a user-facing advanced option, not a test-only back door. The public
+contract is:
+
+- `expand --data-dir <directory> <subcommand> ...`
+- `expand <subcommand> ... --data-dir <directory>`
+- the directory may be relative, absolute, existing, or not yet created;
+- a relative directory is resolved against the CLI process's current directory;
+- an existing file is rejected before the command handler runs;
+- the CLI never creates or mutates the default channel directory when the
+  override is present;
+- the backend never migrates a legacy home into an explicit override.
+
+Update `scripts/binary-smoke.sh` to create a unique temporary directory, install
+an exit trap, and invoke every CLI command through an argv array containing
+`--data-dir "$DATA_DIR"`. The trap may terminate only the PID advertised by
+`$DATA_DIR/server.json`, when that file exists and the PID is alive, and then
+remove only `$DATA_DIR`. `EXPAND_HOME` is removed from the script entirely.
 
 ## Agent contracts
 
@@ -186,9 +240,9 @@ make the certification pass.
 
 ## Tester isolation and process safety
 
-Neither tester may use `EXPAND_HOME` as an isolation mechanism. The current
-runtime reads `--data-dir`, and the client adapter propagates that directory to
-the spawned backend. Each tester must:
+Neither tester may use `EXPAND_HOME` or a fake `HOME` as an isolation mechanism.
+The new global CLI flag provides the public override, and the client adapter
+propagates that directory to the spawned backend. Each tester must:
 
 1. Create a unique directory with `mktemp -d` and resolve its absolute path.
 2. Refuse to proceed if the path is empty, is the repository root, is the user's
@@ -205,10 +259,11 @@ the spawned backend. Each tester must:
 7. Emit `BLOCKED_UNSAFE_ISOLATION` before any mutation if these checks cannot be
    established.
 
-The agents must not invoke `scripts/binary-smoke.sh` while it still relies on
-`EXPAND_HOME`; correcting that separate script is outside this agent-roster
-change. The agent procedures instead build the binaries and invoke them directly
-with `--data-dir`.
+The manual tester may invoke the corrected `scripts/binary-smoke.sh` after
+building the release binaries. The desktop tester still launches Electron with
+the same explicit `--data-dir` and invokes the compiled CLI with the global
+flag, so the dev-channel desktop bundle and release-channel CLI do not diverge
+onto their respective default directories.
 
 ## Canonical source and generated Codex files
 
@@ -252,7 +307,23 @@ from deleting a manually created agent.
 
 ## Validation and acceptance criteria
 
-The synchronizer is implemented with tests first. Focused tests cover:
+The global CLI flag and synchronizer are implemented with tests first. Focused
+tests cover the data-directory contract before the agent-generation tests:
+
+- `DataDir` is a global setting and appears in root and subcommand help;
+- the flag parses before and after a selected subcommand;
+- relative values become absolute and an existing file is rejected;
+- the parsed value produces an `AppContext` whose data, database, endpoint, and
+  log paths all derive from the selected directory;
+- omitting the flag preserves the channel-specific default;
+- an explicit override bypasses legacy-home migration even when a legacy marker
+  exists and the override does not yet exist;
+- a compiled-CLI smoke run writes only beneath a unique temporary directory and
+  leaves the default directory untouched;
+- `scripts/binary-smoke.sh` contains no `EXPAND_HOME` reference and completes
+  against its isolated directory;
+
+Focused synchronizer tests then cover:
 
 - valid YAML frontmatter and Markdown body extraction;
 - every missing required field and an empty prompt;
@@ -266,6 +337,7 @@ The synchronizer is implemented with tests first. Focused tests cover:
 
 Completion requires fresh successful runs of:
 
+- the focused global-flag and `AppContext` tests;
 - the focused synchronizer test;
 - `bun run agents:sync` followed by `bun run agents:check`;
 - YAML parsing of every Claude definition;
@@ -275,6 +347,7 @@ Completion requires fresh successful runs of:
   malformed-agent or project-config warning;
 - `claude doctor`, with any unrelated machine warning separated from agent-file
   validation;
+- `bun run cert:cli:build`, now using the isolated global flag;
 - `bun run typecheck:all` and `bun run test`;
 - `git diff --check`.
 
@@ -295,5 +368,6 @@ checks.
 - Preventing an administrator, environment variable, or explicit invocation
   from applying a higher-precedence model or permission override.
 - Making paid model calls as part of configuration validation.
-- Fixing `scripts/binary-smoke.sh`, the desktop product, the CLI update system,
-  or the desktop/backend compatibility design in this change.
+- Adding an environment-variable alias for `--data-dir`.
+- Changing the desktop product, the CLI update system, or the desktop/backend
+  compatibility design beyond using the new global flag in test-agent commands.
