@@ -3,7 +3,7 @@ import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from
 import type { LogLevel } from "effect"
 import { join } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
-import { migrateLegacyHome } from "@expand/server/migrate-legacy-home"
+import { migrateDefaultHome } from "@expand/server/migrate-default-home"
 import { runServer } from "@expand/server/composition/app"
 
 const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
@@ -33,7 +33,7 @@ const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const { paths } = yield* AppContext
-  yield* migrateLegacyHome(paths.dataDir)
+  yield* migrateDefaultHome(paths.dataDir)
   yield* fs.makeDirectory(path.dirname(paths.dbPath), { recursive: true })
   yield* runServer({ dbPath: paths.dbPath })
 })
