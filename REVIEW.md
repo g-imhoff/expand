@@ -1,6 +1,6 @@
 # Reviewing `feat/architectural-foundation`
 
-A guided reading path for reviewing this branch. It is large — **434 commits, 343 files, ~22,300 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large — **437 commits, 343 files, ~22,300 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
@@ -135,12 +135,12 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
 **Read in order:** *(public entrypoints = `index.ts`/`project.ts`/`server.ts` + `adapters/{bun,node}`; everything else is package-internal)*
-DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
+1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
 2. `index.ts` + `project.ts` + `server.ts` — the public entrypoints: root = strict connection core; the domain surfaces live on the `/project` and `/server` subpaths (one canonical import path per symbol).
 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 4. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
-6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the *only* public subpath entrypoints.
+6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the platform subpath entrypoints (public alongside `/project` and `/server`).
 7. `project-store.ts` — **the core engine:** the session loop, the **C2 atomic fold**, the public mirror, the reconnect loop, and the mutation methods.
 8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
 9. `project-client.ts` + `client-layer.ts` — the stateless facades and how layers share one connection.
