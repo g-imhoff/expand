@@ -37,6 +37,7 @@ Thumbs.db
 # AI Generated Files
 /docs/superpowers
 /.claude/worktrees
+/.worktrees
 /.claude/skills
 /.superpowers
 
