@@ -135,7 +135,7 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
 **Read in order:** *(public entrypoints = `index.ts`/`project.ts`/`server.ts` + `adapters/{bun,node}`; everything else is package-internal)*
-DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what the barrel re-exports and what is `@internal`.
+DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
 2. `index.ts` + `project.ts` + `server.ts` — the public entrypoints: root = strict connection core; the domain surfaces live on the `/project` and `/server` subpaths (one canonical import path per symbol). 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 4. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
@@ -150,7 +150,7 @@ DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced w
 - **Stale-lock recovery** (`discovery.ts`): the dead-pid/30s heuristic and `ensuring(releaseLock)` — a crashed spawner used to wedge every future client.
 - **Reconnect classification** (`project-store.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown (propagate) from a dropped socket (retry with backoff). Misclassifying either hangs or busy-loops.
 - **Non-optimistic state:** mutations only call the RPC; state changes only when the server's event flows back. Confirm there's no optimistic local write.
-- **Entrypoint boundary** (`index.ts`/`project.ts`/`server.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current tests already go through the barrel).
+- **Entrypoint boundary** (`index.ts`/`project.ts`/`server.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current tests already go through the public entrypoints).
 
 **Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof — 40 concurrent reads), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary).
 
