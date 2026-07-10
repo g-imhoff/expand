@@ -17,10 +17,10 @@ The two packages resolve **two different ways on purpose**:
   so the tracked `package.json` is **never mutated** and in-repo resolution can't break.
 
 `@expand/contracts` uses a **wildcard** `exports` (`"./*": "./*.ts"`) — it's the shared
-vocabulary, consumed by many subpaths. `@expand/client-ts` uses a **barrel-only** `exports`
-(`.`, `./adapters/bun`, `./adapters/node`) so the `exports` map itself enforces the public
-surface at the resolver level (internals throw `ERR_PACKAGE_PATH_NOT_EXPORTED`), alongside the
-`client-ts-barrel-only` dependency-cruiser rule.
+vocabulary, consumed by many subpaths. `@expand/client-ts` uses an **entrypoints-only** `exports`
+(`.`, `./project`, `./server`, `./adapters/bun`, `./adapters/node`) so the `exports` map itself
+enforces the public surface at the resolver level (internals throw
+`ERR_PACKAGE_PATH_NOT_EXPORTED`), alongside the `client-ts-barrel-only` dependency-cruiser rule.
 
 ## Build recipe (per package)
 

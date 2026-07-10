@@ -49,7 +49,7 @@ export default defineConfig({
     // node_modules to their package.json "exports" (source .ts), which vitest
     // transforms thanks to the `test.server.deps.inline` entry above. The negative
     // lookahead keeps the bare "@expand" -> apps/cli fallback from greedily
-    // swallowing @expand/contracts/* or @expand/client-ts (barrel + subpaths).
+    // swallowing @expand/contracts/* or @expand/client-ts (root + subpaths).
     alias: [
       { find: "@expand/tui", replacement: new URL("./apps/tui", import.meta.url).pathname },
       { find: "@expand/desktop", replacement: new URL("./apps/desktop/src", import.meta.url).pathname },
