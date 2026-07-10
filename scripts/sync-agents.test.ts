@@ -106,6 +106,14 @@ describe("parseClaudeAgent", () => {
     expect(() => parseClaudeAgent("code-reviewer.md", claudeSource("code-reviewer", "unsafe ''' body"))).toThrow("multiline literal terminator")
   })
 
+  it("rejects a prompt body ending in one apostrophe", () => {
+    expect(() => parseClaudeAgent("code-reviewer.md", claudeSource("code-reviewer", "ends in one apostrophe'"))).toThrow("cannot be represented safely as a TOML multiline literal")
+  })
+
+  it("rejects a prompt body ending in two apostrophes", () => {
+    expect(() => parseClaudeAgent("code-reviewer.md", claudeSource("code-reviewer", "ends in two apostrophes''"))).toThrow("cannot be represented safely as a TOML multiline literal")
+  })
+
   it("rejects the wrong Claude model and effort", () => {
     const wrongModel = claudeSource("code-reviewer").replace("claude-fable-5", "claude-opus-4-8")
     const wrongEffort = claudeSource("code-reviewer").replace("effort: xhigh", "effort: high")

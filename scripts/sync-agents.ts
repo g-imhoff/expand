@@ -125,6 +125,9 @@ export const parseClaudeAgent = (filePath: string, source: string): ClaudeAgentD
   if (filename !== `${rawName}.md`) throw new Error(`${filename}: filename/name mismatch for ${rawName}`)
   if (instructions === "") throw new Error(`${filename}: empty prompt body`)
   if (instructions.includes("'''")) throw new Error(`${filename}: prompt contains TOML multiline literal terminator`)
+  if (instructions.endsWith("'")) {
+    throw new Error(`${filename}: prompt cannot be represented safely as a TOML multiline literal because it ends with an apostrophe`)
+  }
 
   const policy = AGENT_POLICY[rawName]
   if (claudeModel !== policy.claudeModel) {
