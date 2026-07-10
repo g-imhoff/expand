@@ -9,32 +9,92 @@ test -x dist/expand-server || { echo "dist/expand-server missing — run 'bun ru
 
 DATA_DIR="$(mktemp -d)"
 ENDPOINT_FILE="$DATA_DIR/server.json"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SENTINEL_HOME="$DATA_DIR/default-sentinel"
 PROJECT_DIR="$DATA_DIR/project"
 CLI=(./dist/expand --data-dir "$DATA_DIR")
+SERVER_EXIT_TIMEOUT_SECONDS=5
+SERVER_STOP_TIMEOUT_SECONDS=5
 SERVER_PID=""
-OWNED_PIDS=()
+SERVER_JOB_SPEC=""
 
-cleanup() {
-  local pid
-  for pid in "${OWNED_PIDS[@]}"; do
-    if kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
-    fi
-    wait "$pid" 2>/dev/null || true
-  done
-  rm -rf -- "$DATA_DIR"
+capture_server_job() {
+  local job_marker
+  local job_description
+  if ! jobs -l %% > "$JOB_STATE_FILE"; then
+    echo "expand-server job was not registered" >&2
+    exit 1
+  fi
+  if ! read -r job_marker job_description < "$JOB_STATE_FILE"; then
+    echo "expand-server job identity was not captured" >&2
+    exit 1
+  fi
+  if [[ ! "$job_marker" =~ ^\[([0-9]+)\][+-]?$ ]]; then
+    echo "expand-server job identity was invalid" >&2
+    exit 1
+  fi
+  SERVER_JOB_SPEC="%${BASH_REMATCH[1]}"
 }
 
-retire_owned_pid() {
-  local reaped_pid="$1"
-  local index
-  for index in "${!OWNED_PIDS[@]}"; do
-    if [[ "${OWNED_PIDS[$index]}" = "$reaped_pid" ]]; then
-      unset 'OWNED_PIDS[index]'
-      return
+server_job_active() {
+  local job_marker
+  local job_description
+  [[ -n "$SERVER_JOB_SPEC" ]] || return 1
+  jobs -r > "$JOB_STATE_FILE"
+  jobs -s >> "$JOB_STATE_FILE"
+  while read -r job_marker job_description; do
+    [[ "$job_marker" =~ ^\[([0-9]+)\][+-]?$ ]] || continue
+    if [[ "%${BASH_REMATCH[1]}" = "$SERVER_JOB_SPEC" ]]; then
+      return 0
     fi
+  done < "$JOB_STATE_FILE"
+  return 1
+}
+
+wait_for_server_job_exit() {
+  local deadline="$1"
+  while server_job_active; do
+    if (( SECONDS >= deadline )); then
+      return 1
+    fi
+    sleep 0.1
   done
+}
+
+reap_server_job() {
+  local job_spec="$SERVER_JOB_SPEC"
+  local status=0
+  wait "$job_spec" || status=$?
+  SERVER_JOB_SPEC=""
+  return "$status"
+}
+
+stop_server_job() {
+  local job_spec="$SERVER_JOB_SPEC"
+  local deadline
+  if server_job_active; then
+    kill -TERM -- "$job_spec" 2>/dev/null || true
+    deadline=$((SECONDS + SERVER_STOP_TIMEOUT_SECONDS))
+    if ! wait_for_server_job_exit "$deadline"; then
+      kill -KILL -- "$job_spec" 2>/dev/null || true
+      deadline=$((SECONDS + SERVER_STOP_TIMEOUT_SECONDS))
+      if ! wait_for_server_job_exit "$deadline"; then
+        return 1
+      fi
+    fi
+  fi
+  reap_server_job || true
+}
+
+cleanup() {
+  local script_status=$?
+  trap - EXIT
+  if [[ -n "$SERVER_JOB_SPEC" ]] && ! stop_server_job; then
+    echo "cleanup failed; preserving data directory: $DATA_DIR" >&2
+    exit 1
+  fi
+  rm -rf -- "$DATA_DIR"
+  exit "$script_status"
 }
 
 trap cleanup EXIT
@@ -46,8 +106,8 @@ mkdir -p "$SENTINEL_HOME" "$PROJECT_DIR"
 start_server() {
   HOME="$SENTINEL_HOME" ./dist/expand-server --data-dir "$DATA_DIR" >>"$DATA_DIR/server-smoke.log" 2>&1 &
   SERVER_PID=$!
-  OWNED_PIDS+=("$SERVER_PID")
-  local deadline=$((SECONDS + 5))
+  capture_server_job
+  local deadline=$((SECONDS + SERVER_EXIT_TIMEOUT_SECONDS))
   while [[ ! -f "$ENDPOINT_FILE" ]]; do
     if (( SECONDS >= deadline )); then
       echo "endpoint was not advertised" >&2
@@ -58,22 +118,24 @@ start_server() {
   local advertised_pid
   advertised_pid="$(jq -r '.pid' "$ENDPOINT_FILE")"
   test "$advertised_pid" = "$SERVER_PID"
-  kill -0 "$SERVER_PID"
 }
 
 await_server_exit() {
-  local pid="$1"
-  local deadline=$((SECONDS + 5))
-  while kill -0 "$pid" 2>/dev/null || [[ -f "$ENDPOINT_FILE" ]]; do
+  local deadline=$((SECONDS + SERVER_EXIT_TIMEOUT_SECONDS))
+  if ! wait_for_server_job_exit "$deadline"; then
+    echo "recorded expand-server job did not exit" >&2
+    return 1
+  fi
+  local status=0
+  reap_server_job || status=$?
+  deadline=$((SECONDS + SERVER_EXIT_TIMEOUT_SECONDS))
+  while [[ -f "$ENDPOINT_FILE" ]]; do
     if (( SECONDS >= deadline )); then
-      echo "recorded expand-server did not reap" >&2
-      exit 1
+      echo "recorded expand-server endpoint was not removed" >&2
+      return 1
     fi
     sleep 0.1
   done
-  local status=0
-  wait "$pid" || status=$?
-  retire_owned_pid "$pid"
   return "$status"
 }
 
@@ -82,7 +144,7 @@ run_cli() {
   shift
   start_server
   HOME="$SENTINEL_HOME" "${CLI[@]}" "$@" >"$output_file"
-  await_server_exit "$SERVER_PID"
+  await_server_exit
 }
 
 run_cli "$DATA_DIR/health.json" health --format json
