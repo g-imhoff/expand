@@ -38,14 +38,20 @@ const allEvents: ReadonlyArray<SequencedEvent> = Array.from({ length: N }, (_, k
   }
 })
 
-// fold of every event with seq <= upTo, starting from the bootstrap snapshot (empty, seq 0)
-const expectedNamesUpTo = (upTo: number): ReadonlyArray<string> => {
+const canonicalProjectNames = (projects: ReadonlyArray<Project>): ReadonlyArray<string> =>
+  projects.map((project) => project.name).sort()
+
+const expectedProjectNamesBySeq: ReadonlyArray<ReadonlyArray<string>> = (() => {
   let acc: ReadonlyArray<Project> = []
+  const namesBySeq: Array<ReadonlyArray<string>> = [canonicalProjectNames(acc)]
   for (const se of allEvents) {
-    if (se.seq <= upTo) acc = Project.foldList(acc, se.event)
+    acc = Project.foldList(acc, se.event)
+    namesBySeq[se.seq] = canonicalProjectNames(acc)
   }
-  return acc.map((p) => p.name)
-}
+  return namesBySeq
+})()
+
+const expectedProjectNameSignatures = expectedProjectNamesBySeq.map((names) => JSON.stringify(names))
 
 const makeServer = (
   publishEvents: (pubsub: PubSub.PubSub<SequencedEvent>) => Effect.Effect<void>
@@ -135,14 +141,29 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         // Sample snapshot in a tight loop (the Effect scheduler round-robins it against
         // the session loop, so reads land in the session loop's inter-write window — the
         // C2 race). A HARD iteration cap guarantees termination regardless of scheduling;
-        // we then explicitly wait for full convergence. Every read is recorded.
-        const reads: Array<{ projects: ReadonlyArray<Project>; seq: number }> = []
+        // we then explicitly wait for full convergence.
+        const projectNameSignatureCache = new WeakMap<ReadonlyArray<Project>, string>()
+        const projectNameSignature = (projects: ReadonlyArray<Project>): string => {
+          const cached = projectNameSignatureCache.get(projects)
+          if (cached !== undefined) return cached
+          const signature = JSON.stringify(canonicalProjectNames(projects))
+          projectNameSignatureCache.set(projects, signature)
+          return signature
+        }
+        let firstMismatch: { read: number; seq: number; actual: string; expected: string } | undefined
         const maxReads = 200000
         let count = 0
         yield* Effect.whileLoop({
           while: () => !flag.converged && count < maxReads,
           body: () => store.snapshot,
-          step: (snap) => { count++; reads.push(snap) }
+          step: (snap) => {
+            count++
+            const actual = projectNameSignature(snap.projects)
+            const expected = expectedProjectNameSignatures[snap.seq]
+            if (actual !== expected && firstMismatch === undefined) {
+              firstMismatch = { read: count, seq: snap.seq, actual, expected: expected ?? "<missing expected state>" }
+            }
+          }
         })
         // ensure full convergence even if the read cap was hit first
         if (!flag.converged) {
@@ -153,7 +174,7 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
           )
         }
         const finalSnap = yield* store.snapshot
-        return { reads, finalSnap }
+        return { firstMismatch, finalSnap }
       }).pipe(
         Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))),
         Effect.timeoutOrElse({
@@ -164,16 +185,11 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
 
-    const { reads, finalSnap } = await Effect.runPromise(program)
+    const { firstMismatch, finalSnap } = await Effect.runPromise(program)
 
-    // The invariant: for EVERY observed snapshot, projects deep-equals fold(events <= seq).
-    for (const snap of reads) {
-      const names = snap.projects.map((p) => p.name).sort()
-      const expected = [...expectedNamesUpTo(snap.seq)].sort()
-      expect(names).toEqual(expected)
-    }
+    expect(firstMismatch, `first inconsistent snapshot: ${JSON.stringify(firstMismatch)}`).toBeUndefined()
     expect(finalSnap.seq).toBe(N)
-    expect(finalSnap.projects.map((p) => p.name).sort()).toEqual([...expectedNamesUpTo(N)].sort())
+    expect(finalSnap.projects.map((p) => p.name).sort()).toEqual(expectedProjectNamesBySeq[N])
   })
 
   it("a duplicate/old event (seq <= state.seq) does not change projects and is not published to the hub", async () => {
