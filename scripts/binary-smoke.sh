@@ -26,6 +26,17 @@ cleanup() {
   rm -rf -- "$DATA_DIR"
 }
 
+retire_owned_pid() {
+  local reaped_pid="$1"
+  local index
+  for index in "${!OWNED_PIDS[@]}"; do
+    if [[ "${OWNED_PIDS[$index]}" = "$reaped_pid" ]]; then
+      unset 'OWNED_PIDS[index]'
+      return
+    fi
+  done
+}
+
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -60,7 +71,10 @@ await_server_exit() {
     fi
     sleep 0.1
   done
-  wait "$pid"
+  local status=0
+  wait "$pid" || status=$?
+  retire_owned_pid "$pid"
+  return "$status"
 }
 
 run_cli() {
