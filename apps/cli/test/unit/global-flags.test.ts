@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { Format, Quiet } from "@expand/cli/global-flags"
+import { DataDir, Format, Quiet } from "@expand/cli/global-flags"
 
 describe("global flags", () => {
-  it("Format and Quiet are global-flag settings", () => {
+  it("Format, Quiet, and DataDir are global-flag settings", () => {
     expect(Format._tag).toBe("Setting")
     expect(Quiet._tag).toBe("Setting")
+    expect(DataDir._tag).toBe("Setting")
+    expect(DataDir.id).toBe("data-dir")
   })
 })

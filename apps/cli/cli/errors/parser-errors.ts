@@ -2,7 +2,7 @@ import { CliError, CliOutput } from "effect/unstable/cli"
 import { makeEnvelope } from "@expand/cli/errors/envelope"
 import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
 
-const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
+export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
     case "InvalidValue":
     case "MissingArgument":

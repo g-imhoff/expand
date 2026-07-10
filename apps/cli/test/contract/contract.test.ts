@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { makeExpand } from "@expand/cli/main"
+import { AppContext, defaultDataDir } from "@expand/contracts/app-context"
+import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
+import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"
 import { runCli, stubLayer } from "../harness"
 
 // The backend validates names/tags at its ingestion boundary and returns a typed
@@ -59,8 +65,83 @@ const downClient = {
   ProjectList: () => Effect.fail({ _tag: "BackendUnavailable", reason: "no server" })
 }
 const tree = (stub: object) => makeExpand(stubLayer(stub))
+const contextTree = () => makeExpand(
+  Layer.mergeAll(
+    Layer.succeed(ProjectClient, {} as ProjectClientApi),
+    Layer.effect(
+      ServerClient,
+      Effect.map(AppContext, ({ paths }): ServerClientApi => ({
+        health: () => Effect.succeed(JSON.stringify(paths))
+      }))
+    )
+  )
+)
 
 describe("CLI contract", () => {
+  it("shows --data-dir in root and subcommand help", async () => {
+    const root = await runCli(tree(okClient), ["--help"])
+    const child = await runCli(tree(okClient), ["health", "--help"])
+    expect(root.code).toBe(0)
+    expect(child.code).toBe(0)
+    expect(root.stdout.join("\n")).toContain("--data-dir")
+    expect(child.stdout.join("\n")).toContain("--data-dir")
+  })
+
+  it.each([
+    { position: "before", argv: ["--data-dir", "agent-state", "health"] },
+    { position: "after", argv: ["health", "--data-dir", "agent-state"] }
+  ])("accepts --data-dir $position the selected subcommand and resolves it", async ({ argv }) => {
+    const r = await runCli(contextTree(), argv)
+    const envelope = JSON.parse(r.stdout.join(""))
+    const paths = JSON.parse(envelope.data.status)
+    const expected = resolve("agent-state")
+    expect(r.code).toBe(0)
+    expect(paths).toEqual({
+      dataDir: expected,
+      dbPath: join(expected, "events.db"),
+      endpointFile: join(expected, "server.json"),
+      logDir: join(expected, "logs")
+    })
+  })
+
+  it("uses the channel default when --data-dir is omitted", async () => {
+    const r = await runCli(contextTree(), ["health"])
+    const envelope = JSON.parse(r.stdout.join(""))
+    expect(JSON.parse(envelope.data.status).dataDir).toBe(defaultDataDir())
+  })
+
+  it("accepts an existing directory and a path that does not exist", async () => {
+    const root = mkdtempSync(join(tmpdir(), "expand-data-dir-"))
+    const existing = join(root, "existing")
+    const absent = join(root, "absent")
+    mkdirSync(existing)
+    try {
+      const existingResult = await runCli(contextTree(), ["health", "--data-dir", existing])
+      const absentResult = await runCli(contextTree(), ["health", "--data-dir", absent])
+      expect(existingResult.code).toBe(0)
+      expect(absentResult.code).toBe(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects an existing file before the handler runs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "expand-data-dir-"))
+    const file = join(root, "not-a-directory")
+    writeFileSync(file, "x")
+    try {
+      const r = await runCli(contextTree(), ["health", "--data-dir", file])
+      expect(r.code).toBe(2)
+      expect(r.stdout).toEqual([])
+      expect(JSON.parse(r.stderr.join(""))).toMatchObject({
+        kind: "Error",
+        code: "INVALID_ARGUMENT"
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("project create -> Project envelope, exit 0, stdout pure JSON, stderr empty", async () => {
     const r = await runCli(tree(okClient), ["project", "create", "foo"])
     expect(r.code).toBe(0)

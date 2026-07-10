@@ -15,8 +15,15 @@ export interface AppContextShape {
   readonly paths: AppPath
 }
 
+export const defaultDataDir = (): string => join(homedir(), NAMES.home, NAMES.channel[channel])
+
+export const makeAppContext = (dataDir?: string): AppContextShape => ({
+  channel,
+  paths: derivePaths(dataDir ?? defaultDataDir())
+})
+
 export const AppContext = Context.Reference<AppContextShape>("expand/AppContext", {
-  defaultValue: () => deriveContext(processDataDir())
+  defaultValue: () => makeAppContext(processDataDir())
 })
 
 const NAMES = {
@@ -26,8 +33,6 @@ const NAMES = {
   endpoint: "server.json",
   logs: "logs"
 } as const
-
-const channelBase = (): string => join(homedir(), NAMES.home, NAMES.channel[channel])
 
 const derivePaths = (base: string): AppPath => ({
   dataDir: base,
@@ -40,8 +45,3 @@ const processDataDir = (): string | undefined => {
   const i = process.argv.indexOf("--data-dir")
   return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined
 }
-
-const deriveContext = (baseDir?: string): AppContextShape => ({
-  channel,
-  paths: derivePaths(baseDir ?? channelBase())
-})
