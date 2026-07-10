@@ -81,7 +81,7 @@ Add `.codex/config.toml` with these project defaults:
 - `model = "gpt-5.6-sol"`
 - `model_reasoning_effort = "ultra"`
 - `features.multi_agent = true`
-- `agents.max_threads = 6`
+- `agents.max_threads = 4`
 - `agents.max_depth = 1`
 
 The project must be trusted for Codex to load this layer. A fresh Codex task is
