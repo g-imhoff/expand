@@ -1,6 +1,6 @@
 # Reviewing `feat/architectural-foundation`
 
-A guided reading path for reviewing this branch. It is large — **437 commits, 343 files, ~22,300 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large — **438 commits, 343 files, ~22,300 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
@@ -151,7 +151,7 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 - **Stale-lock recovery** (`discovery.ts`): the dead-pid/30s heuristic and `ensuring(releaseLock)` — a crashed spawner used to wedge every future client.
 - **Reconnect classification** (`project-store.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown (propagate) from a dropped socket (retry with backoff). Misclassifying either hangs or busy-loops.
 - **Non-optimistic state:** mutations only call the RPC; state changes only when the server's event flows back. Confirm there's no optimistic local write.
-- **Entrypoint boundary** (`index.ts`/`project.ts`/`server.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current tests already go through the public entrypoints).
+- **Entrypoint boundary** (`index.ts`/`project.ts`/`server.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current out-of-package tests go through the public entrypoints; client-ts's own tests deliberately deep-import internals relatively).
 
 **Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof — 40 concurrent reads), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root — domain symbols must NOT be reachable from `@expand/client-ts`).
 
