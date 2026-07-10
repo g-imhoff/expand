@@ -16,6 +16,7 @@ const isProcessAlive = (pid: number): boolean => {
 }
 
 const LOCK_STALE_AFTER_MS = 30_000
+const BACKEND_START_DEADLINE = "10 seconds"
 
 const isLockStale = (lockPath: string): boolean => {
   let mtimeMs: number
@@ -71,7 +72,7 @@ const awaitEndpoint = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("50 millis")),
   Effect.timeoutOrElse({
-    duration: "5 seconds",
+    duration: BACKEND_START_DEADLINE,
     orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))
   })
 )

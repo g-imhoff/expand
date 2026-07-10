@@ -62,7 +62,7 @@ findOrSpawnBackend:
   its recorded PID is dead → delete and retry once. So exactly one process
   spawns; the rest wait.
 - **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 50ms
-  (failing `"pending"` until it appears), with a 5s overall timeout →
+  (failing `"pending"` until it appears), with a 10s overall timeout →
   `BackendUnavailable("backend did not start in time")`.
 
 ### Stage B — connect and handshake (`acquireClient` in `rpc-client.ts`)
