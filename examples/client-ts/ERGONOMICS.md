@@ -15,10 +15,10 @@ was the first real decision in every example:
 
 - **`ProjectClient`** facade — payload-object args, one RPC per method
   (`create({ name, ensure, directory })`, `archive({ id })`), full typed error
-  union returned (`project-client.ts:12`).
+  union returned (`project/client.ts:12`).
 - **`ProjectStore`** — positional args, *different* method names
   (`createProject(name, directory)`, `archiveProject(id)`), plus the reactive
-  `projects`/`status`/`events`/`snapshot` mirror (`project-store.ts:18`).
+  `projects`/`status`/`events`/`snapshot` mirror (`project/store.ts:18`).
 - **`withClient(adapter, use)`** — a one-shot escape hatch handing you the raw
   `ExpandRpcClientApi` with PascalCase RPC names (`client.ProjectCreate({…})`)
   (`with-client.ts:5`, `index.ts:49`).
@@ -27,7 +27,7 @@ was the first real decision in every example:
 and *not* because the reactive store looked heavier — because the store's
 command methods **can't express the dedup/skip semantics the task needed**.
 `ProjectStore.createProject` hard-codes `ensure: true` and then `Effect.die`s on
-`ProjectAlreadyExists` (`project-store.ts:204,207`). Bootstrap's whole point is
+`ProjectAlreadyExists` (`project/store.ts:204,207`). Bootstrap's whole point is
 to create-if-absent and *report* the skip; on the store that conflict becomes an
 unrecoverable defect instead of a typed error you can `catchTags`. So the choice
 between the two command surfaces isn't stylistic — one of them silently removes
@@ -79,7 +79,7 @@ The examples are meant to import *only* `@expand/client-ts` and
 
 That second import isn't optional: `ClientLayer(adapter)` and
 `ProjectStoreLayer(adapter)` both require a `FileSystem.FileSystem` in their
-environment (`project-client.ts:55`, `project-store.ts:235`), which the consumer
+environment (`project/client.ts:55`, `project/store.ts:235`), which the consumer
 satisfies with `.pipe(Layer.provide(BunServices.layer))`. So the Bun consumer
 must know to add `@effect/platform-bun` and wire its layer, even though they
 already selected the *Bun* adapter — the platform is named twice.
@@ -115,16 +115,16 @@ The natural guess for `create` was
 `ProjectAlreadyExists | ProjectNameConflict | ProjectDirectoryConflict |
 ProjectInvalidInput`. The actual channel is
 `… | ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict |
-ProjectInvalidInput` (`project-client.ts:17`) — no `ProjectNameConflict`, and a
+ProjectInvalidInput` (`project/client.ts:17`) — no `ProjectNameConflict`, and a
 `ProjectDirectoryInvalid` you wouldn't have listed. `ProjectNameConflict` lives
-only on `rename` (`project-client.ts:18`); creating with a duplicate name is
+only on `rename` (`project/client.ts:18`); creating with a duplicate name is
 `ProjectAlreadyExists`, not a name conflict. `bootstrap-projects.ts:28-33`
 reflects the corrected set.
 
 So: the types are a genuine asset (you cannot ship a `catchTags` over the wrong
 union), but the create-vs-rename split of which conflict is which is not
 obvious, and all six tags being flat on the `/project` entrypoint (formerly the
-barrel's `index.ts:62-69`; now `project.ts:30-36`) means nothing narrows them
+barrel's `index.ts:62-69`; now `project/index.ts:30-36`) means nothing narrows them
 for you per call. Reading the method signature is mandatory; the entrypoint
 alone will mislead.
 
@@ -132,19 +132,19 @@ alone will mislead.
 
 For `audit-log.ts` the probe question was whether the public surface can express
 "observe the raw change stream." It can: `ProjectStore.events` is a
-`Stream<SequencedEvent>` (`project-store.ts:41,200`) and
+`Stream<SequencedEvent>` (`project/store.ts:41,200`) and
 `Stream.runForEach(store.events, …)` tails it cleanly (`audit-log.ts:13`). Good.
 
 The nuance the smoke had to work around: `events` is **live/tail-only**. It is
 `Stream.fromPubSub(hub)`, and the hub only ever receives events published *after*
 you subscribe and only for `seq` beyond the current fold
-(`project-store.ts:164-168`); the initial connection snapshot is folded into
-internal state but never republished to the hub (`project-store.ts:151-157`).
+(`project/store.ts:164-168`); the initial connection snapshot is folded into
+internal state but never republished to the hub (`project/store.ts:151-157`).
 That's why `audit-log.smoke.test.ts:12-19` starts the tail, *then* causes the
 change — a project created before the tail attaches would produce no line.
 
 A consumer who wants "everything that ever happened" must read `store.snapshot`
-(`project-store.ts:199`) for current state and tail `events` for the future — and
+(`project/store.ts:199`) for current state and tail `events` for the future — and
 there is no single surface that hands you a gapless snapshot-then-subscribe, so
 you'd have to reason about the seam between the two yourself. The example didn't
 need history, so it stayed pure-tail; but the tail-only semantics are undocumented
@@ -153,7 +153,7 @@ on the `events` field and worth a doc line.
 ## 7. Branded outputs, raw-string inputs — an asymmetry that forces `String(...)`
 
 Command inputs take plain strings by design — the client "never references the
-branded vocabulary" (`project-client.ts:10-11`), so `create`/`archive` want
+branded vocabulary" (`project/client.ts:10-11`), so `create`/`archive` want
 `string` ids and names. But the `Project` values you get *back* are branded
 (`Project.id`, `Project.name`). Feeding an id from a listed project into the next
 call therefore needs an unwrap: `client.archive({ id: String(p.id) })`

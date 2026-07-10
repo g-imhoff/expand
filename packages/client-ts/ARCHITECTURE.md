@@ -34,7 +34,7 @@ Everything is wired with **Effect Layers**. Two facts make the rest readable:
 ## 1. Startup: from a Layer to a live socket
 
 An app builds either `ClientLayer(adapter)` (`client-layer.ts`) or
-`ProjectStoreLayer(adapter)` (`project-store.ts`). Both ultimately call
+`ProjectStoreLayer(adapter)` (`project/store.ts`). Both ultimately call
 **`acquireClient(adapter)`** (`rpc-client.ts`). That function is the whole
 connection story, and it has two stages.
 
@@ -116,21 +116,21 @@ readiness is confirmed by Stage A's `awaitEndpoint`, not by the spawn itself.
 
 ## 2. The ProjectStore engine — the real machinery
 
-`makeStore(adapter)` (`project-store.ts`) is where the interesting runtime
+`makeStore(adapter)` (`project/store.ts`) is where the interesting runtime
 behavior lives. On build it creates:
 
 - **`state: SubscriptionRef<{projects, seq}>`** — the *single source of truth*.
-  projects and seq are always written together (`makeStore` in `project-store.ts`).
+  projects and seq are always written together (`makeStore` in `project/store.ts`).
 - **`projects: SubscriptionRef<ReadonlyArray<Project>>`** — the public,
   read-only mirror consumers subscribe to.
 - `status` (`"disconnected" | "reconnecting" | "connected"`), a `PubSub` event
   `hub`, a `clientRef` holding the current live client, and a `ready: Deferred`
   barrier.
-- `hooked = withConnectionHooks(adapter, status)` (`project-store.ts`) —
+- `hooked = withConnectionHooks(adapter, status)` (`project/store.ts`) —
   wraps the adapter so the RPC layer's own `onDisconnect` hook flips
   `status → "reconnecting"` the instant the socket drops.
 
-**The public mirror is a strict projection** (`makeStore` in `project-store.ts`): a forked
+**The public mirror is a strict projection** (`makeStore` in `project/store.ts`): a forked
 fiber runs `Stream.changes` over `state.projects` and writes each new value into
 `projects`. The public ref can never diverge from `state`.
 
@@ -141,7 +141,7 @@ current value then every change into the callback, and returns a synchronous
 unsubscribe. It exists so UI code (e.g. the TUI's `use-projects` hook) stops
 hand-rolling `Stream.runForEach` + `Fiber.interrupt`.
 
-### The session loop (`makeStore` in `project-store.ts`)
+### The session loop (`makeStore` in `project/store.ts`)
 
 ```
 acquireClient(hooked) → client
@@ -162,7 +162,7 @@ Two ordering decisions make this correct:
 - **`Math.max` on seq** so a reconnect's fresh snapshot can never move seq
   backward.
 
-### The C2 atomic fold (`makeStore` in `project-store.ts`)
+### The C2 atomic fold (`makeStore` in `project/store.ts`)
 
 Every incoming event is applied in *one* atomic `SubscriptionRef.modify`:
 
@@ -183,7 +183,7 @@ atomically, `store.snapshot` (`= SubscriptionRef.get(state)`, the `snapshot` fie
 The hub only ever sees *applied* events, so `store.events` is a clean,
 deduplicated, ordered stream.
 
-### Readiness + the connection loop (`makeStore` in `project-store.ts`)
+### Readiness + the connection loop (`makeStore` in `project/store.ts`)
 
 ```
 connectionLoop =
@@ -208,10 +208,10 @@ loop runs in the background.
 
 ## 3. A mutation round-trip — and why it's not optimistic
 
-`store.createProject(name)` (`makeStore` in `project-store.ts`) does **not** touch local
+`store.createProject(name)` (`makeStore` in `project/store.ts`) does **not** touch local
 state. It:
 
-1. reads the live client via `current` (`makeStore` in `project-store.ts` — dies if somehow null),
+1. reads the live client via `current` (`makeStore` in `project/store.ts` — dies if somehow null),
 2. calls `client.ProjectCreate({ name, ensure: true, …directory })`,
 3. `.map(r => r.project)`,
 4. `.catchTag("ProjectAlreadyExists", Effect.die)` — because `ensure: true` makes
@@ -247,7 +247,7 @@ stays silent.
 
 ## 5. The facades and the two entry points
 
-- **`ProjectClient` / `ServerClient`** (`project-client.ts`, `server-client.ts`)
+- **`ProjectClient` / `ServerClient`** (`project/client.ts`, `server/client.ts`)
   are *stateless* — `Layer.effect` maps a resolved `ExpandRpcClient` into a thin
   typed API, one method delegating to one RPC. `ServerClientApi` is currently
   just `health()`.
