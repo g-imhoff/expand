@@ -11,6 +11,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "gen:fold-version": "bun run scripts/fold-version.ts",
+    "agents:sync": "bun run scripts/sync-agents.ts",
+    "agents:check": "bun run scripts/sync-agents.ts --check",
     "bench:events": "bun bench/main.ts",
     "bench:selfcheck": "bun bench/selfcheck.ts",
     "typecheck:all": "bun run typecheck && bun run typecheck:desktop",

@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/**/test/**/*.test.ts",
       "packages/**/test/**/*.test.tsx",
       "test/architecture/**/*.test.ts",
+      "scripts/**/*.test.ts",
       "examples/**/*.test.ts"
     ],
     setupFiles: ["apps/desktop/test/ui/setup.ts"],
