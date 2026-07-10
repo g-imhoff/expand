@@ -164,9 +164,11 @@ contract is:
 
 Update `scripts/binary-smoke.sh` to create a unique temporary directory, install
 an exit trap, and invoke every CLI command through an argv array containing
-`--data-dir "$DATA_DIR"`. The trap may terminate only the PID advertised by
-`$DATA_DIR/server.json`, when that file exists and the PID is alive, and then
-remove only `$DATA_DIR`. `EXPAND_HOME` is removed from the script entirely.
+`--data-dir "$DATA_DIR"`. The trap may terminate only the stable Bash job spec
+captured for its direct-child backend; the PID advertised by
+`$DATA_DIR/server.json` is identity evidence, not a numeric signal target. Its
+TERM, KILL, and reap phases are bounded, and it removes only `$DATA_DIR` after
+the owned job is stopped. `EXPAND_HOME` is removed from the script entirely.
 
 ## Agent contracts
 
@@ -242,28 +244,64 @@ make the certification pass.
 
 Neither tester may use `EXPAND_HOME` or a fake `HOME` as an isolation mechanism.
 The new global CLI flag provides the public override, and the client adapter
-propagates that directory to the spawned backend. Each tester must:
+propagates that directory to the spawned backend. Each tester creates and
+canonicalizes its own unique `DATA_DIR` and project directories, rejects unsafe
+or mismatched paths, and proves that `server.json` is absent before invoking
+Expand. Every deliberately invalid project path must be an absolute child of
+`DATA_DIR` and must not exist. The tester passes the same explicit `--data-dir`
+to every Expand entrypoint, reads endpoint state only from that directory,
+removes only the exact directories it created, and emits
+`BLOCKED_UNSAFE_ISOLATION` before mutation whenever those predicates cannot be
+established.
 
-1. Create a unique directory with `mktemp -d` and resolve its absolute path.
-2. Refuse to proceed if the path is empty, is the repository root, is the user's
-   home, is under `~/.expand`, or is not the exact temporary directory it
-   created.
-3. Pass `--data-dir <temporary-directory>` to every Expand CLI invocation.
-4. Launch Electron with the same `--data-dir` argument so the renderer client,
-   spawned backend, and CLI assertions share one isolated endpoint and database.
-5. Read `server.json` only from that directory and record the advertised backend
-   PID before making lifecycle assertions.
-6. Track every process the harness starts. Cleanup may terminate only those
-   recorded PIDs and may remove only the exact temporary directories created by
-   the harness.
-7. Emit `BLOCKED_UNSAFE_ISOLATION` before any mutation if these checks cannot be
-   established.
+Launch, lifecycle assertions, and cleanup run inside one persistent Bash harness
+so the shell that creates each background process remains its owner. The harness
+keeps an immutable historical process ledger separate from the current
+signal-eligible set. For every direct child it records the numeric PID as identity
+evidence only and immediately parses the actual stable `%n` job spec from
+`jobs -l %%`; it never assumes a job number or signals a direct child by numeric
+PID. Direct-child activity is determined only by matching the recorded job number
+against the complete, unqualified `jobs -r` and `jobs -s` outputs. An inactive job
+is retired from the signal-eligible set before `wait` collects its cached status.
+Cleanup signals only eligible job specs, with separate five-second TERM and KILL
+phases, and preserves the isolated state when an owned job cannot be stopped.
+Broad process matching and substitute liveness probes such as numeric `kill -0`
+or `jobs -p %n` are forbidden.
+
+The desktop backend is a non-child and therefore has a stricter cleanup boundary.
+The tester snapshots the complete original `server.json` endpoint tuple (`pid`,
+`url`, `protocolVersion`, and token) without exposing the token. Cleanup first
+gives that original endpoint a bounded natural-shutdown window; disappearance of
+the original identity within the window is success and requires no PID signal.
+Only if a backend still appears to require termination may the tester signal the
+recorded backend PID, and only after a fresh tuple is unchanged and a bounded,
+authenticated connection proves that exact endpoint still belongs to the run. If
+cleanup still requires a signal but the tuple is absent or changed, or the proof
+is rejected, times out, or otherwise cannot complete, it must produce
+`BLOCKED_PROCESS_IDENTITY`, leave the PID unsignaled, and preserve the isolated
+state.
+
+Every readiness, authentication, convergence, shutdown, and cleanup wait is
+bounded by an explicit deadline. Authentication probes distinguish an observed
+rejection from a timeout. A wrong-token timeout is not evidence of rejection.
+Desktop mutations use bounded renderer/backend convergence polling. They check
+both the DOM and the parsed CLI view, reporting `FAIL_CONVERGENCE_TIMEOUT` with
+final evidence rather than polling indefinitely.
+
+The desktop tester reports `BLOCKED_MISSING_TOOL:<tool>` for a missing or unusable
+launch dependency. On Linux it uses an existing usable X or Wayland display when
+available; otherwise it requires `Xvfb` and `xdpyinfo`, starts Xvfb itself as a
+recorded, owned direct harness job, and bounds display readiness. Failure to
+establish a display reports `BLOCKED_DISPLAY_UNAVAILABLE`. Electron is launched
+through its resolved executable with inherited `ELECTRON_RENDERER_URL` and
+`ELECTRON_RUN_AS_NODE` cleared, the shared `--data-dir`, and a separate
+`--user-data-dir` located beneath `DATA_DIR`. Renderer/CDP readiness and original
+backend shutdown are likewise bounded.
 
 The manual tester may invoke the corrected `scripts/binary-smoke.sh` after
-building the release binaries. The desktop tester still launches Electron with
-the same explicit `--data-dir` and invokes the compiled CLI with the global
-flag, so the dev-channel desktop bundle and release-channel CLI do not diverge
-onto their respective default directories.
+building the release binaries. These contracts keep the dev-channel desktop
+bundle and release-channel CLI on the same isolated endpoint without weakening
+process identity during cleanup.
 
 ## Canonical source and generated Codex files
 
