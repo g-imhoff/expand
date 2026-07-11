@@ -3,7 +3,7 @@ import { Effect, FileSystem, Logger } from "effect"
 import { BunFileSystem } from "@effect/platform-bun"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, resolve, sep } from "node:path"
 import { migrateLegacyHome } from "@expand/server/migrate-legacy-home"
 
 const run = (eff: Effect.Effect<void, never, FileSystem.FileSystem>) =>
@@ -55,6 +55,52 @@ describe("migrateLegacyHome", () => {
       expect(existsSync(join(target, "marker"))).toBe(true)
       expect(existsSync(join(legacy, "events.db"))).toBe(false)
       expect(existsSync(stage)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("normalizes a trailing slash before staging a direct-child migration", async () => {
+    const root = mkdtempSync(join(tmpdir(), "expand-mig-"))
+    const legacy = join(root, ".expand")
+    const legacyWithSlash = `${legacy}${sep}`
+    const target = join(legacy, "expand-dev")
+    const stage = `${resolve(legacy)}.migrating-expand-dev`
+    const nestedStage = join(legacy, ".migrating-expand-dev")
+    mkdirSync(legacy)
+    writeFileSync(join(legacy, "events.db"), "legacy-db")
+    writeFileSync(join(legacy, "marker"), "legacy")
+
+    try {
+      await run(migrateLegacyHome(target, legacyWithSlash))
+
+      expect(existsSync(join(target, "events.db"))).toBe(true)
+      expect(existsSync(join(target, "marker"))).toBe(true)
+      expect(existsSync(stage)).toBe(false)
+      expect(existsSync(nestedStage)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("warns without staging a deeper descendant target", async () => {
+    const root = mkdtempSync(join(tmpdir(), "expand-mig-"))
+    const legacy = join(root, ".expand")
+    const target = join(legacy, "channels", "expand-dev")
+    const stage = `${legacy}.migrating-expand-dev`
+    const entries: Array<string> = []
+    mkdirSync(legacy)
+    writeFileSync(join(legacy, "events.db"), "legacy-db")
+    writeFileSync(join(legacy, "marker"), "legacy")
+
+    try {
+      await runWithLogs(migrateLegacyHome(target, legacy), entries)
+
+      expect(existsSync(join(legacy, "events.db"))).toBe(true)
+      expect(existsSync(join(legacy, "marker"))).toBe(true)
+      expect(existsSync(join(legacy, "channels"))).toBe(false)
+      expect(existsSync(stage)).toBe(false)
+      expect(entries.some((entry) => entry.includes("direct child"))).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

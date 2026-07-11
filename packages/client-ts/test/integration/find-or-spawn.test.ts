@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Deferred, Effect, Fiber, Option } from "effect"
+import { Deferred, Effect, Fiber, FileSystem, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { BunServices } from "@effect/platform-bun"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -47,20 +47,34 @@ describe("findOrSpawnBackend", () => {
     }
 
     const program = Effect.gen(function* () {
-      const spawned = yield* Deferred.make<void>()
+      const fs = yield* FileSystem.FileSystem
+      const postSpawnPollCompleted = yield* Deferred.make<void>()
+      let backendSpawned = false
       const adapter = {
         ...bunAdapter,
-        spawnBackend: () => Deferred.succeed(spawned, undefined).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.sync(() => {
+          backendSpawned = true
+        })
       }
+      const observedFs = FileSystem.FileSystem.of({
+        ...fs,
+        exists: (path) => fs.exists(path).pipe(
+          Effect.tap(() => backendSpawned
+            ? Deferred.succeed(postSpawnPollCompleted, undefined)
+            : Effect.void)
+        )
+      })
       const advertiser = yield* Effect.sleep("6 seconds").pipe(
         Effect.andThen(
           Effect.sync(() => writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint)))
         ),
         Effect.forkChild
       )
-      const finder = yield* findOrSpawnBackend(adapter).pipe(Effect.forkChild)
-      yield* Deferred.await(spawned)
-      yield* Effect.yieldNow
+      const finder = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, observedFs),
+        Effect.forkChild
+      )
+      yield* Deferred.await(postSpawnPollCompleted)
       yield* TestClock.adjust("6 seconds")
       yield* TestClock.adjust("50 millis")
       const endpoint = yield* Fiber.join(finder)
@@ -78,15 +92,29 @@ describe("findOrSpawnBackend", () => {
 
   it("fails when the backend has not advertised by ten seconds", async () => {
     const program = Effect.gen(function* () {
-      const spawned = yield* Deferred.make<void>()
+      const fs = yield* FileSystem.FileSystem
+      const postSpawnPollCompleted = yield* Deferred.make<void>()
+      let backendSpawned = false
       const adapter = {
         ...bunAdapter,
-        spawnBackend: () => Deferred.succeed(spawned, undefined).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.sync(() => {
+          backendSpawned = true
+        })
       }
+      const observedFs = FileSystem.FileSystem.of({
+        ...fs,
+        exists: (path) => fs.exists(path).pipe(
+          Effect.tap(() => backendSpawned
+            ? Deferred.succeed(postSpawnPollCompleted, undefined)
+            : Effect.void)
+        )
+      })
       const completed = yield* Deferred.make<Endpoint, BackendUnavailable | "pending">()
-      yield* Deferred.complete(completed, findOrSpawnBackend(adapter)).pipe(Effect.forkChild)
-      yield* Deferred.await(spawned)
-      yield* Effect.yieldNow
+      yield* Deferred.complete(
+        completed,
+        findOrSpawnBackend(adapter).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
+      ).pipe(Effect.forkChild)
+      yield* Deferred.await(postSpawnPollCompleted)
       yield* TestClock.adjust("9 seconds")
       const beforeDeadline = yield* Deferred.poll(completed)
       yield* TestClock.adjust("1 second")

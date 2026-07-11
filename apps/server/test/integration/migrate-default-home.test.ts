@@ -20,6 +20,14 @@ const waitForExit = async (child: ReturnType<typeof spawn>, milliseconds: number
   await Promise.race([once(child, "exit"), delay(milliseconds)])
 }
 
+const releaseSurvivingChild = (child: {
+  readonly stderr: { destroy: () => unknown } | null
+  readonly unref: () => unknown
+}) => {
+  child.stderr?.destroy()
+  child.unref()
+}
+
 describe("migrateDefaultHome", () => {
   it("migrates when the active directory is the default", async () => {
     const root = mkdtempSync(join(tmpdir(), "expand-default-migration-"))
@@ -50,6 +58,26 @@ describe("migrateDefaultHome", () => {
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it("releases process handles when a child survives bounded shutdown", () => {
+    let destroyed = false
+    let unreferenced = false
+    const child = {
+      stderr: {
+        destroy: () => {
+          destroyed = true
+        }
+      },
+      unref: () => {
+        unreferenced = true
+      }
+    }
+
+    releaseSurvivingChild(child)
+
+    expect(destroyed).toBe(true)
+    expect(unreferenced).toBe(true)
   })
 
   it("migrates before the production logger acquires the default target", async () => {
@@ -90,7 +118,10 @@ describe("migrateDefaultHome", () => {
       await waitForExit(child, 2_000)
       if (isRunning(child)) child.kill("SIGKILL")
       await waitForExit(child, 2_000)
-      if (isRunning(child)) throw new Error(`production server did not stop; data preserved at ${root}`)
+      if (isRunning(child)) {
+        releaseSurvivingChild(child)
+        throw new Error(`production server did not stop; data preserved at ${root}`)
+      }
       rmSync(root, { recursive: true, force: true })
     }
   }, 15_000)

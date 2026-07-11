@@ -43,7 +43,7 @@ describe("binary smoke isolation", () => {
     expect(source).toContain('ENDPOINT_FILE="$DATA_DIR/server.json"')
     expect(source).toContain('SENTINEL_HOME="$DATA_DIR/default-sentinel"')
     expect(source).toContain('test ! -e "$SENTINEL_HOME/.expand"')
-    expect(source).toContain('test "$advertised_pid" = "$SERVER_PID"')
+    expect(source).toContain('[[ "$advertised_pid" != "$SERVER_PID" ]]')
     expect(source).toContain("jobs -l %%")
     expect(source).toMatch(/SERVER_PID=\$!\n\s+capture_server_job/)
     expect(source).not.toContain("kill -0")
@@ -70,6 +70,7 @@ JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SERVER_EXIT_TIMEOUT_SECONDS=1
 SERVER_PID=""
 SERVER_JOB_SPEC=""
+DATA_DIR_SAFE=1
 
 false &
 command sleep 0.05
@@ -105,6 +106,7 @@ JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SERVER_STOP_TIMEOUT_SECONDS=1
 SERVER_PID=424242
 SERVER_JOB_SPEC="%7"
+DATA_DIR_SAFE=1
 OWNED_PIDS=(424242)
 JOB_ACTIVE=1
 
@@ -154,6 +156,7 @@ JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SERVER_EXIT_TIMEOUT_SECONDS=1
 SERVER_PID=515151
 SERVER_JOB_SPEC="%4"
+DATA_DIR_SAFE=1
 OWNED_PIDS=(515151)
 
 jobs() {
@@ -186,6 +189,160 @@ printf 'status:%s job:%s\n' "$status" "$SERVER_JOB_SPEC"
     }
   })
 
+  it("rejects readiness when the owned job exits immediately after endpoint acceptance", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-readiness-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    await writeFile(join(dataDir, "server.json"), JSON.stringify({ pid: 717171 }))
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+SERVER_EXIT_TIMEOUT_SECONDS=1
+SERVER_PID=717171
+SERVER_JOB_SPEC="%3"
+DATA_DIR_SAFE=1
+ACTIVE_CHECKS=0
+
+server_job_active() {
+  ACTIVE_CHECKS=$((ACTIVE_CHECKS + 1))
+  [[ "$ACTIVE_CHECKS" = "1" ]]
+}
+
+status=0
+await_server_readiness || status=$?
+printf 'status:%s safe:%s checks:%s\n' "$status" "$DATA_DIR_SAFE" "$ACTIVE_CHECKS"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:1 safe:0 checks:2\n")
+      expect(result.stderr).toContain("exited during endpoint readiness")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("marks a replacement endpoint unsafe after the owned job is retired", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-replacement-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    await writeFile(join(dataDir, "server.json"), JSON.stringify({ pid: 818181 }))
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+SERVER_EXIT_TIMEOUT_SECONDS=0
+SERVER_PID=818181
+SERVER_JOB_SPEC="%5"
+DATA_DIR_SAFE=1
+
+jobs() {
+  return 0
+}
+
+wait() {
+  printf '{"pid":919191}\n' > "$ENDPOINT_FILE"
+  return 0
+}
+
+status=0
+await_server_exit || status=$?
+printf 'status:%s safe:%s job:%s\n' "$status" "$DATA_DIR_SAFE" "$SERVER_JOB_SPEC"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:1 safe:0 job:\n")
+      expect(result.stderr).toContain("endpoint remained after recorded expand-server job exit")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("marks an endpoint PID mismatch unsafe after a CLI command", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-mismatch-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    await writeFile(join(dataDir, "server.json"), JSON.stringify({ pid: 939393 }))
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+SERVER_PID=838383
+SERVER_JOB_SPEC="%6"
+DATA_DIR_SAFE=1
+
+status=0
+verify_existing_endpoint_ownership || status=$?
+printf 'status:%s safe:%s\n' "$status" "$DATA_DIR_SAFE"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:1 safe:0\n")
+      expect(result.stderr).toContain("endpoint PID does not match")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("preserves data when an endpoint remains after the job spec is cleared", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-unowned-"))
+    const dataDir = join(root, "data")
+    const marker = join(dataDir, "marker")
+    await mkdir(dataDir)
+    await writeFile(marker, "live")
+    await writeFile(join(dataDir, "server.json"), JSON.stringify({ pid: 929292 }))
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+SERVER_STOP_TIMEOUT_SECONDS=0
+SERVER_PID=828282
+SERVER_JOB_SPEC=""
+DATA_DIR_SAFE=1
+
+cleanup
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain("preserving data directory")
+      await access(marker)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("bounds failed cleanup and preserves live state", async () => {
     const source = await readSmokeSource()
     const functions = extractFunctions(source)
@@ -205,6 +362,7 @@ JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SERVER_STOP_TIMEOUT_SECONDS=0
 SERVER_PID=626262
 SERVER_JOB_SPEC="%8"
+DATA_DIR_SAFE=1
 OWNED_PIDS=(626262)
 
 jobs() {
@@ -253,6 +411,7 @@ JOB_STATE_FILE="$DATA_DIR/server-job.state"
 SERVER_STOP_TIMEOUT_SECONDS=2
 SERVER_PID=""
 SERVER_JOB_SPEC=""
+DATA_DIR_SAFE=1
 
 false &
 command sleep 0.05
