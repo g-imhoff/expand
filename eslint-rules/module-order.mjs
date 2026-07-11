@@ -1,81 +1,33 @@
-const GROUP = Object.freeze({
-  import: 0,
-  exportedClassOrInterface: 1,
-  otherExport: 2,
-  private: 3
-})
-
-const LABEL = Object.freeze({
-  [GROUP.import]: "an import",
-  [GROUP.exportedClassOrInterface]: "an exported class or interface",
-  [GROUP.otherExport]: "another export",
-  [GROUP.private]: "a non-exported statement"
-})
-
-const isDirective = (statement) =>
-  statement.type === "ExpressionStatement" && typeof statement.directive === "string"
-
-const sortableBody = (program) => {
-  let first = 0
-  while (first < program.body.length && isDirective(program.body[first])) first++
-  return program.body.slice(first)
-}
-
-const groupOf = (statement) => {
-  if (statement.type === "ImportDeclaration" || statement.type === "TSImportEqualsDeclaration") {
-    return GROUP.import
-  }
-  if (statement.type === "ExportNamedDeclaration" || statement.type === "ExportDefaultDeclaration") {
-    const declaration = statement.declaration
-    if (declaration?.type === "ClassDeclaration" || declaration?.type === "TSInterfaceDeclaration") {
-      return GROUP.exportedClassOrInterface
-    }
-    if (
-      statement.type === "ExportNamedDeclaration" &&
-      statement.declaration === null &&
-      statement.specifiers.length === 0 &&
-      statement.source === null
-    ) {
-      return GROUP.private
-    }
-    return GROUP.otherExport
-  }
-  if (statement.type === "ExportAllDeclaration") return GROUP.otherExport
-  return GROUP.private
-}
-
-const firstViolation = (statements) => {
-  let highest = -1
-  for (const statement of statements) {
-    const group = groupOf(statement)
-    if (group < highest) return { statement, group, previousGroup: highest }
-    highest = Math.max(highest, group)
-  }
-  return null
-}
+import { LABEL, analyzeModule } from "./module-order-analysis.mjs"
 
 export const moduleOrder = {
   meta: {
     type: "layout",
     docs: { description: "Enforce Expand's top-level module declaration order" },
+    fixable: "code",
     schema: [],
     messages: {
-      outOfOrder: "Expected {{actual}} before {{previous}}."
+      outOfOrder: "Expected {{actual}} before {{previous}}.",
+      unsafeOrder: "Expected {{actual}} before {{previous}}, but moving it may change runtime behavior; refactor this ordering manually."
     }
   },
   create(context) {
     return {
       Program(program) {
-        const violation = firstViolation(sortableBody(program))
-        if (violation === null) return
-        context.report({
-          node: violation.statement,
-          messageId: "outOfOrder",
+        const analysis = analyzeModule(context.sourceCode, program)
+        if (analysis === null) return
+        const report = {
+          node: analysis.violation.statement,
+          messageId: analysis.fix === null ? "unsafeOrder" : "outOfOrder",
           data: {
-            actual: LABEL[violation.group],
-            previous: LABEL[violation.previousGroup]
+            actual: LABEL[analysis.violation.group],
+            previous: LABEL[analysis.violation.previousGroup]
           }
-        })
+        }
+        if (analysis.fix !== null) {
+          report.fix = (fixer) => fixer.replaceTextRange(analysis.fix.range, analysis.fix.text)
+        }
+        context.report(report)
       }
     }
   }
