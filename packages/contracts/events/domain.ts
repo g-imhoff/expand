@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import {
   DomainEvent as DomainEventSchema,
   DomainEventFromJson as DomainEventFromJsonSchema
-} from "./domain-event"
+} from "./domain-event.js"
 
 export class SequencedEvent extends Schema.Opaque<SequencedEvent>()(
   Schema.Struct({ seq: Schema.Int, event: DomainEventSchema })

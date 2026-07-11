@@ -30,6 +30,7 @@ const publishPkg = {
   // Published artifact is public; the tracked workspace copy stays `private: true`.
   private: false,
   exports: {
+    "./events/domain-event": null,
     "./package.json": "./package.json",
     "./*": {
       types: "./dist/*.d.ts",
