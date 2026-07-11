@@ -38,7 +38,8 @@ ruleTester.run("module-order groups", moduleOrder, {
     "export interface Api {\n  /** Member docs. */\n  member: string\n}\n\nexport const value = 1",
     "  export interface Api {}\n\n  export const value = 1",
     "\"use client\"\nexport interface Api {}\n\nexport const value = 1",
-    "#!/usr/bin/env node\nexport interface Api {}\n\nexport const value = 1"
+    "#!/usr/bin/env node\nexport interface Api {}\n\nexport const value = 1",
+    "export as namespace Expand\n\ndeclare const internal: unique symbol"
   ],
   invalid: [
     {
@@ -63,6 +64,18 @@ ruleTester.run("module-order groups", moduleOrder, {
       filename: "default-class-after-export.ts",
       code: "export type Name = string\nexport default class Service {}",
       output: "export default class Service {}\n\nexport type Name = string",
+      errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "export-assignment-after-private.ts",
+      code: "declare const plugin: {}\nexport = plugin",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
+      filename: "namespace-export-after-private.ts",
+      code: "declare const internal: unique symbol\nexport as namespace Expand",
+      output: "export as namespace Expand\n\ndeclare const internal: unique symbol",
       errors: [{ messageId: "outOfOrder", line: 2 }]
     }
   ]

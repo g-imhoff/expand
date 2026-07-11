@@ -40,7 +40,13 @@ export const groupOf = (statement) => {
     }
     return GROUP.otherExport
   }
-  if (statement.type === "ExportAllDeclaration") return GROUP.otherExport
+  if (
+    statement.type === "ExportAllDeclaration" ||
+    statement.type === "TSExportAssignment" ||
+    statement.type === "TSNamespaceExportDeclaration"
+  ) {
+    return GROUP.otherExport
+  }
   return GROUP.private
 }
 
