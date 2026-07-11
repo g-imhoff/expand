@@ -172,10 +172,16 @@ const isToolDirective = (comment) =>
   /^\s*(?:eslint(?:-env)?|globals?|exported)\b/iu.test(comment.value) ||
   /^\s*\/\s*<(?:reference|amd-(?:dependency|module))\b/iu.test(comment.value)
 
-const isFileBanner = (comment, statement) =>
-  comment.type === "Shebang" ||
-  comment.loc.end.line + 1 < statement.loc.start.line ||
-  /(?:SPDX-License-Identifier:|@(?:file|fileoverview|license|preserve)\b)/iu.test(comment.value)
+const isJSDoc = (comment) => comment.type === "Block" && comment.value.startsWith("*")
+
+const isFileBanner = (comment, statement) => {
+  if (comment.type === "Shebang") return true
+  if (isJSDoc(comment)) return false
+  return (
+    (comment.type === "Block" && comment.loc.end.line + 1 < statement.loc.start.line) ||
+    /(?:SPDX-License-Identifier:|@(?:file|fileoverview|license|preserve)\b)/iu.test(comment.value)
+  )
+}
 
 const indentationStart = (text, index) => {
   const lineStart = text.lastIndexOf("\n", index - 1) + 1
@@ -237,6 +243,13 @@ const blockBounds = (sourceCode, statements, comments) => {
   return { comments, owned, anchored, blocks }
 }
 
+const hasSharedLineBoundary = (text, range) => {
+  const lineStart = text.lastIndexOf("\n", range[0] - 1) + 1
+  const nextLine = text.indexOf("\n", range[1])
+  const lineEnd = nextLine === -1 ? text.length : nextLine
+  return /\S/u.test(text.slice(lineStart, range[0])) || /\S/u.test(text.slice(range[1], lineEnd))
+}
+
 const buildReplacement = (sourceCode, original, sorted) => {
   let first = 0
   while (first < original.length && original[first].index === sorted[first].index) first++
@@ -251,6 +264,7 @@ const buildReplacement = (sourceCode, original, sorted) => {
   if (comments.some((comment) => !owned.has(comment) && !anchored.has(comment))) return null
 
   const range = [blocks[first].start, blocks[last].end]
+  if (hasSharedLineBoundary(sourceCode.text, range)) return null
   const relevantComments = comments.filter(
     (comment) => range[0] <= comment.range[0] && comment.range[1] <= range[1]
   )

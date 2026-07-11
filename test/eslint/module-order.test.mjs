@@ -108,6 +108,18 @@ ruleTester.run("module-order autofix safety", moduleOrder, {
       errors: [{ messageId: "unsafeOrder", line: 3 }]
     },
     {
+      filename: "separated-leading-comment.ts",
+      code: "/** docs for value */\n\nexport const value = 1\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 4 }]
+    },
+    {
+      filename: "separated-file-tsdoc.ts",
+      code: "/** @fileoverview Public API. */\n\nexport const value = 1\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 4 }]
+    },
+    {
       filename: "trailing-comment.ts",
       code: "export const value = 1\nexport interface Api {}\n// footer",
       output: null,
@@ -240,6 +252,25 @@ ruleTester.run("module-order comment-safe fixes", moduleOrder, {
       code: "  export const value = 1\n  export interface Api {}",
       output: "  export interface Api {}\n\n  export const value = 1",
       errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "same-line-suffix.ts",
+      code: "export const value = 1\nexport interface Api {} const helper = 1",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
+      filename: "same-line-comment-suffix.ts",
+      code: "export const value = 1 // value\nexport interface Api {} const helper = 1",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
+      filename: "same-line-prefix.ts",
+      code:
+        'import type { X } from "x"; export const value = 1\nexport interface Api {}',
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
     },
     {
       filename: "eslint-directive.ts",
