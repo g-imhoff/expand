@@ -80,6 +80,12 @@ ruleTester.run("module-order autofix safety", moduleOrder, {
       errors: [{ messageId: "outOfOrder", line: 2 }]
     },
     {
+      filename: "asi-boundary.ts",
+      code: "export const value = source\nexport interface Api {}\n[entry].forEach(use)",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
       filename: "stable-group-dependency.ts",
       code: 'export { value }\nexport const value = 1\nimport type { X } from "x"',
       output: null,

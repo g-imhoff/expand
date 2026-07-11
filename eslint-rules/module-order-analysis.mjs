@@ -154,6 +154,19 @@ const fullyGrouped = (units) => {
   return true
 }
 
+const ASI_CONTINUATION_START = new Set(["[", "(", "`", "/", "+", "-", "<"])
+
+const hasUnsafeAsiBoundary = (units, sourceCode) =>
+  units.some((right, index) => {
+    if (index === 0) return false
+    const left = units[index - 1]
+    if (left.index + 1 === right.index) return false
+    if (right.node.type !== "ExpressionStatement") return false
+    const first = sourceCode.getText(right.node).trimStart()[0]
+    if (!ASI_CONTINUATION_START.has(first)) return false
+    return !sourceCode.getText(left.node).trimEnd().endsWith(";")
+  })
+
 export const analyzeModule = (sourceCode, program) => {
   const statements = sortableBody(program)
   const violation = firstViolation(statements)
@@ -166,6 +179,7 @@ export const analyzeModule = (sourceCode, program) => {
   const changed = sorted.some((unit, index) => unit.index !== index)
   if (!changed) return { violation, fix: null }
 
+  if (hasUnsafeAsiBoundary(sorted, sourceCode)) return { violation, fix: null }
   if (sourceCode.getAllComments().length > 0) return { violation, fix: null }
 
   const start = statements[0].range[0]
