@@ -8,7 +8,12 @@ const walk = (dir: string): ReadonlyArray<string> => {
   const entries = readdirSync(dir)
   return entries.flatMap((entry) => {
     const full = join(dir, entry)
-    if (entry === "node_modules" || entry === "dist" || entry === "out" || entry === ".worktrees")
+    if (
+      entry === "node_modules" ||
+      entry === "dist" ||
+      entry === "out" ||
+      (entry === ".worktrees" && dir === repoRoot)
+    )
       return []
     return statSync(full).isDirectory() ? walk(full) : [full]
   })
