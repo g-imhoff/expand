@@ -15,9 +15,6 @@ const minimumLogLevel = (): LogLevel.LogLevel => {
     : "Info"
 }
 
-// The file logger resolves its own logDir from the AppContext reference (which
-// always resolves to its default), so the log dir is known before the runtime
-// starts and nothing has to provide AppContext.
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const { paths } = yield* AppContext
@@ -29,13 +26,18 @@ const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe
   Layer.provide(BunFileSystem.layer)
 )
 
-const program = Effect.gen(function* () {
+const loggedProgram = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const { paths } = yield* AppContext
-  yield* migrateDefaultHome(paths.dataDir)
   yield* fs.makeDirectory(path.dirname(paths.dbPath), { recursive: true })
   yield* runServer({ dbPath: paths.dbPath })
+}).pipe(Effect.provide(loggerLayer))
+
+const program = Effect.gen(function* () {
+  const { paths } = yield* AppContext
+  yield* migrateDefaultHome(paths.dataDir)
+  yield* loggedProgram
 })
 
 // Every file this process creates — the SQLite event store (+ WAL/SHM), the
@@ -46,7 +48,6 @@ process.umask(0o077)
 
 BunRuntime.runMain(
   program.pipe(
-    Effect.provide(loggerLayer),
     Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
     Effect.provide(BunServices.layer),
     Effect.tap(() => Effect.sync(() => process.exit(0)))
