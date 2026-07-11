@@ -32,6 +32,47 @@ export interface PortExchangeChannel {
   readonly _kind: "portExchange"
 }
 
+// ---------------------------------------------------------------------------
+// Contract (the registry)
+// ---------------------------------------------------------------------------
+
+export interface IpcContract<
+  Prefix extends string = string,
+  Channels extends Record<string, AnyIpcChannel> = Record<string, AnyIpcChannel>
+> {
+  readonly prefix: Prefix
+  readonly channels: Channels
+}
+
+// ---------------------------------------------------------------------------
+// Wire envelopes (plain JSON-ish shapes; cross the context bridge via structured clone)
+// ---------------------------------------------------------------------------
+
+export interface SuccessEnvelope {
+  readonly _tag: "IpcSuccess"
+  readonly value: unknown
+}
+export interface FailureEnvelope {
+  readonly _tag: "IpcFailure"
+  readonly error: unknown
+}
+export interface DefectEnvelope {
+  readonly _tag: "IpcDefect"
+  readonly message: string
+}
+
+/** Marker relayed by the preload into the main world alongside a transferred MessagePort. */
+export interface PortGrantMessage {
+  readonly _tag: "IpcPortGrant"
+  readonly channel: string
+  readonly nonce: string
+}
+
+/** Sender identity handed to main-side handlers (verified, never renderer-supplied). */
+export interface IpcSenderInfo {
+  readonly frameUrl: string
+}
+
 export type AnyIpcChannel = SendChannel | InvokeChannel | EventChannel | PortExchangeChannel
 
 export const IpcChannel = {
@@ -55,20 +96,6 @@ export const IpcChannel = {
   }),
   portExchange: (): PortExchangeChannel => ({ _kind: "portExchange" })
 }
-
-// ---------------------------------------------------------------------------
-// Contract (the registry)
-// ---------------------------------------------------------------------------
-
-export interface IpcContract<
-  Prefix extends string = string,
-  Channels extends Record<string, AnyIpcChannel> = Record<string, AnyIpcChannel>
-> {
-  readonly prefix: Prefix
-  readonly channels: Channels
-}
-
-const NAME_PATTERN = /^[a-z][a-zA-Z0-9]*$/
 
 export const IpcContract = {
   make: <const Prefix extends string, const Channels extends Record<string, AnyIpcChannel>>(
@@ -102,22 +129,6 @@ export const portRequestName = (contract: IpcContract, key: string): string =>
 export const portGrantName = (contract: IpcContract, key: string): string =>
   `${contract.prefix}:${key}:grant`
 
-// ---------------------------------------------------------------------------
-// Wire envelopes (plain JSON-ish shapes; cross the context bridge via structured clone)
-// ---------------------------------------------------------------------------
-
-export interface SuccessEnvelope {
-  readonly _tag: "IpcSuccess"
-  readonly value: unknown
-}
-export interface FailureEnvelope {
-  readonly _tag: "IpcFailure"
-  readonly error: unknown
-}
-export interface DefectEnvelope {
-  readonly _tag: "IpcDefect"
-  readonly message: string
-}
 export type ResultEnvelope = SuccessEnvelope | FailureEnvelope | DefectEnvelope
 
 export const isResultEnvelope = (input: unknown): input is ResultEnvelope => {
@@ -130,13 +141,6 @@ export const isResultEnvelope = (input: unknown): input is ResultEnvelope => {
   return tag === "IpcDefect" && typeof (input as { readonly message?: unknown }).message === "string"
 }
 
-/** Marker relayed by the preload into the main world alongside a transferred MessagePort. */
-export interface PortGrantMessage {
-  readonly _tag: "IpcPortGrant"
-  readonly channel: string
-  readonly nonce: string
-}
-
 export const isPortGrantMessage = (input: unknown): input is PortGrantMessage => {
   if (typeof input !== "object" || input === null) return false
   const candidate = input as { readonly _tag?: unknown; readonly channel?: unknown; readonly nonce?: unknown }
@@ -145,11 +149,6 @@ export const isPortGrantMessage = (input: unknown): input is PortGrantMessage =>
     typeof candidate.channel === "string" &&
     typeof candidate.nonce === "string"
   )
-}
-
-/** Sender identity handed to main-side handlers (verified, never renderer-supplied). */
-export interface IpcSenderInfo {
-  readonly frameUrl: string
 }
 
 // ---------------------------------------------------------------------------
@@ -201,3 +200,5 @@ export type IpcHandlersOf<C extends IpcContract, R, Port> = {
 export type IpcEmitterOf<C extends IpcContract> = {
   readonly [K in EventKeys<C>]: C["channels"][K] extends EventChannel<infer P> ? (payload: P["Type"]) => void : never
 }
+
+const NAME_PATTERN = /^[a-z][a-zA-Z0-9]*$/

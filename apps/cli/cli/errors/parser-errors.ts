@@ -2,6 +2,13 @@ import { CliError, CliOutput } from "effect/unstable/cli"
 import { makeEnvelope } from "@expand/cli/errors/envelope"
 import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
 
+export const jsonCliErrorFormatter: CliOutput.Formatter = {
+  ...CliOutput.defaultFormatter(),
+  formatCliError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
+  formatError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
+  formatErrors: (errors) => errors.map((e) => JSON.stringify(cliErrorToEnvelope(e))).join("\n")
+}
+
 const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
     case "InvalidValue":
@@ -16,11 +23,4 @@ const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
     default:
       return makeEnvelope("INVALID_ARGUMENT", e.message, false)
   }
-}
-
-export const jsonCliErrorFormatter: CliOutput.Formatter = {
-  ...CliOutput.defaultFormatter(),
-  formatCliError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
-  formatError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
-  formatErrors: (errors) => errors.map((e) => JSON.stringify(cliErrorToEnvelope(e))).join("\n")
 }

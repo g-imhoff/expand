@@ -41,23 +41,6 @@ export interface ResolveBackendCommandOptions {
   readonly binaryArgs?: ReadonlyArray<string>
 }
 
-const SOURCE_ENTRY_RE = /\.(ts|js|mjs|cjs)$/
-
-const OVERRIDE_ERROR = "EXPAND_BACKEND_CMD must be a JSON array of strings"
-
-const parseOverride = (raw: string): ReadonlyArray<string> => {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    throw new Error(OVERRIDE_ERROR)
-  }
-  if (!Array.isArray(parsed) || parsed.some((s) => typeof s !== "string")) {
-    throw new Error(OVERRIDE_ERROR)
-  }
-  return parsed as ReadonlyArray<string>
-}
-
 /**
  * Resolve the command used to spawn a Expand backend, shared by every frontend
  * (CLI, TUI, desktop) and by the platform adapters' built-in defaults.
@@ -89,4 +72,21 @@ export const resolveBackendCommand = (opts: ResolveBackendCommandOptions = {}): 
     return binaryArgs
   }
   throw new Error("no backend command configured: set EXPAND_BACKEND_CMD or provide sourceEntry/binaryArgs")
+}
+
+const SOURCE_ENTRY_RE = /\.(ts|js|mjs|cjs)$/
+
+const OVERRIDE_ERROR = "EXPAND_BACKEND_CMD must be a JSON array of strings"
+
+const parseOverride = (raw: string): ReadonlyArray<string> => {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(OVERRIDE_ERROR)
+  }
+  if (!Array.isArray(parsed) || parsed.some((s) => typeof s !== "string")) {
+    throw new Error(OVERRIDE_ERROR)
+  }
+  return parsed as ReadonlyArray<string>
 }

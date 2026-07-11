@@ -6,18 +6,6 @@ import { spawn } from "node:child_process"
 import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable } from "../errors"
 
-const wsConstructor = Layer.succeed(
-  Socket.WebSocketConstructor,
-  (url: string, protocols?: string | ReadonlyArray<string>) =>
-    new WS(url, protocols as string | Array<string> | undefined) as unknown as globalThis.WebSocket
-)
-
-const protocolLayer = (url: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(wsConstructor)))
-  )
-
 // backendCommand is REQUIRED: unlike Bun, there is no safe self-re-invoking
 // default here. Under Electron process.execPath is the Electron binary, not a JS
 // runtime, so a derived default would silently spawn the wrong thing. Consumers
@@ -25,14 +13,6 @@ const protocolLayer = (url: string) =>
 export interface NodeAdapterOptions {
   readonly backendCommand: ReadonlyArray<string> | (() => ReadonlyArray<string>)
 }
-
-const resolveCommand = (
-  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>)
-): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
-  Effect.try({
-    try: () => (typeof configured === "function" ? configured() : configured),
-    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
-  })
 
 export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
   const spawnBackend = (dataDir: string) =>
@@ -52,3 +32,23 @@ export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
     )
   return { protocolLayer, spawnBackend }
 }
+
+const wsConstructor = Layer.succeed(
+  Socket.WebSocketConstructor,
+  (url: string, protocols?: string | ReadonlyArray<string>) =>
+    new WS(url, protocols as string | Array<string> | undefined) as unknown as globalThis.WebSocket
+)
+
+const protocolLayer = (url: string) =>
+  RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(wsConstructor)))
+  )
+
+const resolveCommand = (
+  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>)
+): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
+  Effect.try({
+    try: () => (typeof configured === "function" ? configured() : configured),
+    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
+  })

@@ -37,11 +37,6 @@ export const useRunMutation = <I, A>(run: (input: I) => Promise<A>): MutationSta
   return { mutate, mutateAsync, error, isPending, reset }
 }
 
-const useProjectsSnapshot = (): ReadonlyArray<Project> => {
-  const handle = useAppHandle()
-  return useSyncExternalStore(handle.subscribe, handle.getProjects, handle.getProjects)
-}
-
 export const useProjects = (): { data: ReadonlyArray<Project>; error: unknown } => ({
   data: useProjectsSnapshot(),
   error: undefined
@@ -85,6 +80,11 @@ export const useSetMetadata = () => {
 export const useDeleteProject = () => {
   const handle = useAppHandle()
   return useRunMutation((id: string) => handle.deleteProject(id))
+}
+
+const useProjectsSnapshot = (): ReadonlyArray<Project> => {
+  const handle = useAppHandle()
+  return useSyncExternalStore(handle.subscribe, handle.getProjects, handle.getProjects)
 }
 
 interface MutationOptions<A> {

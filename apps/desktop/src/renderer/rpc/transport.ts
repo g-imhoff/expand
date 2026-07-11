@@ -4,11 +4,22 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
 import { supervised } from "@expand/desktop/renderer/lib/supervised"
 
-export type RendererRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
-
 export class RendererRpcClient extends Context.Service<RendererRpcClient, RendererRpcClientApi>()(
   "expand/desktop/RendererRpcClient"
 ) {}
+
+export type RendererRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
+
+export const buildRendererClient = (
+  port: RendererPortLike
+): Effect.Effect<RendererRpcClientApi, never, Scope.Scope> =>
+  RpcClient.make(ExpandRpcs).pipe(
+    Effect.provideServiceEffect(RpcClient.Protocol, makePortProtocol(port)),
+    Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
+  )
+
+export const RendererRpcClientLayer = (port: RendererPortLike): Layer.Layer<RendererRpcClient> =>
+  Layer.effect(RendererRpcClient, buildRendererClient(port))
 
 const makePortProtocol = (port: RendererPortLike) =>
   RpcClient.Protocol.make(
@@ -39,14 +50,3 @@ const makePortProtocol = (port: RendererPortLike) =>
       }
     })
   )
-
-export const buildRendererClient = (
-  port: RendererPortLike
-): Effect.Effect<RendererRpcClientApi, never, Scope.Scope> =>
-  RpcClient.make(ExpandRpcs).pipe(
-    Effect.provideServiceEffect(RpcClient.Protocol, makePortProtocol(port)),
-    Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
-  )
-
-export const RendererRpcClientLayer = (port: RendererPortLike): Layer.Layer<RendererRpcClient> =>
-  Layer.effect(RendererRpcClient, buildRendererClient(port))

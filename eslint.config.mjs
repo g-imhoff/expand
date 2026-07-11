@@ -24,7 +24,7 @@ export default tseslint.config(
     },
     plugins: { local },
     rules: {
-      "local/exports-on-top": "error",
+      "local/module-order": "error",
       "local/no-export-star": "error"
     }
   }

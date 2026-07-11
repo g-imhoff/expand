@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
 
   // Type/interface exports that are only referenced WITHIN their own file are
-  // internal "plumbing" — this mirrors the repo's own `exports-on-top` ESLint
+  // internal "plumbing" — this mirrors the repo's own `module-order` ESLint
   // rule (non-exported type aliases/interfaces live below the exports). This is
   // narrow ON PURPOSE: it covers ONLY types/interfaces, NOT values. Over-exported
   // values (const/function/class) are un-exported in code, never hidden here.

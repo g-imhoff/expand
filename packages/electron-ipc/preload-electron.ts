@@ -3,13 +3,6 @@ import type { PreloadIpcDeps } from "@expand/electron-ipc/preload"
 import { contextBridge, ipcRenderer } from "electron"
 import type { IpcRendererEvent } from "electron"
 
-// Sandboxed preloads run in a DOM context, but the root tsconfig compiles packages/
-// without lib.dom — declare the narrow surface we touch.
-declare const window: {
-  readonly location: { readonly origin: string }
-  readonly postMessage: (message: unknown, targetOrigin: string, transfer?: ReadonlyArray<unknown>) => void
-}
-
 export const electronPreloadDeps = (): PreloadIpcDeps => {
   return {
     send: (channel, payload) => ipcRenderer.send(channel, payload),
@@ -29,4 +22,11 @@ export const electronPreloadDeps = (): PreloadIpcDeps => {
       window.postMessage(message, targetOrigin, transfer)
     }
   }
+}
+
+// Sandboxed preloads run in a DOM context, but the root tsconfig compiles packages/
+// without lib.dom — declare the narrow surface we touch.
+declare const window: {
+  readonly location: { readonly origin: string }
+  readonly postMessage: (message: unknown, targetOrigin: string, transfer?: ReadonlyArray<unknown>) => void
 }

@@ -5,13 +5,6 @@ import { ipcMain } from "electron"
 import type { BrowserWindow, MessagePortMain, WebFrameMain } from "electron"
 import type { FrameLike, IpcMainLike, WindowTargetLike } from "@expand/electron-ipc/main"
 
-const toFrameLike = (frame: WebFrameMain | null): FrameLike | null => {
-  if (frame === null) return null
-  // WebFrameMain.detached: frames can detach after any await (Electron 33+).
-  if (frame.detached) return { url: "", detached: true }
-  return frame as unknown as FrameLike // structural: { url, detached } — same object keeps reference equality for the main-frame check
-}
-
 export interface ElectronBindDeps {
   readonly ipc: IpcMainLike
   readonly target: WindowTargetLike
@@ -42,3 +35,10 @@ export const electronBindDeps = (win: BrowserWindow): ElectronBindDeps => ({
       win.webContents.postMessage(channel, payload, transfer as Array<MessagePortMain>)
   }
 })
+
+const toFrameLike = (frame: WebFrameMain | null): FrameLike | null => {
+  if (frame === null) return null
+  // WebFrameMain.detached: frames can detach after any await (Electron 33+).
+  if (frame.detached) return { url: "", detached: true }
+  return frame as unknown as FrameLike // structural: { url, detached } — same object keeps reference equality for the main-frame check
+}

@@ -1,11 +1,14 @@
 import { Schema } from "effect"
-import { ProjectEvent } from "@expand/contracts/events/project"
-
-export const DomainEvent = Schema.Union(Object.values(ProjectEvent.cases)).pipe(Schema.toTaggedUnion("_tag"))
-export type DomainEvent = typeof DomainEvent.Type
-
-export const DomainEventFromJson = Schema.fromJsonString(DomainEvent)
+import {
+  DomainEvent as DomainEventSchema,
+  DomainEventFromJson as DomainEventFromJsonSchema
+} from "./domain-event"
 
 export class SequencedEvent extends Schema.Opaque<SequencedEvent>()(
-  Schema.Struct({ seq: Schema.Int, event: DomainEvent })
+  Schema.Struct({ seq: Schema.Int, event: DomainEventSchema })
 ) {}
+
+export { DomainEventSchema as DomainEvent }
+export type DomainEvent = typeof DomainEventSchema.Type
+
+export { DomainEventFromJsonSchema as DomainEventFromJson }

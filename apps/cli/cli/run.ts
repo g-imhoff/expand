@@ -3,11 +3,6 @@ import type { CliError } from "effect/unstable/cli"
 import { mapContractError, type ExpandCliError } from "@expand/cli/errors"
 import { writeErr } from "@expand/cli/output"
 
-class UsageExit extends Data.TaggedError("UsageExit")<{}> {
-  readonly [Runtime.errorExitCode] = 2
-  readonly [Runtime.errorReported] = false
-}
-
 export const renderErrors = <A, R>(
   program: Effect.Effect<A, unknown, R>
 ): Effect.Effect<A | void, UsageExit | ExpandCliError, R> =>
@@ -20,3 +15,8 @@ export const renderErrors = <A, R>(
       return Effect.flatMap(writeErr(JSON.stringify(cliErr.toEnvelope())), () => Effect.fail(cliErr))
     })
   )
+
+class UsageExit extends Data.TaggedError("UsageExit")<{}> {
+  readonly [Runtime.errorExitCode] = 2
+  readonly [Runtime.errorReported] = false
+}

@@ -1,7 +1,5 @@
 import { Schema } from "effect"
 
-export const PROTOCOL_VERSION = 2
-
 export class Endpoint extends Schema.Opaque<Endpoint>()(
   Schema.Struct({
     url: Schema.String,
@@ -10,5 +8,7 @@ export class Endpoint extends Schema.Opaque<Endpoint>()(
     protocolVersion: Schema.Number
   })
 ) {}
+
+export const PROTOCOL_VERSION = 2
 
 export const EndpointFromJson = Schema.fromJsonString(Endpoint)

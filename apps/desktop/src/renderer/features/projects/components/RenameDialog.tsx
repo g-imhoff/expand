@@ -8,20 +8,6 @@ import {
   DialogTitle
 } from "@expand/desktop/renderer/components/ui/dialog"
 
-const describeError = (error: unknown): string => {
-  if (typeof error === "object" && error !== null && (error as { _tag?: string })._tag === "ProjectInvalidInput") {
-    const e = error as { field: string; reason: string }
-    return `invalid ${e.field}: ${e.reason}`
-  }
-  if (Schema.isSchemaError(error)) {
-    return `invalid input: ${error.message}`
-  }
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    return String((error as { _tag: unknown })._tag)
-  }
-  return String(error)
-}
-
 export interface RenameDialogProps {
   readonly open: boolean
   readonly project: { readonly id: string; readonly name: string } | null
@@ -60,4 +46,18 @@ export const RenameDialog = ({ open, project, onOpenChange, onRename, error }: R
       </DialogContent>
     </Dialog>
   )
+}
+
+const describeError = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && (error as { _tag?: string })._tag === "ProjectInvalidInput") {
+    const e = error as { field: string; reason: string }
+    return `invalid ${e.field}: ${e.reason}`
+  }
+  if (Schema.isSchemaError(error)) {
+    return `invalid input: ${error.message}`
+  }
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    return String((error as { _tag: unknown })._tag)
+  }
+  return String(error)
 }

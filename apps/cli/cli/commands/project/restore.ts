@@ -6,20 +6,22 @@ import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/_command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 
-const target = Argument.string("project")
+export const restoreCommand = (() => {
+  const target = Argument.string("project")
 
-export const restoreCommand = defineCommand(
-  "restore",
-  { project: target },
-  {
-    envelope: (p: Project) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: false, data: p }),
-    text: (p: Project) => `${p.id}  ${p.name}`,
-    quiet: (p: Project) => p.id
-  },
-  ({ project }): Effect.Effect<Project, unknown, ProjectClient> =>
-    Effect.gen(function* () {
-      const c = yield* ProjectClient
-      const id = yield* resolveProjectTarget(project)
-      return yield* c.restore({ id })
-    })
-)
+  return defineCommand(
+    "restore",
+    { project: target },
+    {
+      envelope: (p: Project) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: false, data: p }),
+      text: (p: Project) => `${p.id}  ${p.name}`,
+      quiet: (p: Project) => p.id
+    },
+    ({ project }): Effect.Effect<Project, unknown, ProjectClient> =>
+      Effect.gen(function* () {
+        const c = yield* ProjectClient
+        const id = yield* resolveProjectTarget(project)
+        return yield* c.restore({ id })
+      })
+  )
+})()

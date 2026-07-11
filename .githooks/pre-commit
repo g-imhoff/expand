@@ -1,6 +1,6 @@
 #!/bin/sh
 # Pre-commit gate. Runs the fast static checks before a commit lands:
-#   - eslint (incl. the local/exports-on-top layout rule)
+#   - eslint (incl. the local/module-order layout rule)
 #   - tsc --noEmit across all packages + the desktop app
 #
 # The full test suite is intentionally NOT run here (too slow for every commit)

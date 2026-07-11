@@ -3,8 +3,6 @@ import { resolve } from "node:path"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 
-const repoRoot = resolve(__dirname, "../../..")
-
 export interface LaunchedApp {
   readonly app: ElectronApplication
   readonly win: Page
@@ -41,3 +39,5 @@ export const openPalette = async (win: Page): Promise<void> => {
   await win.keyboard.press(`${mod}+Shift+P`)
   await win.getByPlaceholder("Type a project name or search…").waitFor()
 }
+
+const repoRoot = resolve(__dirname, "../../..")

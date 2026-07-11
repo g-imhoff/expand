@@ -12,14 +12,6 @@ import { jsonCliErrorFormatter } from "@expand/cli/errors"
 import { renderErrors } from "@expand/cli/run"
 import { healthCommand } from "@expand/cli/commands/health"
 import { projectCommand } from "@expand/cli/commands/project"
-// From source (apps/cli/cli/main.ts) the sibling apps/server/main.ts exists →
-// `bun apps/server/main.ts`; from the compiled binary it does not → the
-// packaged `expand-server` next to the executable.
-const backendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({
-    sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts"),
-    binaryArgs: [join(dirname(process.execPath), "expand-server")]
-  })
 
 export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerClient, E, R>) => {
   const health = healthCommand.pipe(
@@ -35,6 +27,16 @@ export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | Server
 }
 
 export const expand = makeExpand(ClientLayer(makeBunAdapter({ backendCommand })))
+
+// From source (apps/cli/cli/main.ts) the sibling apps/server/main.ts exists →
+// `bun apps/server/main.ts`; from the compiled binary it does not → the
+// packaged `expand-server` next to the executable.
+function backendCommand(): ReadonlyArray<string> {
+  return resolveBackendCommand({
+    sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts"),
+    binaryArgs: [join(dirname(process.execPath), "expand-server")]
+  })
+}
 
 if (import.meta.main) {
   renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(

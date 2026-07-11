@@ -9,22 +9,12 @@ import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
 
-export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
-
 /** @internal */
 export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcClientApi>()(
   "expand/ExpandRpcClient"
 ) {}
 
-const endpointWsUrl = (endpoint: Endpoint): string =>
-  `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`
-
-const CONNECT_TIMEOUT = "3 seconds"
-const MAX_ATTEMPTS = 3
-
-class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
-  readonly reason: string
-}> {}
+export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
 /** @internal */
 export const acquireClient = (
@@ -82,3 +72,13 @@ export const ExpandRpcClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
   Layer.effect(ExpandRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))
+
+const endpointWsUrl = (endpoint: Endpoint): string =>
+  `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`
+
+const CONNECT_TIMEOUT = "3 seconds"
+const MAX_ATTEMPTS = 3
+
+class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
+  readonly reason: string
+}> {}
