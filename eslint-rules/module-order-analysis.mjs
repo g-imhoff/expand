@@ -167,6 +167,105 @@ const hasUnsafeAsiBoundary = (units, sourceCode) =>
     return !sourceCode.getText(left.node).trimEnd().endsWith(";")
   })
 
+const isToolDirective = (comment) =>
+  /(?:eslint-(?:disable|enable)|@ts-|@jsx[\w-]*)/iu.test(comment.value) ||
+  /^\s*(?:eslint(?:-env)?|globals?|exported)\b/iu.test(comment.value) ||
+  /^\s*\/\s*<(?:reference|amd-(?:dependency|module))\b/iu.test(comment.value)
+
+const isFileBanner = (comment, statement) =>
+  comment.type === "Shebang" ||
+  comment.loc.end.line + 1 < statement.loc.start.line ||
+  /(?:SPDX-License-Identifier:|@(?:file|fileoverview|license|preserve)\b)/iu.test(comment.value)
+
+const indentationStart = (text, index) => {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1
+  return /^[\t ]*$/u.test(text.slice(lineStart, index)) ? lineStart : index
+}
+
+const hasSafeLeadingGeometry = (sourceCode, previous, node, leading) => {
+  if (leading.length === 0) return false
+  const contiguous = leading.every(
+    (comment, index) => index === 0 || comment.loc.start.line <= leading[index - 1].loc.end.line + 1
+  )
+  if (!contiguous) return false
+  const first = leading[0]
+  const final = leading[leading.length - 1]
+  if (!/^[\t \r\n]*$/u.test(sourceCode.text.slice(final.range[1], node.range[0]))) return false
+  const separatedFromPrevious = first.loc.start.line > previous.loc.end.line + 1
+  if (final.loc.end.line === node.loc.start.line) {
+    return leading.length === 1 || separatedFromPrevious
+  }
+  return separatedFromPrevious && final.loc.end.line + 1 === node.loc.start.line
+}
+
+const blockBounds = (sourceCode, statements, comments) => {
+  const owned = new Set()
+  const anchored = new Set(
+    sourceCode
+      .getCommentsBefore(statements[0])
+      .filter((comment) => isFileBanner(comment, statements[0]))
+  )
+  const blocks = statements.map((node, index) => {
+    let start = indentationStart(sourceCode.text, node.range[0])
+    let end = node.range[1]
+    for (const comment of comments) {
+      if (node.range[0] <= comment.range[0] && comment.range[1] <= node.range[1]) {
+        owned.add(comment)
+      }
+    }
+    if (index > 0) {
+      const previous = statements[index - 1]
+      const leading = sourceCode.getCommentsBefore(node).filter(
+        (comment) =>
+          previous.range[1] <= comment.range[0] &&
+          comment.loc.start.line !== previous.loc.end.line
+      )
+      if (hasSafeLeadingGeometry(sourceCode, previous, node, leading)) {
+        start = indentationStart(sourceCode.text, leading[0].range[0])
+        for (const comment of leading) owned.add(comment)
+      }
+    }
+    const trailing = sourceCode
+      .getCommentsAfter(node)
+      .filter(
+        (comment) => comment.loc.start.line === node.loc.end.line && comment.type === "Line"
+      )
+    if (trailing.length > 0) end = trailing[trailing.length - 1].range[1]
+    for (const comment of trailing) owned.add(comment)
+    return { start, end, text: sourceCode.text.slice(start, end) }
+  })
+  return { comments, owned, anchored, blocks }
+}
+
+const buildReplacement = (sourceCode, original, sorted) => {
+  let first = 0
+  while (first < original.length && original[first].index === sorted[first].index) first++
+  if (first === original.length) return null
+  let last = original.length - 1
+  while (last > first && original[last].index === sorted[last].index) last--
+
+  const statements = original.map(({ node }) => node)
+  const comments = sourceCode.getAllComments()
+  if (comments.some(isToolDirective)) return null
+  const { owned, anchored, blocks } = blockBounds(sourceCode, statements, comments)
+  if (comments.some((comment) => !owned.has(comment) && !anchored.has(comment))) return null
+
+  const range = [blocks[first].start, blocks[last].end]
+  const relevantComments = comments.filter(
+    (comment) => range[0] <= comment.range[0] && comment.range[1] <= range[1]
+  )
+  if (relevantComments.some((comment) => !owned.has(comment))) return null
+
+  const newline = sourceCode.text.includes("\r\n") ? "\r\n\r\n" : "\n\n"
+  return {
+    range,
+    text: sorted
+      .slice(first, last + 1)
+      .map(({ index }) => blocks[index].text)
+      .join(newline)
+  }
+}
+
 export const analyzeModule = (sourceCode, program) => {
   const statements = sortableBody(program)
   const violation = firstViolation(statements)
@@ -180,16 +279,6 @@ export const analyzeModule = (sourceCode, program) => {
   if (!changed) return { violation, fix: null }
 
   if (hasUnsafeAsiBoundary(sorted, sourceCode)) return { violation, fix: null }
-  if (sourceCode.getAllComments().length > 0) return { violation, fix: null }
-
-  const start = statements[0].range[0]
-  const end = statements[statements.length - 1].range[1]
-
-  return {
-    violation,
-    fix: {
-      range: [start, end],
-      text: sorted.map(({ node }) => sourceCode.getText(node)).join("\n\n")
-    }
-  }
+  const replacement = buildReplacement(sourceCode, units, sorted)
+  return { violation, fix: replacement }
 }

@@ -11,7 +11,8 @@ const ruleTester = new RuleTester({
   languageOptions: {
     parser: tseslint.parser,
     parserOptions: { ecmaFeatures: { jsx: true } }
-  }
+  },
+  plugins: { local: { rules: { example: { create: () => ({}) } } } }
 })
 
 ruleTester.run("module-order groups", moduleOrder, {
@@ -28,7 +29,16 @@ ruleTester.run("module-order groups", moduleOrder, {
         "const helper = 1",
         "export {}"
       ].join("\n")
-    }
+    },
+    "/** Public API. */\nexport interface Api {}\n\nexport const value = 1",
+    "/* File banner. */\n\nexport interface Api {}\n\nexport const value = 1",
+    "// Public types\nexport interface Api {}\n\nexport const value = 1",
+    "export interface Api {}\n\nexport const value = 1 // value",
+    "/** Public API. */ export interface Api {}\n\nexport const value = 1",
+    "export interface Api {\n  /** Member docs. */\n  member: string\n}\n\nexport const value = 1",
+    "  export interface Api {}\n\n  export const value = 1",
+    "\"use client\"\nexport interface Api {}\n\nexport const value = 1",
+    "#!/usr/bin/env node\nexport interface Api {}\n\nexport const value = 1"
   ],
   invalid: [
     {
@@ -156,6 +166,131 @@ ruleTester.run("module-order autofix safety", moduleOrder, {
       code: "const dependency = make()\nexport class Service { static value = dependency }",
       output: null,
       errors: [{ messageId: "unsafeOrder", line: 2 }]
+    }
+  ]
+})
+
+ruleTester.run("module-order comment-safe fixes", moduleOrder, {
+  valid: [],
+  invalid: [
+    {
+      filename: "tsdoc.ts",
+      code: "export const value = 1\n\n/** Public API. */\nexport interface Api {}",
+      output: "/** Public API. */\nexport interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 4 }]
+    },
+    {
+      filename: "banner.ts",
+      code: "/* File banner. */\n\nexport const value = 1\nexport interface Api {}",
+      output: "/* File banner. */\n\nexport interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 4 }]
+    },
+    {
+      filename: "first-block-comment.ts",
+      code: "/* docs for value */\nexport const value = 1\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "section.ts",
+      code: "export const value = 1\n\n// Public types\nexport interface Api {}",
+      output: "// Public types\nexport interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 4 }]
+    },
+    {
+      filename: "detached-comment.ts",
+      code: "export const value = 1\n// belongs to value\n\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 4 }]
+    },
+    {
+      filename: "same-line-tsdoc.ts",
+      code: "export const value = 1; /** Public API. */\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
+      filename: "same-line-block.ts",
+      code: "export const value = 1; /* Public API. */\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 2 }]
+    },
+    {
+      filename: "same-line-leading-tsdoc.ts",
+      code: "export const value = 1\n/** Public API. */ export interface Api {}",
+      output: "/** Public API. */ export interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "trailing.ts",
+      code: "export const value = 1 // value\nexport interface Api {}",
+      output: "export interface Api {}\n\nexport const value = 1 // value",
+      errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "member-tsdoc.ts",
+      code:
+        "export const value = 1\nexport interface Api {\n  /** Member docs. */\n  member: string\n}",
+      output:
+        "export interface Api {\n  /** Member docs. */\n  member: string\n}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "indented.ts",
+      code: "  export const value = 1\n  export interface Api {}",
+      output: "  export interface Api {}\n\n  export const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 2 }]
+    },
+    {
+      filename: "eslint-directive.ts",
+      code: "export const value = 1\n// eslint-disable-next-line local/example\nexport interface Api {}",
+      linterOptions: { reportUnusedDisableDirectives: false },
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "eslint-config-directive.ts",
+      code: "/* global ExternalApi */\nexport const value = 1\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "adjacent-ts-directive.ts",
+      code:
+        'import type { X } from "x" // @ts-ignore\nexport const value = 1\nexport interface Api {}',
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "uppercase-ts-directive.ts",
+      code: "export const value = 1\n\n// @TS-NOCHECK\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 4 }]
+    },
+    {
+      filename: "ts-jsx-pragma.ts",
+      code: "export const value = 1\n/** @jsxImportSource react */\nexport interface Api {}",
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "triple-slash-directive.ts",
+      code:
+        'export const value = 1\n/// <reference types="node" />\nexport interface Api {}',
+      output: null,
+      errors: [{ messageId: "unsafeOrder", line: 3 }]
+    },
+    {
+      filename: "prologue.ts",
+      code: "\"use client\"\nexport const value = 1\nexport interface Api {}",
+      output: "\"use client\"\nexport interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 3 }]
+    },
+    {
+      filename: "hashbang.ts",
+      code: "#!/usr/bin/env node\nexport const value = 1\nexport interface Api {}",
+      output: "#!/usr/bin/env node\nexport interface Api {}\n\nexport const value = 1",
+      errors: [{ messageId: "outOfOrder", line: 3 }]
     }
   ]
 })
