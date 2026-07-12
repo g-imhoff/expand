@@ -100,6 +100,7 @@ describe("CLI contract", () => {
       dataDir: expected,
       dbPath: join(expected, "events.db"),
       endpointFile: join(expected, "server.json"),
+      spawnLockFile: join(expected, "server.json.lock"),
       logDir: join(expected, "logs")
     })
   })

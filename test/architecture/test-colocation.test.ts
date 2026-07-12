@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { testInclude } from "../../vitest.config"
+import vitestConfig, {
+  normalTestProject,
+  processHeavyTestInclude,
+  processHeavyTestProject,
+  testInclude
+} from "../../vitest.config"
 
 const repoRoot = new URL("../..", import.meta.url).pathname
 
@@ -27,6 +32,41 @@ describe("test colocation", () => {
     expect(testInclude).toEqual(
       expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
     )
+  })
+
+  it("runs process-heavy suites serially after the normal project", () => {
+    expect(testInclude).toEqual(
+      expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
+    )
+    expect(processHeavyTestInclude).toEqual([
+      "apps/server/test/integration/state-root-lock.test.ts",
+      "packages/client-ts/test/integration/spawn-lock.test.ts",
+      "examples/client-ts/test/archive-stale.smoke.test.ts"
+    ])
+    expect(normalTestProject).toEqual({
+      extends: true,
+      test: {
+        name: "normal",
+        include: testInclude,
+        exclude: processHeavyTestInclude,
+        sequence: { groupOrder: 0 }
+      }
+    })
+    expect(processHeavyTestProject).toEqual({
+      extends: true,
+      test: {
+        name: "process-heavy",
+        include: processHeavyTestInclude,
+        fileParallelism: false,
+        sequence: { groupOrder: 1 }
+      }
+    })
+    expect(vitestConfig.test).toMatchObject({
+      maxWorkers: "50%",
+      projects: [normalTestProject, processHeavyTestProject]
+    })
+    expect(vitestConfig.test).not.toHaveProperty("include")
+    expect(normalTestProject.test.name).not.toBe(processHeavyTestProject.test.name)
   })
 
   it("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () => {

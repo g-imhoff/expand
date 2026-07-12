@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { defineConfig, type TestProjectInlineConfiguration } from "vitest/config"
 
 export const testInclude = [
   "apps/**/test/**/*.test.ts",
@@ -12,10 +12,36 @@ export const testInclude = [
   "examples/**/*.test.ts"
 ]
 
+export const processHeavyTestInclude = [
+  "apps/server/test/integration/state-root-lock.test.ts",
+  "packages/client-ts/test/integration/spawn-lock.test.ts",
+  "examples/client-ts/test/archive-stale.smoke.test.ts"
+]
+
+export const normalTestProject = {
+  extends: true,
+  test: {
+    name: "normal",
+    include: testInclude,
+    exclude: processHeavyTestInclude,
+    sequence: { groupOrder: 0 }
+  }
+} satisfies TestProjectInlineConfiguration
+
+export const processHeavyTestProject = {
+  extends: true,
+  test: {
+    name: "process-heavy",
+    include: processHeavyTestInclude,
+    fileParallelism: false,
+    sequence: { groupOrder: 1 }
+  }
+} satisfies TestProjectInlineConfiguration
+
 export default defineConfig({
   test: {
     maxWorkers: "50%",
-    include: testInclude,
+    projects: [normalTestProject, processHeavyTestProject],
     setupFiles: ["apps/desktop/test/ui/setup.ts"],
     environment: "node",
     globals: false,
