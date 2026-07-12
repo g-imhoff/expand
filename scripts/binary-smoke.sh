@@ -28,6 +28,7 @@ SERVER_PID=""
 SERVER_JOB_SPEC=""
 GUARDIAN_PID=""
 GUARDIAN_PGID=""
+GUARDIAN_EXIT_STATUS=""
 ENDPOINT_PID=""
 DATA_DIR_SAFE=1
 
@@ -132,8 +133,24 @@ await_autospawn_departure() {
 }
 
 release_guardian() {
-  write_private_file "$GUARDIAN_RELEASE_FILE" release
-  reap_server_job
+  local deadline
+  local guardian_status=0
+  local write_status
+  if write_private_file "$GUARDIAN_RELEASE_FILE" release; then
+    true
+  else
+    write_status=$?
+    mark_data_dir_unsafe "guardian release could not be recorded"
+    return "$write_status"
+  fi
+  deadline=$((SECONDS + SERVER_EXIT_TIMEOUT_SECONDS))
+  if ! wait_for_server_job_exit "$deadline"; then
+    mark_data_dir_unsafe "guardian did not exit after release"
+    return 1
+  fi
+  reap_server_job || guardian_status=$?
+  GUARDIAN_EXIT_STATUS="$guardian_status"
+  return 0
 }
 
 await_guardian_file() {
@@ -333,6 +350,7 @@ run_cli_autospawn() {
   rm -f -- "$GUARDIAN_STATUS_FILE" "$GUARDIAN_EVIDENCE_FILE" "$GUARDIAN_RELEASE_FILE"
   GUARDIAN_PID=""
   GUARDIAN_PGID=""
+  GUARDIAN_EXIT_STATUS=""
   ENDPOINT_PID=""
   (
     autospawn_guardian "$output_file" "$@"
@@ -355,7 +373,10 @@ run_cli_autospawn() {
     return 1
   fi
   await_autospawn_departure || return 1
-  release_guardian || guardian_status=$?
+  if ! release_guardian; then
+    return 1
+  fi
+  guardian_status="$GUARDIAN_EXIT_STATUS"
   GUARDIAN_PID=""
   if [[ "$guardian_status" != "$cli_status" ]]; then
     mark_data_dir_unsafe "guardian status did not match the auto-spawn CLI status"

@@ -34,6 +34,145 @@ async function runShell(script: string) {
   return { exitCode, stderr, stdout }
 }
 
+type AutospawnControllerScenario = {
+  readonly evidence?: "malformed" | "missing" | "valid"
+  readonly lingering?: "backend-lock" | "endpoint" | "endpoint-lock" | "endpoint-pid" | "none"
+  readonly status?: "malformed" | "missing" | "valid"
+}
+
+async function runAutospawnController(source: string, scenario: AutospawnControllerScenario = {}) {
+  const functions = extractFunctions(source)
+  const root = await mkdtemp(join(tmpdir(), "expand-smoke-controller-"))
+  const dataDir = join(root, "data")
+  await mkdir(dataDir)
+  const evidence = scenario.evidence ?? "valid"
+  const lingering = scenario.lingering ?? "none"
+  const status = scenario.status ?? "valid"
+  const departureTimeout = lingering === "none" ? 1 : 0
+  const script = `
+set -euo pipefail
+set -m
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"
+BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+GUARDIAN_STATUS_FILE="$DATA_DIR/autospawn-guardian.status"
+GUARDIAN_EVIDENCE_FILE="$DATA_DIR/autospawn-guardian.evidence"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SENTINEL_HOME="$DATA_DIR/default-sentinel"
+CLI=(unused)
+SERVER_EXIT_TIMEOUT_SECONDS=1
+SERVER_STOP_TIMEOUT_SECONDS=1
+SERVER_PID=""
+SERVER_JOB_SPEC=""
+GUARDIAN_PID=""
+GUARDIAN_PGID=""
+GUARDIAN_EXIT_STATUS=""
+ENDPOINT_PID=""
+DATA_DIR_SAFE=1
+EVIDENCE_MODE=${JSON.stringify(evidence)}
+LINGERING_STATE=${JSON.stringify(lingering)}
+STATUS_MODE=${JSON.stringify(status)}
+DEPARTURE_TIMEOUT=${departureTimeout}
+TRACE_FILE="$DATA_DIR/controller.trace"
+
+eval "$(declare -f read_process_group | sed '1s/read_process_group/original_read_process_group/')"
+read_process_group() {
+  if [[ "$LINGERING_STATE" = "endpoint-pid" ]] && [[ "$1" = "606060" ]]; then
+    printf '%s\n' "$GUARDIAN_PGID"
+    return 0
+  fi
+  original_read_process_group "$1"
+}
+
+eval "$(declare -f verify_autospawn_evidence | sed '1s/verify_autospawn_evidence/original_verify_autospawn_evidence/')"
+verify_autospawn_evidence() {
+  local status=0
+  printf 'evidence:start\n' >> "$TRACE_FILE"
+  original_verify_autospawn_evidence || status=$?
+  printf 'evidence:%s\n' "$status" >> "$TRACE_FILE"
+  return "$status"
+}
+
+eval "$(declare -f await_autospawn_departure | sed '1s/await_autospawn_departure/original_await_autospawn_departure/')"
+await_autospawn_departure() {
+  local original_timeout="$SERVER_EXIT_TIMEOUT_SECONDS"
+  local status=0
+  printf 'departure:start\n' >> "$TRACE_FILE"
+  SERVER_EXIT_TIMEOUT_SECONDS="$DEPARTURE_TIMEOUT"
+  original_await_autospawn_departure || status=$?
+  SERVER_EXIT_TIMEOUT_SECONDS="$original_timeout"
+  printf 'departure:%s\n' "$status" >> "$TRACE_FILE"
+  return "$status"
+}
+
+eval "$(declare -f reap_server_job | sed '1s/reap_server_job/original_reap_server_job/')"
+reap_server_job() {
+  local status=0
+  printf 'reap:start\n' >> "$TRACE_FILE"
+  original_reap_server_job || status=$?
+  printf 'reap:%s\n' "$status" >> "$TRACE_FILE"
+  return "$status"
+}
+
+eval "$(declare -f release_guardian | sed '1s/release_guardian/original_release_guardian/')"
+release_guardian() {
+  local status=0
+  printf 'release:start\n' >> "$TRACE_FILE"
+  original_release_guardian || status=$?
+  printf 'release:%s\n' "$status" >> "$TRACE_FILE"
+  return "$status"
+}
+
+autospawn_guardian() {
+  local output_file="$1"
+  local guardian_group
+  local attempt
+  guardian_group="$(original_read_process_group "$BASHPID")"
+  printf '{}\n' > "$output_file"
+  case "$EVIDENCE_MODE" in
+    valid) write_private_file "$GUARDIAN_EVIDENCE_FILE" "606060 $guardian_group" ;;
+    malformed) write_private_file "$GUARDIAN_EVIDENCE_FILE" malformed ;;
+  esac
+  case "$STATUS_MODE" in
+    valid) write_private_file "$GUARDIAN_STATUS_FILE" 23 ;;
+    malformed) write_private_file "$GUARDIAN_STATUS_FILE" invalid ;;
+  esac
+  case "$LINGERING_STATE" in
+    endpoint) write_private_file "$ENDPOINT_FILE" '{}' ;;
+    endpoint-lock) write_private_file "$ENDPOINT_LOCK_FILE" lock ;;
+    backend-lock) write_private_file "$BACKEND_LOCK_FILE" lock ;;
+  esac
+  for ((attempt = 0; attempt < 200; attempt++)); do
+    [[ -f "$GUARDIAN_RELEASE_FILE" ]] && return 23
+    command sleep 0.002
+  done
+  return 99
+}
+
+controller_status=0
+run_cli_autospawn "$DATA_DIR/health.json" health --format json || controller_status=$?
+if [[ -e "$GUARDIAN_RELEASE_FILE" ]]; then released=1; else released=0; fi
+printf 'controller:%s safe:%s released:%s job:%s guardian:%s\n' "$controller_status" "$DATA_DIR_SAFE" "$released" "$SERVER_JOB_SPEC" "$GUARDIAN_EXIT_STATUS" >> "$TRACE_FILE"
+if [[ -n "$SERVER_JOB_SPEC" ]]; then
+  job_spec="$SERVER_JOB_SPEC"
+  kill -TERM -- "$job_spec" 2>/dev/null || true
+  wait "$job_spec" 2>/dev/null || true
+fi
+cat "$TRACE_FILE"
+`
+
+  try {
+    return await runShell(script)
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
+}
+
 describe("binary smoke isolation", () => {
   it("certifies sibling auto-spawn before directly owned CRUD", async () => {
     const source = await readSmokeSource()
@@ -332,6 +471,74 @@ printf 'status:%s safe:%s\n' "$status" "$DATA_DIR_SAFE"
     }
   })
 
+  it("validates controller evidence and status before departure, release, and reap", async () => {
+    const source = await readSmokeSource()
+    const result = await runAutospawnController(source)
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout).toBe(
+      [
+        "evidence:start",
+        "evidence:0",
+        "departure:start",
+        "departure:0",
+        "release:start",
+        "reap:start",
+        "reap:23",
+        "release:0",
+        "controller:23 safe:1 released:1 job: guardian:23",
+        "",
+      ].join("\n")
+    )
+  })
+
+  it.each([
+    {
+      label: "missing evidence",
+      message: "endpoint evidence was not recorded",
+      scenario: { evidence: "missing" },
+    },
+    {
+      label: "malformed evidence",
+      message: "endpoint evidence was missing or malformed",
+      scenario: { evidence: "malformed" },
+    },
+    { label: "missing status", message: "CLI status was not recorded", scenario: { status: "missing" } },
+    {
+      label: "malformed status",
+      message: "CLI status was malformed",
+      scenario: { status: "malformed" },
+    },
+  ] as const)(
+    "rejects $label before departure and release",
+    async ({ message, scenario }) => {
+      const source = await readSmokeSource()
+      const result = await runAutospawnController(source, scenario)
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toMatch(/controller:1 safe:0 released:0 job:%\d+ guardian:\n$/)
+      expect(result.stdout).not.toContain("departure:start")
+      expect(result.stdout).not.toContain("release:start")
+      expect(result.stdout).not.toContain("reap:start")
+      expect(result.stderr).toContain(message)
+    }
+  )
+
+  it.each(["endpoint", "endpoint-lock", "backend-lock", "endpoint-pid"] as const)(
+    "blocks controller release while %s ownership remains",
+    async (lingering) => {
+      const source = await readSmokeSource()
+      const result = await runAutospawnController(source, { lingering })
+
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toContain("evidence:start\nevidence:0\ndeparture:start\ndeparture:1\n")
+      expect(result.stdout).toMatch(/controller:1 safe:0 released:0 job:%\d+ guardian:\n$/)
+      expect(result.stdout).not.toContain("release:start")
+      expect(result.stdout).not.toContain("reap:start")
+      expect(result.stderr).toContain("auto-spawned backend cleanup timed out")
+    }
+  )
+
   it("rejects endpoint evidence from outside the guardian process group", async () => {
     const source = await readSmokeSource()
     const functions = extractFunctions(source)
@@ -449,9 +656,14 @@ SERVER_EXIT_TIMEOUT_SECONDS=1
 GUARDIAN_PGID=555555
 ENDPOINT_PID=757575
 SERVER_JOB_SPEC="%9"
+GUARDIAN_EXIT_STATUS=""
 DATA_DIR_SAFE=1
 
 ps() {
+  return 1
+}
+
+server_job_active() {
   return 1
 }
 
@@ -464,14 +676,101 @@ await_autospawn_departure
 status=0
 release_guardian || status=$?
 mode="$(stat -c '%a' "$GUARDIAN_RELEASE_FILE")"
-printf 'status:%s job:%s mode:%s\n' "$status" "$SERVER_JOB_SPEC" "$mode"
+printf 'status:%s guardian:%s job:%s mode:%s\n' "$status" "$GUARDIAN_EXIT_STATUS" "$SERVER_JOB_SPEC" "$mode"
 `
 
     try {
       const result = await runShell(script)
       expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe("wait:%9\nstatus:17 job: mode:600\n")
+      expect(result.stdout).toBe("wait:%9\nstatus:0 guardian:17 job: mode:600\n")
       expect(result.stderr).toBe("")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("retains guardian ownership when the release write fails", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-release-write-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SERVER_JOB_SPEC="%9"
+DATA_DIR_SAFE=1
+
+write_private_file() {
+  return 41
+}
+
+reap_server_job() {
+  printf 'unexpected-reap\n'
+  SERVER_JOB_SPEC=""
+}
+
+status=0
+release_guardian || status=$?
+printf 'status:%s safe:%s job:%s\n' "$status" "$DATA_DIR_SAFE" "$SERVER_JOB_SPEC"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:41 safe:0 job:%9\n")
+      expect(result.stderr).toContain("guardian release could not be recorded")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("retains guardian ownership when exit polling times out", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-release-timeout-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SERVER_EXIT_TIMEOUT_SECONDS=1
+SERVER_JOB_SPEC="%9"
+DATA_DIR_SAFE=1
+
+server_job_active() {
+  return 0
+}
+
+sleep() {
+  SECONDS=$((SECONDS + 1))
+}
+
+reap_server_job() {
+  printf 'unexpected-reap\n'
+  SERVER_JOB_SPEC=""
+}
+
+status=0
+release_guardian || status=$?
+if [[ -e "$GUARDIAN_RELEASE_FILE" ]]; then released=1; else released=0; fi
+printf 'status:%s safe:%s job:%s released:%s\n' "$status" "$DATA_DIR_SAFE" "$SERVER_JOB_SPEC" "$released"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:1 safe:0 job:%9 released:1\n")
+      expect(result.stderr).toContain("guardian did not exit after release")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
