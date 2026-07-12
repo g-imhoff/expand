@@ -135,9 +135,9 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
 **Read in order:** *(public entrypoints = `index.ts`/`project/index.ts`/`server/index.ts` + `adapters/{bun,node}`; everything else is package-internal)*
-1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
-2. `index.ts` + `project/index.ts` + `server/index.ts` — the public entrypoints: root = strict connection core; the domain surfaces live on the `/project` and `/server` subpaths (one canonical import path per symbol).
-3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
+DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
+DONE 2. `index.ts` + `project/index.ts` + `server/index.ts` — the public entrypoints: root = strict connection core; the domain surfaces live on the `/project` and `/server` subpaths (one canonical import path per symbol).
+DONE 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 4. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
 6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the platform subpath entrypoints (public alongside `/project` and `/server`).
