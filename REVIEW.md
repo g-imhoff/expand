@@ -1,11 +1,12 @@
 # Reviewing `feat/architectural-foundation`
 
-A guided reading path for reviewing this branch. It is large — **476 commits, 368 files, ~26,400 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large — **478 commits, 368 files, ~26,400 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
 > **How to use this**
 > - Each stage has a *plain-language summary*, *why it comes here*, a *file-by-file reading order*, the *handful of things worth scrutinizing hardest*, and the *tests that best prove intent*.
+> - The module-order migration touched 55 configured TypeScript files across the graph. When an earlier stage shows a move-only diff, verify that the declaration body and owned comments stayed intact; Stage 7b explains the rule and the few non-mechanical transformations.
 > - Time estimates are for a careful human review. The full path is ~10–12 hours. If you can't spend that, jump to **[The fast path](#the-fast-path-4-5-hours)**.
 > - The whole branch is built to satisfy four load-bearing invariants (**I-1 … I-4**). Stage 0 explains them; every later stage references them.
 
@@ -84,7 +85,7 @@ DONE 2. `docs/architecture/expand.c4` — the system/container/component model. 
 DONE (2026-07-05: fold versions became per-projection — re-read the FOLD_VERSIONS part; 2026-07-07: the fold is now ONLY Project.foldList — server/domain/project.ts removed) 1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSIONS`** — a per-projection map (name → build-time SHA-256 of that projection's fold nodes; `projects` hashes the `Project` class), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`bun run gen:fold-version`). The server stamps `FOLD_VERSIONS.projects` on the persisted `projection_state` row; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
 DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
-DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
+UPDATED 4. `events/domain-event.ts` → `events/domain.ts` — the internal module constructs the `DomainEvent` union and JSON codec once; the public module constructs `SequencedEvent {seq, event}` and re-exports those exact schema identities. The helper subpath is explicitly blocked from the source and staged package exports.
 DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
 NEW (2026-07-12) 7. `app-context.ts` — the single path derivation contract: `defaultDataDir()` chooses the channel home, `makeAppContext(dataDir?)` derives every runtime path from an explicit override, and the default reference still recognizes raw `--data-dir` argv for standalone server/Electron entrypoints.
@@ -96,6 +97,7 @@ MOVED 8. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 - **`foldList` replay-safety:** create is idempotent, delete tombstones, unknown ids are no-ops — must match how the server sequences and the client gates by `seq`.
 - **Validation bounds are the system trust boundary:** name/tag regex, UUIDv4 ids, description ≤ 2048, directory ≤ 4096 — the *same* limits must apply on both the event and RPC schemas.
 - **`PROTOCOL_VERSION` coupling:** any shape change must bump the version (clients reject mismatches).
+- **Published schema identity:** `events/domain.ts` must retain the emitted `./domain-event.js` specifier, strict identity with the internal schemas, and `ERR_PACKAGE_PATH_NOT_EXPORTED` for direct helper imports.
 - **Path coherence:** an explicit data directory must change `dataDir`, `dbPath`, `endpointFile`, and `logDir` together; omitting it must preserve the channel-specific default.
 
 **Best tests to read:** `test/project-fold.test.ts` (the projection), `test/events.test.ts` (round-trips + legacy decode), `test/rpc.test.ts` (validation at the RPC boundary), and `packages/contracts/test/app-context.test.ts` (default-vs-explicit path derivation).
@@ -176,7 +178,7 @@ UPDATED (2026-07-12) 4. `discovery.ts` + `spawn.ts` — `discovery.ts` validates
 UPDATED (2026-07-12) 1. `cli/app-context-layer.ts` + `cli/main.ts` — the parsed `DataDir` setting becomes an `AppContext` layer before the composition root provides the real Bun client; `main.ts` then builds the command tree and installs the JSON error formatter (`makeExpand` factory + `import.meta.main` guard).
 2. `cli/_command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
 UPDATED (2026-07-12) 3. `cli/output.ts` + `cli/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
-4. `packages/contracts/cli.ts` — the envelope schemas being hand-built.
+4. `packages/contracts/cli.ts` + `cli/contract/envelope-internal.ts` + `cli/contract/envelope.ts` — the envelope schemas being hand-built; the internal owner constructs `ENVELOPE_VERSION` and `ErrorCode` once before the opaque envelope classes, and the public module re-exports those exact bindings.
 5. `cli/commands/project/create.ts` — a representative command (the pattern all verbs follow).
 6. `cli/commands/project/_resolve.ts` — name-or-UUID target resolution.
 UPDATED (2026-07-12) 7. `cli/errors/index.ts` + `cli/errors/project-errors.ts` + `cli/errors/parser-errors.ts` + `cli/run.ts` — the contract/parser-error → CLI-error mapping (stable codes/exit codes) and the top-level error boundary. Parser failures such as an existing file passed to `--data-dir` must still produce one structured `INVALID_ARGUMENT` envelope and exit 2.
@@ -273,7 +275,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 ---
 
-### Stage 7 — Enforcement, infra & project agents  ·  90–135 min
+### Stage 7 — Enforcement, infra & project agents  ·  105–150 min
 
 The capstone: how the invariants you've been tracking are *mechanically* guaranteed. Reviewing this last lets you judge whether the tests actually pin what the earlier stages claimed.
 
@@ -291,11 +293,11 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **Best tests:** `i1-cli-isolation.test.ts`, `depcruise-exclude.test.ts`, `test-colocation.test.ts`.
 
-#### 7b — Infra (root config)  ·  30–45 min  ·  🟡 medium
+#### 7b — Infra & module ordering  ·  45–60 min  ·  🟡 medium
 
-**What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, worker/process isolation, and the compiled-binary smoke test.
+**What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, worker/process isolation, the compiled-binary smoke test, and the semantic `local/module-order` gate that replaces the deleted `local/exports-on-top` rule.
 
-**Read in order:** `.dependency-cruiser.cjs` (the eight forbidden import rules — the I-1 engine in code, now including `client-ts-barrel-only`, the `client-ts` public-API boundary) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` + `scripts/binary-smoke.test.ts` (compiled CLI/server certification with an explicit data directory and a tested ownership ledger) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps, direct script-test inclusion, and `maxWorkers: "50%"`) → `.gitignore` (repository-root linked worktrees) → `CODEOWNERS`.
+**Read in order:** `.dependency-cruiser.cjs` (the eight forbidden import rules — the I-1 engine in code, now including `client-ts-barrel-only`, the `client-ts` public-API boundary) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` + `scripts/binary-smoke.test.ts` (compiled CLI/server certification with an explicit data directory and a tested ownership ledger) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps, direct script-test inclusion, focused ESLint RuleTester collection, and `maxWorkers: "50%"`) → `eslint.config.mjs` → `eslint-rules/index.mjs` → `eslint-rules/module-order.mjs` (diagnostic/fixer boundary) → `eslint-rules/module-order-analysis.mjs` (classification, constrained stable sort, and text-safety proof) → `test/eslint/module-order.test.mjs` → `docs/superpowers/specs/2026-07-10-eslint-module-order-design.md` → `.gitignore` (repository-root linked worktrees) → `CODEOWNERS`.
 
 **Scrutinize hardest:**
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path would silently escape I-1.
@@ -303,8 +305,12 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 - **`binary-smoke.sh` ownership:** it must signal and wait only through the stable Bash job spec captured for the exact child it started; the numeric PID is endpoint-identity evidence, never signal authority. Readiness rechecks both job liveness and the advertised PID. TERM/KILL cleanup is bounded, job eligibility is retired before `wait`, and any unowned/persistent endpoint preserves the data directory rather than deleting possibly-live state. The source and tests explicitly reject `pgrep`, `pkill`, and `killall`.
 - **Data-dir isolation:** every compiled CLI/server invocation uses the same explicit directory while a sentinel `HOME` proves nothing touched the channel default. This smoke is the end-to-end proof that explicit directories neither migrate nor contaminate default state.
 - **Worker headroom:** `maxWorkers: "50%"` deliberately leaves capacity for suites that spawn real backend processes. Confirm the percentage behaves acceptably on small CI machines and that direct `scripts/*.test.ts` files remain typechecked and collected.
+- **Four stable groups:** imports → exported classes/interfaces → other exports → private statements across configured `apps`, `packages`, and `examples` TypeScript/TSX files. Confirm import-equals, `export =`, `export as namespace`, default/abstract/declared forms, re-exports, and the empty `export {}` module marker land in the intended group without reordering declarations inside a group.
+- **Autofix proof, not a purity guess:** runtime-bearing statements, module-source requests, and provider→consumer value dependencies constrain the preferred order. A fix is offered only when the stable topological result is fully grouped; otherwise `unsafeOrder` must report without changing text.
+- **Text ownership and parse safety:** leading/member/trailing comments, tool directives, shebangs, prologues, CRLF, ASI continuation tokens, and shared-line prefix/suffix boundaries must either travel with a proven owner or disable the fix. A second `eslint . --fix` pass must produce no diff.
+- **Migration equivalence:** the enabled rule found 55 files: one documented interface move was safely autofixed and 54 required reviewed moves, initializer IIFEs, direct-export conversions, hoisted private callables, or identity-preserving schema owners. Check public names, function/component bodies, eager order, allocation count, schema/layer identity, and published package boundaries rather than treating the migration as formatting.
 
-**Best tests:** `effect-version-lockstep.test.ts`, `depcruise-exclude.test.ts`, `scripts/binary-smoke.test.ts` (the shell ownership/cleanup harness), and `scripts/binary-smoke.sh` itself.
+**Best tests:** `test/eslint/module-order.test.mjs` (57 grouping, dependency, comment, directive, ASI, boundary, and idempotence cases), `effect-version-lockstep.test.ts`, `depcruise-exclude.test.ts`, `scripts/binary-smoke.test.ts` (the shell ownership/cleanup harness), and `scripts/binary-smoke.sh` itself. Also run `bun run lint`, then `bunx eslint . --fix` twice and require the second pass to leave no diff.
 
 #### 7c — Project agent orchestration  ·  30–45 min  ·  🟡 medium
 
@@ -334,7 +340,8 @@ If you can't do the full pass, review the **load-bearing correctness cores** in 
 5. **`client-ts/project/store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
 6. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
 7. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
-8. **`AGENTS.md` + `scripts/sync-agents.ts` + `bun run agents:check`** — verify the role/policy mirror (25 min).
+8. **`eslint-rules/module-order-analysis.mjs` + `test/eslint/module-order.test.mjs`** — verify that unsafe runtime/comment boundaries report without fixing and safe outputs are idempotent (20 min).
+9. **`AGENTS.md` + `scripts/sync-agents.ts` + `bun run agents:check`** — verify the role/policy mirror (25 min).
 
 Reading the matching "best tests" alongside each gives you the intended behavior fast.
 
@@ -355,7 +362,7 @@ Reading the matching "best tests" alongside each gives you the intended behavior
 | 6b | `apps/desktop` (main) | boundary | 🔴 | 45–60 min |
 | 6c | `apps/desktop` (renderer) | frontend | 🔴 | 75–90 min |
 | 7a | `test/architecture` | enforcement | 🟢 | 30–45 min |
-| 7b | infra (root config) | infra | 🟡 | 30–45 min |
+| 7b | infra + module ordering | infra | 🟡 | 45–60 min |
 | 7c | project agent orchestration | infra | 🟡 | 30–45 min |
 
 **Golden thread to hold throughout:** *one* backend owns each selected state root; *one* fold derives it; clients only mirror the sequenced event stream; and the import graph (I-1) is what physically keeps it that way. If a change in any module would let two writers share a state root, let a frontend bypass client-ts ownership, or let a snapshot disagree with a replay — that's the bug worth finding.
