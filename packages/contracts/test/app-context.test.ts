@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect } from "effect"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { AppContext, defaultDataDir, makeAppContext } from "@expand/contracts/app-context"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
@@ -31,6 +31,10 @@ describe("AppContext", () => {
         logDir: "/tmp/expand-agent-data/logs"
       }
     })
+  })
+
+  it("normalizes a relative production directory", () => {
+    expect(makeAppContext("relative-state").paths.dataDir).toBe(resolve("relative-state"))
   })
 
   it("preserves the default when no explicit directory is provided", () => {

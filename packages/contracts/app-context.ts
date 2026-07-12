@@ -1,6 +1,6 @@
 import { Context } from "effect"
 import { homedir } from "node:os"
-import { join } from "node:path"
+import { join, resolve } from "node:path"
 import { channel, type Channel } from "@expand/contracts/channel"
 
 export interface AppPath {
@@ -19,7 +19,7 @@ export const defaultDataDir = (): string => join(homedir(), NAMES.home, NAMES.ch
 
 export const makeAppContext = (dataDir?: string): AppContextShape => ({
   channel,
-  paths: derivePaths(dataDir ?? defaultDataDir())
+  paths: derivePaths(resolve(dataDir ?? defaultDataDir()))
 })
 
 export const AppContext = Context.Reference<AppContextShape>("expand/AppContext", {

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
 import { migrateDefaultHome } from "@expand/server/migrate-default-home"
 import { runServer } from "@expand/server/composition/app"
+import { stateRootLock } from "@expand/server/state-root-lock"
 
 const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
 
@@ -37,8 +38,9 @@ const loggedProgram = Effect.gen(function* () {
 const program = Effect.gen(function* () {
   const { paths } = yield* AppContext
   yield* migrateDefaultHome(paths.dataDir)
+  yield* stateRootLock(paths.dataDir)
   yield* loggedProgram
-})
+}).pipe(Effect.scoped)
 
 // Every file this process creates — the SQLite event store (+ WAL/SHM), the
 // endpoint file that carries the auth token, the logs — is private to this
