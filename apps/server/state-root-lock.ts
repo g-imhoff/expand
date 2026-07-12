@@ -1,6 +1,17 @@
 import { Data, Effect, Scope } from "effect"
 import { randomUUID } from "node:crypto"
-import { closeSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from "node:fs"
+import {
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from "node:fs"
 import { join, resolve } from "node:path"
 
 export interface StateRootLease {
@@ -42,28 +53,33 @@ interface LockOwner {
 }
 
 const LOCK_FILE = "backend.lock"
-const ACQUIRE_ATTEMPTS = 3
+const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 
 const acquireLease = (input: string): StateRootLease => {
   const dataDir = resolve(input)
   const path = join(dataDir, LOCK_FILE)
-  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  secureStateRoot(dataDir)
 
-  for (let attempt = 0; attempt < ACQUIRE_ATTEMPTS; attempt++) {
-    const lease = createLease(path)
-    if (lease !== undefined) return lease
+  const first = createLease(path)
+  if (first !== undefined) return first
 
-    const owner = readOwner(path)
-    if (owner !== undefined && isProcessAlive(owner.pid)) {
-      throw new StateRootLockError({
-        dataDir,
-        reason: `state root is already owned by backend process ${owner.pid}`
-      })
-    }
+  const staleOwner = readOwner(path)
+  if (staleOwner === undefined) {
+    throw new StateRootLockError({
+      dataDir,
+      reason: "state root ownership record is incomplete or invalid"
+    })
+  }
+  if (isProcessAlive(staleOwner.pid)) throw liveOwnerError(dataDir, staleOwner.pid)
 
-    try {
-      rmSync(path)
-    } catch {}
+  reclaimStaleOwner(path, staleOwner)
+
+  const retry = createLease(path)
+  if (retry !== undefined) return retry
+
+  const replacement = readOwner(path)
+  if (replacement !== undefined && isProcessAlive(replacement.pid)) {
+    throw liveOwnerError(dataDir, replacement.pid)
   }
 
   throw new StateRootLockError({
@@ -74,36 +90,37 @@ const acquireLease = (input: string): StateRootLease => {
 
 const createLease = (path: string): StateRootLease | undefined => {
   const lease = { path, pid: process.pid, token: randomUUID() }
-  let descriptor: number
+  const candidatePath = `${path}.candidate.${lease.pid}.${lease.token}`
+  const record = JSON.stringify({ pid: lease.pid, token: lease.token })
 
   try {
-    descriptor = openSync(path, "wx", 0o600)
-  } catch (error) {
-    if (isNodeError(error) && error.code === "EEXIST") return undefined
-    throw error
-  }
-
-  try {
-    writeSync(descriptor, JSON.stringify({ pid: lease.pid, token: lease.token }))
-    closeSync(descriptor)
-  } catch (error) {
+    const descriptor = openSync(candidatePath, "wx", 0o600)
     try {
+      writeFileSync(descriptor, record)
+      fsyncSync(descriptor)
+    } finally {
       closeSync(descriptor)
-    } catch {}
-    try {
-      rmSync(path)
-    } catch {}
-    throw error
-  }
+    }
+    chmodSync(candidatePath, 0o600)
 
-  return lease
+    try {
+      linkSync(candidatePath, path)
+    } catch (error) {
+      if (isNodeError(error) && error.code === "EEXIST") return undefined
+      throw error
+    }
+
+    return lease
+  } finally {
+    rmSync(candidatePath, { force: true })
+  }
 }
 
 const readOwner = (path: string): LockOwner | undefined => {
   try {
     const candidate = JSON.parse(readFileSync(path, "utf8")) as Partial<LockOwner>
     if (!Number.isSafeInteger(candidate.pid) || (candidate.pid ?? 0) <= 0) return undefined
-    if (typeof candidate.token !== "string" || candidate.token.length === 0) return undefined
+    if (typeof candidate.token !== "string" || !TOKEN_PATTERN.test(candidate.token)) return undefined
     return { pid: candidate.pid as number, token: candidate.token }
   } catch {
     return undefined
@@ -126,5 +143,44 @@ const asStateRootLockError = (dataDir: string, error: unknown): StateRootLockErr
         dataDir,
         reason: error instanceof Error ? error.message : String(error)
       })
+
+const secureStateRoot = (dataDir: string): void => {
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+  chmodSync(dataDir, 0o700)
+}
+
+const reclaimStaleOwner = (path: string, staleOwner: LockOwner): void => {
+  const claimPath = `${path}.reclaim.${staleOwner.token}`
+
+  try {
+    linkSync(path, claimPath)
+  } catch (error) {
+    if (isNodeError(error) && (error.code === "EEXIST" || error.code === "ENOENT")) return
+    throw error
+  }
+
+  try {
+    const claimedOwner = readOwner(claimPath)
+    const canonicalOwner = readOwner(path)
+    if (!sameOwner(claimedOwner, staleOwner) || !sameOwner(canonicalOwner, staleOwner)) return
+
+    const claim = statSync(claimPath)
+    const canonical = statSync(path)
+    if (claim.dev !== canonical.dev || claim.ino !== canonical.ino) return
+
+    rmSync(path)
+  } finally {
+    rmSync(claimPath, { force: true })
+  }
+}
+
+const sameOwner = (left: LockOwner | undefined, right: LockOwner): boolean =>
+  left?.pid === right.pid && left.token === right.token
+
+const liveOwnerError = (dataDir: string, pid: number): StateRootLockError =>
+  new StateRootLockError({
+    dataDir,
+    reason: `state root is already owned by backend process ${pid}`
+  })
 
 const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error
