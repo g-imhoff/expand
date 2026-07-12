@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { testInclude } from "../../vitest.config"
 
 const repoRoot = new URL("../..", import.meta.url).pathname
 
@@ -22,6 +23,12 @@ const walk = (dir: string): ReadonlyArray<string> => {
 const isTestFile = (p: string): boolean => p.endsWith(".test.ts") || p.endsWith(".test.tsx")
 
 describe("test colocation", () => {
+  it("collects every approved direct script test extension", () => {
+    expect(testInclude).toEqual(
+      expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
+    )
+  })
+
   it("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () => {
     const all = walk(repoRoot).filter(isTestFile).map((p) => p.slice(repoRoot.length))
     const misplaced = all.filter((rel) => {

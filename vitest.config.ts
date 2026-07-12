@@ -1,18 +1,21 @@
 import { defineConfig } from "vitest/config"
 
+export const testInclude = [
+  "apps/**/test/**/*.test.ts",
+  "apps/**/test/**/*.test.tsx",
+  "packages/**/test/**/*.test.ts",
+  "packages/**/test/**/*.test.tsx",
+  "test/architecture/**/*.test.ts",
+  "scripts/**/*.test.ts",
+  "scripts/**/*.test.tsx",
+  "test/eslint/**/*.test.mjs",
+  "examples/**/*.test.ts"
+]
+
 export default defineConfig({
   test: {
     maxWorkers: "50%",
-    include: [
-      "apps/**/test/**/*.test.ts",
-      "apps/**/test/**/*.test.tsx",
-      "packages/**/test/**/*.test.ts",
-      "packages/**/test/**/*.test.tsx",
-      "test/architecture/**/*.test.ts",
-      "scripts/**/*.test.ts",
-      "test/eslint/**/*.test.mjs",
-      "examples/**/*.test.ts"
-    ],
+    include: testInclude,
     setupFiles: ["apps/desktop/test/ui/setup.ts"],
     environment: "node",
     globals: false,
