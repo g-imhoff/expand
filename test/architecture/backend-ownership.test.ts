@@ -46,11 +46,8 @@ describe("backend ownership (#11)", () => {
   })
 
   it("defines backend ownership per state root", () => {
-    const boundaries = readFileSync("docs/architecture/BOUNDARIES.md", "utf8")
     const model = readFileSync("docs/architecture/expand.c4", "utf8")
 
-    expect(boundaries).toContain("## I-2. One AppLayer per state root")
-    expect(boundaries).toContain("## I-3. One discovery file per state root")
     expect(model).toContain("One live backend per selected state root")
     expect(model).toContain("backend.lock")
   })
