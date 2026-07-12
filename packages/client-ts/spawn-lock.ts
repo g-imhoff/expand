@@ -24,6 +24,7 @@ export interface SpawnLockLease {
 export interface SpawnLockOptions {
   readonly afterClaim?: () => void
   readonly afterObservation?: () => void
+  readonly beforePublish?: (candidatePath: string) => void
   readonly probeProcess?: (pid: number) => void
 }
 
@@ -34,14 +35,14 @@ export const acquireSpawnLock = (
   Effect.sync(() => {
     try {
       secureDirectory(path)
-      const lease = publishLease(path)
+      const lease = publishLease(path, options.beforePublish)
       if (lease !== undefined) return lease
 
       const observed = readObservedRecord(path)
       if (observed === undefined || isProcessAlive(observed.record.pid, options.probeProcess)) return undefined
       options.afterObservation?.()
       if (!removeObserved(path, observed, options.afterClaim)) return undefined
-      return publishLease(path)
+      return publishLease(path, options.beforePublish)
     } catch {
       return undefined
     }
@@ -81,7 +82,10 @@ type ObservedRecord =
 
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 
-const publishLease = (path: string): SpawnLockLease | undefined => {
+const publishLease = (
+  path: string,
+  beforePublish: ((candidatePath: string) => void) | undefined
+): SpawnLockLease | undefined => {
   const lease = { path, pid: process.pid, startedAt: Date.now(), token: randomUUID() }
   const candidatePath = `${path}.candidate.${lease.pid}.${lease.token}`
   try {
@@ -97,6 +101,7 @@ const publishLease = (path: string): SpawnLockLease | undefined => {
       closeSync(descriptor)
     }
     chmodSync(candidatePath, 0o600)
+    beforePublish?.(candidatePath)
     try {
       linkSync(candidatePath, path)
     } catch (error) {

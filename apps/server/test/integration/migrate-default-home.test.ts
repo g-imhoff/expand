@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, PlatformError } from "effect"
 import { BunFileSystem } from "@effect/platform-bun"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
@@ -83,6 +83,37 @@ describe("migrateDefaultHome", () => {
       })
       expect(existsSync(defaultDir)).toBe(false)
       expect(existsSync(join(defaultDir, "backend.lock"))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("fails closed when the staging path cannot be inspected", async () => {
+    const root = mkdtempSync(join(tmpdir(), "expand-staging-inspection-"))
+    const legacyDir = join(root, ".expand")
+    const defaultDir = join(legacyDir, "expand-dev")
+    const stage = `${legacyDir}.migrating-expand-dev`
+
+    try {
+      const result = await Effect.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem
+          return yield* Effect.result(migrateDefaultHome(defaultDir, { defaultDir, legacyDir })).pipe(
+            Effect.provideService(FileSystem.FileSystem, failExistsAt(fs, stage))
+          )
+        }).pipe(Effect.provide(BunFileSystem.layer))
+      )
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "DefaultHomeMigrationError",
+          recoverablePath: stage,
+          reason: expect.stringContaining(`failed to inspect ${stage}`)
+        }
+      })
+      if (result._tag === "Failure") expect(result.failure.reason).toContain("PermissionDenied")
+      expect(existsSync(defaultDir)).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -215,3 +246,17 @@ describe("migrateDefaultHome", () => {
     }
   }, 40_000)
 })
+
+const failExistsAt = (fs: FileSystem.FileSystem, failedPath: string): FileSystem.FileSystem =>
+  FileSystem.FileSystem.of({
+    ...fs,
+    exists: (path) => path === failedPath
+      ? Effect.fail(PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: "exists",
+          pathOrDescriptor: path,
+          description: "injected inspection failure"
+        }))
+      : fs.exists(path)
+  })

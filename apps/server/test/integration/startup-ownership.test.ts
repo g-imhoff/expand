@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { BunFileSystem } from "@effect/platform-bun"
-import { Deferred, Effect, Fiber, Option } from "effect"
+import { Deferred, Effect, Fiber, FileSystem, Option, PlatformError } from "effect"
 import { randomUUID } from "node:crypto"
 import {
   existsSync,
@@ -246,6 +246,43 @@ describe("startup ownership", () => {
     expect(existsSync(stage)).toBe(true)
     expect(existsSync(guardPath)).toBe(false)
   })
+
+  it("fails before root-lock creation when the legacy database cannot be inspected", async () => {
+    const legacyDir = join(dir, ".expand")
+    const defaultDir = join(legacyDir, "expand-dev")
+    const legacyDatabase = join(legacyDir, "events.db")
+    const guardPath = join(dir, ".expand-locks", "legacy-migration.lock")
+    mkdirSync(legacyDir)
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const failingFs = failExistsAt(fs, legacyDatabase)
+        return yield* Effect.scoped(
+          Effect.result(
+            startupOwnership(appPaths(defaultDir), {
+              defaultDir,
+              legacyDir,
+              migrationLockFile: guardPath
+            }).pipe(Effect.provideService(FileSystem.FileSystem, failingFs))
+          )
+        )
+      }).pipe(Effect.provide(BunFileSystem.layer))
+    )
+
+    expect(result).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "DefaultHomeMigrationError",
+        recoverablePath: legacyDatabase,
+        reason: expect.stringContaining(`failed to inspect ${legacyDatabase}`)
+      }
+    })
+    if (result._tag === "Failure") expect(result.failure.reason).toContain("PermissionDenied")
+    expect(existsSync(defaultDir)).toBe(false)
+    expect(existsSync(join(defaultDir, "backend.lock"))).toBe(false)
+    expect(existsSync(guardPath)).toBe(false)
+  })
 })
 
 const appPaths = (dataDir: string): AppPath => ({
@@ -255,3 +292,17 @@ const appPaths = (dataDir: string): AppPath => ({
   logDir: join(dataDir, "logs"),
   spawnLockFile: join(dataDir, "server.json.lock")
 })
+
+const failExistsAt = (fs: FileSystem.FileSystem, failedPath: string): FileSystem.FileSystem =>
+  FileSystem.FileSystem.of({
+    ...fs,
+    exists: (path) => path === failedPath
+      ? Effect.fail(PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: "exists",
+          pathOrDescriptor: path,
+          description: "injected inspection failure"
+        }))
+      : fs.exists(path)
+  })

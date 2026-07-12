@@ -59,16 +59,36 @@ describe("client spawn lock", () => {
 
   it("never publishes an incomplete canonical record", async () => {
     const lockPath = join(dir, "publication", "server.json.lock")
-    const observations: Array<unknown> = []
-    const results = await runContenders(lockPath, 64, () => {
-      if (!existsSync(lockPath)) return
-      observations.push(JSON.parse(readFileSync(lockPath, "utf8")))
+    let candidatePath: string | undefined
+    let candidateRecord: unknown
+
+    const lease = await runAcquire(lockPath, {
+      beforePublish: (path) => {
+        candidatePath = path
+        expect(existsSync(lockPath)).toBe(false)
+        expect(statSync(path).mode & 0o777).toBe(0o600)
+        candidateRecord = JSON.parse(readFileSync(path, "utf8"))
+        expect(isCurrentRecord(candidateRecord)).toBe(true)
+      }
     })
 
-    expect(results.filter(({ status }) => status === "acquired")).toHaveLength(1)
-    expect(observations.length).toBeGreaterThan(0)
-    expect(observations.every(isCurrentRecord)).toBe(true)
-  }, 30_000)
+    expect(lease).toBeDefined()
+    expect(candidatePath).toBeDefined()
+    expect(candidateRecord).toEqual({
+      pid: lease?.pid,
+      startedAt: lease?.startedAt,
+      token: lease?.token
+    })
+    const canonicalRecord = JSON.parse(readFileSync(lockPath, "utf8"))
+    expect(isCurrentRecord(canonicalRecord)).toBe(true)
+    expect(canonicalRecord).toEqual({
+      pid: lease?.pid,
+      startedAt: lease?.startedAt,
+      token: lease?.token
+    })
+    if (candidatePath !== undefined) expect(existsSync(candidatePath)).toBe(false)
+    if (lease !== undefined) await Effect.runPromise(releaseSpawnLock(lease))
+  })
 
   it("does not let a delayed stale observer unlink a replacement", async () => {
     const lockPath = join(dir, "delayed.lock")
@@ -272,6 +292,7 @@ interface ContenderResult {
 interface AcquireOptions {
   readonly afterClaim?: () => void
   readonly afterObservation?: () => void
+  readonly beforePublish?: (candidatePath: string) => void
   readonly probeProcess?: (pid: number) => void
 }
 
@@ -282,8 +303,7 @@ const runAcquire = (lockPath: string, options: AcquireOptions = {}) =>
 
 const runContenders = async (
   lockPath: string,
-  count: number,
-  observe: () => void = () => undefined
+  count: number
 ): Promise<ReadonlyArray<ContenderResult>> => {
   const coordinationDir = join(dir, `coordination-${randomUUID()}`)
   const startPath = join(coordinationDir, "start")
@@ -313,9 +333,9 @@ const runContenders = async (
   })
 
   try {
-    await waitUntil(() => processes.every(({ readyPath }) => existsSync(readyPath)), processes, observe)
+    await waitUntil(() => processes.every(({ readyPath }) => existsSync(readyPath)), processes)
     writeFileSync(startPath, "start")
-    await waitUntil(() => processes.every(({ resultPath }) => existsSync(resultPath)), processes, observe)
+    await waitUntil(() => processes.every(({ resultPath }) => existsSync(resultPath)), processes)
     return processes.map(({ resultPath }) => JSON.parse(readFileSync(resultPath, "utf8")) as ContenderResult)
   } finally {
     writeFileSync(releasePath, "release")
@@ -325,27 +345,26 @@ const runContenders = async (
 
 const waitUntil = async (
   predicate: () => boolean,
-  processes: ReadonlyArray<{ readonly stderr: () => string }> = [],
-  observe: () => void = () => undefined
+  processes: ReadonlyArray<{ readonly stderr: () => string }> = []
 ): Promise<void> => {
   const deadline = Date.now() + 10_000
   while (!predicate()) {
-    observe()
     if (Date.now() >= deadline) {
       throw new Error(`coordination timed out: ${processes.map(({ stderr }) => stderr()).join("\n")}`)
     }
     await Bun.sleep(2)
   }
-  observe()
 }
+
+const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
 
 const isCurrentRecord = (value: unknown): boolean => {
   if (typeof value !== "object" || value === null) return false
   const candidate = value as Record<string, unknown>
   return Object.keys(candidate).sort().join(",") === "pid,startedAt,token" &&
-    Number.isSafeInteger(candidate.pid) &&
-    Number.isSafeInteger(candidate.startedAt) &&
-    typeof candidate.token === "string"
+    Number.isSafeInteger(candidate.pid) && (candidate.pid as number) > 0 &&
+    Number.isSafeInteger(candidate.startedAt) && (candidate.startedAt as number) >= 0 &&
+    typeof candidate.token === "string" && TOKEN_PATTERN.test(candidate.token)
 }
 
 const liveEndpoint = (token: string) => ({

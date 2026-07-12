@@ -27,15 +27,23 @@ export const migrateDefaultHome = (
 
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+    const inspect = (recoverablePath: string) =>
+      fs.exists(recoverablePath).pipe(
+        Effect.mapError((error) => new DefaultHomeMigrationError({
+          dataDir: normalizedTarget,
+          recoverablePath,
+          reason: `failed to inspect ${recoverablePath}: ${error.message}`
+        }))
+      )
     yield* migrateLegacyHome(normalizedTarget, normalizedLegacy)
-    if (yield* fs.exists(stage).pipe(Effect.orElseSucceed(() => false))) {
+    if (yield* inspect(stage)) {
       return yield* Effect.fail(new DefaultHomeMigrationError({
         dataDir: normalizedTarget,
         recoverablePath: stage,
         reason: `default-home migration left recoverable data at ${stage}`
       }))
     }
-    if (yield* fs.exists(legacyDatabase).pipe(Effect.orElseSucceed(() => false))) {
+    if (yield* inspect(legacyDatabase)) {
       return yield* Effect.fail(new DefaultHomeMigrationError({
         dataDir: normalizedTarget,
         recoverablePath: legacyDatabase,
