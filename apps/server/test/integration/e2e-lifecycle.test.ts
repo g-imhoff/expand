@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, FileSystem, Option, Schedule, Stream } from "effect"
+import { Effect, Fiber, FileSystem, Option, Schedule, Stream, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 
@@ -36,7 +36,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
 
       yield* awaitEndpointUp
-      const upDuring = yield* fs.exists(makeTestAppContext(dir).paths.endpointFile)
+      const upDuring = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
 
       const outcome = yield* withClient(bunAdapter, (client) =>
         Effect.gen(function* () {
@@ -53,9 +53,9 @@ describe.sequential("end-to-end lifecycle", () => {
           orElse: () => Effect.fail(new Error("server did not shut down after last client left (I-4)"))
         })
       )
-      const upAfter = yield* fs.exists(makeTestAppContext(dir).paths.endpointFile)
+      const upAfter = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
       return { upDuring, upAfter, outcome }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true)
@@ -86,7 +86,7 @@ describe.sequential("end-to-end lifecycle", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(Option.isSome(r.archivedEvent)).toBe(true)
     if (Option.isSome(r.archivedEvent)) {
@@ -115,7 +115,7 @@ describe.sequential("end-to-end lifecycle", () => {
 
       yield* Fiber.interrupt(serverFiber)
       return observed
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)

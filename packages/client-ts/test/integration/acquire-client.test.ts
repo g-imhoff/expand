@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { acquireClient } from "../../rpc-client"
 import { bunAdapter } from "../../adapters/bun"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
@@ -26,7 +26,7 @@ describe("acquireClient", () => {
       const { client, endpoint } = yield* acquireClient(bunAdapter)
       const health = yield* client.Health()
       return { health, endpoint }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const { health, endpoint } = await Effect.runPromise(program)
     expect(health).toBe("ok")

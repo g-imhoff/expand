@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule } from "effect"
+import { Effect, Fiber, Option, Schedule, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -56,7 +56,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed = (await Effect.runPromise(program)) as {
       projects: ReadonlyArray<{
@@ -102,7 +102,7 @@ describe.sequential("durability across a backend restart", () => {
       )
       const listed = yield* boot((client) => client.ProjectList({ includeArchived: true }))
       return { ids, listed }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = (await Effect.runPromise(program)) as {
       ids: { keepId: string; doomedId: string }
@@ -141,7 +141,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed = (await Effect.runPromise(program)) as { seq: number; projects: ReadonlyArray<{ name: string }> }
     expect(listed.seq).toBe(3)

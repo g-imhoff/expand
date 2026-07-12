@@ -3,21 +3,8 @@ import { Effect } from "effect"
 import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { AppContext, defaultDataDir, makeAppContext } from "@expand/contracts/app-context"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 
 describe("AppContext", () => {
-  it("the testkit derives all subpaths under an explicit base", () => {
-    const { ctx, paths } = makeTestAppContext("/tmp/x")
-    expect(ctx.channel).toBe("dev")
-    expect(paths).toEqual({
-      dataDir: "/tmp/x",
-      dbPath: join("/tmp/x", "events.db"),
-      endpointFile: join("/tmp/x", "server.json"),
-      logDir: join("/tmp/x", "logs"),
-      spawnLockFile: join("/tmp/x", "server.json.lock")
-    })
-  })
-
   it("exposes the channel-specific default directory", () => {
     expect(defaultDataDir()).toBe(join(homedir(), ".expand", "expand-dev"))
   })

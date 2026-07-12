@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
 import { bunAdapter } from "../../adapters/bun"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
@@ -32,7 +32,7 @@ const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number): Pr
 describe("ProjectStore reconnect", () => {
   it("recovers after the backend dies: status leaves connected, then a mutation and the list succeed", async () => {
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
+      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     try {
       const store = await rt.runPromise(ProjectStore)

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { BunServices } from "@effect/platform-bun"
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { BackendUnavailable } from "../../errors"
 import { findOrSpawnBackend } from "../../spawn"
@@ -205,7 +205,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after success", async () => {
-    const context = makeTestAppContext(join(dir, "success"))
+    const context = makeAppContext(join(dir, "success"))
     mkdirSync(context.paths.dataDir)
     const endpoint = liveEndpoint("success")
     const adapter = {
@@ -214,7 +214,10 @@ describe("client spawn lock", () => {
     }
 
     await Effect.runPromise(
-      findOrSpawnBackend(adapter).pipe(Effect.provide(BunServices.layer), Effect.provide(context.layer))
+      findOrSpawnBackend(adapter).pipe(
+        Effect.provide(BunServices.layer),
+        Effect.provide(Layer.succeed(AppContext, context))
+      )
     )
 
     expect(existsSync(context.paths.spawnLockFile)).toBe(false)
@@ -222,7 +225,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after a spawn error", async () => {
-    const context = makeTestAppContext(join(dir, "error"))
+    const context = makeAppContext(join(dir, "error"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
       ...bunAdapter,
@@ -232,7 +235,7 @@ describe("client spawn lock", () => {
     await Effect.runPromise(
       Effect.result(findOrSpawnBackend(adapter)).pipe(
         Effect.provide(BunServices.layer),
-        Effect.provide(context.layer)
+        Effect.provide(Layer.succeed(AppContext, context))
       )
     )
 
@@ -241,7 +244,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after interruption", async () => {
-    const context = makeTestAppContext(join(dir, "interruption"))
+    const context = makeAppContext(join(dir, "interruption"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
       ...bunAdapter,
@@ -254,7 +257,7 @@ describe("client spawn lock", () => {
           const fiber = yield* Effect.forkChild(
             findOrSpawnBackend(adapter).pipe(
               Effect.provide(BunServices.layer),
-              Effect.provide(context.layer)
+              Effect.provide(Layer.succeed(AppContext, context))
             )
           )
           yield* Effect.promise(() => waitUntil(() => existsSync(context.paths.spawnLockFile)))

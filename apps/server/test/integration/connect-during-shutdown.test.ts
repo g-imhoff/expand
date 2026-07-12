@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule } from "effect"
+import { Effect, Fiber, Option, Schedule, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -9,7 +9,7 @@ import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
@@ -35,7 +35,7 @@ const writeStaleEndpoint = () =>
   // Live pid (this process) so readEndpoint accepts it, but a port nothing is
   // listening on — i.e. a server that has already gone away.
   writeFileSync(
-    makeTestAppContext(dir).paths.endpointFile,
+    makeAppContext(dir).paths.endpointFile,
     JSON.stringify({
       url: "ws://127.0.0.1:9/rpc",
       token: "stale",
@@ -82,7 +82,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
             Effect.retry(Schedule.spaced("10 millis")),
             Effect.andThen(
               Effect.sync(() =>
-                writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
+                writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
               )
             )
           )
@@ -105,7 +105,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")

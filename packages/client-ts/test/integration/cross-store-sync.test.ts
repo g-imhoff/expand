@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
 import { bunAdapter } from "../../adapters/bun"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 let bunMainBefore: string
@@ -23,7 +23,7 @@ afterEach(() => {
 
 describe("cross-store live sync", () => {
   it("a rename through store A appears in store B via the live event-fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
@@ -56,7 +56,7 @@ describe("cross-store live sync", () => {
   })
 
   it("an archive then a delete through store A both propagate to store B", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
+    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {

@@ -14,7 +14,7 @@ import { Project } from "@expand/contracts/project"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
 import { bunAdapter } from "../../adapters/bun"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -95,7 +95,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
         return { final, snap }
       }).pipe(
         Effect.provide(
-          ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
+          ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
         ),
         Effect.timeoutOrElse({
           duration: "10 seconds",
@@ -103,7 +103,7 @@ describe.sequential("ProjectStore bootstrap window", () => {
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.final).toHaveLength(1)

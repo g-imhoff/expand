@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Stream } from "effect"
+import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 
@@ -49,7 +49,7 @@ describe.sequential("end-to-end set-metadata", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
 
@@ -70,7 +70,7 @@ describe.sequential("end-to-end set-metadata", () => {
       const listed = yield* withClient(bunAdapter, (client) => client.ProjectList({}))
       yield* Fiber.interrupt(serverFiber)
       return listed
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed2 = await Effect.runPromise(durable)
     const survived = listed2.projects.find((p) => p.id === r.project.id)

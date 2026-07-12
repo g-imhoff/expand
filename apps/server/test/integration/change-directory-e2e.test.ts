@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Stream } from "effect"
+import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 
@@ -49,7 +49,7 @@ describe.sequential("change-directory end-to-end", () => {
       yield* Fiber.interrupt(serverFiber)
       rmSync(target, { recursive: true, force: true })
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r.moved.directory).toBe(r.listed.projects[0]?.directory)
     expect(Option.isSome(r.event) && r.event.value.event._tag === "ProjectDirectoryChanged").toBe(true)
@@ -68,7 +68,7 @@ describe.sequential("change-directory end-to-end", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const exit = await Effect.runPromise(program)
     expect((exit as { failure: { _tag: string; reason: string } }).failure._tag).toBe("ProjectDirectoryInvalid")
   })

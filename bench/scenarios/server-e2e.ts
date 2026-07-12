@@ -4,7 +4,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Duration, Effect, Fiber, Option, Schedule } from "effect"
+import { Duration, Effect, Fiber, Option, Schedule, Layer } from "effect"
 import type { Scope } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { runServer } from "@expand/server/composition/app"
@@ -12,7 +12,7 @@ import { withClient } from "@expand/client-ts"
 import type { ExpandRpcClientApi } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { deleteCheckpoint, plantCheckpoint } from "../seed"
 import { withRss } from "../rss"
 import type { Measurement, ScenarioContext } from "../report"
@@ -53,7 +53,7 @@ export const withServer = <A>(
       Effect.timeoutOrElse({ duration: "30 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
     )
     return { wallMs: Duration.toMillis(elapsed), result: out.result }
-  }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+  }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
   // no cast: if the environment is not fully provided, runPromise must fail to typecheck
   return Effect.runPromise(program).finally(() => rmSync(dir, { recursive: true, force: true }))
 }

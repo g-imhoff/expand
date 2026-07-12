@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Stream } from "effect"
+import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -46,7 +46,7 @@ describe.sequential("project delete e2e", () => {
         )
         yield* Fiber.interrupt(serverFiber)
         return out
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
@@ -59,7 +59,7 @@ describe.sequential("project delete e2e", () => {
         const listed = yield* withClient(bunAdapter, (client) => client.ProjectList({ includeArchived: true }))
         yield* Fiber.interrupt(serverFiber)
         return listed
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   })

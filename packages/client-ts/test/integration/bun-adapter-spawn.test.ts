@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
 import { makeBunAdapter } from "../../adapters/bun"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -23,7 +23,7 @@ describe("Bun adapter (explicit backendCommand)", () => {
       backendCommand: [process.execPath, join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(makeTestAppContext(dir).layer))
+      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     try {
       const store = await rt.runPromise(ProjectStore)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Queue } from "effect"
+import { Effect, Fiber, Option, Schedule, Queue, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -8,7 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { bunAdapter } from "@expand/client-ts/adapters/bun"
 import { readEndpoint } from "@expand/client-ts"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -57,7 +57,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.renamed.name).toBe("ops-renamed")
@@ -88,7 +88,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(makeTestAppContext(dir).layer))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r._tag).toBe("Failure")
     if (r._tag === "Failure") expect((r.failure as { _tag: string })._tag).toBe("ProjectDirectoryInvalid")

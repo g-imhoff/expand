@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { readEndpoint } from "../../discovery"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
-import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 beforeEach(() => {
@@ -17,11 +17,11 @@ afterEach(() => {
 })
 
 const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices>) =>
-  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, makeTestAppContext(dir).layer)))
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, Layer.succeed(AppContext, makeAppContext(dir)))))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
-    makeTestAppContext(dir).paths.endpointFile,
+    makeAppContext(dir).paths.endpointFile,
     JSON.stringify({ url: "ws://127.0.0.1:51789/rpc", token: "t", pid, protocolVersion })
   )
 
@@ -43,7 +43,7 @@ describe("readEndpoint", () => {
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for malformed JSON", async () => {
-    writeFileSync(makeTestAppContext(dir).paths.endpointFile, "{ not json")
+    writeFileSync(makeAppContext(dir).paths.endpointFile, "{ not json")
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
 })
