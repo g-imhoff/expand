@@ -117,12 +117,15 @@ resources and therefore do not require a machine-wide singleton.
 confine `AppLayer` construction to `apps/server`. Runtime uniqueness is
 enforced by `<state-root>/backend.lock`, acquired after default-home
 migration and before the logger, database, or `AppLayer` starts, then held
-for the backend's scoped lifetime. A live owner rejects a second backend.
-A dead owner is reclaimed only when its valid PID/token record remains the
-same owner and filesystem inode; malformed, incomplete, replaced, or
-changing ownership evidence fails closed. Release removes only the matching
-PID/token lease. The per-root `server.json.lock` in I-3 coordinates client
-spawns but does not enforce backend lifetime ownership.
+for the backend's scoped lifetime. An advertised live owner rejects a second
+backend. If the live owner has already removed its endpoint while finishing
+shutdown, startup waits up to four seconds for that owner to release the lease
+and acquires only after release, so no two backends overlap. A dead owner is
+reclaimed only when its valid PID/token record remains the same owner and
+filesystem inode; malformed, incomplete, replaced, or changing ownership
+evidence fails closed without entering the handoff wait. Release removes only
+the matching PID/token lease. The per-root `server.json.lock` in I-3
+coordinates client spawns but does not enforce backend lifetime ownership.
 
 ---
 

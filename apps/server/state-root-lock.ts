@@ -22,6 +22,8 @@ export interface StateRootLease {
 
 export class StateRootLockError extends Data.TaggedError("StateRootLockError")<{
   readonly dataDir: string
+  readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner"
+  readonly ownerPid?: number
   readonly reason: string
 }> {}
 
@@ -47,13 +49,80 @@ export const stateRootLock = (
 ): Effect.Effect<StateRootLease, StateRootLockError, Scope.Scope> =>
   Effect.acquireRelease(acquireStateRootLock(dataDir), releaseStateRootLock)
 
+export const stateRootLockForStartup = (
+  dataDir: string,
+  endpointFile: string
+): Effect.Effect<StateRootLease, StateRootLockError, Scope.Scope> => {
+  const normalizedDataDir = resolve(dataDir)
+  const normalizedEndpointFile = resolve(endpointFile)
+  const acquire = Effect.flatMap(
+    Effect.sync(() => Date.now() + HANDOFF_TIMEOUT_MS),
+    (deadline) => acquireStartupLease(normalizedDataDir, normalizedEndpointFile, deadline)
+  )
+  return Effect.acquireRelease(acquire, releaseStateRootLock)
+}
+
 interface LockOwner {
   readonly pid: number
   readonly token: string
 }
 
 const LOCK_FILE = "backend.lock"
+const HANDOFF_RETRY_INTERVAL = "50 millis"
+const HANDOFF_TIMEOUT_MS = 4_000
 const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+
+const acquireStartupLease = (
+  dataDir: string,
+  endpointFile: string,
+  deadline: number
+): Effect.Effect<StateRootLease, StateRootLockError> =>
+  acquireStateRootLock(dataDir).pipe(
+    Effect.catch((error) => retryLiveOwner(dataDir, endpointFile, deadline, error))
+  )
+
+const retryLiveOwner = (
+  dataDir: string,
+  endpointFile: string,
+  deadline: number,
+  error: StateRootLockError
+): Effect.Effect<StateRootLease, StateRootLockError> => {
+  const ownerPid = error.ownerPid
+  if (error.kind !== "live-owner" || ownerPid === undefined) return Effect.fail(error)
+  return endpointIsAdvertised(dataDir, endpointFile).pipe(
+    Effect.flatMap((advertised) => {
+      if (advertised) return Effect.fail(endpointAdvertisedError(dataDir))
+      if (Date.now() >= deadline) {
+        return Effect.fail(new StateRootLockError({
+          dataDir,
+          kind: "handoff-timeout",
+          ownerPid,
+          reason: `state root handoff timed out waiting for backend process ${String(ownerPid)}`
+        }))
+      }
+      return Effect.sleep(HANDOFF_RETRY_INTERVAL).pipe(
+        Effect.andThen(acquireStartupLease(dataDir, endpointFile, deadline))
+      )
+    })
+  )
+}
+
+const endpointIsAdvertised = (
+  dataDir: string,
+  endpointFile: string
+): Effect.Effect<boolean, StateRootLockError> =>
+  Effect.try({
+    try: () => {
+      try {
+        statSync(endpointFile)
+        return true
+      } catch (error) {
+        if (isNodeError(error) && error.code === "ENOENT") return false
+        throw error
+      }
+    },
+    catch: (error) => asStateRootLockError(dataDir, error)
+  })
 
 const acquireLease = (input: string): StateRootLease => {
   const dataDir = resolve(input)
@@ -180,7 +249,16 @@ const sameOwner = (left: LockOwner | undefined, right: LockOwner): boolean =>
 const liveOwnerError = (dataDir: string, pid: number): StateRootLockError =>
   new StateRootLockError({
     dataDir,
+    kind: "live-owner",
+    ownerPid: pid,
     reason: `state root is already owned by backend process ${pid}`
+  })
+
+const endpointAdvertisedError = (dataDir: string): StateRootLockError =>
+  new StateRootLockError({
+    dataDir,
+    kind: "endpoint-advertised",
+    reason: "state root endpoint is already advertised"
   })
 
 const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error

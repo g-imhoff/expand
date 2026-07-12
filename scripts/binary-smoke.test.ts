@@ -862,6 +862,103 @@ cleanup
     }
   })
 
+  it("keeps the guardian job stable through TERM and KILL escalation", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-guardian-escalation-"))
+    const dataDir = join(root, "data")
+    const cliPath = join(dataDir, "term-resistant-cli.sh")
+    await mkdir(dataDir)
+    await writeFile(
+      cliPath,
+      [
+        "#!/usr/bin/env bash",
+        'trap "" TERM',
+        'printf \'{"pid":%s}\\n\' "$BASHPID" > "$1"',
+        "deadline=$((SECONDS + 3))",
+        "while (( SECONDS < deadline )); do sleep 0.05; done",
+      ].join("\n"),
+      { mode: 0o700 }
+    )
+    const script = `
+set -euo pipefail
+set -m
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"
+BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+GUARDIAN_STATUS_FILE="$DATA_DIR/autospawn-guardian.status"
+GUARDIAN_EVIDENCE_FILE="$DATA_DIR/autospawn-guardian.evidence"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SENTINEL_HOME="$DATA_DIR/default-sentinel"
+CLI=(${JSON.stringify(cliPath)} "$ENDPOINT_FILE")
+SERVER_EXIT_TIMEOUT_SECONDS=2
+SERVER_STOP_TIMEOUT_SECONDS=1
+SERVER_PID=""
+SERVER_JOB_SPEC=""
+GUARDIAN_PID=""
+DATA_DIR_SAFE=1
+TRACE_FILE="$DATA_DIR/signals.trace"
+
+kill() {
+  printf 'signal:%s\n' "$*" >> "$TRACE_FILE"
+  builtin kill "$@"
+}
+
+group_present() {
+  local candidate
+  while read -r candidate; do
+    candidate="\${candidate//[[:space:]]/}"
+    [[ "$candidate" = "$GUARDIAN_PGID" ]] && return 0
+  done < <(ps -o pgid= -e)
+  return 1
+}
+
+(
+  autospawn_guardian "$DATA_DIR/output.json"
+) &
+GUARDIAN_PID=$!
+capture_server_job
+owned_job_spec="$SERVER_JOB_SPEC"
+GUARDIAN_PGID="$(read_process_group "$GUARDIAN_PID")"
+deadline=$((SECONDS + 2))
+while [[ ! -f "$ENDPOINT_FILE" ]]; do
+  server_job_active
+  (( SECONDS < deadline ))
+  sleep 0.01
+done
+
+stop_server_job
+deadline=$((SECONDS + 5))
+while group_present; do
+  (( SECONDS < deadline ))
+  sleep 0.01
+done
+if group_present; then survivors=1; else survivors=0; fi
+cat "$TRACE_FILE"
+printf 'owned:%s final:%s survivors:%s\n' "$owned_job_spec" "$SERVER_JOB_SPEC" "$survivors"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      const lines = result.stdout.trim().split("\n")
+      const ownedJob = lines.at(-1)?.match(/^owned:(%\d+) final: survivors:0$/)?.[1]
+      expect(ownedJob).toBeDefined()
+      expect(lines).toEqual([
+        `signal:-TERM -- ${ownedJob}`,
+        `signal:-KILL -- ${ownedJob}`,
+        `owned:${ownedJob} final: survivors:0`,
+      ])
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("stops and reaps an active owned job during cleanup", async () => {
     const source = await readSmokeSource()
     const functions = extractFunctions(source)

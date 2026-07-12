@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect } from "effect"
+import { Effect, Fiber } from "effect"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import {
@@ -18,7 +18,9 @@ import { fileURLToPath } from "node:url"
 import {
   acquireStateRootLock,
   releaseStateRootLock,
-  StateRootLockError
+  StateRootLockError,
+  stateRootLock,
+  stateRootLockForStartup
 } from "@expand/server/state-root-lock"
 
 let dir: string
@@ -42,6 +44,80 @@ describe("state root ownership (I-2)", () => {
     await Effect.runPromise(releaseStateRootLock(first))
   })
 
+  it("waits for an unadvertised live owner to release before acquiring", async () => {
+    const endpointFile = join(dir, "server.json")
+    const first = await Effect.runPromise(acquireStateRootLock(dir))
+
+    const second = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(stateRootLockForStartup(dir, endpointFile))
+          yield* Effect.yieldNow
+
+          expect(fiber.pollUnsafe()).toBeUndefined()
+          expect(JSON.parse(readFileSync(first.path, "utf8"))).toMatchObject({ token: first.token })
+
+          yield* releaseStateRootLock(first)
+          return yield* Fiber.join(fiber)
+        })
+      )
+    )
+
+    expect(second.token).not.toBe(first.token)
+  })
+
+  it("rejects promptly when an endpoint is already advertised", async () => {
+    const endpointFile = join(dir, "server.json")
+    const first = await Effect.runPromise(acquireStateRootLock(dir))
+    writeFileSync(endpointFile, "{}")
+    const startedAt = performance.now()
+
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.flip(stateRootLockForStartup(dir, endpointFile)))
+    )
+
+    expect(error).toMatchObject({ kind: "endpoint-advertised" })
+    expect(performance.now() - startedAt).toBeLessThan(250)
+    expect(JSON.parse(readFileSync(first.path, "utf8"))).toMatchObject({ token: first.token })
+    await Effect.runPromise(releaseStateRootLock(first))
+  })
+
+  it("acquires when only a stale endpoint remains", async () => {
+    const endpointFile = join(dir, "server.json")
+    writeFileSync(endpointFile, "stale")
+
+    const lease = await Effect.runPromise(
+      Effect.scoped(stateRootLockForStartup(dir, endpointFile))
+    )
+
+    expect(lease.pid).toBe(process.pid)
+    expect(readFileSync(endpointFile, "utf8")).toBe("stale")
+  })
+
+  it("rejects before acquiring when an endpoint appears during handoff", async () => {
+    const endpointFile = join(dir, "server.json")
+    const first = await Effect.runPromise(acquireStateRootLock(dir))
+
+    const error = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const fiber = yield* Effect.forkChild(
+            Effect.flip(stateRootLockForStartup(dir, endpointFile))
+          )
+          yield* Effect.yieldNow
+          expect(fiber.pollUnsafe()).toBeUndefined()
+
+          writeFileSync(endpointFile, "{}")
+          return yield* Fiber.join(fiber).pipe(Effect.timeout("1 second"))
+        })
+      )
+    )
+
+    expect(error).toMatchObject({ kind: "endpoint-advertised" })
+    expect(JSON.parse(readFileSync(first.path, "utf8"))).toMatchObject({ token: first.token })
+    await Effect.runPromise(releaseStateRootLock(first))
+  })
+
   it("allows live owners for different state roots", async () => {
     const otherDir = join(dir, "other")
     const first = await Effect.runPromise(acquireStateRootLock(dir))
@@ -54,6 +130,20 @@ describe("state root ownership (I-2)", () => {
 
     await Effect.runPromise(releaseStateRootLock(first))
     await Effect.runPromise(releaseStateRootLock(second))
+  })
+
+  it("releases the scoped state root lease", async () => {
+    const lockPath = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const lease = yield* stateRootLock(dir)
+          expect(existsSync(lease.path)).toBe(true)
+          return lease.path
+        })
+      )
+    )
+
+    expect(existsSync(lockPath)).toBe(false)
   })
 
   it("restricts an existing permissive state root to owner access", async () => {

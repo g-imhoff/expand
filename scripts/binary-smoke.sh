@@ -192,6 +192,7 @@ autospawn_guardian() {
   local output_file="$1"
   shift
   local cli_status=0
+  trap ':' TERM
   set +m
   monitor_autospawn_endpoint &
   HOME="$SENTINEL_HOME" "${CLI[@]}" "$@" >"$output_file" || cli_status=$?
