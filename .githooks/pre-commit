@@ -9,6 +9,9 @@
 # Installed via the package.json "prepare" script: git config core.hooksPath .githooks
 set -e
 
+echo "pre-commit › agent definitions"
+bun run agents:check
+
 echo "pre-commit › eslint"
 bun run lint
 

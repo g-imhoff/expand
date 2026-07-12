@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { basename, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 import {
   AGENT_NAMES,
   AGENT_POLICY,
@@ -14,6 +15,7 @@ import {
 } from "./sync-agents"
 
 const roots: string[] = []
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)))
 
 const makeRoot = (): string => {
   const root = mkdtempSync(join(tmpdir(), "expand-agent-sync-"))
@@ -156,6 +158,17 @@ describe("renderCodexAgent", () => {
 })
 
 describe("syncAgents", () => {
+  it("keeps the committed Codex mirrors synchronized", async () => {
+    await expect(syncAgents({ rootDir: repositoryRoot, mode: "check" })).resolves.toBeUndefined()
+  })
+
+  it("runs the synchronization gate before commits and in CI", () => {
+    const hook = readFileSync(join(repositoryRoot, ".githooks", "pre-commit"), "utf8")
+    const workflow = readFileSync(join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8")
+    expect(hook).toContain("bun run agents:check")
+    expect(workflow).toContain("run: bun run agents:check")
+  })
+
   it("writes only expected TOML files and then passes check mode", async () => {
     const root = makeRoot()
     seedRoster(root)

@@ -25,6 +25,8 @@ jobs:
           bun-version-file: .bun-version
       - name: Install dependencies (frozen lockfile)
         run: bun install --frozen-lockfile
+      - name: Agent definitions synchronized
+        run: bun run agents:check
       - name: Typecheck (root + desktop projects)
         run: bun run typecheck:all
       - name: Architecture invariant I-1 (dependency-cruiser, BOUNDARIES.md)
