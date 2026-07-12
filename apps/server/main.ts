@@ -4,7 +4,7 @@ import type { LogLevel } from "effect"
 import { join } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
 import { runServer } from "@expand/server/composition/app"
-import { startupOwnership } from "@expand/server/startup-ownership"
+import { stateRootLockForStartup } from "@expand/server/state-root-lock"
 
 const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
 
@@ -36,7 +36,7 @@ const loggedProgram = Effect.gen(function* () {
 
 const program = Effect.gen(function* () {
   const { paths } = yield* AppContext
-  yield* startupOwnership(paths)
+  yield* stateRootLockForStartup(paths.dataDir, paths.endpointFile)
   yield* loggedProgram
 }).pipe(Effect.scoped)
 

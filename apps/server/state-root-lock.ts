@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 
 export interface StateRootLease {
   readonly path: string
@@ -38,28 +38,6 @@ export const acquireStateRootLock = (
     },
     catch: (error) => asStateRootLockError(resolve(dataDir), error)
   })
-
-export const acquireOwnershipLock = (
-  lockPath: string
-): Effect.Effect<StateRootLease, StateRootLockError> => {
-  const normalizedPath = resolve(lockPath)
-  const ownerDirectory = dirname(normalizedPath)
-  return Effect.try({
-    try: () => {
-      secureDirectory(ownerDirectory)
-      return acquireLease(normalizedPath, ownerDirectory)
-    },
-    catch: (error) => asStateRootLockError(ownerDirectory, error)
-  })
-}
-
-export const acquireCoordinationLock = (
-  lockPath: string
-): Effect.Effect<StateRootLease, StateRootLockError> =>
-  Effect.flatMap(
-    Effect.sync(() => Date.now() + HANDOFF_TIMEOUT_MS),
-    (deadline) => acquireCoordinationLockUntil(resolve(lockPath), deadline)
-  )
 
 export const releaseStateRootLock = (lease: StateRootLease): Effect.Effect<void> =>
   Effect.sync(() => {
@@ -103,31 +81,6 @@ const acquireStartupLease = (
 ): Effect.Effect<StateRootLease, StateRootLockError> =>
   acquireStateRootLock(dataDir).pipe(
     Effect.catch((error) => retryLiveOwner(dataDir, endpointFile, deadline, error))
-  )
-
-const acquireCoordinationLockUntil = (
-  lockPath: string,
-  deadline: number
-): Effect.Effect<StateRootLease, StateRootLockError> =>
-  Effect.suspend(() =>
-    acquireOwnershipLock(lockPath).pipe(
-      Effect.catch((error) => {
-        if (error.kind !== "live-owner") return Effect.fail(error)
-        if (Date.now() >= deadline) {
-          return Effect.fail(new StateRootLockError({
-            dataDir: dirname(lockPath),
-            kind: "handoff-timeout",
-            ...(error.ownerPid === undefined ? {} : { ownerPid: error.ownerPid }),
-            reason: error.ownerPid === undefined
-              ? "coordination lock handoff timed out"
-              : `coordination lock handoff timed out waiting for process ${String(error.ownerPid)}`
-          }))
-        }
-        return Effect.sleep(HANDOFF_RETRY_INTERVAL).pipe(
-          Effect.andThen(acquireCoordinationLockUntil(lockPath, deadline))
-        )
-      })
-    )
   )
 
 const retryLiveOwner = (
