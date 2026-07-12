@@ -35,6 +35,30 @@ async function runShell(script: string) {
 }
 
 describe("binary smoke isolation", () => {
+  it("certifies sibling auto-spawn before directly owned CRUD", async () => {
+    const source = await readSmokeSource()
+    expect(source).toContain("set -m")
+    expect(source).toContain("command -v ps")
+    expect(source).toContain("unset EXPAND_BACKEND_CMD")
+    expect(source).toContain('GUARDIAN_STATUS_FILE="$DATA_DIR/autospawn-guardian.status"')
+    expect(source).toContain('GUARDIAN_EVIDENCE_FILE="$DATA_DIR/autospawn-guardian.evidence"')
+    expect(source).toContain('GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"')
+    expect(source).toContain('ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"')
+    expect(source).toContain('BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"')
+    expect(source).toContain("chmod 600")
+    expect(source).toContain("verify_autospawn_evidence")
+    expect(source).toContain("await_autospawn_departure")
+    expect(source).toContain("release_guardian")
+    expect(source).toContain('run_cli_autospawn "$DATA_DIR/health.json" health --format json')
+    expect(source).toContain('run_cli "$DATA_DIR/created.json" project create')
+    expect(source.indexOf('run_cli_autospawn "$DATA_DIR/health.json"')).toBeLessThan(
+      source.indexOf('run_cli "$DATA_DIR/created.json"')
+    )
+    expect(source).toContain('"${CLI[@]}" "$@"')
+    expect(source).toContain("jq -e . \"$output_file\"")
+    expect(source).not.toContain("EXPAND_BACKEND_CMD=")
+  })
+
   it("uses shell job ownership while keeping the numeric pid as endpoint evidence", async () => {
     const source = await readSmokeSource()
     expect(source).not.toContain("EXPAND_HOME")
@@ -303,6 +327,151 @@ printf 'status:%s safe:%s\n' "$status" "$DATA_DIR_SAFE"
       expect(result.exitCode).toBe(0)
       expect(result.stdout).toBe("status:1 safe:0\n")
       expect(result.stderr).toContain("endpoint PID does not match")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("rejects endpoint evidence from outside the guardian process group", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-wrong-pgid-"))
+    const dataDir = join(root, "data")
+    const marker = join(dataDir, "marker")
+    await mkdir(dataDir)
+    await writeFile(marker, "live")
+    await writeFile(join(dataDir, "server.json"), JSON.stringify({ pid: 737373 }))
+    await writeFile(join(dataDir, "autospawn-guardian.evidence"), "737373 999999\n")
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"
+BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"
+JOB_STATE_FILE="$DATA_DIR/server-job.state"
+GUARDIAN_EVIDENCE_FILE="$DATA_DIR/autospawn-guardian.evidence"
+GUARDIAN_STATUS_FILE="$DATA_DIR/autospawn-guardian.status"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+GUARDIAN_PGID=888888
+ENDPOINT_PID=""
+SERVER_JOB_SPEC=""
+SERVER_PID=""
+DATA_DIR_SAFE=1
+
+kill() {
+  printf 'unexpected-signal:%s\n' "$*"
+}
+
+status=0
+verify_autospawn_evidence || status=$?
+printf 'status:%s safe:%s endpoint:%s\n' "$status" "$DATA_DIR_SAFE" "$ENDPOINT_PID"
+cleanup
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(1)
+      expect(result.stdout).toBe("status:1 safe:0 endpoint:737373\n")
+      expect(result.stdout).not.toContain("unexpected-signal")
+      expect(result.stderr).toContain("endpoint PID process group does not match the guardian")
+      expect(result.stderr).toContain("preserving data directory")
+      await access(marker)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("withholds guardian release while the endpoint PID remains in the owned group", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-owned-group-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"
+BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SERVER_EXIT_TIMEOUT_SECONDS=1
+GUARDIAN_PGID=444444
+ENDPOINT_PID=747474
+DATA_DIR_SAFE=1
+
+ps() {
+  printf ' 444444\n'
+}
+
+sleep() {
+  SECONDS=$((SECONDS + 1))
+}
+
+status=0
+await_autospawn_departure || status=$?
+if [[ -e "$GUARDIAN_RELEASE_FILE" ]]; then released=1; else released=0; fi
+printf 'status:%s safe:%s released:%s\n' "$status" "$DATA_DIR_SAFE" "$released"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("status:1 safe:0 released:0\n")
+      expect(result.stderr).toContain("auto-spawned backend cleanup timed out")
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("releases and reaps the guardian after verified backend departure", async () => {
+    const source = await readSmokeSource()
+    const functions = extractFunctions(source)
+    const root = await mkdtemp(join(tmpdir(), "expand-smoke-release-"))
+    const dataDir = join(root, "data")
+    await mkdir(dataDir)
+    const script = `
+set -euo pipefail
+
+${functions.join("\n\n")}
+
+DATA_DIR=${JSON.stringify(dataDir)}
+ENDPOINT_FILE="$DATA_DIR/server.json"
+ENDPOINT_LOCK_FILE="$DATA_DIR/server.json.lock"
+BACKEND_LOCK_FILE="$DATA_DIR/backend.lock"
+GUARDIAN_RELEASE_FILE="$DATA_DIR/autospawn-guardian.release"
+SERVER_EXIT_TIMEOUT_SECONDS=1
+GUARDIAN_PGID=555555
+ENDPOINT_PID=757575
+SERVER_JOB_SPEC="%9"
+DATA_DIR_SAFE=1
+
+ps() {
+  return 1
+}
+
+wait() {
+  printf 'wait:%s\n' "$1"
+  return 17
+}
+
+await_autospawn_departure
+status=0
+release_guardian || status=$?
+mode="$(stat -c '%a' "$GUARDIAN_RELEASE_FILE")"
+printf 'status:%s job:%s mode:%s\n' "$status" "$SERVER_JOB_SPEC" "$mode"
+`
+
+    try {
+      const result = await runShell(script)
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout).toBe("wait:%9\nstatus:17 job: mode:600\n")
+      expect(result.stderr).toBe("")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
