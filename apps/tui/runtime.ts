@@ -11,14 +11,14 @@ export type ExpandRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendU
 
 export const RuntimeContext = createContext<ExpandRuntime | null>(null)
 
-// From source (apps/tui/runtime.ts) the sibling apps/server/main.ts entry runs
-// under the current Bun runtime: `bun apps/server/main.ts`.
-const backendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({ sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "server", "main.ts") })
-
 export const makeProductionRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
     ProjectStoreLayer(makeBunAdapter({ backendCommand })).pipe(
       Layer.provide(BunServices.layer)
     )
   )
+
+// From source (apps/tui/runtime.ts) the sibling apps/server/main.ts entry runs
+// under the current Bun runtime: `bun apps/server/main.ts`.
+const backendCommand = (): ReadonlyArray<string> =>
+  resolveBackendCommand({ sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "server", "main.ts") })

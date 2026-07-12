@@ -3,8 +3,9 @@ import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 
-const serverEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "apps", "server", "main.ts")
-
-export const adapter = makeBunAdapter({
-  backendCommand: () => resolveBackendCommand({ sourceEntry: serverEntry })
-})
+export const adapter = (() => {
+  const serverEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "apps", "server", "main.ts")
+  return makeBunAdapter({
+    backendCommand: () => resolveBackendCommand({ sourceEntry: serverEntry })
+  })
+})()

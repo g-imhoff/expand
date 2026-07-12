@@ -5,12 +5,6 @@ import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ProjectEventStore } from "@expand/server/application/projects/project-event-store"
 import { ProjectionStateStore } from "@expand/server/db/projection-state-store"
 
-export const PROJECTION_NAME = "projects"
-
-export const CHECKPOINT_DEBOUNCE_MS = 500
-
-const ProjectsFromJson = Schema.fromJsonString(Schema.Array(Project))
-
 export class ProjectProjection extends Context.Service<ProjectProjection, {
   readonly list: Effect.Effect<ReadonlyArray<Project>>
   readonly snapshot: Effect.Effect<State>
@@ -113,7 +107,13 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
   })
 }) {}
 
+export const PROJECTION_NAME = "projects"
+
+export const CHECKPOINT_DEBOUNCE_MS = 500
+
 export const ProjectProjectionLayer = Layer.effect(ProjectProjection, ProjectProjection.make)
+
+const ProjectsFromJson = Schema.fromJsonString(Schema.Array(Project))
 
 interface State {
   readonly projects: ReadonlyArray<Project>

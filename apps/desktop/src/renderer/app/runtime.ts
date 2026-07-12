@@ -13,15 +13,6 @@ import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 export const acquireRpcPort = (options: MakeIpcClientOptions): Effect.Effect<MessagePort, IpcTransportError> =>
   makeIpcClient(ExpandIpc, options).rpcPort
 
-const appLayer = (port: RendererPortLike) => {
-  const facets = Layer.mergeAll(ProjectRpcLayer, ServerRpcLayer).pipe(
-    Layer.provideMerge(RendererRpcClientLayer(port))
-  )
-  return RendererProjectStoreLayer.pipe(Layer.provideMerge(facets))
-}
-
-const BOOT_TIMEOUT = "10 seconds"
-
 export const boot = (mount: (handle: AppHandle) => void): Effect.Effect<never, Cause.TimeoutError | IpcTransportError> =>
   Effect.gen(function* () {
     const handle = yield* Effect.timeout(
@@ -41,3 +32,12 @@ export const boot = (mount: (handle: AppHandle) => void): Effect.Effect<never, C
     mount(handle)
     return yield* Effect.never
   }).pipe(Effect.scoped)
+
+const appLayer = (port: RendererPortLike) => {
+  const facets = Layer.mergeAll(ProjectRpcLayer, ServerRpcLayer).pipe(
+    Layer.provideMerge(RendererRpcClientLayer(port))
+  )
+  return RendererProjectStoreLayer.pipe(Layer.provideMerge(facets))
+}
+
+const BOOT_TIMEOUT = "10 seconds"

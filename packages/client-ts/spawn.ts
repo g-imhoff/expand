@@ -6,6 +6,21 @@ import type { RuntimeAdapter } from "./adapter"
 import { BackendUnavailable } from "./errors"
 import { readEndpoint } from "./discovery"
 
+/** @internal */
+export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
+  Effect.gen(function* () {
+    const { paths } = yield* AppContext
+    const lockPath = `${paths.endpointFile}.lock`
+    const existing = yield* readEndpoint
+    if (Option.isSome(existing)) return existing.value
+    const acquired = yield* tryAcquireLock(lockPath)
+    if (!acquired) return yield* awaitEndpoint
+    return yield* adapter.spawnBackend(paths.dataDir).pipe(
+      Effect.andThen(awaitEndpoint),
+      Effect.ensuring(releaseLock(lockPath))
+    )
+  })
+
 const isProcessAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -76,21 +91,6 @@ const awaitEndpoint = readEndpoint.pipe(
     orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))
   })
 )
-
-/** @internal */
-export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
-  Effect.gen(function* () {
-    const { paths } = yield* AppContext
-    const lockPath = `${paths.endpointFile}.lock`
-    const existing = yield* readEndpoint
-    if (Option.isSome(existing)) return existing.value
-    const acquired = yield* tryAcquireLock(lockPath)
-    if (!acquired) return yield* awaitEndpoint
-    return yield* adapter.spawnBackend(paths.dataDir).pipe(
-      Effect.andThen(awaitEndpoint),
-      Effect.ensuring(releaseLock(lockPath))
-    )
-  })
 
 interface LockInfo {
   readonly pid: number

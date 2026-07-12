@@ -8,16 +8,6 @@ import {
   DialogTitle
 } from "@expand/desktop/renderer/components/ui/dialog"
 
-const describeError = (error: unknown): string => {
-  if (Schema.isSchemaError(error)) {
-    return `invalid input: ${error.message}`
-  }
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    return String((error as { _tag: unknown })._tag)
-  }
-  return String(error)
-}
-
 export interface ChangeDirectoryDialogProps {
   readonly open: boolean
   readonly project: { readonly id: string; readonly name: string; readonly directory: string | null } | null
@@ -63,4 +53,14 @@ export const ChangeDirectoryDialog = ({
       </DialogContent>
     </Dialog>
   )
+}
+
+const describeError = (error: unknown): string => {
+  if (Schema.isSchemaError(error)) {
+    return `invalid input: ${error.message}`
+  }
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    return String((error as { _tag: unknown })._tag)
+  }
+  return String(error)
 }

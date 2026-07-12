@@ -22,17 +22,6 @@ import type {
 } from "@expand/electron-ipc/contract"
 import { portGrantName, portRequestName, wireName } from "@expand/electron-ipc/contract"
 
-export type OriginRule =
-  /**
-   * Match a single serialized origin exactly. `origin` MUST already be in normalized
-   * serialized form — lowercase host, no trailing slash, no default port
-   * (e.g. "http://localhost:5173", "https://app.example.com"). It is compared verbatim
-   * against the parsed URL's `origin`, so it can never match the literal "null" of an
-   * opaque origin.
-   */
-  | { readonly _tag: "exactOrigin"; readonly origin: string }
-  | { readonly _tag: "fileProtocol" }
-
 export interface FrameLike {
   readonly url: string
   readonly detached: boolean
@@ -57,6 +46,39 @@ export interface FrameSnapshot {
   readonly url: string | null
   readonly isMainFrame: boolean
 }
+
+export interface IpcMainLike {
+  readonly on: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
+  readonly removeListener: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
+  readonly handle: (channel: string, handler: (event: IpcMainEventLike, payload: unknown) => Promise<unknown>) => void
+  readonly removeHandler: (channel: string) => void
+}
+
+export interface BindIpcConfig<R> {
+  /** Named `ipc` (not the raw main-side primitive) so app code never contains the token the architecture test scans for. */
+  readonly ipc: IpcMainLike
+  readonly target: WindowTargetLike
+  readonly originRules: ReadonlyArray<OriginRule>
+  readonly runPromise: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>
+  readonly maxPayloadBytes?: number
+  readonly log?: (message: string) => void
+}
+
+export interface BoundIpc<C extends IpcContract> {
+  readonly emit: IpcEmitterOf<C>
+  readonly unbind: () => void
+}
+
+export type OriginRule =
+  /**
+   * Match a single serialized origin exactly. `origin` MUST already be in normalized
+   * serialized form — lowercase host, no trailing slash, no default port
+   * (e.g. "http://localhost:5173", "https://app.example.com"). It is compared verbatim
+   * against the parsed URL's `origin`, so it can never match the literal "null" of an
+   * opaque origin.
+   */
+  | { readonly _tag: "exactOrigin"; readonly origin: string }
+  | { readonly _tag: "fileProtocol" }
 
 /**
  * Synchronous sender snapshot. MUST be called before any await/yield.
@@ -104,48 +126,9 @@ export const payloadSize = (payload: unknown): number => {
   }
 }
 
-/**
- * Default payload cap. Approximate: the guard measures UTF-16 code units (string length /
- * JSON.stringify length), NOT encoded UTF-8 bytes — worst case it under-counts by ~3x vs
- * UTF-8. That imprecision is fine for a coarse DoS guard.
- */
-const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
-
 // ---------------------------------------------------------------------------
 // bindIpc: the main-process interpreter
 // ---------------------------------------------------------------------------
-
-// Boundary codecs operate on generic `Schema.Top` fields. The sync/effect codec
-// helpers constrain to `Schema.Codec<unknown>` (service-free RD/RE = never), which
-// `Schema.Top` (RD/RE = unknown) does not satisfy structurally. IPC payloads are
-// wire-shaped and carry no service requirements, so we narrow each field to a
-// service-free codec at the call site. (Mirror of renderer.ts; duplication ok.)
-const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
-  schema as unknown as Schema.Codec<unknown, unknown>
-
-export interface IpcMainLike {
-  readonly on: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
-  readonly removeListener: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => void
-  readonly handle: (channel: string, handler: (event: IpcMainEventLike, payload: unknown) => Promise<unknown>) => void
-  readonly removeHandler: (channel: string) => void
-}
-
-export interface BindIpcConfig<R> {
-  /** Named `ipc` (not the raw main-side primitive) so app code never contains the token the architecture test scans for. */
-  readonly ipc: IpcMainLike
-  readonly target: WindowTargetLike
-  readonly originRules: ReadonlyArray<OriginRule>
-  readonly runPromise: <A, E>(effect: Effect.Effect<A, E, R>) => Promise<A>
-  readonly maxPayloadBytes?: number
-  readonly log?: (message: string) => void
-}
-
-export interface BoundIpc<C extends IpcContract> {
-  readonly emit: IpcEmitterOf<C>
-  readonly unbind: () => void
-}
-
-const PortRequest = Schema.Struct({ nonce: Schema.String })
 
 export const bindIpc = <C extends IpcContract, R, Port>(
   contract: C,
@@ -288,3 +271,20 @@ export const bindIpc = <C extends IpcContract, R, Port>(
     }
   }
 }
+
+/**
+ * Default payload cap. Approximate: the guard measures UTF-16 code units (string length /
+ * JSON.stringify length), NOT encoded UTF-8 bytes — worst case it under-counts by ~3x vs
+ * UTF-8. That imprecision is fine for a coarse DoS guard.
+ */
+const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
+
+// Boundary codecs operate on generic `Schema.Top` fields. The sync/effect codec
+// helpers constrain to `Schema.Codec<unknown>` (service-free RD/RE = never), which
+// `Schema.Top` (RD/RE = unknown) does not satisfy structurally. IPC payloads are
+// wire-shaped and carry no service requirements, so we narrow each field to a
+// service-free codec at the call site. (Mirror of renderer.ts; duplication ok.)
+const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
+  schema as unknown as Schema.Codec<unknown, unknown>
+
+const PortRequest = Schema.Struct({ nonce: Schema.String })

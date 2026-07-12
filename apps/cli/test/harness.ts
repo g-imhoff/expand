@@ -8,16 +8,6 @@ import { renderErrors } from "@expand/cli/run"
 
 export interface CliResult { readonly stdout: ReadonlyArray<string>; readonly stderr: ReadonlyArray<string>; readonly code: number }
 
-const capturingConsole = (stdout: string[], stderr: string[]): Console.Console => ({
-  log: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
-  error: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
-  warn: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
-  info: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
-  debug: () => {}, clear: () => {}, assert: () => {}, count: () => {}, countReset: () => {},
-  dir: () => {}, dirxml: () => {}, group: () => {}, groupCollapsed: () => {}, groupEnd: () => {},
-  table: () => {}, time: () => {}, timeEnd: () => {}, timeLog: () => {}, trace: () => {}
-} as unknown as Console.Console)
-
 export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClient> => {
   const s = stub as Record<string, any>
   return Layer.mergeAll(
@@ -60,3 +50,13 @@ export const runCli = async (
     code: exit._tag === "Success" ? 0 : Runtime.getErrorExitCode(Cause.squash(exit.cause))
   }
 }
+
+const capturingConsole = (stdout: string[], stderr: string[]): Console.Console => ({
+  log: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
+  error: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
+  warn: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
+  info: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
+  debug: () => {}, clear: () => {}, assert: () => {}, count: () => {}, countReset: () => {},
+  dir: () => {}, dirxml: () => {}, group: () => {}, groupCollapsed: () => {}, groupEnd: () => {},
+  table: () => {}, time: () => {}, timeEnd: () => {}, timeLog: () => {}, trace: () => {}
+} as unknown as Console.Console)

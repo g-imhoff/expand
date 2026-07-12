@@ -5,29 +5,9 @@ import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable } from "../errors"
 import { resolveBackendCommand } from "../backend-command"
 
-const protocolLayer = (url: string) =>
-  RpcClient.layerProtocolSocket().pipe(
-    Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(BunSocket.layerWebSocket(url))
-  )
-
-// Robust default (symmetric with the Node adapter): honour EXPAND_BACKEND_CMD,
-// else re-invoke this binary against its own entrypoint with a `server`
-// subcommand — from source `bun <Bun.main> server`, once compiled `<self> server`.
-const defaultBackendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({ sourceEntry: Bun.main, sourceArgs: ["server"], binaryArgs: [process.execPath, "server"] })
-
 export interface BunAdapterOptions {
   readonly backendCommand?: ReadonlyArray<string> | (() => ReadonlyArray<string>)
 }
-
-const resolveCommand = (
-  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>) | undefined
-): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
-  Effect.try({
-    try: () => (typeof configured === "function" ? configured() : configured ?? defaultBackendCommand()),
-    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
-  })
 
 export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
   const spawnBackend = (dataDir: string) =>
@@ -59,3 +39,24 @@ export const makeBunAdapter = (opts?: BunAdapterOptions): RuntimeAdapter => {
  * backend or accept the self-re-invoking default.
  */
 export const bunAdapter: RuntimeAdapter = makeBunAdapter()
+
+function protocolLayer(url: string) {
+  return RpcClient.layerProtocolSocket().pipe(
+    Layer.provide(RpcSerialization.layerNdjson),
+    Layer.provide(BunSocket.layerWebSocket(url))
+  )
+}
+
+// Robust default (symmetric with the Node adapter): honour EXPAND_BACKEND_CMD,
+// else re-invoke this binary against its own entrypoint with a `server`
+// subcommand — from source `bun <Bun.main> server`, once compiled `<self> server`.
+const defaultBackendCommand = (): ReadonlyArray<string> =>
+  resolveBackendCommand({ sourceEntry: Bun.main, sourceArgs: ["server"], binaryArgs: [process.execPath, "server"] })
+
+const resolveCommand = (
+  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>) | undefined
+): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
+  Effect.try({
+    try: () => (typeof configured === "function" ? configured() : configured ?? defaultBackendCommand()),
+    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
+  })

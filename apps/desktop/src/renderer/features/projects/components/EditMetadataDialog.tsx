@@ -9,20 +9,6 @@ import {
   DialogTitle
 } from "@expand/desktop/renderer/components/ui/dialog"
 
-const describeError = (cause: unknown): string => {
-  if (typeof cause === "object" && cause !== null && (cause as { _tag?: string })._tag === "ProjectInvalidInput") {
-    const e = cause as { field: string; reason: string }
-    return `invalid ${e.field}: ${e.reason}`
-  }
-  if (Schema.isSchemaError(cause)) {
-    return `invalid input: ${cause.message}`
-  }
-  return cause instanceof Error ? cause.message : String(cause)
-}
-
-const parseTags = (raw: string): ReadonlyArray<string> =>
-  [...new Set(raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0))]
-
 export interface EditMetadataDialogProps {
   readonly open: boolean
   readonly project: Project
@@ -63,3 +49,17 @@ export const EditMetadataDialog = ({ open, project, onOpenChange, onSubmit }: Ed
     </Dialog>
   )
 }
+
+const describeError = (cause: unknown): string => {
+  if (typeof cause === "object" && cause !== null && (cause as { _tag?: string })._tag === "ProjectInvalidInput") {
+    const e = cause as { field: string; reason: string }
+    return `invalid ${e.field}: ${e.reason}`
+  }
+  if (Schema.isSchemaError(cause)) {
+    return `invalid input: ${cause.message}`
+  }
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
+const parseTags = (raw: string): ReadonlyArray<string> =>
+  [...new Set(raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0))]

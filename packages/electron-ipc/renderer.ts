@@ -49,8 +49,6 @@ export type IpcClientOf<C extends IpcContract> = {
           : never
 }
 
-const DEFAULT_TIMEOUT_MILLIS = 10_000
-
 export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeIpcClientOptions): IpcClientOf<C> => {
   const timeoutMillis = options.timeoutMillis ?? DEFAULT_TIMEOUT_MILLIS
   const makeNonce = options.nonce ?? (() => crypto.randomUUID())
@@ -205,3 +203,5 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
 
   return client as IpcClientOf<C>
 }
+
+const DEFAULT_TIMEOUT_MILLIS = 10_000

@@ -10,8 +10,6 @@ import { BackendUnavailable } from "../errors"
 import { acquireClient, type ExpandRpcClientApi } from "../rpc-client"
 import { supervised } from "../supervise"
 
-export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
-
 // Mutations take raw strings and forward them to the backend, which validates
 // at its ingestion boundary (invalid input returns ProjectInvalidInput). The
 // store never brands or validates — it only mirrors the server's event stream.
@@ -62,30 +60,7 @@ export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreApi>
   "expand/ProjectStore"
 ) {}
 
-const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
-  Schedule.either(Schedule.spaced("5 seconds"))
-)
-
-const withConnectionHooks = (
-  adapter: RuntimeAdapter,
-  status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
-): RuntimeAdapter => ({
-  ...adapter,
-  protocolLayer: (url: string) =>
-    adapter.protocolLayer(url).pipe(
-      Layer.provide(
-        Layer.succeed(RpcClient.ConnectionHooks, {
-          onConnect: Effect.void,
-          onDisconnect: SubscriptionRef.set(status, "reconnecting")
-        })
-      )
-    )
-})
-
-const toUnavailable = (e: { readonly _tag: string }): BackendUnavailable =>
-  e._tag === "BackendUnavailable"
-    ? (e as BackendUnavailable)
-    : new BackendUnavailable({ reason: String(e) })
+export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
 /**
  * Bridge a {@link SubscriptionRef} to an imperative callback: fork a fiber (into
@@ -113,6 +88,36 @@ export const subscribeRef = <A>(
       Effect.runFork(Fiber.interrupt(fiber))
     }
   )
+
+export const ProjectStoreLayer = (
+  adapter: RuntimeAdapter
+): Layer.Layer<ProjectStore, BackendUnavailable, FileSystem.FileSystem> =>
+  Layer.effect(ProjectStore, makeStore(adapter))
+
+const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
+  Schedule.either(Schedule.spaced("5 seconds"))
+)
+
+const withConnectionHooks = (
+  adapter: RuntimeAdapter,
+  status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
+): RuntimeAdapter => ({
+  ...adapter,
+  protocolLayer: (url: string) =>
+    adapter.protocolLayer(url).pipe(
+      Layer.provide(
+        Layer.succeed(RpcClient.ConnectionHooks, {
+          onConnect: Effect.void,
+          onDisconnect: SubscriptionRef.set(status, "reconnecting")
+        })
+      )
+    )
+})
+
+const toUnavailable = (e: { readonly _tag: string }): BackendUnavailable =>
+  e._tag === "BackendUnavailable"
+    ? (e as BackendUnavailable)
+    : new BackendUnavailable({ reason: String(e) })
 
 const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   ProjectStoreApi,
@@ -229,8 +234,3 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
       subscribe: (onProjects) => subscribeRef(projects, scope, onProjects)
     }
   })
-
-export const ProjectStoreLayer = (
-  adapter: RuntimeAdapter
-): Layer.Layer<ProjectStore, BackendUnavailable, FileSystem.FileSystem> =>
-  Layer.effect(ProjectStore, makeStore(adapter))

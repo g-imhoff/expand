@@ -24,6 +24,27 @@ export class ProjectNotFoundCli extends Data.TaggedError("ProjectNotFoundCli")<{
   }
 }
 
+export type ProjectCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli | DirectoryInvalidCli | DirectoryConflictCli | InvalidInputCli
+
+export const mapProjectError = (e: unknown): ProjectCliError | undefined => {
+  switch (tagOf(e)) {
+    case "ProjectAlreadyExists":
+      return new ProjectExists({ name: (e as { name: string }).name })
+    case "ProjectInvalidInput":
+      return new InvalidInputCli({ field: (e as { field: string }).field, reason: (e as { reason: string }).reason })
+    case "ProjectNotFound":
+      return new ProjectNotFoundCli({ id: (e as { id: string }).id })
+    case "ProjectNameConflict":
+      return new NameConflictCli({ name: (e as { name: string }).name })
+    case "ProjectDirectoryInvalid":
+      return new DirectoryInvalidCli({ directory: (e as { directory: string }).directory, reason: (e as { reason: string }).reason })
+    case "ProjectDirectoryConflict":
+      return new DirectoryConflictCli({ directory: (e as { directory: string }).directory })
+    default:
+      return undefined
+  }
+}
+
 class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ readonly name: string }> {
   readonly [Runtime.errorExitCode] = 8
   readonly [Runtime.errorReported] = false
@@ -65,26 +86,5 @@ class InvalidInputCli extends Data.TaggedError("InvalidInputCli")<{ readonly fie
       input: { field: this.field, reason: this.reason },
       hint: "names and tags must match ^[a-z0-9][a-z0-9-]{0,63}$; descriptions are capped at 2048 chars"
     })
-  }
-}
-
-export type ProjectCliError = ProjectExists | ProjectNotFoundCli | NameConflictCli | DirectoryInvalidCli | DirectoryConflictCli | InvalidInputCli
-
-export const mapProjectError = (e: unknown): ProjectCliError | undefined => {
-  switch (tagOf(e)) {
-    case "ProjectAlreadyExists":
-      return new ProjectExists({ name: (e as { name: string }).name })
-    case "ProjectInvalidInput":
-      return new InvalidInputCli({ field: (e as { field: string }).field, reason: (e as { reason: string }).reason })
-    case "ProjectNotFound":
-      return new ProjectNotFoundCli({ id: (e as { id: string }).id })
-    case "ProjectNameConflict":
-      return new NameConflictCli({ name: (e as { name: string }).name })
-    case "ProjectDirectoryInvalid":
-      return new DirectoryInvalidCli({ directory: (e as { directory: string }).directory, reason: (e as { reason: string }).reason })
-    case "ProjectDirectoryConflict":
-      return new DirectoryConflictCli({ directory: (e as { directory: string }).directory })
-    default:
-      return undefined
   }
 }

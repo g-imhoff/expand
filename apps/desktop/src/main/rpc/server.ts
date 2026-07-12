@@ -11,6 +11,15 @@ export interface MainPortLike {
   start: () => void
 }
 
+export const runRpcServer = (
+  port: MainPortLike
+): Effect.Effect<never, never, ProjectStore | Scope.Scope> =>
+  RpcServer.make(ExpandRpcs).pipe(
+    Effect.provide(DesktopRpcHandlers),
+    Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),
+    Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
+  )
+
 const makePortProtocol = (port: MainPortLike) =>
   RpcServer.Protocol.make(
     Effect.fnUntraced(function* (writeRequest) {
@@ -43,13 +52,4 @@ const makePortProtocol = (port: MainPortLike) =>
         supportsSpanPropagation: true
       }
     })
-  )
-
-export const runRpcServer = (
-  port: MainPortLike
-): Effect.Effect<never, never, ProjectStore | Scope.Scope> =>
-  RpcServer.make(ExpandRpcs).pipe(
-    Effect.provide(DesktopRpcHandlers),
-    Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),
-    Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )

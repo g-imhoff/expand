@@ -6,20 +6,22 @@ import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/_command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
 
-const target = Argument.string("project")
+export const deleteCommand = (() => {
+  const target = Argument.string("project")
 
-export const deleteCommand = defineCommand(
-  "delete",
-  { project: target },
-  {
-    envelope: (r: ProjectDeleteResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "ProjectDelete", data: r }),
-    text: (r: ProjectDeleteResult) => `deleted ${r.id}`,
-    quiet: (r: ProjectDeleteResult) => r.id
-  },
-  ({ project }): Effect.Effect<ProjectDeleteResult, unknown, ProjectClient> =>
-    Effect.gen(function* () {
-      const c = yield* ProjectClient
-      const id = yield* resolveProjectTarget(project)
-      return yield* c.delete({ id })
-    })
-)
+  return defineCommand(
+    "delete",
+    { project: target },
+    {
+      envelope: (r: ProjectDeleteResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "ProjectDelete", data: r }),
+      text: (r: ProjectDeleteResult) => `deleted ${r.id}`,
+      quiet: (r: ProjectDeleteResult) => r.id
+    },
+    ({ project }): Effect.Effect<ProjectDeleteResult, unknown, ProjectClient> =>
+      Effect.gen(function* () {
+        const c = yield* ProjectClient
+        const id = yield* resolveProjectTarget(project)
+        return yield* c.delete({ id })
+      })
+  )
+})()

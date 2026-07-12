@@ -4,17 +4,7 @@ import { SearchIcon } from "lucide-react"
 import { cn } from "../../lib/utils"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./dialog"
 
-const Command = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) => (
-  <CommandPrimitive
-    className={cn(
-      "bg-popover text-popover-foreground flex h-full w-full flex-col overflow-hidden rounded-md",
-      className
-    )}
-    {...props}
-  />
-)
-
-const CommandDialog = ({
+export const CommandDialog = ({
   title = "Command Palette",
   description = "Search for a command to run…",
   children,
@@ -40,7 +30,7 @@ const CommandDialog = ({
   </Dialog>
 )
 
-const CommandInput = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Input>) => (
+export const CommandInput = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Input>) => (
   <div className="flex h-9 items-center gap-2 border-b px-3" cmdk-input-wrapper="">
     <SearchIcon className="size-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
@@ -53,22 +43,22 @@ const CommandInput = ({ className, ...props }: React.ComponentProps<typeof Comma
   </div>
 )
 
-const CommandList = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) => (
+export const CommandList = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) => (
   <CommandPrimitive.List
     className={cn("max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto", className)}
     {...props}
   />
 )
 
-const CommandEmpty = (props: React.ComponentProps<typeof CommandPrimitive.Empty>) => (
+export const CommandEmpty = (props: React.ComponentProps<typeof CommandPrimitive.Empty>) => (
   <CommandPrimitive.Empty className="py-6 text-center text-sm" {...props} />
 )
 
-const CommandGroup = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Group>) => (
+export const CommandGroup = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Group>) => (
   <CommandPrimitive.Group className={cn("text-foreground overflow-hidden p-1", className)} {...props} />
 )
 
-const CommandItem = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Item>) => (
+export const CommandItem = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Item>) => (
   <CommandPrimitive.Item
     className={cn(
       "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50",
@@ -78,4 +68,12 @@ const CommandItem = ({ className, ...props }: React.ComponentProps<typeof Comman
   />
 )
 
-export { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList }
+const Command = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive>) => (
+  <CommandPrimitive
+    className={cn(
+      "bg-popover text-popover-foreground flex h-full w-full flex-col overflow-hidden rounded-md",
+      className
+    )}
+    {...props}
+  />
+)

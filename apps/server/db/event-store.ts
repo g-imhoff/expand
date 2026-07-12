@@ -40,21 +40,6 @@ export interface EventStorePrimitives {
   readonly scan: (options?: ScanOptions) => Stream.Stream<SequencedEvent, SqlError>
 }
 
-/**
- * Chunk granularity for keyset scans.
- *
- * @remarks
- * Read once when a store is built, not per call. Production always runs the
- * default; tests and the bench override it via
- * `Layer.succeed(EventScanChunkSize, n)`. A tuning knob, not a capability —
- * overriding it is semantics-preserving.
- *
- * @defaultValue 1000
- */
-export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChunkSize", {
-  defaultValue: () => 1000
-})
-
 /** Options for {@link EventStorePrimitives.scan}. */
 export interface ScanOptions {
   /**
@@ -71,6 +56,21 @@ export interface ScanOptions {
    */
   readonly eventTypes?: ReadonlyArray<DomainEvent["_tag"]>
 }
+
+/**
+ * Chunk granularity for keyset scans.
+ *
+ * @remarks
+ * Read once when a store is built, not per call. Production always runs the
+ * default; tests and the bench override it via
+ * `Layer.succeed(EventScanChunkSize, n)`. A tuning knob, not a capability —
+ * overriding it is semantics-preserving.
+ *
+ * @defaultValue 1000
+ */
+export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChunkSize", {
+  defaultValue: () => 1000
+})
 
 /**
  * The only door to the raw event-log primitives.

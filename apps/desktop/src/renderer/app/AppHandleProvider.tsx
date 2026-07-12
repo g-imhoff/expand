@@ -1,8 +1,6 @@
 import { createContext, type ReactNode, use } from "react"
 import type { AppHandle } from "@expand/desktop/renderer/app/app-handle"
 
-const AppHandleContext = createContext<AppHandle | null>(null)
-
 export const AppHandleProvider = ({ value, children }: { value: AppHandle; children: ReactNode }) => (
   <AppHandleContext.Provider value={value}>{children}</AppHandleContext.Provider>
 )
@@ -12,3 +10,5 @@ export const useAppHandle = (): AppHandle => {
   if (handle === null) throw new Error("useAppHandle must be used within <AppHandleProvider>")
   return handle
 }
+
+const AppHandleContext = createContext<AppHandle | null>(null)

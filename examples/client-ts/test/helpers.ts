@@ -3,9 +3,18 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
-const examplesDir = join(fileURLToPath(import.meta.url), "..", "..")
-
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
+
+export interface ExampleHandle {
+  /** Kill the process and await its exit, so cleanup never races the dying backend. */
+  readonly kill: () => Promise<void>
+  /**
+   * Resolve once a stdout line containing `substr` has appeared (matches lines
+   * seen before the call too). Rejects on `timeoutMs` or if the process exits
+   * first without emitting a matching line.
+   */
+  readonly waitForLine: (substr: string, timeoutMs: number) => Promise<void>
+}
 
 /** Create an isolated, caller-owned data dir. Caller removes it (e.g. `rmSync(..., { recursive: true })`). */
 export const makeDataDir = (): string => mkdtempSync(join(tmpdir(), "expand-ex-"))
@@ -36,17 +45,6 @@ export const runExample = async (
   } finally {
     if (owned) rmSync(dir, { recursive: true, force: true })
   }
-}
-
-export interface ExampleHandle {
-  /** Kill the process and await its exit, so cleanup never races the dying backend. */
-  readonly kill: () => Promise<void>
-  /**
-   * Resolve once a stdout line containing `substr` has appeared (matches lines
-   * seen before the call too). Rejects on `timeoutMs` or if the process exits
-   * first without emitting a matching line.
-   */
-  readonly waitForLine: (substr: string, timeoutMs: number) => Promise<void>
 }
 
 /**
@@ -131,3 +129,5 @@ export const makeFixtureDir = (subdirs: ReadonlyArray<string>): string => {
   for (const s of subdirs) mkdirSync(join(dir, s))
   return dir
 }
+
+const examplesDir = join(fileURLToPath(import.meta.url), "..", "..")

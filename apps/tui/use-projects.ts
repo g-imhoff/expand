@@ -4,30 +4,6 @@ import { ProjectStore } from "@expand/client-ts/project"
 import type { Project } from "@expand/contracts/project"
 import { RuntimeContext } from "@expand/tui/runtime"
 
-const describeError = (cause: unknown): string => {
-  if (typeof cause === "object" && cause !== null && "_tag" in cause) {
-    const tagged = cause as { _tag: string } & Record<string, unknown>
-    switch (tagged._tag) {
-      case "ProjectNameConflict":
-      case "ProjectAlreadyExists":
-        return `name conflict: "${String(tagged.name)}" already exists`
-      case "ProjectNotFound":
-        return `project not found: ${String(tagged.id)}`
-      case "ProjectDirectoryInvalid":
-        return `invalid directory ${String(tagged.directory)}: ${String(tagged.reason)}`
-      case "ProjectDirectoryConflict":
-        return `directory conflict: ${String(tagged.directory)} is already used by another project`
-      case "ProjectInvalidInput":
-        return `invalid ${String(tagged.field)}: ${String(tagged.reason)}`
-      case "SchemaError":
-        return `invalid input: ${Schema.isSchemaError(cause) ? cause.message : String(tagged._tag)}`
-      default:
-        return cause instanceof Error ? cause.message : String(tagged._tag)
-    }
-  }
-  return cause instanceof Error ? cause.message : String(cause)
-}
-
 export const useProjects = () => {
   const runtime = use(RuntimeContext)
   if (!runtime) throw new Error("useProjects must be used within a RuntimeContext")
@@ -85,4 +61,28 @@ export const useProjects = () => {
   const clearError = useCallback(() => setError(null), [])
 
   return { projects, error, clearError, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject }
+}
+
+const describeError = (cause: unknown): string => {
+  if (typeof cause === "object" && cause !== null && "_tag" in cause) {
+    const tagged = cause as { _tag: string } & Record<string, unknown>
+    switch (tagged._tag) {
+      case "ProjectNameConflict":
+      case "ProjectAlreadyExists":
+        return `name conflict: "${String(tagged.name)}" already exists`
+      case "ProjectNotFound":
+        return `project not found: ${String(tagged.id)}`
+      case "ProjectDirectoryInvalid":
+        return `invalid directory ${String(tagged.directory)}: ${String(tagged.reason)}`
+      case "ProjectDirectoryConflict":
+        return `directory conflict: ${String(tagged.directory)} is already used by another project`
+      case "ProjectInvalidInput":
+        return `invalid ${String(tagged.field)}: ${String(tagged.reason)}`
+      case "SchemaError":
+        return `invalid input: ${Schema.isSchemaError(cause) ? cause.message : String(tagged._tag)}`
+      default:
+        return cause instanceof Error ? cause.message : String(tagged._tag)
+    }
+  }
+  return cause instanceof Error ? cause.message : String(cause)
 }

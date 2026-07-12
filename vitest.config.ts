@@ -10,6 +10,7 @@ export default defineConfig({
       "packages/**/test/**/*.test.tsx",
       "test/architecture/**/*.test.ts",
       "scripts/**/*.test.ts",
+      "test/eslint/**/*.test.mjs",
       "examples/**/*.test.ts"
     ],
     setupFiles: ["apps/desktop/test/ui/setup.ts"],

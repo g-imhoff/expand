@@ -6,13 +6,6 @@ import {
   DialogTitle
 } from "@expand/desktop/renderer/components/ui/dialog"
 
-const describeError = (error: unknown): string => {
-  if (typeof error === "object" && error !== null && "_tag" in error) {
-    return String((error as { _tag: unknown })._tag)
-  }
-  return String(error)
-}
-
 export interface DeleteProjectDialogProps {
   readonly open: boolean
   readonly projectName: string
@@ -48,3 +41,10 @@ export const DeleteProjectDialog = ({
     </DialogContent>
   </Dialog>
 )
+
+const describeError = (error: unknown): string => {
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    return String((error as { _tag: unknown })._tag)
+  }
+  return String(error)
+}

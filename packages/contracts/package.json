@@ -5,6 +5,7 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./events/domain-event": null,
     "./*": "./*.ts",
     "./package.json": "./package.json"
   },
