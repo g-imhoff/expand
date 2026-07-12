@@ -146,11 +146,6 @@ const acquireLease = (input: string): StateRootLease => {
   const retry = createLease(path)
   if (retry !== undefined) return retry
 
-  const replacement = readOwner(path)
-  if (replacement !== undefined && isProcessAlive(replacement.pid)) {
-    throw liveOwnerError(dataDir, replacement.pid)
-  }
-
   throw new StateRootLockError({
     dataDir,
     reason: "state root ownership changed while the backend was starting"
