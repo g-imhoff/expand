@@ -1,4 +1,4 @@
-import { defineConfig, type TestProjectInlineConfiguration } from "vitest/config"
+import { configDefaults, defineConfig, type TestProjectInlineConfiguration } from "vitest/config"
 
 export const testInclude = [
   "apps/**/test/**/*.test.ts",
@@ -23,7 +23,7 @@ export const normalTestProject = {
   test: {
     name: "normal",
     include: testInclude,
-    exclude: processHeavyTestInclude,
+    exclude: [...configDefaults.exclude, ...processHeavyTestInclude],
     sequence: { groupOrder: 0 }
   }
 } satisfies TestProjectInlineConfiguration

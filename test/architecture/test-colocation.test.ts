@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { configDefaults } from "vitest/config"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import vitestConfig, {
@@ -48,7 +49,7 @@ describe("test colocation", () => {
       test: {
         name: "normal",
         include: testInclude,
-        exclude: processHeavyTestInclude,
+        exclude: [...configDefaults.exclude, ...processHeavyTestInclude],
         sequence: { groupOrder: 0 }
       }
     })
@@ -67,6 +68,13 @@ describe("test colocation", () => {
     })
     expect(vitestConfig.test).not.toHaveProperty("include")
     expect(normalTestProject.test.name).not.toBe(processHeavyTestProject.test.name)
+  })
+
+  it("preserves Vitest default exclusions in the normal project", () => {
+    expect(normalTestProject.test.exclude).toEqual([
+      ...configDefaults.exclude,
+      ...processHeavyTestInclude
+    ])
   })
 
   it("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () => {
