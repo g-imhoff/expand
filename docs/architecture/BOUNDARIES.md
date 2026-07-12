@@ -114,18 +114,23 @@ silently desynchronizes the system. Separate roots do not share those
 resources and therefore do not require a machine-wide singleton.
 
 **Enforcement.** I-1 and the backend-ownership fitness test statically
-confine `AppLayer` construction to `apps/server`. Runtime uniqueness is
-enforced by `<state-root>/backend.lock`, acquired after default-home
-migration and before the logger, database, or `AppLayer` starts, then held
-for the backend's scoped lifetime. An advertised live owner rejects a second
-backend. If the live owner has already removed its endpoint while finishing
-shutdown, startup waits up to four seconds for that owner to release the lease
-and acquires only after release, so no two backends overlap. A dead owner is
+confine `AppLayer` construction to `apps/server`. For either channel's default
+root, startup first acquires the shared external
+`<home>/.expand-locks/legacy-migration.lock`, performs migration, fails closed
+with the recoverable legacy or staging path if required data remains unresolved,
+then acquires `<state-root>/backend.lock`; only after that lifetime lease exists
+does it release the migration guard. Non-default roots bypass the guard and
+migration. A live migration-guard handoff is bounded to four seconds and fails
+closed if the owner never releases. The root lease is acquired before the logger, database, or `AppLayer`
+starts and is held for the backend's scoped lifetime. An advertised live owner
+rejects a second backend. If the live owner has already removed its endpoint
+while finishing shutdown, startup waits up to four seconds for that owner to
+release the lease and acquires only after release, so no two backends overlap. A dead owner is
 reclaimed only when its valid PID/token record remains the same owner and
 filesystem inode; malformed, incomplete, replaced, or changing ownership
 evidence fails closed without entering the handoff wait. Release removes only
-the matching PID/token lease. The per-root `server.json.lock` in I-3
-coordinates client spawns but does not enforce backend lifetime ownership.
+the matching PID/token lease. The derived client spawn lock in I-3 coordinates
+spawns but does not enforce backend lifetime ownership.
 
 ---
 
@@ -141,11 +146,15 @@ selected the same state converge on one backend while preserving intentional
 isolation and concurrency between different roots.
 
 **Enforcement.** Discovery, endpoint polling, the spawn lock, and the
-backend spawn argument all derive from the same `AppContext`. Exclusive
-creation of `<state-root>/server.json.lock` selects one cooperating client
-to spawn while the others wait; stale spawn locks are recoverable. The
-server's separate `backend.lock` remains the authoritative runtime singleton
-for the root.
+backend spawn argument all derive from the same normalized `AppContext`.
+The normalized default root uses the channel-specific external
+`<home>/.expand-locks/expand[-dev].spawn.lock`, including when explicitly
+selected; every non-default root uses `<state-root>/server.json.lock`.
+Ownership-safe atomic publication selects one cooperating client to spawn while
+the others wait. Dead current and legacy owners are reclaimed only through
+unchanged record and inode evidence; live, malformed, incomplete, or changing
+evidence fails closed. The server's separate `backend.lock` remains the
+authoritative runtime singleton for the root.
 
 ---
 

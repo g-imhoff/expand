@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -134,6 +134,11 @@ autospawn_guardian() {
   local attempt
   guardian_group="$(original_read_process_group "$BASHPID")"
   printf '{}\n' > "$output_file"
+  case "$LINGERING_STATE" in
+    endpoint) write_private_file "$ENDPOINT_FILE" '{}' ;;
+    endpoint-lock) write_private_file "$ENDPOINT_LOCK_FILE" lock ;;
+    backend-lock) write_private_file "$BACKEND_LOCK_FILE" lock ;;
+  esac
   case "$EVIDENCE_MODE" in
     valid) write_private_file "$GUARDIAN_EVIDENCE_FILE" "606060 $guardian_group" ;;
     malformed) write_private_file "$GUARDIAN_EVIDENCE_FILE" malformed ;;
@@ -141,11 +146,6 @@ autospawn_guardian() {
   case "$STATUS_MODE" in
     valid) write_private_file "$GUARDIAN_STATUS_FILE" 23 ;;
     malformed) write_private_file "$GUARDIAN_STATUS_FILE" invalid ;;
-  esac
-  case "$LINGERING_STATE" in
-    endpoint) write_private_file "$ENDPOINT_FILE" '{}' ;;
-    endpoint-lock) write_private_file "$ENDPOINT_LOCK_FILE" lock ;;
-    backend-lock) write_private_file "$BACKEND_LOCK_FILE" lock ;;
   esac
   for ((attempt = 0; attempt < 200; attempt++)); do
     [[ -f "$GUARDIAN_RELEASE_FILE" ]] && return 23
@@ -675,15 +675,15 @@ wait() {
 await_autospawn_departure
 status=0
 release_guardian || status=$?
-mode="$(stat -c '%a' "$GUARDIAN_RELEASE_FILE")"
-printf 'status:%s guardian:%s job:%s mode:%s\n' "$status" "$GUARDIAN_EXIT_STATUS" "$SERVER_JOB_SPEC" "$mode"
+printf 'status:%s guardian:%s job:%s\n' "$status" "$GUARDIAN_EXIT_STATUS" "$SERVER_JOB_SPEC"
 `
 
     try {
       const result = await runShell(script)
       expect(result.exitCode).toBe(0)
-      expect(result.stdout).toBe("wait:%9\nstatus:0 guardian:17 job: mode:600\n")
+      expect(result.stdout).toBe("wait:%9\nstatus:0 guardian:17 job:\n")
       expect(result.stderr).toBe("")
+      expect((await stat(join(dataDir, "autospawn-guardian.release"))).mode & 0o777).toBe(0o600)
     } finally {
       await rm(root, { force: true, recursive: true })
     }

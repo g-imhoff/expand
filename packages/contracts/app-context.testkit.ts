@@ -19,7 +19,8 @@ export const makeTestAppContext = (dir: string): TestAppContext => {
       dataDir: dir,
       dbPath: join(dir, "events.db"),
       endpointFile: join(dir, "server.json"),
-      logDir: join(dir, "logs")
+      logDir: join(dir, "logs"),
+      spawnLockFile: join(dir, "server.json.lock")
     }
   }
   return { layer: Layer.succeed(AppContext, ctx), ctx, paths: ctx.paths }

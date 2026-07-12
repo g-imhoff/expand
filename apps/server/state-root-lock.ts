@@ -12,7 +12,7 @@ import {
   statSync,
   writeFileSync
 } from "node:fs"
-import { join, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 export interface StateRootLease {
   readonly path: string
@@ -31,16 +31,40 @@ export const acquireStateRootLock = (
   dataDir: string
 ): Effect.Effect<StateRootLease, StateRootLockError> =>
   Effect.try({
-    try: () => acquireLease(dataDir),
+    try: () => {
+      const normalizedDataDir = resolve(dataDir)
+      secureDirectory(normalizedDataDir)
+      return acquireLease(join(normalizedDataDir, LOCK_FILE), normalizedDataDir)
+    },
     catch: (error) => asStateRootLockError(resolve(dataDir), error)
   })
 
+export const acquireOwnershipLock = (
+  lockPath: string
+): Effect.Effect<StateRootLease, StateRootLockError> => {
+  const normalizedPath = resolve(lockPath)
+  const ownerDirectory = dirname(normalizedPath)
+  return Effect.try({
+    try: () => {
+      secureDirectory(ownerDirectory)
+      return acquireLease(normalizedPath, ownerDirectory)
+    },
+    catch: (error) => asStateRootLockError(ownerDirectory, error)
+  })
+}
+
+export const acquireCoordinationLock = (
+  lockPath: string
+): Effect.Effect<StateRootLease, StateRootLockError> =>
+  Effect.flatMap(
+    Effect.sync(() => Date.now() + HANDOFF_TIMEOUT_MS),
+    (deadline) => acquireCoordinationLockUntil(resolve(lockPath), deadline)
+  )
+
 export const releaseStateRootLock = (lease: StateRootLease): Effect.Effect<void> =>
   Effect.sync(() => {
-    const owner = readOwner(lease.path)
-    if (owner?.pid !== lease.pid || owner.token !== lease.token) return
     try {
-      rmSync(lease.path)
+      removeOwner(lease.path, { pid: lease.pid, token: lease.token })
     } catch {}
   })
 
@@ -79,6 +103,31 @@ const acquireStartupLease = (
 ): Effect.Effect<StateRootLease, StateRootLockError> =>
   acquireStateRootLock(dataDir).pipe(
     Effect.catch((error) => retryLiveOwner(dataDir, endpointFile, deadline, error))
+  )
+
+const acquireCoordinationLockUntil = (
+  lockPath: string,
+  deadline: number
+): Effect.Effect<StateRootLease, StateRootLockError> =>
+  Effect.suspend(() =>
+    acquireOwnershipLock(lockPath).pipe(
+      Effect.catch((error) => {
+        if (error.kind !== "live-owner") return Effect.fail(error)
+        if (Date.now() >= deadline) {
+          return Effect.fail(new StateRootLockError({
+            dataDir: dirname(lockPath),
+            kind: "handoff-timeout",
+            ...(error.ownerPid === undefined ? {} : { ownerPid: error.ownerPid }),
+            reason: error.ownerPid === undefined
+              ? "coordination lock handoff timed out"
+              : `coordination lock handoff timed out waiting for process ${String(error.ownerPid)}`
+          }))
+        }
+        return Effect.sleep(HANDOFF_RETRY_INTERVAL).pipe(
+          Effect.andThen(acquireCoordinationLockUntil(lockPath, deadline))
+        )
+      })
+    )
   )
 
 const retryLiveOwner = (
@@ -124,11 +173,7 @@ const endpointIsAdvertised = (
     catch: (error) => asStateRootLockError(dataDir, error)
   })
 
-const acquireLease = (input: string): StateRootLease => {
-  const dataDir = resolve(input)
-  const path = join(dataDir, LOCK_FILE)
-  secureStateRoot(dataDir)
-
+const acquireLease = (path: string, dataDir: string): StateRootLease => {
   const first = createLease(path)
   if (first !== undefined) return first
 
@@ -141,7 +186,12 @@ const acquireLease = (input: string): StateRootLease => {
   }
   if (isProcessAlive(staleOwner.pid)) throw liveOwnerError(dataDir, staleOwner.pid)
 
-  reclaimStaleOwner(path, staleOwner)
+  if (!removeOwner(path, staleOwner)) {
+    throw new StateRootLockError({
+      dataDir,
+      reason: "state root ownership changed while the backend was starting"
+    })
+  }
 
   const retry = createLease(path)
   if (retry !== undefined) return retry
@@ -208,31 +258,37 @@ const asStateRootLockError = (dataDir: string, error: unknown): StateRootLockErr
         reason: error instanceof Error ? error.message : String(error)
       })
 
-const secureStateRoot = (dataDir: string): void => {
-  mkdirSync(dataDir, { recursive: true, mode: 0o700 })
-  chmodSync(dataDir, 0o700)
+const secureDirectory = (directory: string): void => {
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  chmodSync(directory, 0o700)
 }
 
-const reclaimStaleOwner = (path: string, staleOwner: LockOwner): void => {
+const removeOwner = (path: string, staleOwner: LockOwner): boolean => {
   const claimPath = `${path}.reclaim.${staleOwner.token}`
 
   try {
     linkSync(path, claimPath)
   } catch (error) {
-    if (isNodeError(error) && (error.code === "EEXIST" || error.code === "ENOENT")) return
+    if (isNodeError(error) && (error.code === "EEXIST" || error.code === "ENOENT")) return false
     throw error
   }
 
   try {
+    chmodSync(claimPath, 0o600)
     const claimedOwner = readOwner(claimPath)
     const canonicalOwner = readOwner(path)
-    if (!sameOwner(claimedOwner, staleOwner) || !sameOwner(canonicalOwner, staleOwner)) return
+    if (!sameOwner(claimedOwner, staleOwner) || !sameOwner(canonicalOwner, staleOwner)) return false
 
     const claim = statSync(claimPath)
     const canonical = statSync(path)
-    if (claim.dev !== canonical.dev || claim.ino !== canonical.ino) return
+    if (claim.dev !== canonical.dev || claim.ino !== canonical.ino) return false
 
-    rmSync(path)
+    try {
+      rmSync(path)
+      return true
+    } catch {
+      return false
+    }
   } finally {
     rmSync(claimPath, { force: true })
   }

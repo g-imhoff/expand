@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Deferred, Effect, Fiber, FileSystem, Option } from "effect"
 import { TestClock } from "effect/testing"
 import { BunServices } from "@effect/platform-bun"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { findOrSpawnBackend } from "../../spawn"
 import { bunAdapter } from "../../adapters/bun"
+import { AppContext } from "@expand/contracts/app-context"
 import { type Endpoint, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { makeTestAppContext } from "@expand/contracts/app-context.testkit"
 import { Layer } from "effect"
@@ -67,6 +68,38 @@ describe("findOrSpawnBackend", () => {
 
     expect(spawnCount).toBe(1)
     expect(endpoints).toEqual([endpoint, endpoint])
+  })
+
+  it("holds the default external lease without creating the nested target before spawn", async () => {
+    const dataDir = join(dir, ".expand", "expand-dev")
+    const context = makeTestAppContext(dataDir)
+    const externalLock = join(dir, ".expand-locks", "expand-dev.spawn.lock")
+    const paths = { ...context.paths, spawnLockFile: externalLock }
+    const endpoint = {
+      url: "ws://127.0.0.1:51795/rpc",
+      token: "external-default",
+      pid: process.pid,
+      protocolVersion: PROTOCOL_VERSION
+    }
+    const adapter = {
+      ...bunAdapter,
+      spawnBackend: () => Effect.sync(() => {
+        expect(existsSync(dataDir)).toBe(false)
+        expect(existsSync(externalLock)).toBe(true)
+        mkdirSync(dataDir, { recursive: true })
+        writeFileSync(paths.endpointFile, JSON.stringify(endpoint))
+      })
+    }
+
+    const actual = await Effect.runPromise(
+      findOrSpawnBackend(adapter).pipe(
+        Effect.provide(BunServices.layer),
+        Effect.provide(Layer.succeed(AppContext, { channel: context.ctx.channel, paths }))
+      )
+    )
+
+    expect(actual).toEqual(endpoint)
+    expect(existsSync(externalLock)).toBe(false)
   })
 
   it("spawns independently for different state roots", async () => {
@@ -204,7 +237,7 @@ describe("findOrSpawnBackend", () => {
   // re-spawned (pre-fix). The acquire must now detect the dead-pid lock as stale,
   // clear it, and proceed to spawn instead of waiting out the timeout and failing.
   it("recovers from a stale (dead-pid) spawn lock with no server.json", async () => {
-    const lockPath = `${makeTestAppContext(dir).paths.endpointFile}.lock`
+    const lockPath = makeTestAppContext(dir).paths.spawnLockFile
     // Orphaned lock: a dead pid (out-of-range -> ESRCH -> treated as dead). No
     // server.json exists, so readEndpoint is None and we go straight to acquire.
     writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, startedAt: Date.now() }))

@@ -8,6 +8,7 @@ export interface AppPath {
   readonly dbPath: string
   readonly endpointFile: string
   readonly logDir: string
+  readonly spawnLockFile: string
 }
 
 export interface AppContextShape {
@@ -15,12 +16,20 @@ export interface AppContextShape {
   readonly paths: AppPath
 }
 
-export const defaultDataDir = (): string => join(homedir(), NAMES.home, NAMES.channel[channel])
+export const defaultDataDir = (selectedChannel: Channel = channel): string =>
+  join(homedir(), NAMES.home, NAMES.channel[selectedChannel])
 
-export const makeAppContext = (dataDir?: string): AppContextShape => ({
-  channel,
-  paths: derivePaths(resolve(dataDir ?? defaultDataDir()))
-})
+export const makeAppContext = (
+  dataDir?: string,
+  selectedChannel: Channel = channel
+): AppContextShape => {
+  const defaultDir = resolve(defaultDataDir(selectedChannel))
+  const base = resolve(dataDir ?? defaultDir)
+  return {
+    channel: selectedChannel,
+    paths: derivePaths(base, defaultDir, selectedChannel)
+  }
+}
 
 export const AppContext = Context.Reference<AppContextShape>("expand/AppContext", {
   defaultValue: () => makeAppContext(processDataDir())
@@ -31,14 +40,19 @@ const NAMES = {
   channel: { dev: "expand-dev", release: "expand" },
   db: "events.db",
   endpoint: "server.json",
-  logs: "logs"
+  logs: "logs",
+  coordination: ".expand-locks",
+  spawnLock: { dev: "expand-dev.spawn.lock", release: "expand.spawn.lock" }
 } as const
 
-const derivePaths = (base: string): AppPath => ({
+const derivePaths = (base: string, defaultDir: string, selectedChannel: Channel): AppPath => ({
   dataDir: base,
   dbPath: join(base, NAMES.db),
   endpointFile: join(base, NAMES.endpoint),
-  logDir: join(base, NAMES.logs)
+  logDir: join(base, NAMES.logs),
+  spawnLockFile: base === defaultDir
+    ? join(homedir(), NAMES.coordination, NAMES.spawnLock[selectedChannel])
+    : join(base, `${NAMES.endpoint}.lock`)
 })
 
 const processDataDir = (): string | undefined => {

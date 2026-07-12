@@ -13,7 +13,8 @@ describe("AppContext", () => {
       dataDir: "/tmp/x",
       dbPath: join("/tmp/x", "events.db"),
       endpointFile: join("/tmp/x", "server.json"),
-      logDir: join("/tmp/x", "logs")
+      logDir: join("/tmp/x", "logs"),
+      spawnLockFile: join("/tmp/x", "server.json.lock")
     })
   })
 
@@ -28,9 +29,28 @@ describe("AppContext", () => {
         dataDir: "/tmp/expand-agent-data",
         dbPath: "/tmp/expand-agent-data/events.db",
         endpointFile: "/tmp/expand-agent-data/server.json",
-        logDir: "/tmp/expand-agent-data/logs"
+        logDir: "/tmp/expand-agent-data/logs",
+        spawnLockFile: "/tmp/expand-agent-data/server.json.lock"
       }
     })
+  })
+
+  it.each([
+    ["dev", "expand-dev.spawn.lock"],
+    ["release", "expand.spawn.lock"]
+  ] as const)("derives the external %s spawn lock for the implicit default root", (selectedChannel, lockName) => {
+    expect(makeAppContext(undefined, selectedChannel).paths.spawnLockFile).toBe(
+      join(homedir(), ".expand-locks", lockName)
+    )
+  })
+
+  it.each([
+    ["dev", "expand-dev.spawn.lock"],
+    ["release", "expand.spawn.lock"]
+  ] as const)("derives the external %s spawn lock for an explicit equal default root", (selectedChannel, lockName) => {
+    expect(makeAppContext(defaultDataDir(selectedChannel), selectedChannel).paths.spawnLockFile).toBe(
+      join(homedir(), ".expand-locks", lockName)
+    )
   })
 
   it("normalizes a relative production directory", () => {

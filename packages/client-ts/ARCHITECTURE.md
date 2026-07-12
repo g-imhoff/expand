@@ -43,10 +43,10 @@ connection story, and it has two stages.
 ```
 findOrSpawnBackend:
   readEndpoint              → if a valid live endpoint file exists, REUSE it (return, no spawn)
-  else tryAcquireLock       → grab an exclusive .lock file
+  else acquireSpawnLock     → attempt an ownership-safe lease
     if NOT acquired         → someone else is spawning → just awaitEndpoint
-    if acquired             → adapter.spawnBackend, then awaitEndpoint
-                              (Effect.ensuring(releaseLock) — lock always freed)
+    if lease acquired       → adapter.spawnBackend, then awaitEndpoint
+                              (Effect.ensuring(releaseSpawnLock) — own lease always freed)
 ```
 
 - **`readEndpoint`** (`discovery.ts`) reads the selected state root's endpoint
@@ -55,21 +55,27 @@ findOrSpawnBackend:
   invalid → `protocolVersion !== PROTOCOL_VERSION` → **PID not alive**
   (`process.kill(pid, 0)`, `isProcessAlive` in `discovery.ts`). Only a file that survives all
   gates counts as a running backend.
-- **The lock dance** (`tryAcquireLock`/`createLockOnce` in `spawn.ts`) prevents a thundering herd of spawns for one state root.
-  `createLockOnce` uses `openSync(path, "wx")` — O_EXCL exclusive create, which
-  atomically fails if the file exists. If creation fails, `isLockStale()`
-  (`isLockStale` in `spawn.ts`) checks for a crashed spawner: lock older than 30s **or**
-  its recorded PID is dead → delete and retry once. So exactly one cooperating
-  client invokes `spawnBackend` for that root; the rest wait. Calls selecting
-  different roots use different locks and proceed independently.
+- **The lease dance** (`spawn-lock.ts`) prevents a thundering herd of spawns for one state root.
+  It writes and syncs a complete PID/start-time/UUID record to a private
+  same-directory candidate, then hard-links that inode into the canonical path.
+  A valid live owner remains contended regardless of age. A dead current owner,
+  or a dead tokenless legacy owner during upgrade, is removed only after a
+  deterministic claim proves the observed record and inode are unchanged;
+  malformed, incomplete, replaced, or changing evidence is left untouched.
+  Release repeats the record/inode proof so a delayed finalizer cannot unlink a
+  replacement. Exactly one cooperating client invokes `spawnBackend`; calls
+  selecting different roots use different lock paths and proceed independently.
 - **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 50ms
   (failing `"pending"` until it appears), with a 10s overall timeout →
   `BackendUnavailable("backend did not start in time")`.
 
-The client lock is `<state-root>/server.json.lock`: it coordinates startup but
-does not own the backend lifetime. The spawned server separately acquires
-`<state-root>/backend.lock` before building its `AppLayer`, so a second live
-backend targeting the same root is rejected even when launched manually.
+The normalized default root uses the external channel-specific
+`<home>/.expand-locks/expand[-dev].spawn.lock`, including an explicit selection
+equal to the default. Non-default roots use `<state-root>/server.json.lock`.
+The client lease coordinates startup but does not own the backend lifetime. The
+spawned server separately acquires `<state-root>/backend.lock` before building
+its `AppLayer`, so a second live backend targeting the same root is rejected
+even when launched manually.
 
 ### Stage B — connect and handshake (`acquireClient` in `rpc-client.ts`)
 

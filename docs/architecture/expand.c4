@@ -69,7 +69,7 @@ model {
       }
 
       cliDiscovery = component 'Backend discovery' {
-        description 'Finds or spawns the selected state root backend under its exclusive spawn lock.'
+        description 'Finds or spawns the selected state root backend under its ownership-safe derived spawn lock.'
       }
 
       cliEntry -> cliRpcClient 'dispatches'
@@ -148,7 +148,7 @@ model {
       }
 
       endpointFile = component 'Endpoint file' {
-        description 'Per-root server.json — URL, token, PID. Client startup is coordinated by server.json.lock; the endpoint is removed on shutdown.'
+        description 'Per-root server.json — URL, token, PID, protocolVersion. Client startup uses the derived spawn lock; the endpoint is removed on shutdown.'
       }
 
       rpcServer -> useCases            'queries / commands'

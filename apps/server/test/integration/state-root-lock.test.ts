@@ -82,6 +82,22 @@ describe("state root ownership (I-2)", () => {
     await Effect.runPromise(releaseStateRootLock(first))
   })
 
+  it("returns a handoff timeout when a live endpoint-absent owner never releases", async () => {
+    const endpointFile = join(dir, "server.json")
+    const first = await Effect.runPromise(acquireStateRootLock(dir))
+    const startedAt = performance.now()
+
+    const error = await Effect.runPromise(
+      Effect.scoped(Effect.flip(stateRootLockForStartup(dir, endpointFile)))
+    )
+
+    const elapsed = performance.now() - startedAt
+    expect(error).toMatchObject({ kind: "handoff-timeout", ownerPid: process.pid })
+    expect(elapsed).toBeGreaterThanOrEqual(3_900)
+    expect(elapsed).toBeLessThan(5_500)
+    await Effect.runPromise(releaseStateRootLock(first))
+  }, 7_000)
+
   it("acquires when only a stale endpoint remains", async () => {
     const endpointFile = join(dir, "server.json")
     writeFileSync(endpointFile, "stale")
