@@ -38,6 +38,70 @@ describe("findOrSpawnBackend", () => {
     expect(endpoint.pid).toBe(process.pid)
   })
 
+  it("spawns once for concurrent callers using the same state root", async () => {
+    let spawnCount = 0
+    const endpoint = {
+      url: "ws://127.0.0.1:51792/rpc",
+      token: "same-root",
+      pid: process.pid,
+      protocolVersion: PROTOCOL_VERSION
+    }
+    const adapter = {
+      ...bunAdapter,
+      spawnBackend: (dataDir: string) => Effect.gen(function* () {
+        spawnCount += 1
+        yield* Effect.sleep("25 millis")
+        writeFileSync(makeTestAppContext(dataDir).paths.endpointFile, JSON.stringify(endpoint))
+      })
+    }
+
+    const endpoints = await Effect.runPromise(
+      Effect.all(
+        [findOrSpawnBackend(adapter), findOrSpawnBackend(adapter)],
+        { concurrency: "unbounded" }
+      ).pipe(
+        Effect.provide(BunServices.layer),
+        Effect.provide(makeTestAppContext(dir).layer)
+      )
+    )
+
+    expect(spawnCount).toBe(1)
+    expect(endpoints).toEqual([endpoint, endpoint])
+  })
+
+  it("spawns independently for different state roots", async () => {
+    const leftRoot = join(dir, "left")
+    const rightRoot = join(dir, "right")
+    const spawnedRoots: Array<string> = []
+    const adapter = {
+      ...bunAdapter,
+      spawnBackend: (dataDir: string) => Effect.sync(() => {
+        spawnedRoots.push(dataDir)
+        writeFileSync(
+          makeTestAppContext(dataDir).paths.endpointFile,
+          JSON.stringify({
+            url: `ws://127.0.0.1:${dataDir === leftRoot ? 51793 : 51794}/rpc`,
+            token: dataDir,
+            pid: process.pid,
+            protocolVersion: PROTOCOL_VERSION
+          })
+        )
+      })
+    }
+
+    await Effect.runPromise(
+      Effect.all(
+        [
+          findOrSpawnBackend(adapter).pipe(Effect.provide(makeTestAppContext(leftRoot).layer)),
+          findOrSpawnBackend(adapter).pipe(Effect.provide(makeTestAppContext(rightRoot).layer))
+        ],
+        { concurrency: "unbounded" }
+      ).pipe(Effect.provide(BunServices.layer))
+    )
+
+    expect(new Set(spawnedRoots)).toEqual(new Set([leftRoot, rightRoot]))
+  })
+
   it("waits for a valid endpoint advertised at six seconds", async () => {
     const realEndpoint = {
       url: "ws://127.0.0.1:51791/rpc",

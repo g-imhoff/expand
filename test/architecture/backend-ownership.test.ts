@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 // Fitness test for PR review #11: all backend code is owned by apps/server.
@@ -16,6 +16,7 @@ const SERVER_FILES = [
   "apps/server/http.ts",
   "apps/server/connection-tracker.ts",
   "apps/server/endpoint-file.ts",
+  "apps/server/state-root-lock.ts",
   "apps/server/rpc-handlers.ts",
   "apps/server/lib/ids.ts"
 ] as const
@@ -42,5 +43,15 @@ describe("backend ownership (#11)", () => {
     }
     // The CLI presentation tree stays put.
     expect(existsSync("apps/cli/cli/main.ts")).toBe(true)
+  })
+
+  it("defines backend ownership per state root", () => {
+    const boundaries = readFileSync("docs/architecture/BOUNDARIES.md", "utf8")
+    const model = readFileSync("docs/architecture/expand.c4", "utf8")
+
+    expect(boundaries).toContain("## I-2. One AppLayer per state root")
+    expect(boundaries).toContain("## I-3. One discovery file per state root")
+    expect(model).toContain("One live backend per selected state root")
+    expect(model).toContain("backend.lock")
   })
 })

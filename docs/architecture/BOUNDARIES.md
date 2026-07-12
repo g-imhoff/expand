@@ -96,68 +96,81 @@ the system's guarantees.
 
 ---
 
-## I-2. One AppLayer per machine
+## I-2. One AppLayer per state root
 
-**Rule.** At most one process per user environment may host the Effect
-`AppLayer`. That process is the dedicated backend entrypoint
-(`apps/server/main.ts`, shipped as `dist/expand-server`) and is the only
-container that owns the domain event bus, the SQLite event log, the ACP subprocess
-pool, and the typed service implementations. Every other process (desktop
-renderer, CLI client, future web client) is a frontend that connects to
-this single backend over WebSocket.
+**Rule.** At most one live backend process per normalized absolute state
+root may host the Effect `AppLayer`. That process is the dedicated backend
+entrypoint (`apps/server/main.ts`, shipped as `dist/expand-server`) and is
+the only container for that root's domain event bus, SQLite event log, ACP
+subprocess pool, and typed service implementations. Every other process
+targeting that root is a frontend that connects over WebSocket. Different
+state roots are intentionally isolated and may host independent backends
+concurrently.
 
-**Why this matters.** The domain event bus broadcasts events in-memory; SQLite holds
-the canonical state; ACP subprocesses are stateful provider sessions.
-Duplicating any of these into a second process desynchronizes the system
-silently.
+**Why this matters.** The domain event bus broadcasts events in memory,
+SQLite holds canonical state, and ACP subprocesses are stateful provider
+sessions. Duplicating these into two processes that share one state root
+silently desynchronizes the system. Separate roots do not share those
+resources and therefore do not require a machine-wide singleton.
 
-**Enforcement.** Mechanically implied by I-1 if I-1 holds. The discovery
-file (see I-3) is the runtime mechanism that makes multiple frontends
-converge on the same backend instance.
+**Enforcement.** I-1 and the backend-ownership fitness test statically
+confine `AppLayer` construction to `apps/server`. Runtime uniqueness is
+enforced by `<state-root>/backend.lock`, acquired after default-home
+migration and before the logger, database, or `AppLayer` starts, then held
+for the backend's scoped lifetime. A live owner rejects a second backend.
+A dead owner is reclaimed only when its valid PID/token record remains the
+same owner and filesystem inode; malformed, incomplete, replaced, or
+changing ownership evidence fails closed. Release removes only the matching
+PID/token lease. The per-root `server.json.lock` in I-3 coordinates client
+spawns but does not enforce backend lifetime ownership.
 
 ---
 
-## I-3. Single discovery file
+## I-3. One discovery file per state root
 
 **Rule.** The backend writes its endpoint (`url`, `token`, `pid`,
-`protocolVersion`) to one well-known file on startup and removes it on
-clean shutdown. Frontends consult this file before opening any connection.
+`protocolVersion`) to `<state-root>/server.json` on startup and removes it
+on clean shutdown. Frontends derive the same normalized state root through
+`AppContext` and consult only that root's endpoint before connecting.
 
-**Why this matters.** Without a shared rendezvous point, frontends cannot
-coordinate to share a backend, and I-2 is unenforceable in practice.
-Docker, Tailscale, and most local daemons use the same pattern for the
-same reason.
+**Why this matters.** A per-root rendezvous point makes all frontends that
+selected the same state converge on one backend while preserving intentional
+isolation and concurrency between different roots.
 
-**Enforcement.** Specification-only at the architecture level. The
-implementation detail (path, locking strategy, stale-entry detection)
-lives in the discovery component of each frontend.
+**Enforcement.** Discovery, endpoint polling, the spawn lock, and the
+backend spawn argument all derive from the same `AppContext`. Exclusive
+creation of `<state-root>/server.json.lock` selects one cooperating client
+to spawn while the others wait; stale spawn locks are recoverable. The
+server's separate `backend.lock` remains the authoritative runtime singleton
+for the root.
 
 ---
 
 ## I-4. Server lifetime: zero-connection shutdown
 
-**Rule.** The backend tracks active WebSocket connections. Once the first
-connection has been established, the connection count must never return to
-zero while the server is intended to stay alive. If the count reaches
-zero, the server shuts itself down immediately — removes the endpoint
-file, closes SQLite, interrupts ACP subprocesses, and exits.
+**Rule.** The backend for each selected state root tracks its own active
+WebSocket connections. Once its first connection has been established, the
+connection count must never return to zero while that backend is intended to
+stay alive. If the count reaches zero, the backend shuts itself down
+immediately — removes that root's endpoint file, closes its SQLite store,
+interrupts its ACP subprocesses, releases `backend.lock`, and exits.
 
 There is no grace period and no idle timeout. Zero means dead.
 
 **Lifecycle.**
 
-1. A frontend (Desktop or CLI) finds no running server via the endpoint
-   file and spawns the backend binary (`dist/expand-server`; from source,
-   `apps/server/main.ts`).
+1. A frontend (Desktop or CLI) finds no running server for its selected
+   state root via the endpoint file and spawns the backend binary
+   (`dist/expand-server`; from source, `apps/server/main.ts`).
 2. The server starts, writes the endpoint file, and waits for its first
    connection.
 3. The spawning frontend connects. Connection count goes from 0 to 1.
    From this point, the rule is armed.
-4. Other frontends may connect and disconnect freely. As long as at least
-   one connection remains, the server stays alive.
+4. Other frontends targeting the same root may connect and disconnect
+   freely. As long as at least one connection remains, the server stays alive.
 5. The moment the last connection closes (count reaches 0), the server
    shuts down and removes the endpoint file.
-6. The next frontend that needs a server repeats from step 1.
+6. The next frontend that needs that state root repeats from step 1.
 
 **Example.**
 
@@ -179,10 +192,10 @@ calls), the calling process should keep its WebSocket connection open
 for the duration of its work, not reconnect per command.
 
 **Why lifetime is not tied to the spawner.** The process that spawned
-the backend (typically the first frontend) may exit while other
-frontends are still connected. The server does not care who spawned it —
-only how many connections are active. This prevents the "Desktop
-launched the server, CLI outlives it" class of bugs.
+the backend (typically the first frontend) may exit while other frontends
+targeting that root are still connected. The server does not care who
+spawned it — only how many connections to that root are active. This
+prevents the "Desktop launched the server, CLI outlives it" class of bugs.
 
 **Enforcement.** Specification-only at the architecture level. The
 implementation uses the server's in-memory connection count (e.g., an

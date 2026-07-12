@@ -46,7 +46,7 @@ model {
       }
 
       discovery = component 'Backend discovery' {
-        description 'Finds or spawns the backend via endpoint file.'
+        description 'Finds or spawns the backend via the selected state root endpoint.'
       }
 
       ui    -> state     'reads + dispatches'
@@ -69,7 +69,7 @@ model {
       }
 
       cliDiscovery = component 'Backend discovery' {
-        description 'Finds or spawns backend under exclusive lock.'
+        description 'Finds or spawns the selected state root backend under its exclusive spawn lock.'
       }
 
       cliEntry -> cliRpcClient 'dispatches'
@@ -77,7 +77,7 @@ model {
     }
 
     backend = container 'expand Backend service' {
-      description 'Single long-running process hosting the AppLayer. All state lives here. See BOUNDARIES.md I-2 for single-instance rule, I-4 for lifetime.'
+      description 'One live backend per selected state root; each owns that root\'s AppLayer and backend.lock.'
       technology 'TypeScript · Effect · WebSocket'
 
       rpcServer = component 'RPC server' {
@@ -148,7 +148,7 @@ model {
       }
 
       endpointFile = component 'Endpoint file' {
-        description 'server.json — URL, token, PID. Written on startup, removed on shutdown.'
+        description 'Per-root server.json — URL, token, PID. Client startup is coordinated by server.json.lock; the endpoint is removed on shutdown.'
       }
 
       rpcServer -> useCases            'queries / commands'

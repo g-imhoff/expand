@@ -49,21 +49,27 @@ findOrSpawnBackend:
                               (Effect.ensuring(releaseLock) — lock always freed)
 ```
 
-- **`readEndpoint`** (`discovery.ts`) reads `endpointFilePath()` (a JSON file
-  like `server.json`), decodes it against the `EndpointFromJson` schema, then
+- **`readEndpoint`** (`discovery.ts`) reads the selected state root's endpoint
+  file (`server.json`), decodes it against the `EndpointFromJson` schema, then
   applies three gates, each returning `Option.none()`: file missing → JSON
   invalid → `protocolVersion !== PROTOCOL_VERSION` → **PID not alive**
   (`process.kill(pid, 0)`, `isProcessAlive` in `discovery.ts`). Only a file that survives all
   gates counts as a running backend.
-- **The lock dance** (`tryAcquireLock`/`createLockOnce` in `spawn.ts`) prevents a thundering herd of spawns.
+- **The lock dance** (`tryAcquireLock`/`createLockOnce` in `spawn.ts`) prevents a thundering herd of spawns for one state root.
   `createLockOnce` uses `openSync(path, "wx")` — O_EXCL exclusive create, which
   atomically fails if the file exists. If creation fails, `isLockStale()`
   (`isLockStale` in `spawn.ts`) checks for a crashed spawner: lock older than 30s **or**
-  its recorded PID is dead → delete and retry once. So exactly one process
-  spawns; the rest wait.
+  its recorded PID is dead → delete and retry once. So exactly one cooperating
+  client invokes `spawnBackend` for that root; the rest wait. Calls selecting
+  different roots use different locks and proceed independently.
 - **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 50ms
   (failing `"pending"` until it appears), with a 10s overall timeout →
   `BackendUnavailable("backend did not start in time")`.
+
+The client lock is `<state-root>/server.json.lock`: it coordinates startup but
+does not own the backend lifetime. The spawned server separately acquires
+`<state-root>/backend.lock` before building its `AppLayer`, so a second live
+backend targeting the same root is rejected even when launched manually.
 
 ### Stage B — connect and handshake (`acquireClient` in `rpc-client.ts`)
 
