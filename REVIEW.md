@@ -1,19 +1,19 @@
 # Reviewing `feat/architectural-foundation`
 
-A guided reading path for reviewing this branch. It is large — **438 commits, 343 files, ~22,300 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large — **476 commits, 368 files, ~26,400 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
 > **How to use this**
 > - Each stage has a *plain-language summary*, *why it comes here*, a *file-by-file reading order*, the *handful of things worth scrutinizing hardest*, and the *tests that best prove intent*.
-> - Time estimates are for a careful human review. The full path is ~9–11 hours. If you can't spend that, jump to **[The fast path](#the-fast-path-3-4-hours)**.
+> - Time estimates are for a careful human review. The full path is ~10–12 hours. If you can't spend that, jump to **[The fast path](#the-fast-path-4-5-hours)**.
 > - The whole branch is built to satisfy four load-bearing invariants (**I-1 … I-4**). Stage 0 explains them; every later stage references them.
 
 ---
 
 ## The big picture (read this first)
 
-Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural skeleton**: a strictly layered monorepo (Bun + **Effect v4 beta** — framework code lives under `effect/unstable/*`) where exactly **one** process owns all state and every UI is a thin client.
+Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural skeleton**: a strictly layered monorepo (Bun + **Effect v4 beta** — framework code lives under `effect/unstable/*`) where exactly **one** process owns each selected state root and every UI is a thin client.
 
 ```
                       packages/contracts          ← shared vocabulary (schemas, RPC, events)
@@ -52,6 +52,7 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 - **Event sourcing + one shared fold.** The backend stores immutable domain events; current project state is *derived* by folding them. The fold lives in **one place** (`Project.foldList` in contracts) and is reused verbatim by the server *and* every client — so a snapshot can never disagree with a replayed stream.
 - **Server read-model cache (optimization).** The server no longer re-folds the whole log on every read. It keeps an **in-memory live read model** (a `SubscriptionRef`) seeded at boot from a **persisted `projection_state` row** (name-keyed: serialized state + `last_seq` + per-projection fold version) and advanced per commit — reads are O(rows), boot is O(tail-since-checkpoint). Checkpoints are written at boot, **debounced during the session (500ms quiet)**, and **once more at I-4 shutdown**, so a boot's tail is bounded by the debounce window after a crash and ~empty after a graceful cycle. The row is a disposable cache stamped with `FOLD_VERSIONS.projects` (rebuild-from-zero on mismatch) and proven equal to a full replay by `snapshot-equivalence.test.ts` — *snapshot can never disagree with replay* still holds as a **checked invariant**. See `docs/architecture/decisions/2026-07-05-event-store-foundation-design.md`.
 - **Protocol v2.** Clients bootstrap by (1) subscribing to the `Events` stream *first*, (2) seeding from a `{projects, seq}` snapshot, (3) gating the live fold by `seq`. This avoids losing or double-applying events during the bootstrap window.
+- **One explicit state root.** `AppContext` derives the database, endpoint, and log paths from one data directory. The CLI exposes it as a true global `--data-dir` flag; the desktop and standalone server retain raw-argv support; and every spawned backend receives the same selected directory.
 - **Branded scalars.** `ProjectId` / `ProjectName` / `Tag` are nominal types validated at the schema boundary — the system's trust boundary for untrusted input.
 - **Effects-as-data / dependency injection.** UI logic and Electron wiring are kept pure and testable; side effects and platform primitives are isolated to a single seam each.
 
@@ -75,7 +76,7 @@ DONE 2. `docs/architecture/expand.c4` — the system/container/component model. 
 
 ### Stage 1 — `packages/contracts`  ·  35–45 min  ·  🟡 medium
 
-**What:** The shared vocabulary every other package imports and nothing imports back: branded scalars, the domain event union, the canonical `Project` read-model with its fold logic, the RPC surface, the discovery-file schema, and the CLI output envelopes.
+**What:** The shared vocabulary every other package imports and nothing imports back: branded scalars, the domain event union, the canonical `Project` read-model with its fold logic, the RPC surface, the discovery-file schema, the runtime data-path context, and the CLI output envelopes.
 
 **Why here:** It is the foundation (`dependsOn: none`). Every later module speaks this language.
 
@@ -86,7 +87,8 @@ DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryC
 DONE 4. `events/domain.ts` — assembles the `DomainEvent` union, the JSON wire codec, and the `SequencedEvent {seq, event}` envelope.
 DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-MOVED 7. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
+NEW (2026-07-12) 7. `app-context.ts` — the single path derivation contract: `defaultDataDir()` chooses the channel home, `makeAppContext(dataDir?)` derives every runtime path from an explicit override, and the default reference still recognizes raw `--data-dir` argv for standalone server/Electron entrypoints.
+MOVED 8. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**
 - **Single fold, no second copy.** Confirm `foldList`/`applyEvent` here are genuinely the *only* projection and that server + client-ts reuse them (any divergence breaks snapshot-vs-replay consistency).
@@ -94,14 +96,15 @@ MOVED 7. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 - **`foldList` replay-safety:** create is idempotent, delete tombstones, unknown ids are no-ops — must match how the server sequences and the client gates by `seq`.
 - **Validation bounds are the system trust boundary:** name/tag regex, UUIDv4 ids, description ≤ 2048, directory ≤ 4096 — the *same* limits must apply on both the event and RPC schemas.
 - **`PROTOCOL_VERSION` coupling:** any shape change must bump the version (clients reject mismatches).
+- **Path coherence:** an explicit data directory must change `dataDir`, `dbPath`, `endpointFile`, and `logDir` together; omitting it must preserve the channel-specific default.
 
-**Best tests to read:** `test/project-fold.test.ts` (the projection), `test/events.test.ts` (round-trips + legacy decode), `test/rpc.test.ts` (validation at the RPC boundary).
+**Best tests to read:** `test/project-fold.test.ts` (the projection), `test/events.test.ts` (round-trips + legacy decode), `test/rpc.test.ts` (validation at the RPC boundary), and `packages/contracts/test/app-context.test.ts` (default-vs-explicit path derivation).
 
 ---
 
 ### Stage 2 — `apps/server`  ·  75–90 min  ·  🔴 high
 
-**What:** The single authoritative backend (I-2). An event-sourced service: mutations append immutable events to a SQLite log (monotonic `seq`); the read-model is an **in-memory live projection seeded at boot from a persisted snapshot** (folded from the log only for the tail since that snapshot, or from zero on first boot / `FOLD_VERSIONS.projects` mismatch), and it's all served over a token-guarded, loopback-only WebSocket RPC. Writes the endpoint file on boot (I-3); self-shuts-down at zero connections (I-4).
+**What:** The single authoritative backend (I-2). An event-sourced service: mutations append immutable events to a SQLite log (monotonic `seq`); the read-model is an **in-memory live projection seeded at boot from a persisted snapshot** (folded from the log only for the tail since that snapshot, or from zero on first boot / `FOLD_VERSIONS.projects` mismatch), and it's all served over a token-guarded, loopback-only WebSocket RPC. It safely relocates the legacy default home before boot, writes the endpoint file on boot (I-3), and self-shuts-down at zero connections (I-4).
 
 **Why here:** It depends only on `contracts`, and it's the source of truth every client mirrors. Understand it before any client.
 
@@ -114,7 +117,8 @@ DONE 5. `application/projects/use-cases.ts` — **the busiest, riskiest file.** 
 DONE 6. `connection-tracker.ts` — the `Ref(count)` + armed-flag + `Deferred` state machine for I-4.
 DONE 7. `rpc-handlers.ts` — binds the contract to use-cases; the `catchIf`/`Effect.die` "only declared errors cross the wire" pattern. The `fromSeq` replay logic itself lives in `apps/server/rpc/stream.ts` (composed here via `...streamHandlers`).
 DONE 8. `http.ts` — WebSocket transport: `timingSafeEqual` token check, loopback bind, access log that strips the token.
-DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the thin entrypoint; also the **on-disk hardening**: `main.ts` sets `process.umask(0o077)` before anything touches the filesystem, and `app.ts` fail-closed-`chmod`s the data dir (`0700`), the SQLite log (`0600`), and the WAL/SHM sidecars if present (`secureIfPresent`).
+NEW (2026-07-12) 9. `migrate-default-home.ts` → `migrate-legacy-home.ts` — the guarded one-time relocation. Migration runs only when the selected path equals the channel default, so non-default overrides are isolated (an explicit `--data-dir` equal to the default still migrates). The nested default (`~/.expand/expand-*`) uses a deterministic sibling staging path so parent-to-child moves can resume after interruption, while an existing target, missing root event store, deeper descendant, or ambiguous nested layout is left untouched.
+UPDATED (2026-07-12) 10. `composition/app.ts` → `main.ts` — lifecycle orchestration and the thin entrypoint. `main.ts` now performs default-home migration **before acquiring the file logger**, otherwise logger creation would pre-create the nested target and suppress migration. It also sets `process.umask(0o077)` before anything touches the filesystem, while `app.ts` fail-closed-`chmod`s the data dir (`0700`), SQLite log (`0600`), and WAL/SHM sidecars if present (`secureIfPresent`).
 
 **Scrutinize hardest:**
 - **Concurrency:** the single `Semaphore(1)` is the *only* thing serializing read-validate-commit. Confirm every mutating use-case goes through it and uniqueness/"exactly-one-winner" guards can't be bypassed.
@@ -122,9 +126,10 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 - **`commit()`:** append (SQLite) + publish (PubSub) are two systems wrapped in `uninterruptible`. A failure between them desyncs bus from log — confirm "log is source of truth, bus is best-effort" is intended.
 - **Fail-fast decode:** `scan` dies on any undecodable row (defect names seq/stream_id/event_type). This deliberately REVERSES the earlier skip-with-warning trade-off (ADR 2026-07-05): silently-vanishing projects were judged worse than a refusing boot. Verify the defect carries enough context to act on, and that no caller re-introduces a silent skip.
 - **The read-model cache:** confirm the four guards that keep the persisted state equal to a replay — (1) checkpoints are written only by the projection's own scope (boot save, the debounce fiber reading consistent C2 pairs, and the shutdown finalizer — commit path writes NOTHING to projection_state), (2) each row is stamped at the state's own `seq`, (3) tail catch-up and from-zero rebuild both go through the same shared fold, and (4) a `FOLD_VERSIONS.projects` mismatch forces a from-zero rebuild. Also verify the finalizer-before-fiber registration order (teardown must interrupt the fiber BEFORE the final write).
+- **Migration safety:** the default-home gate, target-exists no-op, root `events.db` marker, and ambiguous-layout refusal are the data-loss barriers. For a direct-child target, verify every crash state either completes on retry or leaves the staged path named in the warning; migration must run before the logger creates the target. Every selected path other than `defaultDataDir()` must bypass legacy migration.
 - **On-disk secrecy** (`main.ts` + `composition/app.ts`): the endpoint file carries the loopback auth token and the SQLite log carries every event, so both must stay group/world-unreadable. `umask(0o077)` narrows the default creation mode and the fail-closed `chmod`s tighten anything already on disk. Confirm the `umask` is set *before* any file is created (it runs before the runtime boots), and that `secureIfPresent` genuinely narrows the WAL/SHM sidecars once they exist rather than silently skipping them.
 
-**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts` (snapshot advances across a restart; the checkpoint-write cadence itself is pinned by the checkpoint-cadence tests in `projection.test.ts`), `test/integration/trust-boundary.test.ts`, `test/integration/snapshot-equivalence.test.ts` (the proof that state@k+tail == fold-from-zero), `test/integration/projection-state-store.test.ts`, `test/integration/project-event-store.test.ts`, `test/integration/replay-feed.test.ts`, the boot-matrix + checkpoint-cadence tests in `test/integration/projection.test.ts`, and `test/integration/events-handler.test.ts` (the streamed-backlog dedup gate).
+**Best tests to read:** `test/integration/concurrency.test.ts`, `test/integration/events-replay.test.ts`, `test/integration/durability-restart.test.ts` (snapshot advances across a restart; the checkpoint-write cadence itself is pinned by the checkpoint-cadence tests in `projection.test.ts`), `test/integration/trust-boundary.test.ts`, `test/integration/snapshot-equivalence.test.ts` (the proof that state@k+tail == fold-from-zero), `test/integration/projection-state-store.test.ts`, `test/integration/project-event-store.test.ts`, `test/integration/replay-feed.test.ts`, the boot-matrix + checkpoint-cadence tests in `test/integration/projection.test.ts`, `test/integration/events-handler.test.ts` (the streamed-backlog dedup gate), and the new `migrate-default-home.test.ts` + expanded `migrate-legacy-home.test.ts` recovery matrix.
 
 ---
 
@@ -137,8 +142,8 @@ DONE 9. `composition/app.ts` → `main.ts` — lifecycle orchestration and the t
 **Read in order:** *(public entrypoints = `index.ts`/`project/index.ts`/`server/index.ts` + `adapters/{bun,node}`; everything else is package-internal)*
 DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
 DONE 2. `index.ts` + `project/index.ts` + `server/index.ts` — the public entrypoints: root = strict connection core; the domain surfaces live on the `/project` and `/server` subpaths (one canonical import path per symbol).
-DONE 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
-4. `discovery.ts` — endpoint gating, the `O_EXCL` lock dance + stale-lock recovery, find-or-spawn.
+UPDATED (2026-07-12) 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam; `spawnBackend(dataDir)` receives the selected state root while endpoint discovery separately confirms readiness.
+UPDATED (2026-07-12) 4. `discovery.ts` + `spawn.ts` — `discovery.ts` validates the endpoint and owning PID; `spawn.ts` owns find-or-spawn, the `O_EXCL` lock dance, stale-lock recovery, and the increased **10-second** endpoint-advertisement deadline.
 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
 6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the platform subpath entrypoints (public alongside `/project` and `/server`).
 7. `project/store.ts` — **the core engine:** the session loop, the **C2 atomic fold**, the public mirror, the reconnect loop, and the mutation methods.
@@ -148,12 +153,14 @@ DONE 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 **Scrutinize hardest:**
 - **The C2 atomic fold** (`project/store.ts`): `{projects, seq}` live in one `SubscriptionRef` mutated together (gate `seq <= s.seq` → `foldList` → bump seq → publish), so a reader can never see a `seq` ahead of its `projects`. This is the central correctness claim.
 - **Bootstrap window ordering:** Events subscribed *before* `ProjectList`, `Math.max` on seq, one-time seed before signalling ready. An off-by-one silently loses or double-applies events.
-- **Stale-lock recovery** (`discovery.ts`): the dead-pid/30s heuristic and `ensuring(releaseLock)` — a crashed spawner used to wedge every future client.
+- **Stale-lock recovery** (`spawn.ts`): the dead-pid/30s heuristic and `ensuring(releaseLock)` — a crashed spawner used to wedge every future client.
+- **Startup timing:** the client must still be pending at nine seconds, accept a valid endpoint advertised after six seconds, and fail deterministically at ten seconds. The TestClock tests synchronize on a post-spawn filesystem poll before advancing virtual time so they cannot pass or fail through scheduler luck.
+- **Data-directory propagation:** discovery, the spawn lock, endpoint polling, and the adapter's backend argv must all use the same `AppContext.paths.dataDir`; mixing the default endpoint with an explicitly selected database would create two independent backends.
 - **Reconnect classification** (`project/store.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown (propagate) from a dropped socket (retry with backoff). Misclassifying either hangs or busy-loops.
 - **Non-optimistic state:** mutations only call the RPC; state changes only when the server's event flows back. Confirm there's no optimistic local write.
 - **Entrypoint boundary** (`index.ts`/`project/index.ts`/`server/index.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current out-of-package tests go through the public entrypoints; client-ts's own tests deliberately deep-import internals relatively).
 
-**Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof — 40 concurrent reads), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root — domain symbols must NOT be reachable from `@expand/client-ts`).
+**Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof; the stress loop now compares cached state signatures inline instead of retaining up to 200,000 snapshots), `test/integration/find-or-spawn.test.ts` (stale locks plus the six-/ten-second deadline), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root — domain symbols must NOT be reachable from `@expand/client-ts`).
 
 **Dogfood the public surface — `examples/client-ts/`:** three runnable real-world programs written as an *external consumer* would — `bootstrap-projects.ts` (create a project per subfolder, deduping/skipping conflicts), `archive-stale.ts` (archive projects whose directory has vanished), and `audit-log.ts` (tail `ProjectStore.events` to a JSONL file). Every import comes only from the public entrypoints (`@expand/client-ts`, `@expand/client-ts/project`, `@expand/client-ts/adapters/bun`) — the `client-ts-barrel-only` rule (Stage 7) now covers this directory, so a deep import into a package internal fails CI, and each example has a subprocess smoke test in `examples/client-ts/test/` that runs it against an isolated backend. **Read `examples/client-ts/ERGONOMICS.md` alongside this stage** — it is a file-referenced list of what felt awkward to build against the SDK (which command surface to reach for and why, boilerplate the SDK doesn't yet absorb, and where the "public API only" promise leaks). It is the concrete output of this dogfooding pass and the best single signal of whether the `client-ts` shape is right.
 
@@ -161,26 +168,27 @@ DONE 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform seam.
 
 ### Stage 4 — `apps/cli`  ·  30–45 min  ·  🟢 low
 
-**What:** A thin, agent-friendly CLI that turns shell verbs into typed RPC calls and prints stable, versioned JSON envelopes (`apiVersion "expand/v1"`) with distinct per-error exit codes. Holds no business logic.
+**What:** A thin, agent-friendly CLI that turns shell verbs into typed RPC calls and prints stable, versioned JSON envelopes (`apiVersion "expand/v1"`) with distinct per-error exit codes. It also owns the parsed global `--data-dir` surface used to isolate the CLI and the backend it spawns. Holds no business logic.
 
 **Why here:** It's the **simplest complete frontend** — review it first among the UIs to see the full `frontend → client-ts → RPC → backend` loop without any UI complexity.
 
 **Read in order:**
-1. `cli/main.ts` — composition root: builds the command tree, wires the real Bun client layer, installs the JSON error formatter (`makeExpand` factory + `import.meta.main` guard).
+UPDATED (2026-07-12) 1. `cli/app-context-layer.ts` + `cli/main.ts` — the parsed `DataDir` setting becomes an `AppContext` layer before the composition root provides the real Bun client; `main.ts` then builds the command tree and installs the JSON error formatter (`makeExpand` factory + `import.meta.main` guard).
 2. `cli/_command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
-3. `cli/output.ts` + `cli/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags.
+UPDATED (2026-07-12) 3. `cli/output.ts` + `cli/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
 4. `packages/contracts/cli.ts` — the envelope schemas being hand-built.
 5. `cli/commands/project/create.ts` — a representative command (the pattern all verbs follow).
 6. `cli/commands/project/_resolve.ts` — name-or-UUID target resolution.
-7. `cli/errors/index.ts` + `cli/errors/project-errors.ts` + `cli/run.ts` — the contract-error → CLI-error mapping (stable codes/exit codes) and the top-level error boundary.
+UPDATED (2026-07-12) 7. `cli/errors/index.ts` + `cli/errors/project-errors.ts` + `cli/errors/parser-errors.ts` + `cli/run.ts` — the contract/parser-error → CLI-error mapping (stable codes/exit codes) and the top-level error boundary. Parser failures such as an existing file passed to `--data-dir` must still produce one structured `INVALID_ARGUMENT` envelope and exit 2.
 
 **Scrutinize hardest:**
 - **Error-mapping fidelity:** unmapped `_tag`s silently fall through to `UNEXPECTED` (exit 1) — verify the switch tables cover the real contract error set.
 - **Exit codes are an external API** for scripting agents — confirm codes (1/2/5/6/7/8/9/10) and `retryable` flags are stable and tested.
 - **stdout/stderr purity:** a failure must emit nothing on stdout and exactly one JSON line on stderr.
 - **Envelopes are hand-built** (not `Schema.encode`d), so drift vs `contracts/cli.ts` is possible — the snapshot/contract tests are the safety net.
+- **Global data-dir semantics:** help must expose the flag at root and child levels; before/after-subcommand positions must resolve identically; existing and absent directories must work; an existing file must fail before a handler runs; omission must retain the channel default.
 
-**Best tests to read:** `test/contract/contract.test.ts` (the behavioral matrix), `test/unit/errors.test.ts`, `test/unit/envelope-schema.test.ts` (freezes the output contract).
+**Best tests to read:** `test/contract/contract.test.ts` (the behavioral matrix, including the global data-dir contract), `test/unit/global-flags.test.ts`, `test/unit/errors.test.ts`, `test/unit/envelope-schema.test.ts` (freezes the output contract).
 
 ---
 
@@ -237,10 +245,11 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 **What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-ts's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
-**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
+**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
 **Scrutinize hardest:**
 - **Security pipeline completeness:** CSP only in prod, the `sandbox`/`contextIsolation`/`nodeIntegration` pin, navigation/window-open denial, and — load-bearing — that the dev `exactOrigin` carve-out can **never** reach a production build (prod is `file://`-only).
+- **Runtime selection:** Electron's raw `--data-dir` must reach the main-process `AppContext` and then the Node adapter's spawned backend argv.
 - **Port lifecycle:** supersession (tear down the old port before minting a new one) and reload/close must interrupt stale port fibers, or you get hung requests / request-id collisions.
 - **Error translation:** every store call rethrows `RpcClientError` as a *defect* (`Effect.die`), Health dies on disconnect — confirm no unsanitized backend message reaches the renderer.
 
@@ -264,7 +273,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 ---
 
-### Stage 7 — Enforcement & infra  ·  60–90 min
+### Stage 7 — Enforcement, infra & project agents  ·  90–135 min
 
 The capstone: how the invariants you've been tracking are *mechanically* guaranteed. Reviewing this last lets you judge whether the tests actually pin what the earlier stages claimed.
 
@@ -272,40 +281,60 @@ The capstone: how the invariants you've been tracking are *mechanically* guarant
 
 **What:** Eleven "fitness tests" that turn the prose invariants into build failures. They run `dependency-cruiser` programmatically *and* do their own filesystem/source-text assertions, with DO-NOT-MODIFY headers + CODEOWNERS routing so the rules can't be quietly relaxed.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `client-ts-barrel.test.ts` (pins the `client-ts` public API — only the four entrypoint kinds `index.ts`/`project/index.ts`/`server/index.ts`/`adapters/*` are importable from outside; asserts the `client-ts-barrel-only` rule's exact `from`/`to` shape and a clean cruise) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the per-projection fold-node hashes via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSIONS` is current — the build fails until you `bun run gen:fold-version` and commit) → `no-dead-code.test.ts` (runs **Knip** over both workspaces and fails on any unused file / export / exported type / dependency — the standing "no dead code" gate; config and every suppression are justified in `knip.jsonc`).
+**Read in order:** `docs/architecture/BOUNDARIES.md` (re-anchor) → `.dependency-cruiser.cjs` → `i1-cli-isolation.test.ts` (the flagship I-1 test) → `depcruise-exclude.test.ts` (the guard on the guard) → `client-ts-barrel.test.ts` (pins the `client-ts` public API — only the four entrypoint kinds `index.ts`/`project/index.ts`/`server/index.ts`/`adapters/*` are importable from outside; asserts the `client-ts-barrel-only` rule's exact `from`/`to` shape and a clean cruise) → `ipc-boundary.test.ts` → `tui-input-boundary.test.ts` → `server-app-split.test.ts` → `backend-ownership.test.ts` → `fold-version-lockstep.test.ts` (recomputes the per-projection fold-node hashes via `scripts/fold-version.ts` and asserts the committed `FOLD_VERSIONS` is current — the build fails until you `bun run gen:fold-version` and commit) → `test-colocation.test.ts` (allows colocated `scripts/*.test.ts(x)` and skips only the repository-root `.worktrees`) → `no-dead-code.test.ts` (runs **Knip** over both workspaces and fails on any unused file / export / exported type / dependency — the standing "no dead code" gate; config and every suppression are justified in `knip.jsonc`).
 
 **Scrutinize hardest:**
 - **Non-vacuity:** do the depcruise-backed tests actually *fail* when a real forbidden import is introduced (not just assert a name is absent + exit 0)?
 - **Greps are coarse/bypassable:** substring matches (`/\buseInput\b/`, `/from "electron"/`) can be evaded by aliasing or dynamic `import()` — confirm a depcruise rule backstops each grep.
 - **Hardcoded path lists go stale silently:** `SERVER_FILES`, the allowed-adapters set, the pure-module lists — a renamed file weakens the check without failing it.
+- **Worktree scope:** only `<repo>/.worktrees` is excluded from the recursive colocation scan. A nested directory with that name must remain visible, otherwise arbitrary source subtrees could evade the architecture gate.
 
 **Best tests:** `i1-cli-isolation.test.ts`, `depcruise-exclude.test.ts`, `test-colocation.test.ts`.
 
 #### 7b — Infra (root config)  ·  30–45 min  ·  🟡 medium
 
-**What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, and the compiled-binary smoke test.
+**What:** The build/CI/enforcement plumbing that makes all of the above checkable: the dependency-cruiser rules, the GitHub Actions pipeline, the TS/Vitest path aliases, the exact dependency pins, worker/process isolation, and the compiled-binary smoke test.
 
-**Read in order:** `.dependency-cruiser.cjs` (the eight forbidden import rules — the I-1 engine in code, now including `client-ts-barrel-only`, the `client-ts` public-API boundary) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` (certifies the *compiled* binaries; proves I-4 reaping via `pgrep` poll) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps) → `CODEOWNERS`.
+**Read in order:** `.dependency-cruiser.cjs` (the eight forbidden import rules — the I-1 engine in code, now including `client-ts-barrel-only`, the `client-ts` public-API boundary) → `.github/workflows/ci.yml` (checks → parallel desktop-e2e + binary-smoke) → `scripts/binary-smoke.sh` + `scripts/binary-smoke.test.ts` (compiled CLI/server certification with an explicit data directory and a tested ownership ledger) → `package.json` (scripts + exact Effect v4 beta pins) → `knip.jsonc` (the dead-code gate's config: the two workspaces, the narrow type/interface used-in-file allowance, and the documented `ws`/`@types/ws` cross-workspace false-positive suppression) → `tsconfig.json` + `vitest.config.ts` (the **duplicated** `@expand/*` alias maps, direct script-test inclusion, and `maxWorkers: "50%"`) → `.gitignore` (repository-root linked worktrees) → `CODEOWNERS`.
 
 **Scrutinize hardest:**
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path would silently escape I-1.
 - **Alias drift:** `tsconfig.json` paths, `vitest.config.ts` `resolve.alias`, and `apps/desktop/tsconfig.json` are hand-duplicated and must agree.
-- **`binary-smoke.sh` can't false-pass:** verify the I-4 reaping check genuinely depends on the connection count hitting zero (not on the server never starting).
+- **`binary-smoke.sh` ownership:** it must signal and wait only through the stable Bash job spec captured for the exact child it started; the numeric PID is endpoint-identity evidence, never signal authority. Readiness rechecks both job liveness and the advertised PID. TERM/KILL cleanup is bounded, job eligibility is retired before `wait`, and any unowned/persistent endpoint preserves the data directory rather than deleting possibly-live state. The source and tests explicitly reject `pgrep`, `pkill`, and `killall`.
+- **Data-dir isolation:** every compiled CLI/server invocation uses the same explicit directory while a sentinel `HOME` proves nothing touched the channel default. This smoke is the end-to-end proof that explicit directories neither migrate nor contaminate default state.
+- **Worker headroom:** `maxWorkers: "50%"` deliberately leaves capacity for suites that spawn real backend processes. Confirm the percentage behaves acceptably on small CI machines and that direct `scripts/*.test.ts` files remain typechecked and collected.
 
-**Best tests:** `effect-version-lockstep.test.ts`, `depcruise-exclude.test.ts`, and `scripts/binary-smoke.sh` itself.
+**Best tests:** `effect-version-lockstep.test.ts`, `depcruise-exclude.test.ts`, `scripts/binary-smoke.test.ts` (the shell ownership/cleanup harness), and `scripts/binary-smoke.sh` itself.
+
+#### 7c — Project agent orchestration  ·  30–45 min  ·  🟡 medium
+
+**What:** A checked-in seven-role roster for deterministic Claude/Codex delegation: `code-reviewer`, `task-reviewer`, `desktop-tester`, `manual-tester`, `tdd-implementer`, `researcher`, and `debugger`. The intended flow keeps the detailed Markdown definitions in `.claude/agents`, renders matching Codex TOML files, pins the controller and worker models/effort/sandboxes, and codifies the Superpowers hand-off rules in `AGENTS.md`.
+
+**Why here:** This is repository execution policy rather than product runtime code. It determines who may edit, review, diagnose, and launch real processes, so review it after understanding the boundaries those agents are expected to preserve.
+
+**Read in order:** `docs/superpowers/specs/2026-07-10-codex-claude-agent-roster-design.md` (approved design and data-dir amendment) → `AGENTS.md` (role selection, one-writer rule, task/final review gates, controller-only responsibilities) → `.codex/config.toml` (Sol Ultra controller, multi-agent enabled, four threads, depth one) → `scripts/sync-agents.ts` (canonical roster/policy map, validation, deterministic TOML rendering, check/write modes) → `.claude/agents/*.md` (the seven canonical role contracts) → `.codex/agents/*.toml` (the Codex mirrors) → `scripts/sync-agents.test.ts`.
+
+**Scrutinize hardest:**
+- **Pinned policy:** both reviewers are Claude Fable 5/xhigh and Codex Sol Ultra/read-only; the remaining roles are Claude Opus 4.8/xhigh and Codex Sol Medium with role-appropriate sandboxes. The controller stays Sol Ultra, concurrency is capped at four, delegation depth is one, workers cannot spawn workers, and parallel tracked-tree writers are forbidden.
+- **Source-of-truth enforcement:** the sync tool must reject missing, duplicate, unexpected, incorrectly named, wrong-policy, or TOML-unsafe definitions; write mode must replace only expected files atomically and check mode must remain read-only.
+- **Runtime tester safety:** both certification roles must use one explicit `--data-dir`, own processes through stable shell job specs, keep numeric PIDs as identity evidence only, bound shutdown, and preserve state whenever ownership becomes uncertain.
+
+**Best tests:** `scripts/sync-agents.test.ts` (roster, policy, parser, safe rendering, stale/missing/unexpected-file behavior) and `bun run agents:check` (the repository-level drift gate).
 
 ---
 
-## The fast path (3–4 hours)
+## The fast path (4–5 hours)
 
 If you can't do the full pass, review the **load-bearing correctness cores** in this order — these are where a real bug would do the most damage:
 
 1. **Stage 0** — the four invariants (20 min). Non-negotiable context.
 2. **`contracts/project.ts`** — the single shared fold (20 min). If this is wrong, everything diverges.
-3. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (the replay handler body is `apps/server/rpc/stream.ts`) (45 min). The write path and stream correctness.
-4. **`client-ts/project/store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
-5. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
-6. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
+3. **`contracts/app-context.ts` → CLI `main.ts` → client `spawn.ts` → server migration → `binary-smoke.sh`** — trace one explicit data directory end to end, including legacy-home safety and process ownership (45–60 min).
+4. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (the replay handler body is `apps/server/rpc/stream.ts`) (45 min). The write path and stream correctness.
+5. **`client-ts/project/store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
+6. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
+7. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
+8. **`AGENTS.md` + `scripts/sync-agents.ts` + `bun run agents:check`** — verify the role/policy mirror (25 min).
 
 Reading the matching "best tests" alongside each gives you the intended behavior fast.
 
@@ -327,5 +356,6 @@ Reading the matching "best tests" alongside each gives you the intended behavior
 | 6c | `apps/desktop` (renderer) | frontend | 🔴 | 75–90 min |
 | 7a | `test/architecture` | enforcement | 🟢 | 30–45 min |
 | 7b | infra (root config) | infra | 🟡 | 30–45 min |
+| 7c | project agent orchestration | infra | 🟡 | 30–45 min |
 
-**Golden thread to hold throughout:** *one* backend owns state; *one* fold derives it; clients only mirror the sequenced event stream; and the import graph (I-1) is what physically keeps it that way. If a change in any module would let a second writer exist, let a frontend boot its own backend, or let a snapshot disagree with a replay — that's the bug worth finding.
+**Golden thread to hold throughout:** *one* backend owns each selected state root; *one* fold derives it; clients only mirror the sequenced event stream; and the import graph (I-1) is what physically keeps it that way. If a change in any module would let two writers share a state root, let a frontend bypass client-ts ownership, or let a snapshot disagree with a replay — that's the bug worth finding.
