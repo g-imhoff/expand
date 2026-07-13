@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState, useSyncExternalStore } from "react"
+import { useCallback, useRef, useState } from "react"
+import { Effect } from "effect"
 import type { Project } from "@expand/contracts/project"
-import { useAppHandle } from "@expand/desktop/renderer/app/AppHandleProvider"
+import { useProjectRpc, useProjectSelector } from "@expand/desktop/renderer/features/projects/data/project-context"
 
 export interface MutationState<I, A> {
   readonly mutate: (input: I, options?: MutationOptions<A>) => void
@@ -38,53 +39,60 @@ export const useRunMutation = <I, A>(run: (input: I) => Promise<A>): MutationSta
 }
 
 export const useProjects = (): { data: ReadonlyArray<Project>; error: unknown } => ({
-  data: useProjectsSnapshot(),
+  data: useProjectSelector((state) => state.projects),
   error: undefined
 })
 
 export const useAllProjects = (): { data: ReadonlyArray<Project> } => ({
-  data: useProjectsSnapshot()
+  data: useProjectSelector((state) => state.projects)
 })
 
 export const useCreateProject = () => {
-  const handle = useAppHandle()
-  return useRunMutation((name: string) => handle.createProject(name))
+  const rpc = useProjectRpc()
+  return useRunMutation((name: string) =>
+    Effect.runPromise(
+      rpc.create({ name, ensure: true }).pipe(
+        Effect.catchTag("ProjectAlreadyExists", (error) => Effect.die(error)),
+        Effect.map((result) => result.project)
+      )
+    ))
 }
 
 export const useRenameProject = () => {
-  const handle = useAppHandle()
-  return useRunMutation((args: { id: string; name: string }) => handle.renameProject(args))
+  const rpc = useProjectRpc()
+  return useRunMutation((args: { id: string; name: string }) => Effect.runPromise(rpc.rename(args)))
 }
 
 export const useChangeDirectory = () => {
-  const handle = useAppHandle()
-  return useRunMutation((args: { id: string; directory: string }) => handle.changeDirectory(args))
+  const rpc = useProjectRpc()
+  return useRunMutation((args: { id: string; directory: string }) => Effect.runPromise(rpc.changeDirectory(args)))
 }
 
 export const useArchiveProject = () => {
-  const handle = useAppHandle()
-  return useRunMutation((id: string) => handle.archiveProject(id))
+  const rpc = useProjectRpc()
+  return useRunMutation((id: string) => Effect.runPromise(rpc.archive({ id })))
 }
 
 export const useRestoreProject = () => {
-  const handle = useAppHandle()
-  return useRunMutation((id: string) => handle.restoreProject(id))
+  const rpc = useProjectRpc()
+  return useRunMutation((id: string) => Effect.runPromise(rpc.restore({ id })))
 }
 
 export const useSetMetadata = () => {
-  const handle = useAppHandle()
+  const rpc = useProjectRpc()
   return useRunMutation((args: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
-    handle.setMetadata(args))
+    Effect.runPromise(
+      rpc.setMetadata({
+        id: args.id,
+        ...(args.description !== undefined ? { description: args.description } : {}),
+        ...(args.tags !== undefined ? { tags: args.tags } : {})
+      })
+    ))
 }
 
 export const useDeleteProject = () => {
-  const handle = useAppHandle()
-  return useRunMutation((id: string) => handle.deleteProject(id))
-}
-
-const useProjectsSnapshot = (): ReadonlyArray<Project> => {
-  const handle = useAppHandle()
-  return useSyncExternalStore(handle.subscribe, handle.getProjects, handle.getProjects)
+  const rpc = useProjectRpc()
+  return useRunMutation((id: string) => Effect.runPromise(rpc.delete({ id })))
 }
 
 interface MutationOptions<A> {

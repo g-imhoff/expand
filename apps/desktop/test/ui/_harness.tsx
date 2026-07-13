@@ -1,10 +1,11 @@
 import { type ReactElement, type ReactNode } from "react"
-import { Schema } from "effect"
+import { Effect, Schema, Stream } from "effect"
 import { render } from "@testing-library/react"
-import type { Project, ProjectDeleteResult } from "@expand/contracts/project"
+import type { Project } from "@expand/contracts/project"
 import { Project as ProjectClass } from "@expand/contracts/project"
-import type { AppHandle } from "@expand/desktop/renderer/app/app-handle"
-import { AppHandleProvider } from "@expand/desktop/renderer/app/AppHandleProvider"
+import { ProjectContextProvider, type ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
+import { makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
+import type { ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
 
 export const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -20,28 +21,33 @@ export const fakeProject = (over: FakeProjectOver = {}): Project =>
     updatedAt: over.updatedAt ?? "t"
   })
 
-export const makeFakeAppHandle = (
+export const makeFakeProjectContext = (
   projects: ReadonlyArray<Project>,
-  over: Partial<AppHandle> = {}
-): AppHandle => {
-  const unused = (label: string) => () => Promise.reject(new Error(`${label} not stubbed`))
+  over: Partial<ProjectRpcApi> = {}
+): ProjectContextValue => {
+  const unused = (label: string) => () => Effect.die(new Error(`${label} not stubbed`))
+  const store = makeProjectsStore()
+  store.setState({ projects, seq: 0 })
   return {
-    getProjects: () => projects,
-    subscribe: () => () => {},
-    createProject: unused("createProject") as AppHandle["createProject"],
-    renameProject: unused("renameProject") as AppHandle["renameProject"],
-    changeDirectory: unused("changeDirectory") as AppHandle["changeDirectory"],
-    archiveProject: unused("archiveProject") as AppHandle["archiveProject"],
-    restoreProject: unused("restoreProject") as AppHandle["restoreProject"],
-    setMetadata: unused("setMetadata") as AppHandle["setMetadata"],
-    deleteProject: unused("deleteProject") as () => Promise<ProjectDeleteResult>,
-    health: unused("health") as AppHandle["health"],
-    ...over
+    store,
+    rpc: {
+      create: unused("create") as ProjectRpcApi["create"],
+      rename: unused("rename") as ProjectRpcApi["rename"],
+      changeDirectory: unused("changeDirectory") as ProjectRpcApi["changeDirectory"],
+      archive: unused("archive") as ProjectRpcApi["archive"],
+      restore: unused("restore") as ProjectRpcApi["restore"],
+      setMetadata: unused("setMetadata") as ProjectRpcApi["setMetadata"],
+      delete: unused("delete") as ProjectRpcApi["delete"],
+      list: () => Effect.succeed({ projects, seq: 0 }),
+      status: Stream.never,
+      events: () => Stream.never,
+      ...over
+    }
   }
 }
 
-export const renderWithHandle = (ui: ReactElement, handle: AppHandle) =>
-  render(<AppHandleProvider value={handle}>{ui}</AppHandleProvider> as ReactNode)
+export const renderWithProjectContext = (ui: ReactElement, value: ProjectContextValue) =>
+  render(<ProjectContextProvider value={value}>{ui}</ProjectContextProvider> as ReactNode)
 
 interface FakeProjectOver {
   readonly id?: string

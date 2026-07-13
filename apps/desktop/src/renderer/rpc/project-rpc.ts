@@ -1,7 +1,8 @@
-import { Context, Effect, Layer, type Stream } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
+import type { ProjectSyncStatus } from "@expand/contracts/project-sync"
 import type {
   ProjectAlreadyExists,
   ProjectDirectoryConflict,
@@ -51,7 +52,10 @@ export interface ProjectRpcApi {
     { readonly projects: ReadonlyArray<Project>; readonly seq: number },
     RpcClientError.RpcClientError
   >
-  readonly events: () => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
+  readonly status: Stream.Stream<ProjectSyncStatus, RpcClientError.RpcClientError>
+  readonly events: (
+    payload: { readonly fromSeq: number }
+  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
 
 export class ProjectRpc extends Context.Service<ProjectRpc, ProjectRpcApi>()(
@@ -69,6 +73,9 @@ export const ProjectRpcLayer: Layer.Layer<ProjectRpc, never, RendererRpcClient> 
     setMetadata: (p) => client.ProjectSetMetadata(p),
     delete: (p) => client.ProjectDelete(p),
     list: (p = {}) => client.ProjectList(p),
-    events: () => client.Events({})
+    status: client.Connect().pipe(
+      Stream.map((connected): ProjectSyncStatus => connected ? "connected" : "reconnecting")
+    ),
+    events: (payload) => client.Events(payload)
   }))
 )

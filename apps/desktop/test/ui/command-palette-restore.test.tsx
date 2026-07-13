@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest"
 import type { Project } from "@expand/contracts/project"
 import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
-import { fakeProject, makeFakeAppHandle, renderWithHandle, uid } from "./_harness"
+import { fakeProject, makeFakeProjectContext, renderWithProjectContext, uid } from "./_harness"
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => {} }))
 
@@ -10,7 +10,7 @@ const { CommandPalette } = await import("@expand/desktop/renderer/features/comma
 
 const renderPalette = (projects: ReadonlyArray<Project>) => {
   useCommandPalette.setState({ open: true })
-  return renderWithHandle(<CommandPalette />, makeFakeAppHandle(projects))
+  return renderWithProjectContext(<CommandPalette />, makeFakeProjectContext(projects))
 }
 
 describe("CommandPalette — archived projects stay reachable", () => {

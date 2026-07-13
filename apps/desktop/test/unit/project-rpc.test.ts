@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Stream } from "effect"
 import { Project as ProjectClass } from "@expand/contracts/project"
 import type { Project } from "@expand/contracts/project"
 import { RendererRpcClient, type RendererRpcClientApi } from "@expand/desktop/renderer/rpc/transport"
@@ -77,5 +77,33 @@ describe("ProjectRpcLayer", () => {
       Effect.runPromise
     )
     expect(result).toEqual({ projects: [], seq: 0 })
+  })
+
+  it("maps Connect booleans to project sync statuses", async () => {
+    const client = fakeClient({
+      Connect: () => Stream.make(true, false)
+    })
+    const result = await ProjectRpc.pipe(
+      Effect.flatMap((rpc) => Stream.runCollect(rpc.status)),
+      Effect.provide(ProjectRpcLayer),
+      Effect.provideService(RendererRpcClient, client),
+      Effect.runPromise
+    )
+    expect(Array.from(result)).toEqual(["connected", "reconnecting"])
+  })
+
+  it("forwards Events fromSeq unchanged", async () => {
+    const client = fakeClient({
+      Events: (payload) => {
+        expect(payload).toEqual({ fromSeq: 17 })
+        return Stream.empty
+      }
+    })
+    await ProjectRpc.pipe(
+      Effect.flatMap((rpc) => Stream.runDrain(rpc.events({ fromSeq: 17 }))),
+      Effect.provide(ProjectRpcLayer),
+      Effect.provideService(RendererRpcClient, client),
+      Effect.runPromise
+    )
   })
 })

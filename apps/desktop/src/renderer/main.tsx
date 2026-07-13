@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
 import { Cause, Effect, Exit } from "effect"
 import { boot } from "@expand/desktop/renderer/app/runtime"
-import { AppHandleProvider } from "@expand/desktop/renderer/app/AppHandleProvider"
+import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { router } from "@expand/desktop/renderer/app/router"
 import { BootError } from "@expand/desktop/renderer/app/BootError"
 import { supervised } from "@expand/desktop/renderer/lib/supervised"
@@ -14,11 +14,11 @@ root.render(<div style={{ fontFamily: "system-ui", padding: 24 }}>Connecting…<
 const fiber = Effect.runFork(
   supervised(
     "renderer boot",
-    boot((handle) => {
+    boot((value) => {
       root.render(
-        <AppHandleProvider value={handle}>
+        <ProjectContextProvider value={value}>
           <RouterProvider router={router} />
-        </AppHandleProvider>
+        </ProjectContextProvider>
       )
     })
   )
