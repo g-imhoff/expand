@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Fiber, PubSub, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, PubSub, Schema, Stream } from "effect"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import { Project } from "@expand/contracts/project"
@@ -164,6 +164,71 @@ const runResnapshotScenario = () =>
     )
   )
 
+const runSingleActiveEpochScenario = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const epochOneEvents = yield* PubSub.unbounded<SequencedEvent>()
+        const epochOneSubscribed = yield* Deferred.make<void>()
+        const epochOneClosed = yield* Deferred.make<void>()
+        const recorder = makeRecorder()
+        let epoch = 0
+        const source: ProjectSyncSource = {
+          status: statusStream(statuses),
+          list: () =>
+            Effect.sync(() => {
+              epoch += 1
+              return epoch === 1
+                ? { projects: [alpha], seq: 1 }
+                : { projects: [beta], seq: 5 }
+            }),
+          events: () =>
+            epoch === 1
+              ? Stream.unwrap(
+                  Effect.gen(function* () {
+                    const subscription = yield* PubSub.subscribe(epochOneEvents)
+                    yield* Deferred.succeed(epochOneSubscribed, undefined)
+                    return Stream.fromSubscription(subscription)
+                  })
+                ).pipe(Stream.ensuring(Deferred.succeed(epochOneClosed, undefined)))
+              : Stream.never
+        }
+        const awaitDeliveryOrClose = (seq: number) =>
+          Effect.race(
+            Deferred.await(epochOneClosed).pipe(Effect.as("closed" as const)),
+            waitUntil(() => recorder.snapshots.at(-1)?.seq === seq).pipe(
+              Effect.as("delivered" as const)
+            )
+          )
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* Deferred.await(epochOneSubscribed)
+        yield* PubSub.publish(statuses, "reconnecting")
+        yield* PubSub.publish(statuses, "reconnecting")
+        yield* waitUntil(
+          () => recorder.statuses.filter((status) => status === "reconnecting").length === 2
+        )
+        yield* PubSub.publish(epochOneEvents, renamed(2, alpha, "alpha-during-reconnect"))
+        const duringReconnectOutcome = yield* awaitDeliveryOrClose(2)
+        const duringReconnect = recorder.snapshots.at(-1)!
+        yield* PubSub.publish(statuses, "connected")
+        yield* waitUntil(() => recorder.snapshots.some((snapshot) => snapshot.seq === 5))
+        const afterResnapshot = recorder.snapshots.at(-1)!
+        yield* PubSub.publish(epochOneEvents, renamed(6, alpha, "alpha-after-resnapshot"))
+        const afterResnapshotOutcome = yield* awaitDeliveryOrClose(6)
+        const afterEpochOneDelivery = recorder.snapshots.at(-1)!
+        yield* Fiber.interrupt(fiber)
+        return {
+          duringReconnectOutcome,
+          duringReconnect,
+          afterResnapshot,
+          afterResnapshotOutcome,
+          afterEpochOneDelivery
+        }
+      })
+    )
+  )
+
 const runInterruptionScenario = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -219,6 +284,15 @@ describe("ProjectSync", () => {
     const result = await runResnapshotScenario()
     expect(result.atReconnect).toEqual({ projects: [alpha], seq: 1 })
     expect(result.afterReconnect).toEqual({ projects: [beta], seq: 5 })
+  })
+
+  it("interrupts the active epoch before reconnecting and resnapshotting", async () => {
+    const result = await runSingleActiveEpochScenario()
+    expect(result.duringReconnectOutcome).toBe("closed")
+    expect(result.duringReconnect).toEqual({ projects: [alpha], seq: 1 })
+    expect(result.afterResnapshot).toEqual({ projects: [beta], seq: 5 })
+    expect(result.afterResnapshotOutcome).toBe("closed")
+    expect(result.afterEpochOneDelivery).toEqual({ projects: [beta], seq: 5 })
   })
 
   it("interruption stops delivery", async () => {

@@ -1,4 +1,4 @@
-import { Effect, Option, Ref, Stream } from "effect"
+import { Effect, Fiber, Option, Ref, Stream } from "effect"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { Project } from "@expand/contracts/project"
 
@@ -30,21 +30,33 @@ export const runProjectSync = <E, R>(
   sink: ProjectSyncSink
 ): Effect.Effect<never, never, R> =>
   Effect.scoped(
-    source.status.pipe(
-      Stream.runForEach((status) =>
-        Effect.sync(() => sink.status(status)).pipe(
-          Effect.andThen(
-            status === "connected"
-              ? Effect.forkScoped(
-                  runEpoch(source, sink).pipe(Effect.catch(() => Effect.void))
-                ).pipe(Effect.asVoid)
-              : Effect.void
-          )
+    Effect.gen(function* () {
+      const active = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>())
+      const interruptActive = Ref.getAndSet(active, Option.none()).pipe(
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.void,
+            onSome: (fiber) => Fiber.interrupt(fiber)
+          })
         )
-      ),
-      Effect.catch(() => Effect.never),
-      Effect.andThen(Effect.never)
-    )
+      )
+      return yield* source.status.pipe(
+        Stream.runForEach((status) =>
+          Effect.gen(function* () {
+            yield* Effect.sync(() => sink.status(status))
+            yield* interruptActive
+            if (status === "connected") {
+              const fiber = yield* Effect.forkScoped(
+                runEpoch(source, sink).pipe(Effect.catch(() => Effect.void))
+              )
+              yield* Ref.set(active, Option.some(fiber))
+            }
+          })
+        ),
+        Effect.catch(() => Effect.never),
+        Effect.andThen(Effect.never)
+      )
+    })
   )
 
 const runEpoch = <E, R>(
