@@ -15,17 +15,39 @@ const PackageJson = Schema.fromJsonString(Schema.Struct({
   scripts: Schema.Struct({ "effect:grep": Schema.String })
 }))
 
+const WorkflowSetupNodeWith = Schema.Struct({
+  "node-version-file": Schema.String,
+  cache: Schema.String
+})
+
 const WorkflowStep = Schema.Struct({
   name: Schema.optionalKey(Schema.String),
   run: Schema.optionalKey(Schema.String),
-  uses: Schema.optionalKey(Schema.String)
+  uses: Schema.optionalKey(Schema.String),
+  with: Schema.optionalKey(WorkflowSetupNodeWith)
 })
 
 const WorkflowJob = Schema.Struct({
+  name: Schema.String,
+  "runs-on": Schema.String,
+  needs: Schema.optionalKey(Schema.String),
+  "timeout-minutes": Schema.Number,
   steps: Schema.Array(WorkflowStep)
 })
 
 const Workflow = Schema.Struct({
+  name: Schema.String,
+  on: Schema.Struct({
+    push: Schema.Struct({ branches: Schema.Array(Schema.String) }),
+    pull_request: Schema.Struct({ branches: Schema.Array(Schema.String) })
+  }),
+  concurrency: Schema.Struct({
+    group: Schema.String,
+    "cancel-in-progress": Schema.Boolean
+  }),
+  permissions: Schema.Struct({
+    contents: Schema.String
+  }),
   jobs: Schema.Struct({
     checks: WorkflowJob,
     "desktop-e2e": WorkflowJob,
@@ -37,7 +59,7 @@ const parseWorkflow = Effect.fn("EffectAuditTest.parseWorkflow")((source: string
   Effect.try({
     try: () => parseYaml(source),
     catch: (cause) => ({ _tag: "WorkflowYamlError" as const, cause })
-  }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Workflow))))
+  }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Workflow, { onExcessProperty: "error" }))))
 
 const expectedPreCommit = [
   "#!/bin/sh",
@@ -77,6 +99,124 @@ const expectedJobCommands = {
     "npm ci",
     "npm run cert:cli:build"
   ]
+} as const
+
+const expectedWorkflow = {
+  name: "CI",
+  on: {
+    push: {
+      branches: ["develop", "feat/architectural-foundation"]
+    },
+    pull_request: {
+      branches: ["develop", "feat/architectural-foundation"]
+    }
+  },
+  concurrency: {
+    group: "${{ github.workflow }}-${{ github.ref }}",
+    "cancel-in-progress": true
+  },
+  permissions: {
+    contents: "read"
+  },
+  jobs: {
+    checks: {
+      name: "Types, architecture invariants, tests",
+      "runs-on": "ubuntu-latest",
+      "timeout-minutes": 10,
+      steps: [
+        {
+          uses: "actions/checkout@v6"
+        },
+        {
+          uses: "actions/setup-node@v6",
+          with: {
+            "node-version-file": ".node-version",
+            cache: "npm"
+          }
+        },
+        {
+          name: "Install dependencies (frozen lockfile)",
+          run: "npm ci"
+        },
+        {
+          name: "Effect-only boundary audit",
+          run: "npm run effect:audit"
+        },
+        {
+          name: "Agent definitions synchronized",
+          run: "npm run agents:check"
+        },
+        {
+          name: "Typecheck (root + desktop projects)",
+          run: "npm run typecheck:all"
+        },
+        {
+          name: "Architecture invariant I-1 (dependency-cruiser, BOUNDARIES.md)",
+          run: "npm run arch"
+        },
+        {
+          name: "Unit + architecture tests",
+          run: "npm run test"
+        }
+      ]
+    },
+    "desktop-e2e": {
+      name: "Desktop e2e (serialized RPC seam, ARCHITECTURE.md §5.4)",
+      "runs-on": "ubuntu-latest",
+      needs: "checks",
+      "timeout-minutes": 15,
+      steps: [
+        {
+          uses: "actions/checkout@v6"
+        },
+        {
+          uses: "actions/setup-node@v6",
+          with: {
+            "node-version-file": ".node-version",
+            cache: "npm"
+          }
+        },
+        {
+          name: "Install dependencies (frozen lockfile)",
+          run: "npm ci"
+        },
+        {
+          name: "Electron system libraries (managed by Playwright)",
+          run: "npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64"
+        },
+        {
+          name: "Build desktop and run e2e",
+          run: "xvfb-run -a npm run e2e:desktop"
+        }
+      ]
+    },
+    "binary-smoke": {
+      name: "Compiled-binary certification (I-4 reaping + durability)",
+      "runs-on": "ubuntu-latest",
+      needs: "checks",
+      "timeout-minutes": 10,
+      steps: [
+        {
+          uses: "actions/checkout@v6"
+        },
+        {
+          uses: "actions/setup-node@v6",
+          with: {
+            "node-version-file": ".node-version",
+            cache: "npm"
+          }
+        },
+        {
+          name: "Install dependencies (frozen lockfile)",
+          run: "npm ci"
+        },
+        {
+          name: "Build CLI/server binaries and smoke-test them",
+          run: "npm run cert:cli:build"
+        }
+      ]
+    }
+  }
 } as const
 
 const expectedCodeOwners = [
@@ -248,6 +388,34 @@ describe("Effect-only enforcement policy", () => {
       expect(yield* fs.readFileString(path.join(root, ".githooks/pre-commit"))).toBe(expectedPreCommit)
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("rejects metadata that can disable the CI audit step", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+      const source = yield* fs.readFileString(path.join(root, ".github/workflows/ci.yml"))
+      const auditStep = [
+        "      - name: Effect-only boundary audit",
+        "        run: npm run effect:audit"
+      ].join("\n")
+      const disabledSources = [
+        "        if: ${{ false }}",
+        "        continue-on-error: true"
+      ].map((metadata) => source.replace(
+        auditStep,
+        [
+          "      - name: Effect-only boundary audit",
+          metadata,
+          "        run: npm run effect:audit"
+        ].join("\n")
+      ))
+      const results = yield* Effect.all(disabledSources.map((disabledSource) =>
+        Effect.exit(parseWorkflow(disabledSource))))
+
+      expect(disabledSources.every((disabledSource) => disabledSource !== source)).toBe(true)
+      expect(results.map((result) => result._tag)).toEqual(["Failure", "Failure"])
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("runs the complete CI job command sequences with the audit in its exact position", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -262,6 +430,7 @@ describe("Effect-only enforcement policy", () => {
       const auditIndexes = checksSteps.flatMap((step, index) =>
         step.name === "Effect-only boundary audit" ? [index] : [])
 
+      expect(workflow).toEqual(expectedWorkflow)
       expect(Object.keys(workflow.jobs)).toEqual(["checks", "desktop-e2e", "binary-smoke"])
       expect({
         checks: runCommands(workflow.jobs.checks),
