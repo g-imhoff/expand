@@ -15,7 +15,7 @@ it by name, no registry install:
 
 ```jsonc
 // package.json
-{ "dependencies": { "@expand/client-ts": "workspace:*" } }
+{ "dependencies": { "@expand/client-ts": "0.0.0" } }
 ```
 
 ## Entrypoints

@@ -49,7 +49,7 @@ Every example ends with the exact same incantation
 (`bootstrap-projects.ts:41-45`, `archive-stale.ts:22-26`, `audit-log.ts:22-26`):
 
 ```ts
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => { console.error(err); runtime.dispose(); process.exit(1) }

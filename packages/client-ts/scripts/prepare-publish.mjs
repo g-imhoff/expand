@@ -3,15 +3,6 @@
 // of the in-repo source `.ts`. The tracked package.json is NEVER mutated, so
 // in-repo resolution (which relies on `exports` -> source `.ts`) keeps working.
 //
-// Two client-ts specifics beyond the contracts recipe:
-//   1. Exports stay SCOPED-ENTRYPOINTS-ONLY — only ".", "./project", "./server",
-//      "./adapters/node" and "./package.json" are exposed;
-//      internal modules (rpc-client, spawn, …) are unreachable. (They are also
-//      physically absent: tsup bundles each entry.)
-//   2. The `@expand/contracts` dependency is rewritten from the in-repo
-//      `workspace:*` protocol to the real version from packages/contracts, so the
-//      published tarball is installable outside the workspace.
-//
 // Flow:  npm run build              -> tsup emits ./dist/*.js, tsc emits ./dist/*.d.ts
 //        node scripts/prepare-publish.mjs -> writes ./dist-publish/{package.json, dist/**}
 //        npm pack ./dist-publish    -> tarball whose package.json exports resolve dist/*.js
@@ -29,13 +20,6 @@ if (!existsSync(distDir)) {
 }
 
 const src = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"))
-
-// Resolve the workspace `@expand/contracts` version to the real published version.
-const contractsPkg = JSON.parse(readFileSync(join(pkgDir, "..", "contracts", "package.json"), "utf8"))
-const dependencies = { ...src.dependencies }
-if (typeof dependencies["@expand/contracts"] === "string" && dependencies["@expand/contracts"].startsWith("workspace:")) {
-  dependencies["@expand/contracts"] = contractsPkg.version
-}
 
 // Publish-time package.json: source `exports` (-> ./*.ts) swapped for dist
 // (-> ./dist/*), keeping the scoped-entrypoints surface.
@@ -70,7 +54,7 @@ const publishPkg = {
     "./package.json": "./package.json"
   },
   files: ["dist"],
-  dependencies
+  dependencies: src.dependencies
 }
 
 rmSync(stageDir, { recursive: true, force: true })
