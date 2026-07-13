@@ -1,6 +1,7 @@
 import {
   browserResourceGlobals,
   effectCallbackMethods,
+  effectProducerMethods,
   effectRunnerMethods,
   hostModules,
   listenerMethods,
@@ -19,7 +20,7 @@ const promiseChains = new Set(promiseChainMethods)
 const effectRunners = new Set(effectRunnerMethods)
 const runtimeRunners = new Set(runtimeRunnerMethods)
 const effectCallbacks = new Set(effectCallbackMethods)
-const syntaxEffectProducers = new Set(["succeed", ...effectCallbackMethods.filter((method) => method !== "fn" && method !== "fnUntraced")])
+const effectProducers = new Set(effectProducerMethods)
 const schemaSyncs = new Set(schemaSyncMethods)
 const nodeBuiltins = new Set(nodeBuiltinModules)
 const hostModuleNames = new Set(hostModules)
@@ -266,7 +267,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       if (callee?.root === "ManagedRuntime" && method === "make") result = origin("ManagedRuntimeInstance")
       else if (callee?.root === "Runtime" && method === "make") result = origin("RuntimeInstance")
       else if (callee?.root === "Effect" && method === "runtime") result = origin("RuntimeInstance")
-      else if (callee?.root === "Effect" && effectCallbacks.has(method)) result = callee
+      else if (callee?.root === "Effect" && (effectCallbacks.has(method) || effectProducers.has(method) || effectRunners.has(method))) result = callee
       else if (["Runtime", "RuntimeInstance", "ManagedRuntime", "ManagedRuntimeInstance"].includes(callee?.root) && runtimeRunners.has(method)) result = callee
     }
     expressionOrigins.set(node, result)
@@ -463,7 +464,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const callee = originOfExpression(node.callee)
       if (["ManagedRuntime", "ManagedRuntimeInstance", "Runtime", "RuntimeInstance"].includes(callee?.root)) return false
       if (checker) return isEffectType(typeAt(node))
-      if (callee?.root === "Effect" && syntaxEffectProducers.has(last(callee.path))) return true
+      if (callee?.root === "Effect" && effectProducers.has(last(callee.path))) return true
     }
     return isEffectType(typeAt(node))
   }

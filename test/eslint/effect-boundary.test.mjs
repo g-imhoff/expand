@@ -83,6 +83,16 @@ const valid = [
     filename: absolute("effect-boundary-pure-helper.mts"),
     code: 'import { Effect } from "effect"\nexport const inspect = (value: unknown) => Effect.isEffect(value)',
     languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    filename: absolute("effect-boundary-request-unsafe.mts"),
+    code: 'import { Effect } from "effect"\nexport const register = (request, options) => Effect.requestUnsafe(request, options)',
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    filename: absolute("effect-boundary-replicate.mts"),
+    code: 'import { Effect } from "effect"\nexport const copies = (program, times) => Effect.replicate(program, times)',
+    languageOptions: { parserOptions: { project: false, projectService: false } }
   }
 ]
 
@@ -100,12 +110,47 @@ const invalid = [
     filename: absolute("effect-boundary-effect-producer.mts"),
     languageOptions: { parserOptions: { project: false, projectService: false } }
   },
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const reject = (error) => Effect.fail(error)', [{ messageId: "effectFunctionBoundary" }]),
+    filename: absolute("effect-boundary-fail-producer.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const terminate = (defect) => Effect.die(defect)', [{ messageId: "effectFunctionBoundary" }]),
+    filename: absolute("effect-boundary-die-producer.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const requireValue = (option) => Effect.fromOption(option)', [{ messageId: "effectFunctionBoundary" }]),
+    filename: absolute("effect-boundary-from-option-producer.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const pause = (duration) => Effect.sleep(duration)', [{ messageId: "effectFunctionBoundary" }]),
+    filename: absolute("effect-boundary-sleep-producer.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
   invalidCase('import { Effect, Schema } from "effect"\nEffect.gen(function*() { return Schema.decodeUnknownSync(Schema.String)(input) })', [{ messageId: "syncSchemaInEffect" }]),
   invalidCase("Promise.resolve(1)", [{ messageId: "nativePromise" }]),
   invalidCase("const { resolve: settle } = Promise\nsettle(1)", [{ messageId: "nativePromise" }]),
   invalidCase('import { runPromise as run } from "effect/Effect"\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect } from "effect"\nconst { runFork: run } = Effect\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import * as Package from "effect"\nPackage.Effect.runPromise(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  invalidCase('import { Effect } from "effect"\nexport const run = (context, program) => Effect.runPromiseWith(context)(program)', [
+    { messageId: "promiseSignature" },
+    { messageId: "runnerOutsideBoundary" }
+  ]),
+  invalidCase('import { Effect } from "effect"\nexport const run = (context, program) => Effect.runSyncExitWith(context)(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const run = (context, program) => Effect.runPromiseWith(context)(program)', [{ messageId: "runnerOutsideBoundary" }]),
+    filename: absolute("effect-boundary-run-promise-with.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const run = (context, program) => Effect.runSyncExitWith(context)(program)', [{ messageId: "runnerOutsideBoundary" }]),
+    filename: absolute("effect-boundary-run-sync-exit-with.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
   invalidCase('import * as Package from "effect"\nconst RuntimeApi = Package.Runtime\nRuntimeApi.runPromise(runtime)(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import * as Package from "effect"\nconst { ManagedRuntime: ManagedRuntimeApi } = Package\nManagedRuntimeApi.runSync(runtime)(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import * as Package from "effect"\nconst { Effect: Fx, Schema: S } = Package\nFx.sync(() => S.decodeUnknownSync(S.String)(input))', [{ messageId: "syncSchemaInEffect" }]),
@@ -160,6 +205,14 @@ it("canonicalizes the platform package NodeRuntime namespace construct", () => {
   const analysis = analyze('import * as Platform from "@effect/platform-node"\nPlatform.NodeRuntime.runMain(program)')
   expect(analysis.occurrences).toMatchObject([
     { messageId: "runnerOutsideBoundary", identity: { construct: "runner:NodeRuntime.runMain" } }
+  ])
+})
+
+it("preserves exact curried Effect runner constructs", () => {
+  const analysis = analyze('import { Effect } from "effect"\nEffect.runPromiseWith(context)(first)\nEffect.runSyncExitWith(context)(second)')
+  expect(analysis.occurrences).toMatchObject([
+    { messageId: "runnerOutsideBoundary", identity: { construct: "runner:Effect.runPromiseWith" } },
+    { messageId: "runnerOutsideBoundary", identity: { construct: "runner:Effect.runSyncExitWith" } }
   ])
 })
 
