@@ -10,9 +10,6 @@ import { BackendUnavailable } from "../errors"
 import { acquireClient, type ExpandRpcClientApi } from "../rpc-client"
 import { supervised } from "../supervise"
 
-// Mutations take raw strings and forward them to the backend, which validates
-// at its ingestion boundary (invalid input returns ProjectInvalidInput). The
-// store never brands or validates — it only mirrors the server's event stream.
 export interface ProjectStoreApi {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   readonly status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
@@ -37,40 +34,15 @@ export interface ProjectStoreApi {
   ) => Effect.Effect<Project, RpcClientError.RpcClientError | ProjectNotFound | ProjectInvalidInput>
   readonly deleteProject: (id: string) => Effect.Effect<ProjectDeleteResult, RpcClientError.RpcClientError | ProjectNotFound>
   readonly events: Stream.Stream<SequencedEvent>
-  /**
-   * Framework-agnostic subscription to the reactive `projects` mirror. Invokes
-   * `onProjects` with the current value immediately, then again on every
-   * subsequent change, from a fiber forked into the store's own scope.
-   *
-   * Returns an unsubscribe function that stops delivery. The fiber is also torn
-   * down automatically when the store's scope closes, so forgetting to
-   * unsubscribe leaks nothing beyond the store's own lifetime.
-   *
-   * `onProjects` MUST NOT throw: it runs inside the delivery fiber, so a thrown
-   * error kills that fiber and terminates delivery for the rest of the store's
-   * lifetime. Keep the callback total (e.g. wrap risky work in try/catch).
-   *
-   * Prefer this over hand-rolling `Stream.runForEach(SubscriptionRef.changes(
-   * store.projects), …)` + `Fiber.interrupt` inside UI effects.
-   */
   readonly subscribe: (onProjects: (projects: ReadonlyArray<Project>) => void) => Effect.Effect<() => void>
 }
 
 export class ProjectStore extends Context.Service<ProjectStore, ProjectStoreApi>()(
   "expand/ProjectStore"
-) {}
+) { }
 
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
-/**
- * Bridge a {@link SubscriptionRef} to an imperative callback: fork a fiber (into
- * `scope`, so it dies with the store) that pushes the current value and every
- * subsequent change into `onValue`, and return a synchronous unsubscribe that
- * interrupts that fiber. Backs {@link ProjectStoreApi.subscribe}; the seam is
- * exported so it can be unit-tested against a plain ref without a live backend.
- *
- * @internal
- */
 export const subscribeRef = <A>(
   ref: SubscriptionRef.SubscriptionRef<A>,
   scope: Scope.Scope,
@@ -124,7 +96,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
   BackendUnavailable,
   FileSystem.FileSystem | Scope.Scope
 > =>
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     // The store's own scope — subscription fibers are forked into it so they are
     // interrupted when the store is torn down (see subscribe / subscribeRef).
     const scope = yield* Effect.scope
@@ -148,7 +120,7 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
     )
 
     const session = Effect.scoped(
-      Effect.gen(function* () {
+      Effect.gen(function*() {
         const { client } = yield* acquireClient(hooked)
         yield* SubscriptionRef.set(clientRef, client)
         const queue = yield* client.Events({}, { asQueue: true })
@@ -185,8 +157,8 @@ const makeStore = (adapter: RuntimeAdapter): Effect.Effect<
         Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
           ? Effect.failCause(exit.cause)
           : SubscriptionRef.set(status, "reconnecting").pipe(
-              Effect.andThen(Effect.fail(new BackendUnavailable({ reason: "connection lost" })))
-            )
+            Effect.andThen(Effect.fail(new BackendUnavailable({ reason: "connection lost" })))
+          )
       ),
       Effect.retry(reconnectPolicy)
     )

@@ -18,7 +18,6 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     return Option.some(endpoint)
   })
 
-/** @internal */
 export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem

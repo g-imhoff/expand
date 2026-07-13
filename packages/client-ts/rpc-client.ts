@@ -9,14 +9,12 @@ import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
 
-/** @internal */
 export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcClientApi>()(
   "expand/ExpandRpcClient"
 ) {}
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-/** @internal */
 export const acquireClient = (
   adapter: RuntimeAdapter
 ): Effect.Effect<
@@ -67,7 +65,6 @@ export const acquireClient = (
   )
 }
 
-/** @internal */
 export const ExpandRpcClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>

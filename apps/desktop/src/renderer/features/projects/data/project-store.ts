@@ -13,8 +13,6 @@ import type {
 import { ProjectRpc } from "@expand/desktop/renderer/rpc/project-rpc"
 import { supervised } from "@expand/desktop/renderer/lib/supervised"
 
-// Mutations take raw strings and forward them to the backend, which validates at
-// ingestion (ProjectInvalidInput on failure). The renderer never brands.
 export interface RendererProjectStoreShape {
   readonly projects: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>
   readonly createProject: (
@@ -42,11 +40,11 @@ export interface RendererProjectStoreShape {
 
 export class RendererProjectStore extends Context.Service<RendererProjectStore, RendererProjectStoreShape>()(
   "expand/desktop/RendererProjectStore"
-) {}
+) { }
 
 export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never, ProjectRpc> = Layer.effect(
   RendererProjectStore,
-  Effect.gen(function* () {
+  Effect.gen(function*() {
     const rpc = yield* ProjectRpc
     const projects = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
 
@@ -72,8 +70,8 @@ export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never,
               se.seq <= last
                 ? Effect.void
                 : SubscriptionRef.update(projects, (cur) => Project.foldList(cur, se.event)).pipe(
-                    Effect.andThen(Ref.set(lastSeq, se.seq))
-                  )
+                  Effect.andThen(Ref.set(lastSeq, se.seq))
+                )
             )
           ),
           Effect.forever
@@ -85,8 +83,6 @@ export const RendererProjectStoreLayer: Layer.Layer<RendererProjectStore, never,
       projects,
       createProject: (name) =>
         rpc.create({ name, ensure: true }).pipe(
-          // `ensure: true` guarantees the backend never reports ProjectAlreadyExists,
-          // so the store narrows it out of its error channel (it can only ever be a defect).
           Effect.catchTag("ProjectAlreadyExists", (e) => Effect.die(e)),
           Effect.map((r) => r.project)
         ),
