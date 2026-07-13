@@ -12,10 +12,17 @@ import {
   compareAudit,
   findingKey
 } from "./effect-audit-model"
+import {
+  GrepCandidate,
+  GrepInventoryJson,
+  compareGrepInventory,
+  grepCandidateKey,
+  grepInventoryValidationError
+} from "./effect-inventory-model"
 import { HostBoundary, NonNegativeInt, PositiveInt } from "./effect-policy-model"
 
 export interface AuditCommandRequest {
-  readonly name: "language-service" | "eslint" | "typescript-files" | "tracked-files" | "tracked-modes"
+  readonly name: "language-service" | "eslint" | "typescript-files" | "tracked-files" | "tracked-modes" | "grep-json"
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd: string
@@ -31,6 +38,22 @@ export interface AuditCommandResult {
 export class AuditCommandRunner extends Context.Service<AuditCommandRunner, {
   readonly run: (request: AuditCommandRequest) => Effect.Effect<AuditCommandResult, EffectAuditError>
 }>()("expand/AuditCommandRunner") {}
+
+export const EFFECT_GREP_PATTERN = String.raw`\basync\b|\bawait\b|new\s+Promise\b|\bPromise(?:Like)?\s*<|\bPromise\.(?:all|allSettled|any|race|resolve|reject)\b|\.(?:then|catch|finally)\s*\(|\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\s*\(|new\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\s*\(|\b(?:console\.\w+|Date\.now|performance\.now|Math\.random|crypto\.randomUUID|JSON\.(?:parse|stringify)|process\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\.)|\bnode:[^'"[:space:]]+|\b[A-Za-z_$][A-Za-z0-9_$]*\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\b`
+
+export const EFFECT_GREP_ARGS = [
+  "-n",
+  "--hidden",
+  "-g",
+  "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
+  "-g",
+  "!.git/**",
+  "-g",
+  "!**/node_modules/**",
+  "-g",
+  "!**/{dist,out,build,coverage,test-results,playwright-report}/**",
+  EFFECT_GREP_PATTERN
+] as const
 
 const auditError = (
   reason: EffectAuditError["reason"],
@@ -92,9 +115,35 @@ const EslintResult = Schema.Struct({
 const EslintJson = Schema.fromJsonString(Schema.Array(EslintResult))
 const HostBoundaries = Schema.Array(HostBoundary)
 
+const RipgrepEventJson = Schema.fromJsonString(Schema.Struct({
+  type: Schema.Literals(["begin", "match", "end", "summary"]),
+  data: Schema.Unknown
+}))
+
+const RipgrepMatchData = Schema.Struct({
+  path: Schema.Struct({ text: Schema.String }),
+  lines: Schema.Struct({ text: Schema.String }),
+  line_number: PositiveInt,
+  absolute_offset: NonNegativeInt,
+  submatches: Schema.Array(Schema.Struct({
+    match: Schema.Struct({ text: Schema.String }),
+    start: NonNegativeInt,
+    end: NonNegativeInt
+  }))
+})
+
+interface SourceNode {
+  readonly type: string
+  readonly range?: ReadonlyArray<number>
+  readonly value?: unknown
+  readonly [key: string]: unknown
+}
+
 interface ParsedSource {
   readonly source: string
   readonly analysis: ReturnType<typeof analyzeEffectBoundaryProgram>
+  readonly ast: unknown
+  readonly visitorKeys?: unknown
 }
 
 interface ParserResult {
@@ -153,7 +202,12 @@ const parseSource = Effect.fn("effect-audit.parse-source")(
       }),
       catch: (error) => auditError(invalidReason, `${file}: ${String(error)}`)
     })
-    return { source, analysis } satisfies ParsedSource
+    return {
+      source,
+      analysis,
+      ast: parsed.ast,
+      ...(parsed.visitorKeys === undefined ? {} : { visitorKeys: parsed.visitorKeys })
+    } satisfies ParsedSource
   }
 )
 
@@ -169,6 +223,75 @@ const offsetAt = (source: string, line: number, column: number): number => {
     remaining -= 1
   }
   return offset + Math.max(0, column - 1)
+}
+
+export const utf8ByteOffsetToCodeUnit = (input: string, byteOffset: number): number => {
+  const bounded = Number.isFinite(byteOffset) ? Math.max(0, byteOffset) : 0
+  let bytes = 0
+  let codeUnits = 0
+  for (const character of input) {
+    const point = character.codePointAt(0)
+    const width = point === undefined ? 0 : point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4
+    if (bytes + width > bounded) break
+    bytes += width
+    codeUnits += character.length
+  }
+  return codeUnits
+}
+
+const isSourceNode = (value: unknown): value is SourceNode =>
+  typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
+
+const nodeAtOffset = (parsed: ParsedSource, offset: number): SourceNode | undefined => {
+  if (!isSourceNode(parsed.ast)) return undefined
+  const visitorKeys = parsed.visitorKeys as Record<string, ReadonlyArray<string>> | undefined
+  const stack: Array<SourceNode> = [parsed.ast]
+  let selected: SourceNode | undefined
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (node === undefined) continue
+    const [start, end] = node.range ?? []
+    if (start !== undefined && end !== undefined && start <= offset && offset <= end) {
+      const [selectedStart, selectedEnd] = selected?.range ?? []
+      if (selectedStart === undefined || selectedEnd === undefined || end - start <= selectedEnd - selectedStart) {
+        selected = node
+      }
+    }
+    const keys = visitorKeys?.[node.type]
+      ?? Object.keys(node).filter((key) => !["parent", "range", "loc", "tokens", "comments"].includes(key))
+    for (const key of keys) {
+      const value = node[key]
+      if (Array.isArray(value)) {
+        for (const child of value) if (isSourceNode(child)) stack.push(child)
+      } else if (isSourceNode(value)) {
+        stack.push(value)
+      }
+    }
+  }
+  return selected
+}
+
+const isAuditFixturePath = (file: string) =>
+  /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^/]+$/.test(file)
+
+const isStringSyntax = (node: SourceNode | undefined) =>
+  node?.type === "TemplateElement"
+  || node?.type === "TemplateLiteral"
+  || (node?.type === "Literal" && typeof node.value === "string")
+
+const matchingOccurrenceScore = (matchedText: string, construct: string): number => {
+  if (matchedText === "async" && construct === "native:async") return 100
+  if (matchedText === "await" && construct === "native:await") return 100
+  if (/^new\s+Promise\b/.test(matchedText) && construct === "promise:new") return 100
+  if (/^Promise(?:Like)?\s*</.test(matchedText) && construct.startsWith("signature:Promise")) return 100
+  if (/^Promise\./.test(matchedText) && construct.startsWith("promise:")) return 100
+  if (/^\.(?:then|catch|finally)\s*\(/.test(matchedText) && construct.startsWith("promise-chain:")) return 100
+  if (/\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)$/.test(matchedText) && construct.startsWith("runner:")) return 100
+  if (/^node:/.test(matchedText) && construct.startsWith("platform:import:node:")) return 100
+  if (/^(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\s*\(/.test(matchedText) && construct.startsWith("platform:")) return 100
+  if (/^new\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\s*\(/.test(matchedText) && construct.startsWith("platform:")) return 100
+  if (/^(?:console\.|Date\.now|performance\.now|Math\.random|crypto\.randomUUID|process\.|window\.|document\.|navigator\.|localStorage\.|sessionStorage\.)/.test(matchedText) && construct.startsWith("platform:")) return 100
+  return -1
 }
 
 const compareText = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0
@@ -286,6 +409,13 @@ const commandRequests = (root: string): ReadonlyArray<AuditCommandRequest> => [
     args: ["ls-files", "-s", "-z"],
     cwd: root,
     acceptedExitCodes: [0]
+  },
+  {
+    name: "grep-json",
+    command: "rg",
+    args: ["--json", ...EFFECT_GREP_ARGS, "."],
+    cwd: root,
+    acceptedExitCodes: [0, 1]
   }
 ]
 
@@ -309,6 +439,193 @@ const decodeJson = <A, I>(schema: Schema.Codec<A, I>, input: unknown, command: s
   Schema.decodeUnknownEffect(schema)(input).pipe(
     Effect.mapError((error) => auditError("invalid-output", `${command}: ${String(error)}`))
   )
+
+interface GrepCandidateEvidence {
+  readonly candidate: GrepCandidate
+  readonly messageId?: string
+  readonly stringSyntax: boolean
+}
+
+interface GrepCandidateDraft {
+  readonly file: string
+  readonly declaration: string
+  readonly construct: string
+  readonly analyzerOccurrence?: number
+  readonly messageId?: string
+  readonly line: number
+  readonly excerpt?: string
+  readonly offset: number
+  readonly matchedText: string
+  readonly stringSyntax: boolean
+}
+
+const occurrenceRange = (occurrence: { readonly node: unknown }) => {
+  if (!isSourceNode(occurrence.node)) return undefined
+  const [start, end] = occurrence.node.range ?? []
+  return start === undefined || end === undefined ? undefined : { start, end }
+}
+
+const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
+  function* (options: {
+    readonly root: string
+    readonly output: string
+    readonly trackedFiles: ReadonlySet<string>
+    readonly indexedFiles: ReadonlySet<string>
+  }) {
+    const path = yield* Path.Path
+    const matches: Array<typeof RipgrepMatchData.Type> = []
+    for (const [index, line] of options.output.split(/\r?\n/).entries()) {
+      if (line.length === 0) continue
+      const event = yield* decodeJson(RipgrepEventJson, line, `grep-json line ${index + 1}`)
+      if (event.type === "match") {
+        matches.push(yield* decodeJson(RipgrepMatchData, event.data, `grep-json match ${index + 1}`))
+      }
+    }
+
+    const parsedFiles = new Map<string, ParsedSource>()
+    const drafts: Array<GrepCandidateDraft> = []
+    for (const match of matches) {
+      const file = normalizeFile(path, options.root, match.path.text)
+      if (file === undefined || !options.trackedFiles.has(file) || !options.indexedFiles.has(file)) continue
+      let parsed = parsedFiles.get(file)
+      if (parsed === undefined) {
+        parsed = yield* parseSource(options.root, file, "invalid-output")
+        parsedFiles.set(file, parsed)
+      }
+      const lineOffset = offsetAt(parsed.source, match.line_number, 1)
+      for (const submatch of match.submatches) {
+        if (submatch.end < submatch.start) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json has a reversed submatch in ${file}:${match.line_number}`))
+        }
+        const startInLine = utf8ByteOffsetToCodeUnit(match.lines.text, submatch.start)
+        const endInLine = utf8ByteOffsetToCodeUnit(match.lines.text, submatch.end)
+        if (match.lines.text.slice(startInLine, endInLine) !== submatch.match.text) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json submatch text does not resolve in ${file}:${match.line_number}`))
+        }
+        const offset = lineOffset + startInLine
+        const endOffset = lineOffset + endInLine
+        const matching = parsed.analysis.occurrences
+          .flatMap((occurrence) => {
+            const range = occurrenceRange(occurrence)
+            const score = matchingOccurrenceScore(submatch.match.text, occurrence.identity.construct)
+            return range !== undefined && range.start <= offset && range.end >= endOffset && score >= 0
+              ? [{ occurrence, range, score }]
+              : []
+          })
+          .sort((left, right) => right.score - left.score || (left.range.end - left.range.start) - (right.range.end - right.range.start))
+          .at(0)?.occurrence
+        const fallback = matching === undefined
+          ? parsed.analysis.identityAtOffset(offset, `lexical:${submatch.match.text}`)
+          : undefined
+        const identity = matching?.identity ?? fallback
+        if (identity === undefined) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json could not resolve ${file}:${match.line_number}`))
+        }
+        const excerpt = lineExcerpt(parsed.source, match.line_number)
+        drafts.push({
+          file,
+          declaration: identity.declaration,
+          construct: identity.construct,
+          ...(matching === undefined ? {} : {
+            analyzerOccurrence: identity.occurrence,
+            messageId: matching.messageId
+          }),
+          line: match.line_number,
+          ...(excerpt === undefined ? {} : { excerpt }),
+          offset,
+          matchedText: submatch.match.text,
+          stringSyntax: matching === undefined && isStringSyntax(nodeAtOffset(parsed, offset))
+        })
+      }
+    }
+
+    drafts.sort((left, right) =>
+      compareText(left.file, right.file)
+      || left.offset - right.offset
+      || compareText(left.matchedText, right.matchedText)
+    )
+    const lexicalCounts = new Map<string, number>()
+    const boundaries = new Map(effectHostBoundaries.map((boundary) => [boundaryIdentityKey(boundary), boundary]))
+    const evidence = drafts.map((draft) => {
+      const lexicalKey = [draft.file, draft.declaration, draft.construct].join("\u0000")
+      const occurrence = draft.analyzerOccurrence ?? lexicalCounts.get(lexicalKey) ?? 0
+      if (draft.analyzerOccurrence === undefined) lexicalCounts.set(lexicalKey, occurrence + 1)
+      const identity = [draft.file, draft.declaration, draft.construct, String(occurrence)].join("\u0000")
+      const boundary = boundaries.get(identity)
+      const candidate = new GrepCandidate({
+        file: draft.file,
+        declaration: draft.declaration,
+        construct: draft.construct,
+        occurrence,
+        classification: boundary === undefined ? "migration-debt" : "host-boundary",
+        rationale: boundary?.host ?? "",
+        line: draft.line,
+        ...(draft.excerpt === undefined ? {} : { excerpt: draft.excerpt })
+      })
+      return {
+        candidate,
+        ...(draft.messageId === undefined ? {} : { messageId: draft.messageId }),
+        stringSyntax: draft.stringSyntax
+      } satisfies GrepCandidateEvidence
+    }).sort((left, right) => compareText(grepCandidateKey(left.candidate), grepCandidateKey(right.candidate)))
+
+    const validationError = grepInventoryValidationError(evidence.map(({ candidate }) => candidate))
+    if (validationError !== undefined) return yield* Effect.fail(auditError("invalid-output", validationError))
+    return evidence
+  }
+)
+
+const hydrateGrepCandidates = (
+  evidence: ReadonlyArray<GrepCandidateEvidence>,
+  inventory: ReadonlyArray<GrepCandidate>
+): ReadonlyArray<GrepCandidateEvidence> => {
+  const inventoryByKey = new Map(inventory.map((candidate) => [grepCandidateKey(candidate), candidate]))
+  return evidence.map((entry) => {
+    const reviewed = inventoryByKey.get(grepCandidateKey(entry.candidate))
+    if (reviewed === undefined) return entry
+    return {
+      ...entry,
+      candidate: new GrepCandidate({
+        ...entry.candidate,
+        classification: reviewed.classification,
+        rationale: reviewed.rationale
+      })
+    }
+  })
+}
+
+const grepClassificationError = (evidence: ReadonlyArray<GrepCandidateEvidence>): string | undefined => {
+  const boundaries = new Set(effectHostBoundaries.map(boundaryIdentityKey))
+  for (const entry of evidence) {
+    const { candidate } = entry
+    if (candidate.classification === "migration-debt") continue
+    if (candidate.rationale.trim().length === 0) {
+      return `grep inventory ${candidate.classification} record requires a non-empty rationale: ${grepCandidateKey(candidate)}`
+    }
+    if (candidate.classification === "host-boundary") {
+      if (entry.messageId !== "runnerOutsideBoundary" || !boundaries.has(grepCandidateKey(candidate))) {
+        return `grep inventory host-boundary lacks an exact permanent boundary: ${grepCandidateKey(candidate)}`
+      }
+      continue
+    }
+    if (candidate.classification === "host-required-type") {
+      if (entry.messageId !== "promiseSignature" || !candidate.construct.startsWith("signature:Promise")) {
+        return `grep inventory host-required-type lacks analyzer proof: ${grepCandidateKey(candidate)}`
+      }
+      continue
+    }
+    if (candidate.classification === "audit-fixture") {
+      if (entry.messageId !== undefined || !entry.stringSyntax || !isAuditFixturePath(candidate.file)) {
+        return `grep inventory audit-fixture lacks fixture syntax proof: ${grepCandidateKey(candidate)}`
+      }
+      continue
+    }
+    if (entry.messageId !== undefined || entry.stringSyntax) {
+      return `grep inventory false-positive lacks non-blocking analyzer proof: ${grepCandidateKey(candidate)}`
+    }
+  }
+  return undefined
+}
 
 const validateTrackedModes = (
   tracked: ReadonlyArray<string>,
@@ -393,6 +710,13 @@ const collectAudit = Effect.fn("effect-audit.collect")(
       trackedFiles: tracked,
       eslintFiles,
       boundaries: effectHostBoundaries
+    })
+
+    const initialGrepEvidence = yield* collectGrepCandidates({
+      root: options.root,
+      output: output("grep-json"),
+      trackedFiles: trackedSet,
+      indexedFiles: eslintFileSet
     })
 
     const relevantLanguage = languageService.diagnostics.flatMap((diagnostic) => {
@@ -497,12 +821,77 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
       )
     }
+
+    const grepInventoryFile = path.join(options.root, "effect-grep-inventory.json")
+    const grepInventoryExists = yield* fs.exists(grepInventoryFile).pipe(
+      Effect.mapError((error) => auditError("invalid-output", String(error)))
+    )
+    if (!grepInventoryExists) {
+      return yield* Effect.fail(auditError("baseline-missing", "effect-grep-inventory.json does not exist"))
+    }
+    const grepInventory = yield* fs.readFileString(grepInventoryFile).pipe(
+      Effect.mapError((error) => auditError("invalid-output", String(error))),
+      Effect.flatMap((contents) => decodeJson(GrepInventoryJson, contents, "grep inventory"))
+    )
+    const inventoryError = grepInventoryValidationError(grepInventory)
+    if (inventoryError !== undefined) return yield* Effect.fail(auditError("invalid-output", inventoryError))
+    const grepEvidence = hydrateGrepCandidates(initialGrepEvidence, grepInventory)
+    const currentCandidates = grepEvidence.map(({ candidate }) => candidate)
+    const currentError = grepInventoryValidationError(currentCandidates)
+    if (currentError !== undefined) return yield* Effect.fail(auditError("invalid-output", currentError))
+    const classificationError = grepClassificationError(grepEvidence)
+    if (classificationError !== undefined) return yield* Effect.fail(auditError("invalid-output", classificationError))
+
+    const grepCandidates = grepEvidence.map(({ candidate }) => candidate)
+    const grepComparison = compareGrepInventory(grepInventory, grepCandidates)
+    if (grepComparison.added.length > 0 || grepComparison.reclassified.length > 0) {
+      return yield* Effect.fail(auditError(
+        options.mode === "update" ? "baseline-growth" : "new-findings",
+        `grep inventory has ${grepComparison.added.length} additions and ${grepComparison.reclassified.length} implicit reclassifications`
+      ))
+    }
+    if (grepComparison.removed.some((candidate) => candidate.classification !== "migration-debt")) {
+      return yield* Effect.fail(auditError(
+        options.mode === "update" ? "baseline-growth" : "stale-baseline",
+        "grep inventory has a stale non-debt record"
+      ))
+    }
+    if (options.mode === "check" && grepComparison.removed.length > 0) {
+      return yield* Effect.fail(auditError(
+        "stale-baseline",
+        `${grepComparison.removed.length} grep inventory records are stale`
+      ))
+    }
+    if (options.mode === "update" && grepComparison.removed.length > 0) {
+      const currentKeys = new Set(grepCandidates.map(grepCandidateKey))
+      const updatedInventory = grepInventory.filter((candidate) => currentKeys.has(grepCandidateKey(candidate)))
+      const encoded = yield* Schema.encodeEffect(GrepInventoryJson)(updatedInventory).pipe(
+        Effect.mapError((error) => auditError("invalid-output", String(error)))
+      )
+      yield* fs.writeFileString(grepInventoryFile, encoded).pipe(
+        Effect.mapError((error) => auditError("invalid-output", String(error)))
+      )
+    }
+    const grepCounts = {
+      "migration-debt": grepCandidates.filter((candidate) => candidate.classification === "migration-debt").length,
+      "host-boundary": grepCandidates.filter((candidate) => candidate.classification === "host-boundary").length,
+      "host-required-type": grepCandidates.filter((candidate) => candidate.classification === "host-required-type").length,
+      "audit-fixture": grepCandidates.filter((candidate) => candidate.classification === "audit-fixture").length,
+      "false-positive": grepCandidates.filter((candidate) => candidate.classification === "false-positive").length
+    } as const
+    yield* Effect.logInfo(
+      `Effect grep inventory found ${grepCandidates.length} candidates: ${Object.entries(grepCounts).map(([classification, count]) => `${classification}=${count}`).join(", ")}`
+    )
     return {
       findings,
       messages,
       added: comparison.added,
       removed: comparison.removed,
-      updated: options.mode === "update"
+      updated: options.mode === "update",
+      grepCandidates,
+      grepAdded: grepComparison.added,
+      grepRemoved: grepComparison.removed,
+      grepCounts
     }
   }
 )
