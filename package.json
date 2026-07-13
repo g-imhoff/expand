@@ -5,8 +5,11 @@
   "type": "module",
   "packageManager": "npm@11.12.1",
   "engines": {
-    "node": ">=24",
+    "node": ">=24.15",
     "npm": ">=11"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-beta.74"
   },
   "workspaces": ["packages/contracts", "packages/client-ts"],
   "module": "apps/cli/cli/main.ts",

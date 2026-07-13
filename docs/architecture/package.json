@@ -12,6 +12,6 @@
     "clean": "rm -rf ./out ./out-svg ./d2"
   },
   "devDependencies": {
-    "likec4": "^1.56.0"
+    "likec4": "1.56.0"
   }
 }
