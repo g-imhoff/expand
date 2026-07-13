@@ -65,8 +65,8 @@ findOrSpawnBackend:
   Release repeats the record/inode proof so a delayed finalizer cannot unlink a
   replacement. Exactly one cooperating client invokes `spawnBackend`; calls
   selecting different roots use different lock paths and proceed independently.
-- **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 50ms
-  (failing `"pending"` until it appears), with a 10s overall timeout →
+- **`awaitEndpoint`** (`spawn.ts`) polls `readEndpoint` every 100ms
+  (failing `"pending"` until it appears), with a 30s overall timeout →
   `BackendUnavailable("backend did not start in time")`.
 
 The normalized default root uses the external channel-specific

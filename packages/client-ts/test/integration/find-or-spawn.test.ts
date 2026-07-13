@@ -265,9 +265,6 @@ describe("findOrSpawnBackend", () => {
           Effect.delay("100 millis")
         )
       )
-      // Pre-fix: this would wait the full 10s awaitEndpoint window and then fail
-      // with BackendUnavailable, never clearing the lock. Post-fix: it clears the
-      // stale lock, "spawns", and returns the advertised endpoint.
       const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
       return endpoint
