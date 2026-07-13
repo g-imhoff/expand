@@ -334,6 +334,98 @@ describe("Effect audit command", () => {
         expect(error.reason).toBe("baseline-growth")
       }))
   })
+
+  it.effect("preserves an ESLint identity after a CRLF line terminator", () => {
+    const source = "export const a = 1\r\nexport async function load() {}"
+    return fixture({
+      baseline: [],
+      source,
+      eslint: JSON.stringify([
+        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        {
+          filePath: "src/sample.ts",
+          messages: [{
+            ruleId: "effect-boundary/effect-boundary",
+            severity: 2,
+            message: "Use Effect control flow instead of a native async function.",
+            messageId: "nativeAsync",
+            line: 2,
+            column: 8
+          }]
+        }
+      ])
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+
+        expect(error).toMatchObject({
+          reason: "new-findings",
+          findings: [{
+            engine: "eslint",
+            file: "src/sample.ts",
+            rule: "nativeAsync",
+            declaration: "function:load",
+            construct: "native:async",
+            occurrence: 0,
+            severity: "error",
+            line: 2,
+            excerpt: "export async function load() {}"
+          }]
+        })
+      }))
+  })
+
+  it.effect("rejects ESLint severities outside one and two", () =>
+    Effect.forEach([0, 3], (severity) => fixture({
+      baseline: [],
+      eslint: JSON.stringify([
+        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        {
+          filePath: "src/sample.ts",
+          messages: [{
+            ruleId: "effect-boundary/effect-boundary",
+            severity,
+            message: "invalid severity",
+            line: 1,
+            column: 1
+          }]
+        }
+      ])
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error).toMatchObject({ _tag: "EffectAuditError", reason: "invalid-output" })
+      }))))
+
+  it.effect("accepts the valid fatal ESLint message shape", () =>
+    fixture({
+      baseline: [],
+      eslint: JSON.stringify([
+        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        {
+          filePath: "src/sample.ts",
+          messages: [{
+            ruleId: null,
+            severity: 2,
+            message: "Parsing error",
+            line: 1,
+            column: 1,
+            fatal: true
+          }]
+        }
+      ])
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error).toMatchObject({
+          reason: "new-findings",
+          findings: [{
+            engine: "eslint",
+            rule: "unknown",
+            severity: "error"
+          }]
+        })
+      })))
 })
 
 describe("live audit command runner", () => {
@@ -372,7 +464,35 @@ describe("live audit command runner", () => {
         acceptedExitCodes: [0]
       }).pipe(Effect.exit)
 
-      expect(Exit.isFailure(exit)).toBe(true)
+      const failure = Exit.findError(exit)
+      expect(failure._tag).toBe("Success")
+      if (failure._tag === "Success") {
+        expect(failure.success).toMatchObject({ _tag: "EffectAuditError", reason: "command-failed" })
+      }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(AuditCommandRunnerLive),
+      Effect.provide(NodeServices.layer)
+    ))
+
+  it.effect("turns an executable-not-found platform error into a typed command failure", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-effect-missing-command-" })
+      const runner = yield* AuditCommandRunner
+      const exit = yield* runner.run({
+        name: "eslint",
+        command: "expand-effect-audit-command-that-does-not-exist",
+        args: [],
+        cwd: root,
+        acceptedExitCodes: [0]
+      }).pipe(Effect.exit)
+
+      const failure = Exit.findError(exit)
+      expect(failure._tag).toBe("Success")
+      if (failure._tag === "Success") {
+        expect(failure.success).toMatchObject({ _tag: "EffectAuditError", reason: "command-failed" })
+      }
     }).pipe(
       Effect.scoped,
       Effect.provide(AuditCommandRunnerLive),

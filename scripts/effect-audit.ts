@@ -76,11 +76,12 @@ const LanguageServiceJson = Schema.fromJsonString(Schema.Struct({
 
 const EslintMessage = Schema.Struct({
   ruleId: Schema.NullOr(Schema.String),
-  severity: NonNegativeInt,
+  severity: Schema.Literals([1, 2]),
   message: Schema.String,
   messageId: Schema.optionalKey(Schema.String),
   line: PositiveInt,
-  column: PositiveInt
+  column: PositiveInt,
+  fatal: Schema.optionalKey(Schema.Boolean)
 })
 
 const EslintResult = Schema.Struct({
@@ -157,13 +158,15 @@ const parseSource = Effect.fn("effect-audit.parse-source")(
 )
 
 const lineExcerpt = (source: string, line: number): string | undefined =>
-  source.split(/\r?\n/).at(line - 1)?.trim()
+  source.split(/\r\n|[\n\r\u2028\u2029]/).at(line - 1)?.trim()
 
 const offsetAt = (source: string, line: number, column: number): number => {
-  const lines = source.split(/\r?\n/)
   let offset = 0
-  for (let index = 0; index < line - 1 && index < lines.length; index += 1) {
-    offset += (lines[index]?.length ?? 0) + 1
+  let remaining = Math.max(0, line - 1)
+  for (const terminator of source.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
+    if (remaining === 0) break
+    offset = (terminator.index ?? 0) + terminator[0].length
+    remaining -= 1
   }
   return offset + Math.max(0, column - 1)
 }
