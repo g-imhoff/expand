@@ -351,7 +351,7 @@ Expected: PASS.
 - Create: packages/client-ts/test/integration/project-sync.test.ts
 
 **Interfaces:**
-- Consumes: Project.foldList, ProjectClientApi.list, ProjectClientApi.events, ConnectionStatus.
+- Consumes: Project.foldList, ProjectClientApi.list, and ProjectClientApi.events. ProjectSyncStatus is defined in contracts and is structurally compatible with ClientSession.ConnectionStatus without importing client-ts.
 - Produces:
 
         export interface ProjectSnapshot {
@@ -359,8 +359,13 @@ Expected: PASS.
           readonly seq: number
         }
 
+        export type ProjectSyncStatus =
+          | "connected"
+          | "reconnecting"
+          | "disconnected"
+
         export interface ProjectSyncSource<E = never, R = never> {
-          readonly status: Stream.Stream<ConnectionStatus, E, R>
+          readonly status: Stream.Stream<ProjectSyncStatus, E, R>
           readonly list: () => Effect.Effect<ProjectSnapshot, E, R>
           readonly events: (
             payload: { readonly fromSeq: number }
@@ -369,7 +374,7 @@ Expected: PASS.
 
         export interface ProjectSyncSink {
           readonly snapshot: (snapshot: ProjectSnapshot) => void
-          readonly status: (status: ConnectionStatus) => void
+          readonly status: (status: ProjectSyncStatus) => void
         }
 
         export const runProjectSync: <E, R>(
@@ -622,7 +627,7 @@ Expected: PASS.
 - Produces:
 
         export interface ProjectState extends ProjectSnapshot {
-          readonly status: ConnectionStatus
+          readonly status: ProjectSyncStatus
         }
 
         export type ProjectsStore = StoreApi<ProjectState>
@@ -698,7 +703,7 @@ project-context.tsx provides ProjectContextValue and implements selector access 
 
 ProjectRpcApi keeps command/list methods and adds:
 
-        readonly status: Stream.Stream<ConnectionStatus, RpcClientError.RpcClientError>
+        readonly status: Stream.Stream<ProjectSyncStatus, RpcClientError.RpcClientError>
         readonly events: (
           payload: { readonly fromSeq: number }
         ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>

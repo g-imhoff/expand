@@ -186,7 +186,7 @@ The public surfaces export:
 
 - `ClientSession`, `ClientSessionLayer`, `ClientSessionApi`, and `ConnectionStatus` from `@expand/client-ts`;
 - `ProjectClient`, `ProjectClientLayer`, and `ProjectClientApi` from `@expand/client-ts/project`;
-- `runProjectSync`, `ProjectSyncSource`, `ProjectSyncSink`, and `ProjectSnapshot` from `@expand/contracts/project-sync`;
+- `runProjectSync`, `ProjectSyncSource`, `ProjectSyncSink`, `ProjectSyncStatus`, and `ProjectSnapshot` from `@expand/contracts/project-sync`;
 - existing project contract vocabulary from `@expand/client-ts/project`.
 
 The package no longer exports or contains `ProjectStore`, `ProjectStoreLayer`, `ProjectStoreApi`, `subscribeRef`, or `project/store.ts`.
