@@ -42,8 +42,13 @@ import type { RpcClientError as RpcClientErrorNS } from "effect/unstable/rpc"
 export { ClientLayer } from "./client-layer"
 export { resolveBackendCommand, type ResolveBackendCommandOptions } from "./backend-command"
 
-// Connection state (type only — the domain stores emit it)
-export type { ConnectionStatus } from "./project/store"
+// Connection state
+export {
+  ClientSession,
+  ClientSessionLayer,
+  type ClientSessionApi,
+  type ConnectionStatus
+} from "./client-session"
 
 // Escape hatch
 export { withClient } from "./with-client"
