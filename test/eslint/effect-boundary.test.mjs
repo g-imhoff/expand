@@ -41,10 +41,10 @@ const scopedProcessBoundaries = ["first", "second"].map((scope) => ({
   occurrence: 0
 }))
 const anonymousAndBlockBoundaries = [
-  ["scope:anonymous:0/variable:task", "First anonymous callback"],
-  ["scope:anonymous:1/variable:task", "Second anonymous callback"],
-  ["scope:block:0/variable:task", "First lexical block"],
-  ["scope:block:1/variable:task", "Second lexical block"]
+  ["scope:anonymous:call:member:identifier:items:map:argument:0:0/variable:task", "First anonymous callback"],
+  ["scope:anonymous:call:member:identifier:items:filter:argument:0:0/variable:task", "Second anonymous callback"],
+  ["scope:block:Program:body:0/variable:task", "First lexical block"],
+  ["scope:block:Program:body:1/variable:task", "Second lexical block"]
 ].map(([declaration, host]) => ({
   file: "effect-boundary-valid.ts",
   declaration,
@@ -62,16 +62,39 @@ const valid = [
   validCase('import { Effect } from "effect"\nEffect.tryPromise((): Promise<string> => host())'),
   validCase([
     'import { Effect } from "effect"',
+    "function conditional(flag) { return flag ? Promise.resolve(1) : Promise.reject(failure) }",
+    "const sequenced = () => (prepare(), Promise.resolve(2))",
+    "const objectTry = () => Promise.resolve(3)",
+    "Effect.tryPromise(conditional)",
+    "Effect.tryPromise(sequenced)",
+    "Effect.tryPromise({ try: objectTry, catch: identity })"
+  ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
     "const Schema = { decodeUnknownSync: () => () => undefined }",
     "Effect.tryPromise({ try: () => host(), catch: (error) => Schema.decodeUnknownSync()(error) })"
   ].join("\n")),
   validCase('import { Effect, Schema } from "effect"\nEffect.sync(() => Schema.validateSync(Schema.String)(input))'),
+  validCase([
+    'import { Effect, Schema } from "effect"',
+    "const decode = Schema.decodeUnknownSync(Schema.String)",
+    "Effect.sync(() => Schema.encodeSync(Schema.String))",
+    "Effect.sync(() => consume(decode))"
+  ].join("\n")),
   validCase('import { Effect } from "effect"\nimport * as esbuild from "esbuild"\nEffect.tryPromise(() => esbuild.build({}))'),
   validCase([
     'import { Effect } from "effect"',
     'import { build } from "esbuild"',
     "const bundle = build",
     "Effect.tryPromise(() => bundle({}))"
+  ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
+    'import { build } from "esbuild"',
+    "declare const response: Response",
+    "const api = { build }",
+    "Effect.tryPromise(() => api.build({}))",
+    "Effect.tryPromise(() => response.json())"
   ].join("\n")),
   validCase([
     'import { Effect, Layer, ManagedRuntime } from "effect"',
@@ -120,6 +143,13 @@ const valid = [
     "digest()",
     "host.fetch()"
   ].join("\n")),
+  validCase([
+    "const local = { runPromise: () => undefined, fs: { readFile: () => undefined } }",
+    "const aggregate = { ...local, nested: { launch: local.runPromise } }",
+    "aggregate.nested.launch(program)",
+    "aggregate.fs.readFile(file)"
+  ].join("\n")),
+  validCase('export { Option } from "effect"'),
   validCase("type PromiseLike<Value> = { readonly value: Value }\ntype Result = PromiseLike<string>"),
   validCase("export const add = (left, right) => left + right"),
   validCase([
@@ -127,6 +157,11 @@ const valid = [
     'new NodeURL("/path", "https://example.test")',
     'new NodeSearchParams("key=value")',
     'NodeURL.canParse("/path", "https://example.test")'
+  ].join("\n")),
+  validCase([
+    'import { URL as NodeURL, type UrlObject } from "node:url"',
+    'export { URLSearchParams, type URLFormatOptions } from "node:url"',
+    'new NodeURL("/path", "https://example.test")'
   ].join("\n")),
   validCase([
     'const { URL: NodeURL, URLSearchParams: NodeSearchParams } = require("node:url")',
@@ -154,6 +189,7 @@ const valid = [
     'new URLSearchParams("key=value").get("key")'
   ].join("\n")),
   validCase("const first = import.meta.url\nconst second = import.meta[\"url\"]"),
+  validCase("const first = import.meta[`url`]\nURL[`canParse`](first)"),
   validCase([
     "const URL = { createObjectURL: () => \"local\", revokeObjectURL: () => undefined }",
     "URL.createObjectURL(blob)",
@@ -242,6 +278,18 @@ const valid = [
     'second.addEventListener("event", receive)'
   ].join("\n")),
   validCase([
+    'import { Exit, PubSub, Scope } from "effect"',
+    "declare const scope: Scope.Closeable",
+    "declare const pubsub: PubSub.PubSub<string>",
+    "Scope.close(scope, Exit.void)",
+    "PubSub.subscribe(pubsub)"
+  ].join("\n")),
+  validCase([
+    'import type { MainPortLike } from "./apps/desktop/src/main/rpc/server.js"',
+    "declare const port: MainPortLike",
+    "port.start()"
+  ].join("\n")),
+  validCase([
     "const Effect = { runForkWith: () => undefined, runPromiseWith: () => undefined }",
     "const Runtime = { makeRunMain: () => undefined }",
     "Effect.runForkWith()",
@@ -285,6 +333,40 @@ const valid = [
   ),
   withBoundaries(
     validCase([
+      "items.map(() => { const task = () => process.env.HOME; return task })",
+      "items.filter(() => { const task = () => process.env.HOME; return task })",
+      "{ const task = () => process.env.HOME; consume(task) }",
+      "{ const task = () => process.env.HOME; consume(task) }"
+    ].join("\n")),
+    anonymousAndBlockBoundaries
+  ),
+  withBoundaries(
+    validCase([
+      "items.forEach(() => 0)",
+      "if (flag) { consume(flag) }",
+      "items.map(() => { const task = () => process.env.HOME; return task })",
+      "{ const task = () => process.env.HOME; consume(task) }",
+      "items.filter(() => { const task = () => process.env.HOME; return task })",
+      "{ const task = () => process.env.HOME; consume(task) }"
+    ].join("\n")),
+    anonymousAndBlockBoundaries
+  ),
+  withBoundaries(
+    validCase([
+      "items.map(() => { const task = () => process.env.HOME; return task })",
+      "items.map(() => { const task = () => process.env.HOME; return task })"
+    ].join("\n")),
+    [0, 1].map((occurrence) => ({
+      file: "effect-boundary-valid.ts",
+      declaration: `scope:anonymous:call:member:identifier:items:map:argument:0:${occurrence}/variable:task`,
+      host: `Equivalent map callback ${occurrence}`,
+      construct: "platform:process.env.HOME",
+      occurrence: 0
+    }))
+  ),
+  withBoundaries(
+    validCase([
+      "other.map(() => 0)",
       "items.map(() => { const task = () => process.env.HOME; return task })",
       "items.filter(() => { const task = () => process.env.HOME; return task })",
       "{ const task = () => process.env.HOME; consume(task) }",
@@ -387,6 +469,27 @@ const valid = [
     languageOptions: {
       parserOptions: { project: false, projectService: false }
     }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
+      "const Promise = { resolve: () => undefined, bind: () => function LocalPromise() {} }",
+      "const URL = { createObjectURL: () => undefined }",
+      "const fetch = () => undefined",
+      "const WebSocket = function LocalSocket() {}",
+      "const target = { addEventListener: () => undefined }",
+      "const resource = { close: () => undefined }",
+      "Promise.resolve.call(Promise, 1)",
+      "Promise.bind(undefined)",
+      "URL.createObjectURL.call(URL, blob)",
+      "fetch.bind(undefined)(url)",
+      "new (WebSocket.bind(undefined))(url)",
+      'target.addEventListener.call(target, "event", receive)',
+      "resource.close.bind(resource)()"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
   }
 ]
 
@@ -444,6 +547,19 @@ const invalid = [
   ].join("\n"), [{ messageId: "nativePromise" }, { messageId: "nativePromise" }]),
   invalidCase([
     'import { Effect } from "effect"',
+    "const array = () => [Promise.resolve(1)]",
+    "const object = () => ({ pending: Promise.resolve(2) })",
+    "const argument = () => consume(Promise.resolve(3))",
+    "const unary = () => void Promise.resolve(4)",
+    "const nonFinal = () => (Promise.resolve(5), value)",
+    "Effect.tryPromise(array)",
+    "Effect.tryPromise(object)",
+    "Effect.tryPromise(argument)",
+    "Effect.tryPromise(unary)",
+    "Effect.tryPromise(nonFinal)"
+  ].join("\n"), Array.from({ length: 5 }, () => ({ messageId: "nativePromise" }))),
+  invalidCase([
+    'import { Effect } from "effect"',
     "Effect.tryPromise({",
     "  try: () => Promise.resolve(1),",
     "  catch: () => new Promise((resolve) => resolve(\"failure\"))",
@@ -460,6 +576,11 @@ const invalid = [
     "})"
   ].join("\n"), [{ messageId: "syncSchemaInEffect" }]),
   invalidCase('import { Effect } from "effect"\nEffect.tryPromise(() => host().then(use))', [{ messageId: "promiseChain" }]),
+  invalidCase([
+    'import { Effect } from "effect"',
+    "const producer = () => host().then(use)",
+    "Effect.tryPromise(producer)"
+  ].join("\n"), [{ messageId: "promiseChain" }]),
   invalidCase([
     'import { Effect } from "effect"',
     "Effect.tryPromise({ try: () => host().catch(recover).finally(cleanup), catch: identity })"
@@ -492,6 +613,13 @@ const invalid = [
     "abstract class AbstractApi { abstract value: AsyncValue<string>; abstract load(): AsyncValue<string> }",
     "declare class DeclaredApi { load(): AsyncValue<string> }"
   ].join("\n"), Array.from({ length: 7 }, () => ({ messageId: "promiseSignature" }))),
+  invalidCase([
+    "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
+    "declare const host: AsyncValue<string>",
+    "class Api { accessor value: AsyncValue<string> = host }",
+    "type Alias = AsyncValue<string>",
+    "type Handler = (input: Promise<string>) => AsyncValue<string>"
+  ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "promiseSignature" }))),
   invalidCase("declare const host: { then(consume: (value: string) => unknown): unknown }\nconst load = () => host", [{ messageId: "promiseSignature" }]),
   invalidCase([
     'import * as esbuild from "esbuild"',
@@ -506,6 +634,18 @@ const invalid = [
     "runtime.dispose()",
     "runtime.context()"
   ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "promiseSignature" }))),
+  invalidCase([
+    'import { build } from "esbuild"',
+    'import { Layer, ManagedRuntime } from "effect"',
+    "declare const response: Response",
+    "const api = { build }",
+    "const runtime = ManagedRuntime.make(Layer.empty)",
+    "const state = { nested: { runtime } }",
+    "api.build({})",
+    "state.nested.runtime.dispose()",
+    "state.nested.runtime.context()",
+    "response.json()"
+  ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "promiseSignature" }))),
   invalidCase('import * as esbuild from "esbuild"\nconst load = () => esbuild.build({})', [{ messageId: "promiseSignature" }]),
   invalidCase('import("./local-module.js")', [{ messageId: "promiseSignature" }]),
   invalidCase([
@@ -518,6 +658,32 @@ const invalid = [
     { messageId: "runnerOutsideBoundary" },
     { messageId: "runnerOutsideBoundary" },
     { messageId: "syncSchemaInEffect" }
+  ]),
+  invalidCase([
+    'import { Effect, Layer, ManagedRuntime } from "effect"',
+    "const methods = { launch: Effect.runPromise }",
+    "const api = { ...methods }",
+    "const runtime = ManagedRuntime.make(Layer.empty)",
+    "const state = { nested: { runtime } }",
+    "api.launch(program)",
+    "state.nested.runtime.runPromise(program)"
+  ].join("\n"), Array.from({ length: 3 }, () => ({ messageId: "runnerOutsideBoundary" }))),
+  invalidCase([
+    'import { Effect } from "effect"',
+    'import fs from "node:fs"',
+    "const runners = { launch: Effect.runPromise }",
+    "const platform = { fs }",
+    "const empty = { value: 1 }",
+    "const api = { ...runners, ...empty }",
+    "const host = { ...platform, ...empty }",
+    "api.launch(program)",
+    "host.fs.readFile(file, receive)"
+  ].join("\n"), [
+    { messageId: "platformEffect" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "platformEffect" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "platformEffect" }
   ]),
   invalidCase([
     'import * as Platform from "@effect/platform-node"',
@@ -546,6 +712,42 @@ const invalid = [
     "URL.revokeObjectURL(value)"
   ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "platformEffect" }))),
   invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "Effect[`runPromise`](program)",
+    "Effect.sync(() => Schema[`decodeUnknownSync`](Schema.String)(input))",
+    "Promise[`resolve`](1)",
+    "import.meta[`env`]",
+    'const runner = "runFork"',
+    "Effect[runner](program)",
+    'const property = "dirname"',
+    "import.meta[property]"
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" },
+    { messageId: "nativePromise" },
+    { messageId: "platformEffect" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "platformEffect" }
+  ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "Effect.sync(() => Schema.decodeUnknownSync.call(Schema, Schema.String)(input))"
+  ].join("\n"), [{ messageId: "syncSchemaInEffect" }]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "const { [`runPromise`]: launch } = Effect",
+    "const { [`decodeUnknownSync`]: decode } = Schema",
+    "launch(program)",
+    "Effect.sync(() => decode(Schema.String)(input))",
+    'const method = "runFork"',
+    "const { [method]: dynamicRun } = Effect",
+    "dynamicRun(program)"
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" },
+    { messageId: "runnerOutsideBoundary" }
+  ]),
+  invalidCase([
     "import.meta.env",
     "import.meta.dirname",
     "import.meta.filename",
@@ -554,6 +756,12 @@ const invalid = [
     "const { env } = import.meta",
     "consume(import.meta)"
   ].join("\n"), Array.from({ length: 7 }, () => ({ messageId: "platformEffect" }))),
+  invalidCase([
+    'const url = "url"',
+    "import.meta[url]",
+    "import.meta[getKey()]",
+    'import.meta["u" + "rl"]'
+  ].join("\n"), Array.from({ length: 3 }, () => ({ messageId: "platformEffect" }))),
   invalidCase([
     'import { URL as NodeURL } from "node:url"',
     "NodeURL.createObjectURL(blob)",
@@ -664,6 +872,41 @@ const invalid = [
     'export * from "effect/Effect"'
   ].join("\n"), Array.from({ length: 3 }, () => ({ messageId: "runnerOutsideBoundary" }))),
   invalidCase([
+    'export { Effect, Runtime, ManagedRuntime } from "effect"',
+    'export { NodeRuntime } from "@effect/platform-node"',
+    'export * as Fx from "effect/Effect"'
+  ].join("\n"), Array.from({ length: 5 }, () => ({ messageId: "runnerOutsideBoundary" }))),
+  invalidCase([
+    'import { Effect, Runtime } from "effect"',
+    "const launch = Effect.runPromise",
+    "const { runFork } = Effect",
+    "export { Effect, launch, runFork }",
+    "export default Runtime",
+    "export const direct = Effect.runSync",
+    "export const { runCallback } = Effect"
+  ].join("\n"), Array.from({ length: 6 }, () => ({ messageId: "runnerOutsideBoundary" }))),
+  invalidCase([
+    'module.exports = require("effect/Effect")',
+    'const Runtime = require("@effect/platform-node/NodeRuntime")',
+    "exports.Runtime = Runtime"
+  ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "runnerOutsideBoundary" }))),
+  withBoundaries(
+    invalidCase([
+      'import fs from "node:fs"',
+      "const platform = fs",
+      "const { readFile } = fs",
+      "export { fs, platform, readFile }",
+      "export const direct = fs"
+    ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "platformEffect" }))),
+    [{
+      file: "effect-boundary-invalid.ts",
+      declaration: "module:<module>",
+      host: "Test node filesystem import",
+      construct: "platform:import:node:fs",
+      occurrence: 0
+    }]
+  ),
+  invalidCase([
     'import(`node:fs`)',
     'require(`electron/main`)',
     'const Fx = require(`effect/Effect`)',
@@ -722,6 +965,20 @@ const invalid = [
     "Effect.sync(() => encodeDirect(Schema.String)(input))",
     "Effect.map(program, () => encodeAlias(Schema.String)(input))",
     "Effect.tryPromise({ try: () => host(), catch: (error) => Schema.encodeUnknownSync(Schema.String)(error) })"
+  ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "syncSchemaInEffect" }))),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "const decode = Schema.decodeSync(Schema.String)",
+    "const decodeUnknown = Schema.decodeUnknownSync(Schema.String)",
+    "const codecs = { encode: Schema.encodeSync(Schema.String) }",
+    "const encodeUnknown = Schema.encodeUnknownSync(Schema.String)",
+    "function body() { return decode(input) }",
+    "const mapped = () => decodeUnknown(input)",
+    "const recover = (error) => encodeUnknown(error)",
+    "Effect.sync(body)",
+    "Effect.map(program, mapped)",
+    "Effect.gen(function*() { return codecs.encode(input) })",
+    "Effect.tryPromise({ try: () => host(), catch: recover })"
   ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "syncSchemaInEffect" }))),
   withBoundaries(
     invalidCase('import { Effect } from "effect"\nEffect.runPromise(first)\nEffect.runPromise(second)', [{ messageId: "runnerOutsideBoundary" }]),
@@ -821,6 +1078,31 @@ const invalid = [
     filename: absolute("effect-boundary-invalid.mjs"),
     code: 'import("./local-module.js")',
     errors: [{ messageId: "promiseSignature" }],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      "Promise.resolve.call(Promise, 1)",
+      "const NativePromise = Promise.bind(undefined)",
+      "new NativePromise((resolve) => resolve(1))",
+      "pending.then.call(pending, use)",
+      "URL.createObjectURL.call(URL, blob)",
+      "fetch.bind(globalThis)(url)",
+      "new (WebSocket.bind(undefined))(url)",
+      'target.addEventListener.call(target, "event", receive)',
+      "resource.close.bind(resource)",
+      "consume(globalThis.fetch)",
+      "consume(URL.createObjectURL)"
+    ].join("\n"),
+    errors: [
+      { messageId: "nativePromise" },
+      { messageId: "nativePromise" },
+      { messageId: "promiseChain" },
+      ...Array.from({ length: 7 }, () => ({ messageId: "platformEffect" }))
+    ],
     languageOptions: {
       parserOptions: { project: false, projectService: false }
     }

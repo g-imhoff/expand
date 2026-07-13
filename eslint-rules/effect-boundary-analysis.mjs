@@ -36,11 +36,13 @@ const checkerSignatureTypes = new Set([
   "TSEmptyBodyFunctionExpression"
 ])
 const checkerValueTypes = new Set([
+  "AccessorProperty",
   "PropertyDefinition",
   "TSAbstractPropertyDefinition",
   "TSIndexSignature",
   "TSMappedType",
-  "TSPropertySignature"
+  "TSPropertySignature",
+  "TSTypeAliasDeclaration"
 ])
 const transparentExpressionTypes = new Set([
   "ChainExpression",
@@ -102,6 +104,13 @@ const staticStringValue = (node) => {
   return undefined
 }
 
+const memberName = (node) => {
+  if (node.computed) return staticStringValue(node.property)
+  return propertyName(node.property)
+}
+
+const objectPropertyName = (node) => node.computed ? staticStringValue(node.key) : propertyName(node.key)
+
 const requiredModuleProvenance = (source) => {
   if (source === "effect") return "module:effect"
   const effectModule = source.match(/^effect\/(Effect|ManagedRuntime|Runtime|Schema)$/u)
@@ -148,11 +157,13 @@ const importProvenance = (specifier, source) => {
   return null
 }
 
-const isDeterministicNodeUrlImport = (node) =>
-  ["node:url", "url"].includes(node.source.value)
-  && node.specifiers.length > 0
-  && node.specifiers.every((specifier) => specifier.type === "ImportSpecifier"
-    && deterministicNodeUrlExports.includes(importName(specifier.imported)))
+const isDeterministicNodeUrlImport = (node) => {
+  if (!["node:url", "url"].includes(node.source.value)) return false
+  const runtimeSpecifiers = node.specifiers.filter((specifier) => specifier.importKind !== "type")
+  return runtimeSpecifiers.length > 0
+    && runtimeSpecifiers.every((specifier) => specifier.type === "ImportSpecifier"
+      && deterministicNodeUrlExports.includes(importName(specifier.imported)))
+}
 
 const isTypeOnlyImport = (node) => node.importKind === "type"
   || (node.specifiers.length > 0 && node.specifiers.every((specifier) => specifier.importKind === "type"))
@@ -331,18 +342,61 @@ const lexicalContainerFor = (node, parents) => {
   return undefined
 }
 
-const scopeIndexFor = (node, nodes, parents, predicate) => {
+const calleeRoleFor = (node) => {
+  if (node?.type === "Identifier") return `identifier:${node.name}`
+  if (node?.type === "MemberExpression") {
+    return `member:${calleeRoleFor(node.object)}:${memberName(node) ?? "<dynamic>"}`
+  }
+  if (node?.type === "CallExpression") return `call:${calleeRoleFor(node.callee)}`
+  return node?.type ?? "<unknown>"
+}
+
+const parentFieldFor = (node, parent) => {
+  if (parent === undefined) return "<root>"
+  for (const [key, value] of Object.entries(parent)) {
+    if (["comments", "loc", "parent", "range", "tokens"].includes(key)) continue
+    if (value === node) return key
+    if (Array.isArray(value) && value.includes(node)) return key
+  }
+  return "<unknown>"
+}
+
+const scopeRoleFor = (node, parents) => {
+  let value = node
+  let parent = parents.get(value)
+  while (parent !== undefined && transparentExpressionTypes.has(parent.type) && parent.expression === value) {
+    value = parent
+    parent = parents.get(value)
+  }
+  if (isAnonymousFunctionScope(node)) {
+    if (parent?.type === "CallExpression") {
+      return `call:${calleeRoleFor(parent.callee)}:argument:${parent.arguments.indexOf(value)}`
+    }
+    if (parent?.type === "Property" && parent.value === value) {
+      const object = parents.get(parent)
+      const call = parents.get(object)
+      if (object?.type === "ObjectExpression" && call?.type === "CallExpression") {
+        return `call:${calleeRoleFor(call.callee)}:property:${objectPropertyName(parent) ?? "<computed>"}`
+      }
+    }
+  }
+  return `${parent?.type ?? "<root>"}:${parentFieldFor(value, parent)}`
+}
+
+const scopeIndexFor = (node, nodes, parents, predicate, role) => {
   const container = lexicalContainerFor(node, parents)
   return nodes.filter((candidate) => predicate(candidate, parents)
-    && lexicalContainerFor(candidate, parents) === container).indexOf(node)
+    && lexicalContainerFor(candidate, parents) === container
+    && scopeRoleFor(candidate, parents) === role).indexOf(node)
 }
 
 const scopeDetailsFor = (node, nodes, parents) => {
+  const role = scopeRoleFor(node, parents)
   if (isAnonymousFunctionScope(node)) {
-    return `scope:anonymous:${scopeIndexFor(node, nodes, parents, isAnonymousFunctionScope)}`
+    return `scope:anonymous:${role}:${scopeIndexFor(node, nodes, parents, isAnonymousFunctionScope, role)}`
   }
   if (isLexicalBlockScope(node, parents)) {
-    return `scope:block:${scopeIndexFor(node, nodes, parents, isLexicalBlockScope)}`
+    return `scope:block:${role}:${scopeIndexFor(node, nodes, parents, isLexicalBlockScope, role)}`
   }
   return undefined
 }
@@ -397,9 +451,30 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   const occurrenceIdentities = new WeakMap()
   const reported = new Set()
 
+  const isCapabilityProvenance = (provenance) => {
+    if (provenance === null) return false
+    if (provenance === "import-meta" || provenance.startsWith("import-meta:")) return true
+    if (provenance.startsWith("method:")
+      || provenance.startsWith("namespace:")
+      || provenance.startsWith("module:effect")
+      || provenance.startsWith("module:@effect/platform-node")
+      || provenance.startsWith("instance:ManagedRuntime")
+      || provenance.startsWith("platform-import:")
+      || provenance.startsWith("schema-factory:")) return true
+    if (!provenance.startsWith("global:")) return false
+    const path = provenance.slice("global:".length)
+    const root = path.split(".")[0]
+    return realGlobalObjectNames.has(root)
+      || ["Date", "Math", "Promise", "URL", "crypto", "performance"].includes(root)
+      || ambientPlatformObjects.includes(root)
+      || ambientPlatformFunctions.includes(root)
+      || ambientPlatformConstructors.includes(root)
+  }
+
   const provenanceAtMember = (base, member) => {
-    if (base === null || member === undefined) return null
-    if (base.startsWith("method:") && runnerInvocationMethods.has(member)) return base
+    if (base === null) return null
+    if (member === undefined) return isCapabilityProvenance(base) ? `dynamic:${base}` : null
+    if (runnerInvocationMethods.has(member) && isCapabilityProvenance(base)) return base
     if (base === "module:effect" && ["Effect", "ManagedRuntime", "Runtime", "Schema"].includes(member)) {
       return `namespace:${member}`
     }
@@ -452,8 +527,11 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     if (node.type === "Identifier") return provenanceOfIdentifier(node)
     if (node.type === "MemberExpression") {
       const base = provenanceOfExpression(node.object)
-      const member = propertyName(node.property)
-      return provenanceAtMember(base, member)
+      const member = memberName(node)
+      const direct = provenanceAtMember(base, member)
+      if (direct !== null) return direct
+      const source = member === undefined ? undefined : sourceValueAtPath(node.object, [member])
+      return source === undefined ? null : provenanceOfExpression(source)
     }
     if (node.type === "CallExpression") {
       const callee = provenanceOfExpression(node.callee)
@@ -462,6 +540,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         return requiredModuleProvenance(source)
       }
       if (callee === "method:ManagedRuntime:make") return "instance:ManagedRuntime"
+      if (callee?.startsWith("method:Schema:")) {
+        const method = callee.slice("method:Schema:".length)
+        if (schemaSyncMethods.includes(method)) return `schema-factory:${method}`
+      }
       if (callee === "method:Effect:fn" || callee === "method:Effect:fnUntraced") {
         return `builder:${callee.slice("method:".length)}`
       }
@@ -480,10 +562,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         if (patternName(property.argument) === name) return prefix
         continue
       }
-      const member = propertyName(property.key)
-      if (member === undefined) continue
       const local = property.value.type === "AssignmentPattern" ? property.value.left : property.value
+      const member = objectPropertyName(property)
       if (patternName(local) === name) return [...prefix, member]
+      if (member === undefined) continue
       if (local.type === "ObjectPattern") {
         const nested = destructuredPathFor(local, name, [...prefix, member])
         if (nested !== undefined) return nested
@@ -559,35 +641,58 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return undefined
   }
 
-  const callbackOwner = (fn) => {
-    const parent = parents.get(fn)
-    if (parent?.type === "CallExpression" && parent.arguments.includes(fn)) {
-      return { call: parent, property: undefined }
-    }
-    if (parent?.type === "Property") {
-      const object = parents.get(parent)
-      const call = parents.get(object)
-      if (object?.type === "ObjectExpression" && call?.type === "CallExpression" && call.arguments.includes(object)) {
-        return { call, property: propertyName(parent.key) }
+  const callbackOwnerCache = new WeakMap()
+
+  const callbackFunctionOf = (input, seen = new WeakSet()) => {
+    const node = unwrapExpression(input)
+    if (node === null || node === undefined) return undefined
+    if (functionTypes.has(node.type)) return node
+    if (node.type !== "Identifier") return undefined
+    const variable = variableForIdentifier(node)
+    if (variable === null || seen.has(variable)) return undefined
+    seen.add(variable)
+    for (const definition of variable.defs ?? []) {
+      if (definition.node?.type === "FunctionDeclaration") return definition.node
+      if (definition.type === "Variable" && definition.node.id.type === "Identifier") {
+        const resolved = callbackFunctionOf(definition.node.init, seen)
+        if (resolved !== undefined) return resolved
       }
     }
     return undefined
   }
 
-  const isEffectCallback = (fn, requiredMethod) => {
-    const owner = callbackOwner(fn)
-    if (owner === undefined) return false
-    const method = effectMethodForCall(owner.call)
-    if (method === undefined || !effectCallbackMethods.includes(method)) return false
-    return requiredMethod === undefined || method === requiredMethod
+  const callbackOwners = (fn) => {
+    const cached = callbackOwnerCache.get(fn)
+    if (cached !== undefined) return cached
+    const owners = []
+    for (const node of nodes) {
+      if (node.type !== "CallExpression") continue
+      for (const argument of node.arguments) {
+        if (argument.type === "SpreadElement") continue
+        if (callbackFunctionOf(argument) === fn) owners.push({ call: node, property: undefined })
+        if (argument.type !== "ObjectExpression") continue
+        for (const property of argument.properties) {
+          if (property.type === "Property" && callbackFunctionOf(property.value) === fn) {
+            owners.push({ call: node, property: objectPropertyName(property) })
+          }
+        }
+      }
+    }
+    callbackOwnerCache.set(fn, owners)
+    return owners
   }
 
-  const isTryPromiseProducer = (fn) => {
-    const owner = callbackOwner(fn)
-    return owner !== undefined
-      && effectMethodForCall(owner.call) === "tryPromise"
-      && (owner.property === undefined || owner.property === "try")
+  const isEffectCallback = (fn, requiredMethod) => {
+    return callbackOwners(fn).some((owner) => {
+      const method = effectMethodForCall(owner.call)
+      return method !== undefined && effectCallbackMethods.includes(method)
+        && (requiredMethod === undefined || method === requiredMethod)
+    })
   }
+
+  const isTryPromiseProducer = (fn) => callbackOwners(fn).some((owner) =>
+    effectMethodForCall(owner.call) === "tryPromise"
+      && (owner.property === undefined || owner.property === "try"))
 
   const isWithinEffectCallback = (node) => {
     let current = parents.get(node)
@@ -598,13 +703,36 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return false
   }
 
+  const isOutputPosition = (node, output) => {
+    let current = node
+    while (current !== output) {
+      const parent = parents.get(current)
+      if (parent === undefined) return false
+      if (transparentExpressionTypes.has(parent.type) && parent.expression === current) {
+        current = parent
+        continue
+      }
+      if (parent.type === "ConditionalExpression"
+        && (parent.consequent === current || parent.alternate === current)) {
+        current = parent
+        continue
+      }
+      if (parent.type === "SequenceExpression" && parent.expressions.at(-1) === current) {
+        current = parent
+        continue
+      }
+      return false
+    }
+    return true
+  }
+
   const isDirectCallbackOutput = (node, fn) => {
     if (fn.returnType?.typeAnnotation === node) return true
-    if (fn.body.type !== "BlockStatement") return unwrapExpression(fn.body) === node
+    if (fn.body.type !== "BlockStatement") return isOutputPosition(node, fn.body)
     let current = node
     while (current !== undefined && current !== fn) {
       if (current.type === "ReturnStatement" && current.argument !== null) {
-        return unwrapExpression(current.argument) === node
+        return isOutputPosition(node, current.argument)
       }
       current = parents.get(current)
     }
@@ -634,7 +762,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       return false
     }
     return parent.id.properties.length > 0 && parent.id.properties.every((property) =>
-      property.type === "Property" && deterministicNodeUrlExports.includes(propertyName(property.key)))
+      property.type === "Property" && deterministicNodeUrlExports.includes(objectPropertyName(property)))
   }
 
   const runnerConstruct = (provenance) => {
@@ -661,6 +789,54 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return undefined
   }
 
+  const runnerExportConstruct = (provenance) => {
+    const runner = runnerConstruct(provenance)
+    if (runner !== undefined) return runner
+    if ([
+      "module:effect",
+      "module:@effect/platform-node",
+      "namespace:Effect",
+      "namespace:ManagedRuntime",
+      "namespace:NodeRuntime",
+      "namespace:Runtime"
+    ].includes(provenance)) {
+      return `runner-re-export:${provenance}`
+    }
+    return undefined
+  }
+
+  const platformExportConstruct = (provenance) => provenance?.startsWith("platform-import:")
+    && !isDeterministicNodeUrlProvenance(provenance)
+    ? `platform-export:${provenance.slice("platform-import:".length)}`
+    : undefined
+
+  const addExportedProvenance = (node, provenance) => {
+    const runner = runnerExportConstruct(provenance)
+    if (runner !== undefined) add("runnerOutsideBoundary", node, runner)
+    const platform = platformExportConstruct(provenance)
+    if (platform !== undefined) add("platformEffect", node, platform)
+  }
+
+  const addDynamicCapabilityFinding = (node, target) => {
+    if ([
+      "instance:ManagedRuntime",
+      "module:effect",
+      "module:@effect/platform-node",
+      "namespace:Effect",
+      "namespace:ManagedRuntime",
+      "namespace:NodeRuntime",
+      "namespace:Runtime"
+    ].includes(target)) {
+      add("runnerOutsideBoundary", node, `runner-dynamic:${target}`)
+    } else if (target === "namespace:Schema" && isWithinEffectCallback(node)) {
+      add("syncSchemaInEffect", node, "schema:Schema.<dynamic>")
+    } else if (target === "global:Promise") {
+      add("nativePromise", node, "promise:Promise.<dynamic>")
+    } else {
+      add("platformEffect", node, `platform-dynamic:${target}`)
+    }
+  }
+
   const globalPath = (node) => {
     const provenance = provenanceOfExpression(node)
     return provenance?.startsWith("global:") ? provenance.slice("global:".length) : undefined
@@ -683,6 +859,28 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return parent?.type !== "MemberExpression" || parent.object !== node
   }
 
+  const invocationHelperTarget = (callee) => callee.type === "MemberExpression"
+    && runnerInvocationMethods.has(memberName(callee))
+    ? unwrapExpression(callee.object)
+    : undefined
+
+  const promiseChainMethodForCall = (call) => {
+    if (call.callee.type !== "MemberExpression") return undefined
+    const direct = memberName(call.callee)
+    if (direct !== undefined && promiseChainMethods.includes(direct)) return direct
+    const target = invocationHelperTarget(call.callee)
+    if (target?.type !== "MemberExpression") return undefined
+    const method = memberName(target)
+    return method !== undefined && promiseChainMethods.includes(method) ? method : undefined
+  }
+
+  const isDirectCallableMemberReference = (node) => {
+    const parent = parents.get(node)
+    if (["CallExpression", "NewExpression"].includes(parent?.type) && parent.callee === node) return false
+    return parent?.type !== "MemberExpression" || parent.object !== node
+      || !runnerInvocationMethods.has(memberName(parent))
+  }
+
   const isRunnerReference = (node) => {
     if (node.type !== "Identifier" && node.type !== "MemberExpression") return false
     const parent = parents.get(node)
@@ -690,9 +888,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     if (parent?.type === "VariableDeclarator" && (parent.id === node || parent.init === node)) return false
     if (parent?.type === "AssignmentPattern" && parent.left === node) return false
     if (parent?.type === "MemberExpression" && parent.object === node
-      && runnerInvocationMethods.has(propertyName(parent.property))) return false
+      && runnerInvocationMethods.has(memberName(parent))) return false
     if (node.type === "MemberExpression") return isOutermostMember(node)
     if (["ImportDefaultSpecifier", "ImportNamespaceSpecifier", "ImportSpecifier"].includes(parent?.type)) return false
+    if (parent?.type === "ExportDefaultDeclaration" || parent?.type === "ExportSpecifier") return false
     if (parent?.type === "MemberExpression" && parent.property === node && !parent.computed) return false
     if (parent?.type === "Property" && parents.get(parent)?.type === "ObjectPattern") return false
     if (parent?.type === "Property" && parent.key === node && !parent.computed && parent.value !== node) return false
@@ -778,7 +977,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     try {
       const rendered = checker.typeToString(type)
       if (rendered === "any" || rendered === "unknown") return false
-      return checker.getPromisedTypeOfPromise(type) !== undefined
+      return checker.getPropertyOfType(type, "then") !== undefined
+        && checker.getPromisedTypeOfPromise(type) !== undefined
     } catch {
       return false
     }
@@ -857,6 +1057,23 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return []
   }
 
+  const isStaticallyKnownAggregate = (input, seen = new WeakSet()) => {
+    const node = unwrapExpression(input)
+    if (node === null || node === undefined) return false
+    if (node.type === "ObjectExpression") {
+      return node.properties.every((property) => property.type === "Property"
+        ? objectPropertyName(property) !== undefined
+        : isStaticallyKnownAggregate(property.argument, seen))
+    }
+    if (node.type !== "Identifier") return false
+    const variable = variableForIdentifier(node)
+    if (variable === null || seen.has(variable)) return false
+    seen.add(variable)
+    const definition = variable.defs?.find((candidate) => candidate.type === "Variable"
+      && candidate.node.id.type === "Identifier")
+    return definition !== undefined && isStaticallyKnownAggregate(definition.node.init, seen)
+  }
+
   const sourceValueAtPath = (input, path, seen = new WeakSet()) => {
     const node = unwrapExpression(input)
     if (node === null || node === undefined) return undefined
@@ -864,15 +1081,50 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const variable = variableForIdentifier(node)
       if (variable === null || seen.has(variable)) return undefined
       seen.add(variable)
-      const definition = variable.defs?.find((candidate) => candidate.type === "Variable"
-        && candidate.node.id.type === "Identifier")
-      return definition === undefined ? undefined : sourceValueAtPath(definition.node.init, path, seen)
+      const functionDefinition = variable.defs?.find((candidate) => candidate.node?.type === "FunctionDeclaration")
+      if (functionDefinition !== undefined) {
+        return path.length === 0 ? functionDefinition.node : undefined
+      }
+      const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
+      if (definition === undefined) return undefined
+      if (definition.node.id.type === "Identifier") {
+        return sourceValueAtPath(definition.node.init, path, seen)
+      }
+      const bindingPath = destructuredPathFor(definition.node.id, variable.name)
+      return bindingPath === undefined
+        ? undefined
+        : sourceValueAtPath(definition.node.init, [...bindingPath, ...path], seen)
+    }
+    if (node.type === "MemberExpression") {
+      const member = memberName(node)
+      return member === undefined ? undefined : sourceValueAtPath(node.object, [member, ...path], seen)
     }
     if (path.length === 0) return node
     if (node.type !== "ObjectExpression") return undefined
-    const property = node.properties.find((candidate) => candidate.type === "Property"
-      && propertyName(candidate.key) === path[0])
-    return property === undefined ? undefined : sourceValueAtPath(property.value, path.slice(1), seen)
+    for (let index = node.properties.length - 1; index >= 0; index -= 1) {
+      const property = node.properties[index]
+      if (property.type === "Property") {
+        const key = objectPropertyName(property)
+        if (key === undefined) return undefined
+        if (key === path[0]) {
+          return path.length === 1
+            ? unwrapExpression(property.value)
+            : sourceValueAtPath(property.value, path.slice(1), seen)
+        }
+        continue
+      }
+      if (property.type === "SpreadElement") {
+        const spreadValue = sourceValueAtPath(property.argument, path, seen)
+        if (spreadValue !== undefined) return spreadValue
+        if (!isStaticallyKnownAggregate(property.argument)) return undefined
+      }
+    }
+    return undefined
+  }
+
+  const isLocallyDefinedNonPromiseCall = (callee) => {
+    const source = unwrapExpression(sourceValueAtPath(callee, []))
+    return source !== undefined && functionTypes.has(source.type) && !returnsPromiseLike(source)
   }
 
   const isWrappedDestructuredBinding = (declarator, binding) => {
@@ -904,6 +1156,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const hasAuthoritativeCallFinding = (node, callee) => {
     if (runnerConstruct(callee) !== undefined) return true
+    if (callee?.startsWith("dynamic:")) return true
     let nested = unwrapExpression(node.callee)
     while (nested?.type === "CallExpression") {
       if (runnerConstruct(provenanceOfExpression(nested.callee)) !== undefined) return true
@@ -920,9 +1173,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         || ambientPlatformObjects.includes(root)
         || isAmbientPlatformMember(path)) return true
     }
-    if (node.callee.type !== "MemberExpression") return false
-    const method = propertyName(node.callee.property)
-    return method !== undefined && promiseChainMethods.includes(method)
+    return promiseChainMethodForCall(node) !== undefined
   }
 
   const rootIdentifierOf = (input) => {
@@ -933,14 +1184,14 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const classDefinesMethod = (node, method) => node.body.body.some((member) =>
     ["MethodDefinition", "PropertyDefinition", "TSAbstractMethodDefinition"].includes(member.type)
-      && propertyName(member.key) === method)
+      && objectPropertyName(member) === method)
 
   const localValueDefinesMethod = (input, method, seen = new WeakSet()) => {
     const node = unwrapExpression(input)
     if (node === null || node === undefined) return false
     if (node.type === "ObjectExpression") {
       return node.properties.some((property) => property.type === "Property"
-        && propertyName(property.key) === method)
+        && objectPropertyName(property) === method)
     }
     if (node.type === "NewExpression" && node.callee.type === "Identifier") {
       const variable = variableForIdentifier(node.callee)
@@ -980,8 +1231,24 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         const property = checker.getPropertyOfType(type, method)
         const declarationsForProperty = property?.declarations ?? []
         if (declarationsForProperty.length > 0) {
-          return declarationsForProperty.some((declaration) =>
-            normalizedFilename(declaration.getSourceFile().fileName) !== file)
+          return declarationsForProperty.some((declaration) => {
+            const declarationFile = declaration.getSourceFile().fileName.replaceAll("\\", "/")
+            if (/\/typescript\/lib\/lib\.(?:dom|webworker)(?:\.[^/]+)?\.d\.ts$/u.test(declarationFile)) {
+              return true
+            }
+            const nodeModules = declarationFile.lastIndexOf("/node_modules/")
+            if (nodeModules < 0) return false
+            const packagePath = declarationFile.slice(nodeModules + "/node_modules/".length)
+            const segments = packagePath.split("/")
+            const packageName = segments[0]?.startsWith("@")
+              ? `${segments[0]}/${segments[1] ?? ""}`
+              : segments[0]
+            const runtimePackage = packageName?.startsWith("@types/")
+              ? packageName.slice("@types/".length)
+              : packageName
+            return packageName === "@types/node"
+              || (runtimePackage !== undefined && isPlatformPackage(runtimePackage))
+          })
         }
       } catch {
         return true
@@ -990,35 +1257,19 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return true
   }
 
-  const variableHasImportOrigin = (variable, seen = new WeakSet()) => {
-    if (seen.has(variable)) return false
-    seen.add(variable)
-    for (const definition of variable.defs ?? []) {
-      if (definition.type === "ImportBinding") return true
-      if (definition.type !== "Variable") continue
-      const root = rootIdentifierOf(definition.node.init)
-      const source = root === undefined ? null : variableForIdentifier(root)
-      if (source !== null && variableHasImportOrigin(source, seen)) return true
-    }
-    return false
-  }
-
-  const isCheckerBackedCallCandidate = (callee) => {
-    const root = rootIdentifierOf(callee)
-    if (root === undefined) return true
-    const variable = variableForIdentifier(root)
-    if (variable === null || (variable.defs?.length ?? 0) === 0) return true
-    return provenanceOfVariable(variable) !== null || variableHasImportOrigin(variable)
-  }
-
   const promiseLikeValueNode = (node) => {
-    const value = node.type === "PropertyDefinition"
+    const value = node.type === "AccessorProperty" || node.type === "PropertyDefinition"
       ? node.value ?? node.typeAnnotation?.typeAnnotation
       : node.type === "TSAbstractPropertyDefinition" || node.type === "TSIndexSignature"
         || node.type === "TSPropertySignature"
         ? node.typeAnnotation?.typeAnnotation
         : node.typeAnnotation
     if (value === null || value === undefined || hasExplicitPromiseType(value)) return undefined
+    if (value.type === "TSTypeReference" && value.typeName.type === "Identifier"
+      && ["Promise", "PromiseLike"].includes(value.typeName.name)) {
+      const variable = variableForIdentifier(value.typeName)
+      if (variable !== null && (variable.defs?.length ?? 0) > 0) return undefined
+    }
     return isPromiseLikeType(typeAt(value)) ? value : undefined
   }
 
@@ -1107,6 +1358,14 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
     if (node.type === "CallExpression") {
       const callee = provenanceOfExpression(node.callee)
+      if (callee?.startsWith("dynamic:") && unwrapExpression(node.callee)?.type !== "MemberExpression") {
+        addDynamicCapabilityFinding(node, callee.slice("dynamic:".length))
+      }
+      const effectNativeCall = isEffectType(typeAt(node))
+      const invocationTarget = invocationHelperTarget(node.callee)
+      const invocationProvenance = invocationTarget === undefined
+        ? undefined
+        : provenanceOfExpression(invocationTarget)
       const runner = runnerConstruct(callee)
       if (runner !== undefined) add("runnerOutsideBoundary", node, runner)
       const hostUrlMethod = hostUrlMethodFor(callee)
@@ -1120,8 +1379,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       if (!isDirectTryPromiseConsumption(node)
         && !hasDirectFunctionFinding(node)
         && !hasAuthoritativeCallFinding(node, callee)
-        && isCheckerBackedCallCandidate(node.callee)
-        && isPromiseLikeType(typeAt(node))) {
+        && !isLocallyDefinedNonPromiseCall(node.callee)
+        && returnsPromiseLike(node.callee)) {
         add("promiseSignature", node, "promise-like:call")
       }
 
@@ -1131,18 +1390,34 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
           add("nativePromise", node, `promise:Promise.${method}`)
         }
       }
+      if (invocationProvenance === "global:Promise" && !isDirectTryPromiseConsumption(node)) {
+        add("nativePromise", node, `promise:Promise.${memberName(node.callee)}`)
+      }
 
       if (node.callee.type === "MemberExpression") {
-        const method = propertyName(node.callee.property)
-        if (method !== undefined && promiseChainMethods.includes(method)
-          && !callee?.startsWith("method:Effect:")) {
-          add("promiseChain", node, `promise-chain:${method}`)
+        const method = memberName(node.callee)
+        const chain = promiseChainMethodForCall(node)
+        if (chain !== undefined && !callee?.startsWith("method:Effect:")) {
+          add("promiseChain", node, `promise-chain:${chain}`)
         }
-        if (method !== undefined && listenerMethods.includes(method) && isHostMethodTarget(node.callee, method)) {
+        if (!effectNativeCall && method !== undefined && listenerMethods.includes(method)
+          && isHostMethodTarget(node.callee, method)) {
           add("platformEffect", node, `platform:listener:${method}`)
         }
-        if (method !== undefined && resourceMethods.includes(method) && isHostMethodTarget(node.callee, method)) {
+        if (!effectNativeCall && method !== undefined && resourceMethods.includes(method)
+          && isHostMethodTarget(node.callee, method)) {
           add("platformEffect", node, `platform:resource:${method}`)
+        }
+        if (invocationTarget?.type === "MemberExpression") {
+          const targetMethod = memberName(invocationTarget)
+          if (targetMethod !== undefined && listenerMethods.includes(targetMethod)
+            && isHostMethodTarget(invocationTarget, targetMethod)) {
+            add("platformEffect", node, `platform:listener:${targetMethod}`)
+          }
+          if (targetMethod !== undefined && resourceMethods.includes(targetMethod)
+            && isHostMethodTarget(invocationTarget, targetMethod)) {
+            add("platformEffect", node, `platform:resource:${targetMethod}`)
+          }
         }
       }
 
@@ -1150,7 +1425,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         const path = callee.slice("global:".length)
         if (ambientPlatformFunctions.includes(path)
           || (node.callee.type !== "MemberExpression" && isAmbientPlatformMember(path))
-          || path === "Date") {
+          || path === "Date"
+          || (invocationTarget !== undefined && ambientPlatformConstructors.includes(path))) {
           add("platformEffect", node, `platform:${path}`)
         }
         const source = staticStringValue(node.arguments[0])
@@ -1162,8 +1438,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         }
       }
 
-      if (callee?.startsWith("method:Schema:")) {
-        const method = callee.slice("method:Schema:".length)
+      if (callee?.startsWith("schema-factory:")) {
+        const method = callee.slice("schema-factory:".length)
         if (schemaSyncMethods.includes(method) && isWithinEffectCallback(node)) {
           add("syncSchemaInEffect", node, `schema:Schema.${method}`)
         }
@@ -1173,31 +1449,61 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     if (["ExportAllDeclaration", "ExportNamedDeclaration"].includes(node.type)
       && typeof node.source?.value === "string" && !isTypeOnlyExport(node)) {
       const source = node.source.value
+      const runtimeSpecifiers = node.type === "ExportNamedDeclaration"
+        ? node.specifiers.filter((specifier) => specifier.exportKind !== "type")
+        : []
       const deterministicNodeUrl = ["node:url", "url"].includes(source)
-        && node.type === "ExportNamedDeclaration"
-        && node.specifiers.length > 0
-        && node.specifiers.every((specifier) => specifier.type === "ExportSpecifier"
+        && runtimeSpecifiers.length > 0
+        && runtimeSpecifiers.every((specifier) => specifier.type === "ExportSpecifier"
           && deterministicNodeUrlExports.includes(importName(specifier.local)))
       if ((isNodeBuiltin(source) || isPlatformPackage(source)) && !deterministicNodeUrl) {
         add("platformEffect", node, `platform:re-export:${source}`)
       }
+      const base = requiredModuleProvenance(source)
       if (node.type === "ExportAllDeclaration") {
-        if (source === "effect/Effect" || source.endsWith("/NodeRuntime")) {
-          add("runnerOutsideBoundary", node, `runner-re-export:${source}`)
-        }
+        const runner = runnerExportConstruct(base)
+        if (runner !== undefined) add("runnerOutsideBoundary", node, runner)
       } else {
-        const base = requiredModuleProvenance(source)
         for (const specifier of node.specifiers) {
-          if (specifier.type !== "ExportSpecifier") continue
+          if (specifier.type !== "ExportSpecifier" || specifier.exportKind === "type") continue
           const provenance = provenanceAtMember(base, importName(specifier.local))
-          const runner = runnerConstruct(provenance)
+          const runner = runnerExportConstruct(provenance)
           if (runner !== undefined) add("runnerOutsideBoundary", specifier, runner)
         }
       }
     }
 
+    if (node.type === "ExportNamedDeclaration" && node.source == null) {
+      for (const specifier of node.specifiers) {
+        if (specifier.type === "ExportSpecifier" && specifier.exportKind !== "type") {
+          addExportedProvenance(specifier, provenanceOfExpression(specifier.local))
+        }
+      }
+      if (node.declaration?.type === "VariableDeclaration") {
+        for (const declarator of node.declaration.declarations) {
+          for (const binding of patternBindings(declarator.id)) {
+            addExportedProvenance(binding, provenanceOfIdentifier(binding))
+          }
+        }
+      }
+    }
+
+    if (node.type === "ExportDefaultDeclaration") {
+      addExportedProvenance(node.declaration, provenanceOfExpression(node.declaration))
+    }
+
+    if (node.type === "AssignmentExpression" && node.left.type === "MemberExpression") {
+      const target = provenanceOfExpression(node.left)
+      if (target === "global:module.exports" || target?.startsWith("global:exports.")) {
+        addExportedProvenance(node.right, provenanceOfExpression(node.right))
+      }
+    }
+
     if (node.type === "MemberExpression" && isOutermostMember(node)) {
       const provenance = provenanceOfExpression(node)
+      if (provenance?.startsWith("dynamic:")) {
+        addDynamicCapabilityFinding(node, provenance.slice("dynamic:".length))
+      }
       if (provenance?.startsWith("import-meta:") && provenance !== "import-meta:url") {
         add("platformEffect", node, `platform:import.meta.${provenance.slice("import-meta:".length)}`)
       }
@@ -1207,10 +1513,16 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         if (ambientPlatformObjects.includes(root) || isAmbientPlatformMember(path)) {
           add("platformEffect", node, `platform:${path}`)
         }
+        if (isDirectCallableMemberReference(node)
+          && (ambientPlatformFunctions.includes(path)
+            || ambientPlatformConstructors.includes(path)
+            || hostUrlMethodFor(provenance) !== undefined)) {
+          add("platformEffect", node, `platform:${path}`)
+        }
       }
     }
 
-    if (checkerSignatureTypes.has(node.type) && !hasExplicitPromiseType(node) && returnsPromiseLike(node)) {
+    if (checkerSignatureTypes.has(node.type) && !hasExplicitPromiseReturn(node) && returnsPromiseLike(node)) {
       add("promiseSignature", node, "promise-like:return")
     }
 
