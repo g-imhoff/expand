@@ -1,38 +1,50 @@
 import { useCallback, use, useEffect, useState } from "react"
-import { Effect, Schema } from "effect"
-import { ProjectStore } from "@expand/client-ts/project"
-import type { Project } from "@expand/contracts/project"
+import { Cause, Effect, Exit, Schema, SubscriptionRef } from "effect"
+import { ClientSession } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
+import { runProjectSync, type ProjectSnapshot } from "@expand/contracts/project-sync"
 import { RuntimeContext } from "@expand/tui/runtime"
 
 export const useProjects = () => {
   const runtime = use(RuntimeContext)
   if (!runtime) throw new Error("useProjects must be used within a RuntimeContext")
-  const [projects, setProjects] = useState<ReadonlyArray<Project>>([])
+  const [snapshot, setSnapshot] = useState<ProjectSnapshot>({
+    projects: [],
+    seq: 0
+  })
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    // store.subscribe forks its own scoped fiber and hands back an unsubscribe;
-    // we resolve that unsubscribe asynchronously and call it on cleanup.
-    let unsubscribe: (() => void) | undefined
-    let cancelled = false
-    void runtime
-      .runPromise(Effect.flatMap(ProjectStore, (store) => store.subscribe((ps) => setProjects(ps))))
-      .then((stop) => {
-        if (cancelled) stop()
-        else unsubscribe = stop
+    const fiber = runtime.runFork(
+      Effect.gen(function* () {
+        const session = yield* ClientSession
+        const client = yield* ProjectClient
+        return yield* runProjectSync(
+          {
+            status: SubscriptionRef.changes(session.status),
+            list: () => client.list({ includeArchived: true }),
+            events: ({ fromSeq }) => client.events({ fromSeq })
+          },
+          {
+            snapshot: setSnapshot,
+            status: () => undefined
+          }
+        )
       })
-      // First-connect failure rejects the ManagedRuntime layer build (e.g.
-      // BackendUnavailable). Surface it via the same error path the component
-      // already uses instead of dropping it as an unhandled rejection.
-      .catch((cause) => setError(describeError(cause)))
+    )
+    const removeObserver = fiber.addObserver((exit) => {
+      if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) {
+        setError(describeError(Cause.squash(exit.cause)))
+      }
+    })
     return () => {
-      cancelled = true
-      unsubscribe?.()
+      removeObserver()
+      fiber.interruptUnsafe()
     }
   }, [runtime])
 
   const runMutation = useCallback(
-    async (mutation: Effect.Effect<unknown, unknown, ProjectStore>) => {
+    async (mutation: Effect.Effect<unknown, unknown, ProjectClient>) => {
       try {
         await runtime.runPromise(mutation)
         setError(null)
@@ -44,23 +56,44 @@ export const useProjects = () => {
   )
 
   const create = (name: string) => {
-    void runMutation(Effect.flatMap(ProjectStore, (s) => s.createProject(name)))
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.create({ name, ensure: true })))
   }
   const rename = (id: string, name: string) => {
-    void runMutation(Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name)))
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.rename({ id, name })))
   }
   const changeDirectory = (id: string, directory: string) => {
-    void runMutation(Effect.flatMap(ProjectStore, (s) => s.changeDirectory(id, directory)))
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.changeDirectory({ id, directory })))
   }
-  const archive = (id: string) => { void runMutation(Effect.flatMap(ProjectStore, (s) => s.archiveProject(id))) }
-  const restore = (id: string) => { void runMutation(Effect.flatMap(ProjectStore, (s) => s.restoreProject(id))) }
-  const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) => {
-    void runMutation(Effect.flatMap(ProjectStore, (s) => s.setMetadata(id, patch)))
+  const archive = (id: string) => {
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.archive({ id })))
   }
-  const deleteProject = (id: string) => { void runMutation(Effect.flatMap(ProjectStore, (s) => s.deleteProject(id))) }
+  const restore = (id: string) => {
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.restore({ id })))
+  }
+  const setMetadata = (
+    id: string,
+    patch: { description?: string | null; tags?: ReadonlyArray<string> }
+  ) => {
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.setMetadata({ id, ...patch })))
+  }
+  const deleteProject = (id: string) => {
+    void runMutation(Effect.flatMap(ProjectClient, (client) => client.delete({ id })))
+  }
   const clearError = useCallback(() => setError(null), [])
 
-  return { projects, error, clearError, create, rename, changeDirectory, archive, restore, setMetadata, deleteProject }
+  return {
+    snapshot,
+    projects: snapshot.projects,
+    error,
+    clearError,
+    create,
+    rename,
+    changeDirectory,
+    archive,
+    restore,
+    setMetadata,
+    deleteProject
+  }
 }
 
 const describeError = (cause: unknown): string => {
@@ -80,6 +113,8 @@ const describeError = (cause: unknown): string => {
         return `invalid ${String(tagged.field)}: ${String(tagged.reason)}`
       case "SchemaError":
         return `invalid input: ${Schema.isSchemaError(cause) ? cause.message : String(tagged._tag)}`
+      case "BackendUnavailable":
+        return `backend unavailable: ${String(tagged.reason)}`
       default:
         return cause instanceof Error ? cause.message : String(tagged._tag)
     }

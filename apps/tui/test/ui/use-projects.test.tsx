@@ -1,71 +1,122 @@
-import { describe, expect, it } from "vitest"
-import React from "react"
-import { render } from "ink-testing-library"
-import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
-import { RuntimeContext } from "@expand/tui/runtime"
-import { App } from "@expand/tui/components/app"
+import { describe, expect, it, vi } from "vitest"
+import { Effect } from "effect"
+import { BackendUnavailable } from "@expand/client-ts"
+import { ProjectRenamed } from "@expand/contracts/events/project"
+import { useProjects } from "@expand/tui/use-projects"
+import {
+  fakeProject,
+  makeRuntimeHarness,
+  renderWithRuntime,
+  type RuntimeHarness
+} from "./_runtime-harness"
 
-const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
+const alpha = fakeProject(1, "alpha")
+const beta = fakeProject(2, "beta")
 
-const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
-  Layer.succeed(ProjectStore, {
-    projects: ref,
-    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
-    events: Stream.empty,
-    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: string) => {
-      const project = { id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" }
-      return SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project as any))
-    },
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, name } : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)! as any)
-      ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, directory } : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)! as any)
-      ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, archived: true } : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)! as any)
-      ),
-    restoreProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, archived: false } : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)! as any)
-      ),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? { ...p, ...patch } : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)! as any)
-      ),
-    deleteProject: (id: string) =>
-      SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
-        Effect.as({ id, deleted: true } as const)
-      ),
-    subscribe: (onProjects: (ps: ReadonlyArray<any>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
+const renderHookWithRuntime = (harness: RuntimeHarness) => {
+  let observed: ReturnType<typeof useProjects> | undefined
+  const Probe = () => {
+    observed = useProjects()
+    return null
+  }
+  const rendered = renderWithRuntime(<Probe />, harness)
+  const result = () => {
+    if (!observed) throw new Error("hook was not observed")
+    return observed
+  }
+  return {
+    ...rendered,
+    result,
+    projects: () => result().projects.map((project) => project.name),
+    snapshot: () => result().snapshot,
+    waitForProjects: (names: ReadonlyArray<string>) =>
+      vi.waitFor(() => expect(result().projects.map((project) => project.name)).toEqual(names))
+  }
+}
+
+describe("useProjects", () => {
+  it("publishes the initial synchronized snapshot", async () => {
+    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
+    try {
+      const view = renderHookWithRuntime(harness)
+      await view.waitForProjects(["alpha"])
+      expect(view.snapshot()).toEqual({ projects: [alpha], seq: 1 })
+    } finally {
+      await harness.dispose()
+    }
   })
 
-describe("useProjects bridge", () => {
-  it("renders store state and reflects live SubscriptionRef changes", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+  it("folds live events into React-owned state", async () => {
+    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
     try {
-      const { lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}>
-          <App />
-        </RuntimeContext.Provider>
-      )
-      await Effect.runPromise(SubscriptionRef.update(ref, () => [{ id: uid(1), name: "live-one", createdAt: "t" }]))
-      await new Promise((r) => setTimeout(r, 50))
-      expect(lastFrame()).toContain("live-one")
-      expect(lastFrame()).toContain("Projects (1)")
+      const view = renderHookWithRuntime(harness)
+      await view.waitForProjects(["alpha"])
+      harness.events.publish(ProjectRenamed.make({
+        projectId: alpha.id,
+        name: "alpha-live",
+        occurredAt: "t2"
+      }))
+      await view.waitForProjects(["alpha-live"])
+      expect(view.snapshot().seq).toBe(2)
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
+    }
+  })
+
+  it("retains projects while reconnecting and replaces after resnapshot", async () => {
+    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
+    try {
+      const view = renderHookWithRuntime(harness)
+      await view.waitForProjects(["alpha"])
+      harness.status.set("reconnecting")
+      harness.authoritative.set({ projects: [beta], seq: 5 })
+      expect(view.projects()).toEqual(["alpha"])
+      harness.status.set("connected")
+      await view.waitForProjects(["beta"])
+      expect(view.snapshot().seq).toBe(5)
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it("interrupts synchronization on unmount", async () => {
+    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
+    try {
+      const view = renderHookWithRuntime(harness)
+      view.unmount()
+      expect(await harness.syncInterrupted()).toBe(true)
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it("surfaces an initial runtime build failure", async () => {
+    const harness = makeRuntimeHarness({
+      failure: new BackendUnavailable({ reason: "offline" })
+    })
+    try {
+      const view = renderHookWithRuntime(harness)
+      await vi.waitFor(() => expect(view.result().error).toBe("backend unavailable: offline"))
+    } finally {
+      await harness.dispose()
+    }
+  })
+
+  it("calls ProjectClient with ensure create semantics without using the response as state", async () => {
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [alpha], seq: 1 },
+      client: {
+        create: () => Effect.succeed({ created: true, project: beta })
+      }
+    })
+    try {
+      const view = renderHookWithRuntime(harness)
+      await view.waitForProjects(["alpha"])
+      view.result().create("beta")
+      await vi.waitFor(() => expect(harness.calls.create).toEqual([{ name: "beta", ensure: true }]))
+      expect(view.projects()).toEqual(["alpha"])
+    } finally {
+      await harness.dispose()
     }
   })
 })

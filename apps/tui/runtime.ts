@@ -3,17 +3,26 @@ import { Layer, ManagedRuntime } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
-import { resolveBackendCommand, type BackendUnavailable } from "@expand/client-ts"
-import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
+import {
+  ClientLayer,
+  ClientSession,
+  resolveBackendCommand,
+  type BackendUnavailable
+} from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
+import { ServerClient } from "@expand/client-ts/server"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
-export type ExpandRuntime = ManagedRuntime.ManagedRuntime<ProjectStore, BackendUnavailable>
+export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
+  ClientSession | ProjectClient | ServerClient,
+  BackendUnavailable
+>
 
 export const RuntimeContext = createContext<ExpandRuntime | null>(null)
 
 export const makeProductionRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    ProjectStoreLayer(makeBunAdapter({ backendCommand })).pipe(
+    ClientLayer(makeBunAdapter({ backendCommand })).pipe(
       Layer.provide(BunServices.layer)
     )
   )

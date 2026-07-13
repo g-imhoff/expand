@@ -1,55 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
-import { render } from "ink-testing-library"
-import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
-import { RuntimeContext } from "@expand/tui/runtime"
 import { App } from "@expand/tui/components/app"
-
-const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
-
-const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
-  Layer.succeed(ProjectStore, {
-    projects: ref,
-    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
-    events: Stream.empty,
-    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: string) =>
-      SubscriptionRef.update(ref, (c) => [...c, { id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" }]).pipe(Effect.as({ id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" } as any)),
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, name } : p))).pipe(
-        Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
-      ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, directory } : p))).pipe(
-        Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
-      ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, archived: true } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    restoreProject: (id: string) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, archived: false } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, ...patch } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    deleteProject: (id: string) =>
-      SubscriptionRef.update(ref, (c) => c.filter((p: any) => p.id !== id)).pipe(
-        Effect.as({ id, deleted: true } as const)
-      ),
-    subscribe: (onProjects: (ps: ReadonlyArray<any>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
-  })
+import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-harness"
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects (raw-mode/readable, then the input-emitter subscription);
@@ -80,44 +32,37 @@ const ensureInputLive = async (
 
 describe("App archive keybinding", () => {
   it("pressing 'a' archives the selected project", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([
-      { id: uid(1), name: "alpha" as string, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }
-    ]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("a")
       await waitForFrame(lastFrame, "[archived]")
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("shows a project that is ALREADY archived at startup and restores it with 'a'", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([
-      { id: uid(1), name: "alpha" as string, directory: null, description: null, tags: [], archived: true, createdAt: "t", updatedAt: "t" }
-    ]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [fakeProject(1, "alpha", { archived: true })], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha") // selected + reconciled
       expect(lastFrame()).toContain("[archived]")
       stdin.write("a") // restore
-      // Cannot poll an absence; wait for the backend to settle to archived=false
-      // (positive precondition), then assert the frame dropped the tag.
       await vi.waitFor(async () => {
-        const ps = await Effect.runPromise(SubscriptionRef.get(ref))
+        const ps = harness.authoritative.get().projects
         expect(ps[0]?.archived).toBe(false)
       }, WAIT)
+      await vi.waitFor(() => expect(lastFrame()).not.toContain("[archived]"), WAIT)
       await waitForFrame(lastFrame, "▸ alpha") // re-rendered after restore
       expect(lastFrame()).not.toContain("[archived]")
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 })

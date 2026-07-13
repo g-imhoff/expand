@@ -1,60 +1,9 @@
 import { describe, expect, it, vi } from "vitest"
 import React from "react"
-import { render } from "ink-testing-library"
-import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
-import { RuntimeContext } from "@expand/tui/runtime"
 import { App } from "@expand/tui/components/app"
+import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-harness"
 
-const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
-
-const fakeLayer = (ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<any>>) =>
-  Layer.succeed(ProjectStore, {
-    projects: ref,
-    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
-    events: Stream.empty,
-    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: string) =>
-      SubscriptionRef.update(ref, (c) => [...c, { id: uid(c.length + 1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" }]).pipe(Effect.as({ id: uid(1), name, directory: null, description: null, tags: [] as ReadonlyArray<string>, archived: false, createdAt: "t", updatedAt: "t" } as any)),
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, name } : p))).pipe(
-        Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
-      ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p: any) => (p.id === id ? { ...p, directory } : p))).pipe(
-        Effect.map((cur) => cur.find((p: any) => p.id === id) as any)
-      ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, archived: true } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    restoreProject: (id: string) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, archived: false } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.modify(ref, (c) => {
-        const next = c.map((p: any) => p.id === id ? { ...p, ...patch } : p)
-        return [next.find((p: any) => p.id === id) as any, next] as const
-      }),
-    deleteProject: (id: string) =>
-      SubscriptionRef.update(ref, (c) => c.filter((p: any) => p.id !== id)).pipe(
-        Effect.as({ id, deleted: true } as const)
-      ),
-    subscribe: (onProjects: (ps: ReadonlyArray<any>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
-  })
-
-const seed = (n: number, name: string) => ({
-  id: uid(n), name: name as any, directory: null, description: null,
-  tags: [], archived: false, createdAt: "t", updatedAt: "t"
-})
+const seed = (n: number, name: string) => fakeProject(n, name)
 // Poll for an observable outcome instead of sleeping a fixed time: ink attaches
 // its stdin listener and flushes renders on async ticks whose timing varies under
 // load, so fixed delays are flaky. vi.waitFor re-runs the assertion until it
@@ -102,12 +51,11 @@ const ensureInputLive = async (
 
 describe("App input routing (C1 regression, end-to-end)", () => {
   it("typing a command-lettered name into the create field mutates nothing", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("n")          // focus create (list is focused by default)
       await waitForFrame(lastFrame, "return create") // create field focused (re-rendered)
@@ -117,24 +65,24 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       expect(lastFrame()).not.toContain("directory ▸") // 'd' did NOT open dir overlay
       stdin.write("\r")         // submit
       await vi.waitFor(async () => {
-        const projects = await Effect.runPromise(SubscriptionRef.get(ref))
+        const projects = harness.authoritative.get().projects
         expect(projects).toHaveLength(2)               // project created
       }, WAIT)
+      await waitForFrame(lastFrame, "• data")
       expect(lastFrame()).toContain("data")
-      const projects = await Effect.runPromise(SubscriptionRef.get(ref))
-      expect(projects.every((p: any) => p.archived === false)).toBe(true)
+      const projects = harness.authoritative.get().projects
+      expect(projects.every((project) => project.archived === false)).toBe(true)
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("backspace while typing never opens the delete confirmation", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("n")
       await waitForFrame(lastFrame, "return create") // create field focused (re-rendered)
@@ -149,40 +97,38 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       }, WAIT)
       expect(lastFrame()).not.toContain("delete “")
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("j/k navigate a real selection and commands act on it", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha"), seed(2, "beta")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha"), seed(2, "beta")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("j") // select beta
       await waitForFrame(lastFrame, "▸ beta") // selection moved to beta
       stdin.write("a") // archive SELECTED (beta), not projects[0]
       await vi.waitFor(async () => {
-        const ps = await Effect.runPromise(SubscriptionRef.get(ref))
-        expect(ps.find((p: any) => p.name === "beta")?.archived).toBe(true)
+        const ps = harness.authoritative.get().projects
+        expect(ps.find((project) => project.name === "beta")?.archived).toBe(true)
       }, WAIT)
-      const projects = await Effect.runPromise(SubscriptionRef.get(ref))
-      expect(projects.find((p: any) => p.name === "alpha")?.archived).toBe(false)
+      const projects = harness.authoritative.get().projects
+      expect(projects.find((project) => project.name === "alpha")?.archived).toBe(false)
       await waitForFrame(lastFrame, "[archived]")
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("metadata overlay: description + tags with tab switch (C8 parity)", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("m")
       await waitForFrame(lastFrame, "description ▸") // metadata overlay open
@@ -195,22 +141,21 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       await waitForFrame(lastFrame, "api, db")       // tags draft visible
       stdin.write("\r") // submit both
       await vi.waitFor(async () => {
-        const ps = await Effect.runPromise(SubscriptionRef.get(ref))
+        const ps = harness.authoritative.get().projects
         expect(ps[0]?.description).toBe("hello")
         expect(ps[0]?.tags).toEqual(["api", "db"])
       }, WAIT)
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("escape cancels metadata with zero mutations (C8: cancel exists now)", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("m")
       await waitForFrame(lastFrame, "description ▸") // metadata overlay open
@@ -221,20 +166,19 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       // create field is back, the metadata overlay is provably gone.
       await waitForFrame(lastFrame, "new project ▸")
       expect(lastFrame()).not.toContain("description ▸")
-      const projects = await Effect.runPromise(SubscriptionRef.get(ref))
+      const projects = harness.authoritative.get().projects
       expect(projects[0]?.description).toBeNull()
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 
   it("hint bar reflects the active context", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<any>>([seed(1, "alpha")]))
-    const runtime = ManagedRuntime.make(fakeLayer(ref))
+    const harness = makeRuntimeHarness({
+      snapshot: { projects: [seed(1, "alpha")], seq: 0 }
+    })
     try {
-      const { stdin, lastFrame } = render(
-        <RuntimeContext.Provider value={runtime as any}><App /></RuntimeContext.Provider>
-      )
+      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
       await ensureInputLive(stdin, lastFrame, "▸ alpha")
       expect(lastFrame()).toContain("r rename")   // list context
       stdin.write("x")
@@ -243,7 +187,7 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       await waitForFrame(lastFrame, "y confirm")  // confirm context
       expect(lastFrame()).not.toContain("r rename")
     } finally {
-      await runtime.dispose()
+      await harness.dispose()
     }
   })
 })
