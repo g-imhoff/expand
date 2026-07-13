@@ -8,12 +8,6 @@ import { defineConfig } from "tsup"
 // entry's own local modules into a single bundle, leaving only the runtime deps
 // as external `import`s — we ship references, not copies of effect/ws/contracts.
 //
-// Typings are emitted separately by `tsc -p tsconfig.build.json` (see the
-// `build` script). We deliberately do NOT use tsup's `dts`: its rollup step
-// (rollup-plugin-dts) fails under `stripInternal` because an `@internal` value
-// (e.g. ExpandRpcClient) is stripped from its declaration yet still value-imported
-// by another module (with-client.ts). Plain tsc emits per-file `.d.ts` with no
-// rollup, so `stripInternal` drops the `@internal` surface cleanly.
 export default defineConfig({
   entry: {
     "index": "index.ts",

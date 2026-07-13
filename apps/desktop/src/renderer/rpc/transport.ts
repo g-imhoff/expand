@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Queue, type Scope, Stream } from "effect"
+import { Context, Effect, Queue, type Scope, Stream } from "effect"
 import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
@@ -17,9 +17,6 @@ export const buildRendererClient = (
     Effect.provideServiceEffect(RpcClient.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )
-
-export const RendererRpcClientLayer = (port: RendererPortLike): Layer.Layer<RendererRpcClient> =>
-  Layer.effect(RendererRpcClient, buildRendererClient(port))
 
 const makePortProtocol = (port: RendererPortLike) =>
   RpcClient.Protocol.make(

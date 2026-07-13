@@ -27,8 +27,6 @@ describe("example: audit-log", () => {
     // Start the long-running audit-log in the background against the shared data dir.
     const audit = spawnExample("audit-log.ts", [outfile], dataDir)
     try {
-      // Deterministic sync: the banner is printed only once the event subscription is
-      // live (store.events is tail-only), so a mutation after this can't be missed.
       await audit.waitForLine("audit-log: writing to", 30_000)
       // Cause a change on the same backend: bootstrap a project from a throwaway fixture.
       const boot = await runExample("bootstrap-projects.ts", [scan], dataDir) // creates project "audited"

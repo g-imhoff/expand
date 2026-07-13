@@ -137,7 +137,7 @@ UPDATED (2026-07-13) 10. `composition/app.ts` → `main.ts` — lifecycle orches
 
 ### Stage 3 — `packages/client-ts`  ·  75–90 min  ·  🔴 high
 
-**What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), per-root find-or-spawn discovery, the RPC session + presence handshake, and the reactive `ProjectStore` that mirrors backend state and survives reconnects. Hosts no `AppLayer` (I-2); reaches the selected root's backend only via its discovery file (I-3) and never imports `apps/server` (I-1). Its public API is a **curated, Effect-native SDK surface**: external code enters *only* through the scoped entrypoints — `@expand/client-ts` (connection core), `@expand/client-ts/project`, `@expand/client-ts/server`, and `@expand/client-ts/adapters/{bun,node}` — every other module is internal (tagged `@internal`) and made unreachable from outside by the `client-ts-barrel-only` dependency-cruiser rule (see Stage 7).
+**What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), per-root find-or-spawn discovery, the reconnecting `ClientSession`, and session-backed typed facades. Applications own their state, with the framework-neutral controller from `@expand/contracts/project-sync` handling list/replay synchronization for long-lived UIs. Hosts no `AppLayer` (I-2); reaches the selected root's backend only via its discovery file (I-3) and never imports `apps/server` (I-1). Its public API is a **curated, Effect-native SDK surface**: external code enters *only* through the scoped entrypoints — `@expand/client-ts` (connection core), `@expand/client-ts/project`, `@expand/client-ts/server`, and `@expand/client-ts/adapters/{bun,node}` — every other module is internal (tagged `@internal`) and made unreachable from outside by the `client-ts-barrel-only` dependency-cruiser rule (see Stage 7).
 
 **Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
 
@@ -148,23 +148,22 @@ UPDATED (2026-07-12) 3. `adapter.ts` — the 2-member `RuntimeAdapter` platform 
 UPDATED (2026-07-13) 4. `discovery.ts` + `spawn.ts` + `spawn-lock.ts` — `discovery.ts` validates the selected root's endpoint and owning PID; `spawn.ts` owns find-or-spawn and the **10-second** endpoint-advertisement deadline; `spawn-lock.ts` owns atomic lease publication plus token/inode-safe dead-owner recovery and release. Same-root callers converge, while distinct roots remain independent.
 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the presence handshake, stale-endpoint self-healing retry.
 6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the platform subpath entrypoints (public alongside `/project` and `/server`).
-7. `project/store.ts` — **the core engine:** the session loop, the **C2 atomic fold**, the public mirror, the reconnect loop, and the mutation methods.
+7. `client-session.ts` — the reconnect loop, connection status, active epoch, and scope teardown.
 8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
-9. `project/client.ts` + `client-layer.ts` — the stateless facades and how layers share one connection.
+9. `project/client.ts` + `client-layer.ts` — the session-backed facades and how layers share one session.
 
 **Scrutinize hardest:**
-- **The C2 atomic fold** (`project/store.ts`): `{projects, seq}` live in one `SubscriptionRef` mutated together (gate `seq <= s.seq` → `foldList` → bump seq → publish), so a reader can never see a `seq` ahead of its `projects`. This is the central correctness claim.
-- **Bootstrap window ordering:** Events subscribed *before* `ProjectList`, `Math.max` on seq, one-time seed before signalling ready. An off-by-one silently loses or double-applies events.
+- **Project synchronization** (`packages/contracts/project-sync.ts`): list first, publish `{projects, seq}` atomically, then replay `Events({ fromSeq: seq })`; stale sequences are ignored and fresh reconnect lists replace retained state.
 - **Spawn convergence** (`spawn.ts` + `spawn-lock.ts`): a valid live owner remains contended regardless of age; dead current or tokenless legacy owners are reclaimed only through exact record/inode evidence; malformed or changing evidence remains untouched; and release removes only its own lease. Concurrent callers on one root must spawn once, callers on distinct roots must proceed independently, and the server's `backend.lock` still enforces lifetime uniqueness.
 - **Startup timing:** the client must still be pending at nine seconds, accept a valid endpoint advertised after six seconds, and fail deterministically at ten seconds. The TestClock tests synchronize on a post-spawn filesystem poll before advancing virtual time so they cannot pass or fail through scheduler luck.
 - **Data-directory propagation:** discovery, the derived spawn-lock path, endpoint polling, and the adapter's backend argv must all come from the same normalized `AppContext`; mixing the default endpoint with an explicitly selected database would create two independent backends.
-- **Reconnect classification** (`project/store.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown (propagate) from a dropped socket (retry with backoff). Misclassifying either hangs or busy-loops.
-- **Non-optimistic state:** mutations only call the RPC; state changes only when the server's event flows back. Confirm there's no optimistic local write.
+- **Reconnect classification** (`client-session.ts`): `Cause.hasInterruptsOnly` must separate deliberate shutdown from a dropped socket, and the current epoch must be invalidated before `"reconnecting"` is published.
+- **Non-optimistic state:** typed facade mutations only call RPC; desktop and TUI state changes only through fresh lists and sequenced events.
 - **Entrypoint boundary** (`index.ts`/`project/index.ts`/`server/index.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current out-of-package tests go through the public entrypoints; client-ts's own tests deliberately deep-import internals relatively).
 
-**Best tests to read:** `test/integration/snapshot-consistency.test.ts` (the C2 proof; the stress loop now compares cached state signatures inline instead of retaining up to 200,000 snapshots), `test/integration/find-or-spawn.test.ts` (same-root convergence, distinct-root independence, stale locks, and the six-/ten-second deadline), `test/integration/bootstrap-window.test.ts`, `test/integration/reconnect.test.ts`, `test/integration/cross-store-sync.test.ts`, `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root — domain symbols must NOT be reachable from `@expand/client-ts`).
+**Best tests to read:** `packages/contracts/test/project-sync.test.ts` (atomic snapshots, replay, sequence gating, interruption, and fresh-list replacement), `packages/client-ts/test/integration/client-session.test.ts`, `packages/client-ts/test/integration/project-sync.test.ts`, `test/integration/find-or-spawn.test.ts` (same-root convergence, distinct-root independence, stale locks, and the six-/ten-second deadline), `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), and `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root).
 
-**Dogfood the public surface — `examples/client-ts/`:** three runnable real-world programs written as an *external consumer* would — `bootstrap-projects.ts` (create a project per subfolder, deduping/skipping conflicts), `archive-stale.ts` (archive projects whose directory has vanished), and `audit-log.ts` (tail `ProjectStore.events` to a JSONL file). Every import comes only from the public entrypoints (`@expand/client-ts`, `@expand/client-ts/project`, `@expand/client-ts/adapters/bun`) — the `client-ts-barrel-only` rule (Stage 7) now covers this directory, so a deep import into a package internal fails CI, and each example has a subprocess smoke test in `examples/client-ts/test/` that runs it against an isolated backend. **Read `examples/client-ts/ERGONOMICS.md` alongside this stage** — it is a file-referenced list of what felt awkward to build against the SDK (which command surface to reach for and why, boilerplate the SDK doesn't yet absorb, and where the "public API only" promise leaks). It is the concrete output of this dogfooding pass and the best single signal of whether the `client-ts` shape is right.
+**Dogfood the public surface — `examples/client-ts/`:** three runnable real-world programs written as an *external consumer* would — `bootstrap-projects.ts` (create a project per subfolder, deduping/skipping conflicts), `archive-stale.ts` (archive projects whose directory has vanished), and `audit-log.ts` (tail `ProjectClient.events` to a JSONL file). Every import comes only from the public entrypoints (`@expand/client-ts`, `@expand/client-ts/project`, `@expand/client-ts/adapters/bun`) — the `client-ts-barrel-only` rule (Stage 7) covers this directory, so a deep import into a package internal fails CI, and each example has a subprocess smoke test in `examples/client-ts/test/` that runs it against an isolated backend.
 
 ---
 
@@ -210,7 +209,7 @@ Read the input framework first, then the TUI that consumes it.
 
 #### 5b — `apps/tui`  ·  40–55 min  ·  🟡 medium
 
-**What:** The Ink terminal frontend — a one-screen project manager driven by a **pure unidirectional pipeline**: `useKeyRouter → route() (pure) → uiReduce() (pure) → runEffect (the single impure seam) → ProjectStore`.
+**What:** The Ink terminal frontend — a one-screen project manager driven by a **pure unidirectional pipeline**: `useKeyRouter → route() (pure) → uiReduce() (pure) → runEffect (the single impure seam) → ProjectClient`, with synchronized projects held in React state.
 
 **Why here:** Depends on `contracts` + `client-ts` + `ink-input`.
 
@@ -245,7 +244,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 #### 6b — `apps/desktop` (main process)  ·  45–60 min  ·  🔴 high
 
-**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting client-ts's `ProjectStore` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
+**What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting `ClientSession`, `ProjectClient`, and `ServerClient` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
 **Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
@@ -253,18 +252,18 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 - **Security pipeline completeness:** CSP only in prod, the `sandbox`/`contextIsolation`/`nodeIntegration` pin, navigation/window-open denial, and — load-bearing — that the dev `exactOrigin` carve-out can **never** reach a production build (prod is `file://`-only).
 - **Runtime selection:** Electron's raw `--data-dir` must reach the main-process `AppContext` and then the Node adapter's spawned backend argv.
 - **Port lifecycle:** supersession (tear down the old port before minting a new one) and reload/close must interrupt stale port fibers, or you get hung requests / request-id collisions.
-- **Error translation:** every store call rethrows `RpcClientError` as a *defect* (`Effect.die`), Health dies on disconnect — confirm no unsanitized backend message reaches the renderer.
+- **Error translation:** every client call rethrows `RpcClientError` as a *defect* (`Effect.die`), Health dies on disconnect — confirm no unsanitized backend message reaches the renderer.
 
 **Best tests:** `test/integration/rpc-server.test.ts` (full round-trip), `test/integration/connection-honesty.test.ts`, `test/unit/origin-rules.test.ts`, `test/unit/port-lifecycle.test.ts`.
 
 #### 6c — `apps/desktop` (renderer)  ·  75–90 min  ·  🔴 high
 
-**What:** The React + TanStack Router UI. All backend access flows over the single `MessagePort` (I-1): a port-backed `RpcClient`, thin per-domain layers, and `RendererProjectStore` implementing the same Protocol v2 bootstrap. Effect is bridged to React by `makeAppHandle` (a `useSyncExternalStore`-compatible sync mirror) — React never touches Effect directly.
+**What:** The React + TanStack Router UI. All backend access flows over the single `MessagePort` (I-1): a port-backed `RpcClient`, a thin project facade, the framework-neutral sync controller, and renderer-owned Zustand state. React reads the Zustand store and never owns the connection lifecycle.
 
 **Read in order:** `rpc/renderer-port.ts` → `rpc/transport.ts` (the port-backed protocol — the heart of the seam) → `rpc/project-rpc.ts` → `features/projects/data/project-store.ts` (Protocol v2 store) → `app/app-handle.ts` (the Effect→React bridge) → `app/runtime.ts` (boot: nonce-correlated port acquisition + 10s timeout) → `main.tsx` → `features/projects/data/use-projects.ts` → `features/command/components/CommandPalette.tsx` → `features/projects/pages/ProjectsView.tsx`.
 
 **Scrutinize hardest:**
-- **Bootstrap window** in `project-store.ts` (fork events pump → list snapshot → set `lastSeq` → fork fold loop): must neither drop the first post-snapshot event nor double-apply a stale one; check resubscribe/reconnect behavior.
+- **Bootstrap and reconnect:** the controller lists, subscribes from the returned sequence, ignores stale replay, and replaces the renderer snapshot with a fresh list after reconnect.
 - **MessagePort seam integrity (I-1):** renderer code reaches the backend *only* via the port; `window.expand` is the only bridge.
 - **Inbound decode trust** (`transport.ts`): `parser.decode(event.data)` is cast to the message type with no validation — a hostile message on the port is assumed well-typed. Assess.
 - **Effect/React lifecycle:** detached mirror fiber + `Effect.scoped` boot under `Effect.never` — verify scopes/fibers aren't orphaned.
@@ -337,7 +336,7 @@ If you can't do the full pass, review the **load-bearing correctness cores** in 
 2. **`contracts/project.ts`** — the single shared fold (20 min). If this is wrong, everything diverges.
 3. **`contracts/app-context.ts` → CLI `main.ts` → client `spawn-lock.ts` → server `state-root-lock.ts` → `binary-smoke.sh`** — trace one explicit data directory end to end, including spawn convergence, path isolation, and runtime ownership (45–60 min).
 4. **`server/application/projects/use-cases.ts` + `rpc-handlers.ts`** — the mutex + `fromSeq` replay (the replay handler body is `apps/server/rpc/stream.ts`) (45 min). The write path and stream correctness.
-5. **`client-ts/project/store.ts`** — the C2 atomic snapshot + bootstrap window (45 min). The read path every UI shares.
+5. **`client-ts/client-session.ts` + `contracts/project-sync.ts`** — connection epochs, list/replay synchronization, and fresh-list replacement (45 min). The read path long-lived UIs share.
 6. **`electron-ipc/main.ts` + `desktop/src/main/security/origin-rules.ts`** — the renderer trust boundary (40 min). *Skip if desktop is out of scope.*
 7. **`test/architecture/i1-cli-isolation.test.ts` + `.dependency-cruiser.cjs`** — confirm the invariants are actually enforced, not just asserted (20 min).
 8. **`eslint-rules/module-order-analysis.mjs` + `test/eslint/module-order.test.mjs`** — verify that unsafe runtime/comment boundaries report without fixing and safe outputs are idempotent (20 min).

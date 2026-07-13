@@ -1,172 +1,148 @@
 # `@expand/client-ts`
 
-The Effect-native client SDK for the Expand backend. It discovers (or spawns) the
-backend server, opens an RPC-over-WebSocket session, and gives you either a
-**reactive, event-sourced store** of project state or **typed one-call facades** —
-all wired with Effect Layers.
+The Effect-native client SDK for the Expand backend. It discovers or starts the
+backend, maintains a reconnecting RPC-over-WebSocket session, and exposes typed
+project and server clients. Applications decide how, or whether, to retain
+project state.
 
-> Internal design and runtime behavior live in [ARCHITECTURE.md](./ARCHITECTURE.md).
-> This file is the consumer quickstart.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the connection and synchronization
+internals.
 
 ## Install
 
-`@expand/client-ts` is a workspace package inside the Expand monorepo — depend on
-it by name, no registry install:
+`@expand/client-ts` is a workspace package inside the Expand monorepo:
 
-```jsonc
-// package.json
+```json
 { "dependencies": { "@expand/client-ts": "workspace:*" } }
 ```
 
 ## Entrypoints
 
-| Import                                                    | What it gives you                                                     |
-| -------------------------------------------------------- | --------------------------------------------------------------------- |
-| `@expand/client-ts` (the **root**)                        | The connection core: `ClientLayer`, `resolveBackendCommand`, `withClient`, transport errors, `RuntimeAdapter`, `ConnectionStatus`, `SequencedEvent`. |
-| `@expand/client-ts/project`                               | The project domain: `ProjectStore` / `ProjectStoreLayer`, `ProjectClient`, and the project contract vocabulary (`Project`, domain error tags). |
-| `@expand/client-ts/server`                                | The server domain: the `ServerClient` health/presence facade. |
-| `@expand/client-ts/adapters/bun` \| `.../adapters/node`  | The platform seam — `makeBunAdapter` / `makeNodeAdapter`. Kept separate because each pulls in platform-only deps. |
+| Import | Surface |
+| --- | --- |
+| `@expand/client-ts` | `ClientSession`, `ClientSessionLayer`, `ClientLayer`, `withClient`, adapter-independent connection types, and transport errors. |
+| `@expand/client-ts/project` | The session-backed `ProjectClient` facade and project contract vocabulary. |
+| `@expand/client-ts/server` | The session-backed `ServerClient` facade. |
+| `@expand/client-ts/adapters/bun` or `@expand/client-ts/adapters/node` | Platform-specific socket and process adapters. |
+| `@expand/contracts/project-sync` | The renderer-safe, framework-neutral `runProjectSync` controller and its source, sink, snapshot, and status types. |
 
-Exactly **one canonical import path per symbol** — the root does not re-export
-the domain surfaces. Everything else is internal and unreachable (enforced by
-the `client-ts-barrel-only` dependency-cruiser rule, which allows only these
-entrypoints).
+The root does not re-export domain clients. Use their scoped entrypoints.
 
-## Happy path
+## Session-backed clients
 
-Every layer this SDK builds leaves exactly one dependency unprovided:
-`FileSystem` (used to read/write the backend endpoint descriptor). Supply it with
-`BunServices.layer` / `NodeServices.layer`. You pick a platform **adapter** and,
-usually, a **backend command** (how to spawn the server) resolved via
-`resolveBackendCommand`.
+`ClientSession` owns connection discovery, initial acquisition, disconnect
+observation, and reconnect attempts. Its `status` reports `"connected"`,
+`"reconnecting"`, or `"disconnected"`; `current` waits for the active RPC
+epoch; and `epochs` emits each newly connected epoch.
 
-### Reactive store (GUI / TUI)
-
-```ts
-import { Layer, ManagedRuntime } from "effect"
-import { fileURLToPath } from "node:url"
-import { BunServices } from "@effect/platform-bun"
-import { resolveBackendCommand } from "@expand/client-ts"
-import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
-
-// Resolve the server entry to an ABSOLUTE path relative to this module — a bare
-// relative path would resolve against the process cwd and break when the app is
-// launched from anywhere but the repo root.
-const serverEntry = fileURLToPath(new URL("../server/main.ts", import.meta.url))
-
-const adapter = makeBunAdapter({
-  // How to start the backend if one isn't already running.
-  backendCommand: () => resolveBackendCommand({ sourceEntry: serverEntry })
-})
-
-const runtime = ManagedRuntime.make(
-  ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer))
-)
-
-const store = await runtime.runPromise(ProjectStore)
-
-// `subscribe` forks a scoped fiber and returns an unsubscribe. It fires
-// immediately with the current projects, then on every change.
-const unsubscribe = await runtime.runPromise(
-  store.subscribe((projects) => render(projects))
-)
-
-// Commands don't mutate locally — the server's event stream is the single
-// writer; the change flows back through `store.projects` / your subscription.
-await runtime.runPromise(store.createProject("my-project"))
-
-// on teardown:
-unsubscribe()
-await runtime.dispose()
-```
-
-Node/Electron consumers use `makeNodeAdapter` + `NodeServices.layer` identically,
-except `makeNodeAdapter` **requires** a `backendCommand` (there is no safe
-default: Electron's `process.execPath` is the Electron binary, not a JS runtime).
-Run the source entry under a real JS runtime by passing `execPath`, which keeps
-the resolver's source/compiled existence check:
-`resolveBackendCommand({ execPath: "bun", sourceEntry: absoluteEntry })`.
-
-#### Overriding the backend command
-
-`resolveBackendCommand` honours an **`EXPAND_BACKEND_CMD`** environment variable —
-a JSON array of strings (e.g. `EXPAND_BACKEND_CMD='["expand-server","--data-dir","/tmp"]'`)
-— which wins over both source mode and `binaryArgs`. Handy for pointing a build
-at a prebuilt binary without touching code.
-
-Caveat: the override only applies when the command flows through
-`resolveBackendCommand`. Passing a **literal array** straight to
-`makeBunAdapter`/`makeNodeAdapter` (`backendCommand: ["bun", entry]`) bypasses the
-resolver entirely, so `EXPAND_BACKEND_CMD` is ignored. Wrap it in
-`resolveBackendCommand` (or `() => resolveBackendCommand({...})`) to keep the env
-override live.
-
-### Typed facades (CLI / scripts)
+`ClientLayer(adapter)` provides one shared session together with `ProjectClient`
+and `ServerClient`. The facades delegate each operation through the session, so
+commands issued after a reconnect use the current epoch.
 
 ```ts
 import { Effect } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { ClientLayer } from "@expand/client-ts"
-import { ServerClient } from "@expand/client-ts/server"
+import { ProjectClient } from "@expand/client-ts/project"
 import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
 
-const program = Effect.flatMap(ServerClient, (server) => server.health()).pipe(
+const program = Effect.flatMap(ProjectClient, (client) =>
+  client.list({ includeArchived: true })
+).pipe(
   Effect.provide(ClientLayer(makeBunAdapter())),
   Effect.provide(BunServices.layer)
 )
 
-await Effect.runPromise(program)
+const snapshot = await Effect.runPromise(program)
 ```
 
-## Which do I use?
+Use `ProjectClientLayer(adapter)` or `ServerClientLayer(adapter)` when only one
+facade is needed. Use `withClient(adapter, use)` for a scoped low-level call.
 
-| You want…                                                         | Use                                    |
-| ----------------------------------------------------------------- | -------------------------------------- |
-| A live, reconnecting mirror of project state to render a UI       | **`ProjectStoreLayer`** + `ProjectStore` (`.subscribe` / `.projects`) |
-| Request/response RPC calls (`health()`, project commands) as a long-lived service | **`ClientLayer`** + `ProjectClient` / `ServerClient` |
-| A single ad-hoc RPC call without standing up a service layer       | **`withClient(adapter, (client) => …)`** |
+## Application-owned project state
 
-Rules of thumb:
+Long-lived user interfaces compose their own state container with
+`runProjectSync`. The controller accepts a source of connection status, lists,
+and events, then publishes atomic `{ projects, seq }` snapshots to an
+application-owned sink.
 
-- **`ProjectStoreLayer` owns its own connection** and re-acquires it on every
-  reconnect. Reach for it whenever you display project state.
-- **`ClientLayer`** merges the `ProjectClient` + `ServerClient` facades over one
-  shared connection acquired at layer build — stateless request/response.
-- **`withClient`** is the one-shot escape hatch: acquire the raw client, run your
-  effect, tear the scope down. No standing layer.
+```ts
+const source = {
+  status: SubscriptionRef.changes(session.status),
+  list: () => projects.list({ includeArchived: true }),
+  events: ({ fromSeq }: { readonly fromSeq: number }) =>
+    projects.events({ fromSeq })
+}
 
-## Error handling
+yield* runProjectSync(source, {
+  status: setStatus,
+  snapshot: setSnapshot
+})
+```
 
-The SDK's errors are importable from its entrypoints — transport errors from the
-root, domain errors from `@expand/client-ts/project` — so you can catch and
-pattern-match without deep-importing `@expand/contracts`:
+Each connected epoch uses a race-free bootstrap:
 
-- **`BackendUnavailable`** — the backend couldn't be found, spawned, or reached.
-  A `ProjectStoreLayer` **fails with this on first connect**; after that,
-  reconnection is automatic and surfaces via `store.status`
-  (`"connected" | "reconnecting" | "disconnected"`).
-- **`RpcClientError`** — a transport/protocol-level RPC failure (type-only).
-- **Domain errors** carried in command result channels: `ProjectNotFound`,
-  `ProjectNameConflict`, `ProjectDirectoryInvalid`, `ProjectDirectoryConflict`,
-  `ProjectInvalidInput` (and `ProjectAlreadyExists`). These are tagged classes —
-  match on `_tag` or use `Effect.catchTag`:
+1. Fetch a fresh list with its sequence number.
+2. Publish that complete snapshot.
+3. Start `Events({ fromSeq: snapshot.seq })`, which replays anything committed
+   after the list.
+4. Ignore duplicate or stale sequences and publish each newer fold atomically.
+
+On `"reconnecting"`, the controller interrupts the old event epoch and retains
+the last visible snapshot. When the session becomes connected again, it lists
+again and replaces the old projects and sequence with that fresh authoritative
+snapshot before replaying newer events. Reconnect is replacement, not a merge
+with stale local state.
+
+The applications deliberately choose different ownership models:
+
+- Desktop stores synchronized snapshots and connection status in renderer-owned
+  Zustand state.
+- TUI stores synchronized snapshots in React state and interrupts the sync fiber
+  when the component unmounts.
+- CLI remains stateless: each command calls the typed facade and renders the
+  response without maintaining a project replica.
+
+Mutation responses are not an optimistic state source for desktop or TUI. Their
+visible state changes only through a fresh list or sequenced server event.
+
+## Backend command and adapters
+
+Every SDK layer leaves `FileSystem` unprovided. Supply `BunServices.layer` or
+`NodeServices.layer` in the host. Bun and Node/Electron consumers select their
+adapter from the corresponding adapter entrypoint.
+
+`makeNodeAdapter` requires a backend command. `makeBunAdapter` can use its
+default, but applications can pass a command resolved by
+`resolveBackendCommand`. The resolver honors `EXPAND_BACKEND_CMD` when it is a
+JSON array of strings.
+
+## Errors
+
+Import transport errors from the root and domain errors from
+`@expand/client-ts/project`:
+
+- `BackendUnavailable` means initial backend discovery, startup, or connection
+  failed. After initial acquisition, reconnecting is reflected by the session
+  status.
+- `RpcClientError` is the type for transport or protocol RPC failures.
+- Project commands can fail with domain errors such as `ProjectNotFound`,
+  `ProjectNameConflict`, `ProjectDirectoryInvalid`,
+  `ProjectDirectoryConflict`, or `ProjectInvalidInput`.
 
 ```ts
 import { Effect } from "effect"
-import { ProjectNameConflict } from "@expand/client-ts/project"
+import { ProjectClient, ProjectNameConflict } from "@expand/client-ts/project"
 
-store.renameProject(id, "taken").pipe(
-  Effect.catchTag("ProjectNameConflict", (e: ProjectNameConflict) =>
-    Effect.logWarning(`name "${e.name}" already exists`))
+const rename = Effect.flatMap(ProjectClient, (client) =>
+  client.rename({ id, name: "taken" })
+).pipe(
+  Effect.catchTag("ProjectNameConflict", (error: ProjectNameConflict) =>
+    Effect.logWarning(`name "${error.name}" already exists`)
+  )
 )
 ```
 
-Input is validated at the backend's ingestion boundary — the store forwards raw
-strings and surfaces `ProjectInvalidInput` rather than branding client-side.
-
-## Contract vocabulary
-
 `Project`, `ProjectCreateResult`, and `ProjectDeleteResult` are re-exported from
-`@expand/client-ts/project`; `SequencedEvent` (the shape of `store.events`) from
-the root — so you can name the values the API returns without a second import.
+the project entrypoint. `SequencedEvent` is exported from the root for consumers
+that need stream vocabulary directly.

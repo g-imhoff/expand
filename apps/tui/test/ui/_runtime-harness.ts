@@ -25,9 +25,6 @@ export interface RuntimeHarnessOptions {
   readonly failure?: BackendUnavailable
 }
 
-export const uid = (n: number) =>
-  `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
-
 export const fakeProject = (
   n: number,
   name: string,
@@ -246,3 +243,6 @@ export const renderWithRuntime = (
   node: ReactElement,
   harness: RuntimeHarness
 ) => render(createElement(RuntimeContext.Provider, { value: harness.runtime }, node))
+
+const uid = (n: number) =>
+  `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`

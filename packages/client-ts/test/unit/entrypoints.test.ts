@@ -7,14 +7,14 @@ import * as server from "@expand/client-ts/server"
 
 describe("scoped entrypoints", () => {
   it("@expand/client-ts/project exposes the project domain", () => {
-    expect(project.ProjectStore).toBeDefined()
-    expect(project.ProjectStoreLayer).toBeDefined()
     expect(project.ProjectClient).toBeDefined()
     expect(project.ProjectClientLayer).toBeDefined()
     expect(project.Project).toBeDefined()
     expect(project.ProjectNotFound).toBeDefined()
-    // SequencedEvent is root stream vocabulary, not project-domain
-    expect((project as Record<string, unknown>).SequencedEvent).toBeUndefined()
+    const p = project as Record<string, unknown>
+    expect(p.ProjectStore).toBeUndefined()
+    expect(p.ProjectStoreLayer).toBeUndefined()
+    expect(p.SequencedEvent).toBeUndefined()
   })
 
   it("@expand/client-ts/server exposes the server domain", () => {
@@ -29,7 +29,8 @@ describe("scoped entrypoints", () => {
     expect(r.ServerClient).toBeUndefined()
     expect(r.ProjectNotFound).toBeUndefined()
     expect(r.Project).toBeUndefined()
-    // ...while the connection core stays
+    expect(root.ClientSession).toBeDefined()
+    expect(root.ClientSessionLayer).toBeDefined()
     expect(root.ClientLayer).toBeDefined()
     expect(root.withClient).toBeDefined()
     expect(root.resolveBackendCommand).toBeDefined()

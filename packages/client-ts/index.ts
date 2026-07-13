@@ -7,8 +7,8 @@
  * The root entrypoint is **strictly connection-level** — domain surfaces live on
  * scoped subpaths, with exactly one canonical import path per symbol:
  *
- * - `@expand/client-ts/project` — the project domain: the `ProjectStore` reactive
- *   mirror, the `ProjectClient` facade, and the project contract vocabulary.
+ * - `@expand/client-ts/project` — the session-backed `ProjectClient` facade and
+ *   the project contract vocabulary.
  * - `@expand/client-ts/server` — the server domain: the `ServerClient`
  *   health/presence facade.
  * - `@expand/client-ts/adapters/{bun,node}` — the platform seams
@@ -16,11 +16,9 @@
  *
  * What lives here (in export order below):
  *
- * - **Composition** — {@link ClientLayer} / {@link resolveBackendCommand}: build a
- *   `Layer` for a platform adapter, and resolve the command used to spawn the
- *   backend.
- * - **Connection state** — {@link ConnectionStatus}: the session state the domain
- *   stores emit.
+ * - **Composition** — {@link ClientLayer}, {@link ClientSessionLayer}, and
+ *   {@link resolveBackendCommand}.
+ * - **Connection state** — {@link ClientSession} and {@link ConnectionStatus}.
  * - **Escape hatch** — {@link withClient}: a one-shot RPC call without a standing
  *   layer.
  * - **Platform** — {@link RuntimeAdapter}: the adapter seam (type only).

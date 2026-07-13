@@ -2,8 +2,7 @@ import { Cause, Effect, Exit } from "effect"
 
 /**
  * Wrap a background fiber so a non-interrupt crash is logged (with its cause)
- * rather than dropped silently. Used internally by the reactive store; not part
- * of the public entrypoint surface.
+ * rather than dropped silently.
  *
  * @internal
  */
