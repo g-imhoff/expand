@@ -19,6 +19,7 @@ const promiseChains = new Set(promiseChainMethods)
 const effectRunners = new Set(effectRunnerMethods)
 const runtimeRunners = new Set(runtimeRunnerMethods)
 const effectCallbacks = new Set(effectCallbackMethods)
+const syntaxEffectProducers = new Set(["succeed", ...effectCallbackMethods.filter((method) => method !== "fn" && method !== "fnUntraced")])
 const schemaSyncs = new Set(schemaSyncMethods)
 const nodeBuiltins = new Set(nodeBuiltinModules)
 const hostModuleNames = new Set(hostModules)
@@ -391,7 +392,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     } catch {
     }
     try {
-      return type.getProperty?.("then") !== undefined
+      const thenMember = type.getProperty?.("then")
+      const declaration = thenMember?.valueDeclaration ?? thenMember?.declarations?.[0]
+      if (!thenMember || !declaration) return false
+      return checker.getTypeOfSymbolAtLocation(thenMember, declaration).getCallSignatures?.().length > 0
     } catch {
       return false
     }
@@ -457,8 +461,9 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     if (!node) return false
     if (node.type === "CallExpression" || node.type === "NewExpression") {
       const callee = originOfExpression(node.callee)
-      if (callee?.root === "Effect" && !effectRunners.has(last(callee.path))) return true
       if (["ManagedRuntime", "ManagedRuntimeInstance", "Runtime", "RuntimeInstance"].includes(callee?.root)) return false
+      if (checker) return isEffectType(typeAt(node))
+      if (callee?.root === "Effect" && syntaxEffectProducers.has(last(callee.path))) return true
     }
     return isEffectType(typeAt(node))
   }

@@ -49,6 +49,8 @@ const ruleTester = new RuleTester({
 
 const valid = [
   validCase('import { Effect } from "effect"\nexport const load = Effect.fn("load")(function*() { return yield* Effect.tryPromise(() => host()) })'),
+  validCase('import { Effect } from "effect"\nexport const inspect = (value: unknown) => Effect.isEffect(value)'),
+  validCase("export const data = () => ({ then: 1 })"),
   validCase("const Promise = class {}\nnew Promise()"),
   validCase("export const add = (left, right) => left + right"),
   validCase('import { Effect as Fx } from "effect"\nconst wrap = Fx.fn\nexport const load = wrap("load")(() => Fx.succeed(1))'),
@@ -76,6 +78,11 @@ const valid = [
     filename: absolute("effect-boundary-valid.cts"),
     code: "export = { value: 1 }",
     languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
+  {
+    filename: absolute("effect-boundary-pure-helper.mts"),
+    code: 'import { Effect } from "effect"\nexport const inspect = (value: unknown) => Effect.isEffect(value)',
+    languageOptions: { parserOptions: { project: false, projectService: false } }
   }
 ]
 
@@ -88,6 +95,11 @@ const invalid = [
   invalidCase("const value = process.env.HOME", [{ messageId: "platformEffect" }]),
   invalidCase('import { Effect } from "effect"\nEffect.runPromise(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect } from "effect"\nexport const load = () => Effect.succeed(1)', [{ messageId: "effectFunctionBoundary" }]),
+  {
+    ...invalidCase('import { Effect } from "effect"\nexport const load = () => Effect.succeed(1)', [{ messageId: "effectFunctionBoundary" }]),
+    filename: absolute("effect-boundary-effect-producer.mts"),
+    languageOptions: { parserOptions: { project: false, projectService: false } }
+  },
   invalidCase('import { Effect, Schema } from "effect"\nEffect.gen(function*() { return Schema.decodeUnknownSync(Schema.String)(input) })', [{ messageId: "syncSchemaInEffect" }]),
   invalidCase("Promise.resolve(1)", [{ messageId: "nativePromise" }]),
   invalidCase("const { resolve: settle } = Promise\nsettle(1)", [{ messageId: "nativePromise" }]),
@@ -149,6 +161,29 @@ it("canonicalizes the platform package NodeRuntime namespace construct", () => {
   expect(analysis.occurrences).toMatchObject([
     { messageId: "runnerOutsideBoundary", identity: { construct: "runner:NodeRuntime.runMain" } }
   ])
+})
+
+it("assigns stable PromiseLike identities to mapped and member declarations", () => {
+  const identity = (code) => analyze(code).occurrences.find((occurrence) => occurrence.messageId === "promiseSignature")?.identity
+  const mapped = identity("type AsyncFields<T> = { [K in keyof T]: () => PromiseLike<T[K]> }")
+  const mappedSpaced = identity("type AsyncFields<T> = {\n  [K in keyof T]: () => PromiseLike<T[K]>\n}")
+  const member = identity("interface Service { load(): PromiseLike<string> }")
+  const memberSpaced = identity("interface Service {\n  load(): PromiseLike<string>\n}")
+
+  expect(mapped).toEqual({
+    file: "effect-boundary-invalid.ts",
+    declaration: "type:AsyncFields",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  })
+  expect(mappedSpaced).toEqual(mapped)
+  expect(member).toEqual({
+    file: "effect-boundary-invalid.ts",
+    declaration: "member:Service.load",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  })
+  expect(memberSpaced).toEqual(member)
 })
 
 it("assigns stable fallback identities across selected syntax kinds", () => {
