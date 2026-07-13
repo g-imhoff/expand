@@ -17,6 +17,8 @@
     "expand": "dist/expand"
   },
   "scripts": {
+    "effect:audit": "tsx scripts/effect-audit.ts",
+    "effect:audit:update": "tsx scripts/effect-audit.ts --update",
     "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
     "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
     "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
