@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, renameSync, writeFileSync } from "node:fs"
 import { setTimeout } from "node:timers/promises"
 import { acquireSpawnLock, releaseSpawnLock } from "../../spawn-lock"
 
@@ -18,12 +18,17 @@ if (
 writeFileSync(readyPath, "ready")
 while (!existsSync(startPath)) await setTimeout(1)
 
+const publishResult = (result: unknown) => {
+  const temporaryPath = `${resultPath}.${process.pid}.tmp`
+  writeFileSync(temporaryPath, JSON.stringify(result))
+  renameSync(temporaryPath, resultPath)
+}
+
 const lease = await Effect.runPromise(acquireSpawnLock(lockPath))
-writeFileSync(
-  resultPath,
-  JSON.stringify(lease === undefined
+publishResult(
+  lease === undefined
     ? { status: "contended" }
-    : { status: "acquired", pid: lease.pid, token: lease.token })
+    : { status: "acquired", pid: lease.pid, token: lease.token }
 )
 
 if (lease !== undefined) {
