@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-ts/project"
+import { ProjectClient } from "@expand/client-ts/project"
 import { dieOnRpcClientError } from "@expand/desktop/main/rpc/guard"
 
 export const projectHandlers: Pick<
@@ -15,38 +15,26 @@ export const projectHandlers: Pick<
   | "ProjectDelete"
   | "ProjectList"
 > = {
-  ProjectCreate: ({ name, directory }) =>
+  ProjectCreate: (payload) =>
     dieOnRpcClientError(
-      Effect.flatMap(ProjectStore, (s) => s.createProject(name, directory)).pipe(
-        Effect.map((project) => ({ created: true, project }))
-      )
+      Effect.flatMap(ProjectClient, (client) => client.create(payload))
     ),
-  ProjectRename: ({ id, name }) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.renameProject(id, name))),
-  ProjectChangeDirectory: ({ id, directory }) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.changeDirectory(id, directory))),
-  ProjectArchive: ({ id }) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.archiveProject(id))),
-  ProjectRestore: ({ id }) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.restoreProject(id))),
-  ProjectSetMetadata: ({ id, description, tags }) =>
+  ProjectRename: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.rename(payload))),
+  ProjectChangeDirectory: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.changeDirectory(payload))),
+  ProjectArchive: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.archive(payload))),
+  ProjectRestore: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.restore(payload))),
+  ProjectSetMetadata: (payload) =>
     dieOnRpcClientError(
-      Effect.flatMap(ProjectStore, (s) =>
-        s.setMetadata(id, {
-          ...(description !== undefined ? { description } : {}),
-          ...(tags !== undefined ? { tags } : {})
-        })
-      )
+      Effect.flatMap(ProjectClient, (client) => client.setMetadata(payload))
     ),
-  ProjectDelete: ({ id }) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectStore, (s) => s.deleteProject(id))),
-  ProjectList: ({ includeArchived }) =>
-    Effect.flatMap(ProjectStore, (s) => s.snapshot).pipe(
-      Effect.map(({ projects, seq }) => ({
-        projects: includeArchived ? projects : projects.filter((p) => !p.archived),
-        seq
-      }))
-    )
+  ProjectDelete: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.delete(payload))),
+  ProjectList: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.list(payload)))
 }
 
 type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

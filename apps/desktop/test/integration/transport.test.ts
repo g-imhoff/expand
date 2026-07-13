@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer, ManagedRuntime, PubSub, Stream, SubscriptionRef, Schema } from "effect"
-import type { Project } from "@expand/contracts/project"
-import { Project as ProjectClass } from "@expand/contracts/project"
-import type { SequencedEvent } from "@expand/contracts/events/domain"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
+import { Effect, Layer, ManagedRuntime, Stream, SubscriptionRef } from "effect"
+import {
+  ClientSession,
+  type ClientSessionApi,
+  type ConnectionStatus
+} from "@expand/client-ts"
+import {
+  ProjectClient,
+  type ProjectClientApi
+} from "@expand/client-ts/project"
+import { ServerClient } from "@expand/client-ts/server"
 import { connectPort } from "@expand/desktop/main/rpc/transport"
-
-const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const makePort = () => {
   const sent: Array<unknown> = []
@@ -15,8 +18,8 @@ const makePort = () => {
   let started = false
   return {
     port: {
-      postMessage: (m: unknown) => sent.push(m),
-      on: (_ev: "message", cb: (e: { data: unknown }) => void) => { handler = cb },
+      postMessage: (message: unknown) => sent.push(message),
+      on: (_event: "message", callback: (e: { data: unknown }) => void) => { handler = callback },
       start: () => { started = true }
     },
     sent,
@@ -26,61 +29,40 @@ const makePort = () => {
   }
 }
 
-const fakeStoreLayer = (
-  ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
-  hub: PubSub.PubSub<SequencedEvent>
-) =>
-  Layer.succeed(ProjectStore, {
-    projects: ref,
-    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
-    events: Stream.fromPubSub(hub),
-    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: string) => {
-      const p = Schema.decodeUnknownSync(ProjectClass)({ id: uid(1), name: name as string, directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" })
-      return SubscriptionRef.update(ref, (c) => [...c, p]).pipe(Effect.as(p))
-    },
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, name: name as string }) : p))).pipe(
-        Effect.map((c) => c.find((p) => p.id === id)!)
-      ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, directory }) : p))).pipe(
-        Effect.map((c) => c.find((p) => p.id === id)!)
-      ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: true }) : p))).pipe(
-        Effect.map((c) => c.find((p) => p.id === id)!)
-      ),
-    restoreProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: false }) : p))).pipe(
-        Effect.map((c) => c.find((p) => p.id === id)!)
-      ),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.updateAndGet(ref, (c) => c.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, ...patch }) : p))).pipe(
-        Effect.map((c) => c.find((p) => p.id === id)!)
-      ),
-    deleteProject: (id: string) =>
-      SubscriptionRef.update(ref, (c) => c.filter((p) => p.id !== id)).pipe(
-        Effect.as({ id, deleted: true } as const)
-      ),
-    subscribe: (onProjects: (ps: ReadonlyArray<Project>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
-  })
+const fakeClientLayer = () => {
+  const status = Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected"))
+  const session: ClientSessionApi = {
+    status,
+    current: Effect.die("unused"),
+    epochs: Stream.empty
+  }
+  const project: ProjectClientApi = {
+    create: () => Effect.die("unused"),
+    rename: () => Effect.die("unused"),
+    changeDirectory: () => Effect.die("unused"),
+    archive: () => Effect.die("unused"),
+    restore: () => Effect.die("unused"),
+    setMetadata: () => Effect.die("unused"),
+    delete: () => Effect.die("unused"),
+    list: () => Effect.die("unused"),
+    events: () => Stream.die("unused")
+  }
+  return Layer.mergeAll(
+    Layer.succeed(ClientSession, session),
+    Layer.succeed(ProjectClient, project),
+    Layer.succeed(ServerClient, { health: () => Effect.die("unused") })
+  )
+}
 
 describe("connectPort", () => {
   it("wires the port (start + message handler) and returns a working teardown", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
-    const hub = await Effect.runPromise(PubSub.unbounded<SequencedEvent>())
-    const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
-    const p = makePort()
+    const runtime = ManagedRuntime.make(fakeClientLayer())
+    const port = makePort()
     try {
-      const teardown = connectPort({ port: p.port, runtime })
-      await new Promise((r) => setTimeout(r, 50))
-      expect(p.isStarted()).toBe(true)
-      expect(p.hasHandler()).toBe(true)
+      const teardown = connectPort({ port: port.port, runtime })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(port.isStarted()).toBe(true)
+      expect(port.hasHandler()).toBe(true)
       expect(typeof teardown).toBe("function")
       await teardown()
     } finally {

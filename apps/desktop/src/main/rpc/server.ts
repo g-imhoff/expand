@@ -1,7 +1,9 @@
 import { Effect, Queue, type Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-ts/project"
+import { ClientSession } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
+import { ServerClient } from "@expand/client-ts/server"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
 import { supervised } from "@expand/desktop/main/lib/supervised"
 
@@ -13,7 +15,7 @@ export interface MainPortLike {
 
 export const runRpcServer = (
   port: MainPortLike
-): Effect.Effect<never, never, ProjectStore | Scope.Scope> =>
+): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | Scope.Scope> =>
   RpcServer.make(ExpandRpcs).pipe(
     Effect.provide(DesktopRpcHandlers),
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),

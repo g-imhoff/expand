@@ -1,67 +1,77 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream, SubscriptionRef, Schema } from "effect"
-import { Project as ProjectClass } from "@expand/contracts/project"
+import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Schema, Stream, SubscriptionRef } from "effect"
+import { Project as ProjectClass, ProjectCreateResult } from "@expand/contracts/project"
 import type { Project } from "@expand/contracts/project"
 import { ProjectCreated } from "@expand/contracts/events/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
+import {
+  ClientSession,
+  type ClientSessionApi,
+  type ConnectionStatus
+} from "@expand/client-ts"
+import {
+  ProjectClient,
+  type ProjectClientApi
+} from "@expand/client-ts/project"
+import { ServerClient } from "@expand/client-ts/server"
 import { buildRendererClient } from "@expand/desktop/renderer/rpc/transport"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
 import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
-const fakeStoreLayer = (
+const fakeClientLayer = (
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
   hub: PubSub.PubSub<SequencedEvent>
-) =>
-  Layer.succeed(ProjectStore, {
-    projects: ref,
-    status: Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected")),
-    events: Stream.fromPubSub(hub),
-    snapshot: Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
-    createProject: (name: string) => {
-      const project = Schema.decodeUnknownSync(ProjectClass)({
+) => {
+  const status = Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected"))
+  const session: ClientSessionApi = {
+    status,
+    current: Effect.die("unused"),
+    epochs: Stream.empty
+  }
+  const project: ProjectClientApi = {
+    create: ({ name, directory }) => {
+      const value = Schema.decodeUnknownSync(ProjectClass)({
         id: uid(1),
         name,
-        directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t"
+        directory: directory ?? null,
+        description: null,
+        tags: [],
+        archived: false,
+        createdAt: "t",
+        updatedAt: "t"
       })
       return Effect.andThen(
-        PubSub.publish(hub, { seq: 1, event: ProjectCreated.make({ projectId: project.id, name: project.name, occurredAt: "t" }) }),
-        SubscriptionRef.update(ref, (cur) => [...cur, project]).pipe(Effect.as(project))
+        PubSub.publish(hub, {
+          seq: 1,
+          event: ProjectCreated.make({
+            projectId: value.id,
+            name: value.name,
+            directory: value.directory,
+            occurredAt: "t"
+          })
+        }),
+        SubscriptionRef.update(ref, (current) => [...current, value]).pipe(
+          Effect.as(Schema.decodeUnknownSync(ProjectCreateResult)({ created: true, project: value }))
+        )
       )
     },
-    renameProject: (id: string, name: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, name }) : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)!)
-      ),
-    changeDirectory: (id: string, directory: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, directory }) : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)!)
-      ),
-    archiveProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: true }) : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)!)
-      ),
-    restoreProject: (id: string) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, archived: false }) : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)!)
-      ),
-    setMetadata: (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      SubscriptionRef.updateAndGet(ref, (cur) => cur.map((p) => (p.id === id ? Schema.decodeUnknownSync(ProjectClass)({ ...p, ...patch }) : p))).pipe(
-        Effect.map((cur) => cur.find((p) => p.id === id)!)
-      ),
-    deleteProject: (id: string) =>
-      SubscriptionRef.update(ref, (cur) => cur.filter((p) => p.id !== id)).pipe(
-        Effect.as({ id, deleted: true } as const)
-      ),
-    subscribe: (onProjects: (ps: ReadonlyArray<Project>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(ref), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
-  })
+    rename: () => Effect.die("unused"),
+    changeDirectory: () => Effect.die("unused"),
+    archive: () => Effect.die("unused"),
+    restore: () => Effect.die("unused"),
+    setMetadata: () => Effect.die("unused"),
+    delete: () => Effect.die("unused"),
+    list: () => Effect.map(SubscriptionRef.get(ref), (projects) => ({ projects, seq: 0 })),
+    events: () => Stream.fromPubSub(hub)
+  }
+  return Layer.mergeAll(
+    Layer.succeed(ClientSession, session),
+    Layer.succeed(ProjectClient, project),
+    Layer.succeed(ServerClient, { health: () => Effect.succeed("ok") })
+  )
+}
 
 const makePortPair = (): { server: MainPortLike; renderer: RendererPortLike } => {
   let serverListener: ((e: { data: unknown }) => void) | null = null
@@ -88,7 +98,7 @@ describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cl
   it("ProjectList/ProjectCreate cross the seam and decode to typed values", async () => {
     const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
     const hub = await Effect.runPromise(PubSub.unbounded<SequencedEvent>())
-    const runtime = ManagedRuntime.make(fakeStoreLayer(ref, hub))
+    const runtime = ManagedRuntime.make(fakeClientLayer(ref, hub))
     const { server, renderer } = makePortPair()
 
     const serverScope = await Effect.runPromise(Scope.make())

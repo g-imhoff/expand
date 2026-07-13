@@ -1,97 +1,134 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Exit, Layer, Stream, SubscriptionRef } from "effect"
-import type { Project } from "@expand/contracts/project"
+import { Effect, Exit, Fiber, Layer, Stream, SubscriptionRef } from "effect"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
-import { ProjectCreated } from "@expand/contracts/events/project"
-import type { ConnectionStatus } from "@expand/client-ts"
-import { ProjectStore } from "@expand/client-ts/project"
+import {
+  ClientSession,
+  type ClientSessionApi,
+  type ConnectionStatus
+} from "@expand/client-ts"
+import {
+  ProjectClient,
+  type ProjectClientApi
+} from "@expand/client-ts/project"
+import {
+  ServerClient,
+  type ServerClientApi
+} from "@expand/client-ts/server"
 import { connectionHandlers } from "@expand/desktop/main/rpc/connection-handlers"
 import { healthHandlers } from "@expand/desktop/main/rpc/health-handlers"
 
-const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
-
-const connect = connectionHandlers.Connect as () => Stream.Stream<boolean, never, ProjectStore>
-const events = connectionHandlers.Events as (
+const connect = connectionHandlers.Connect as () => Stream.Stream<boolean, never, ClientSession>
+const events = connectionHandlers.Events as unknown as (
   payload: { readonly fromSeq?: number }
-) => Stream.Stream<SequencedEvent, never, ProjectStore>
-const health = healthHandlers.Health as () => Effect.Effect<string, never, ProjectStore>
+) => Stream.Stream<SequencedEvent, unknown, ProjectClient>
+const health = healthHandlers.Health as () => Effect.Effect<string, never, ClientSession | ServerClient>
 
-const fakeStore = (
+const makeClientLayer = (
   status: SubscriptionRef.SubscriptionRef<ConnectionStatus>,
-  events: Stream.Stream<SequencedEvent>
+  project: ProjectClientApi,
+  server: ServerClientApi
 ) => {
-  const projects = Effect.runSync(SubscriptionRef.make<ReadonlyArray<Project>>([]))
-  return Layer.succeed(ProjectStore, {
-    projects,
+  const session: ClientSessionApi = {
     status,
-    events,
-    snapshot: Effect.succeed({ projects: [], seq: 0 }),
-    createProject: () => Effect.die("unused"),
-    renameProject: () => Effect.die("unused"),
-    changeDirectory: () => Effect.die("unused"),
-    archiveProject: () => Effect.die("unused"),
-    restoreProject: () => Effect.die("unused"),
-    setMetadata: () => Effect.die("unused"),
-    deleteProject: () => Effect.die("unused"),
-    subscribe: (onProjects: (ps: ReadonlyArray<Project>) => void) =>
-      Effect.as(
-        Effect.forkDetach(Stream.runForEach(SubscriptionRef.changes(projects), (ps) => Effect.sync(() => onProjects(ps)))),
-        () => {}
-      )
-  })
+    current: Effect.die("unused"),
+    epochs: Stream.empty
+  }
+  return Layer.mergeAll(
+    Layer.succeed(ClientSession, session),
+    Layer.succeed(ProjectClient, project),
+    Layer.succeed(ServerClient, server)
+  )
 }
 
-const sequenced = (seq: number): SequencedEvent => ({
-  seq,
-  event: ProjectCreated.make({ projectId: uid(seq), name: "name-" + seq, occurredAt: "t" })
+const unusedProjectClient = (events: ProjectClientApi["events"]): ProjectClientApi => ({
+  create: () => Effect.die("unused"),
+  rename: () => Effect.die("unused"),
+  changeDirectory: () => Effect.die("unused"),
+  archive: () => Effect.die("unused"),
+  restore: () => Effect.die("unused"),
+  setMetadata: () => Effect.die("unused"),
+  delete: () => Effect.die("unused"),
+  list: () => Effect.die("unused"),
+  events
 })
 
-describe("desktop seam honesty", () => {
-  it("Connect mirrors the upstream connection status instead of a hardcoded true", async () => {
-    const program = Effect.gen(function* () {
-      const status = yield* SubscriptionRef.make<ConnectionStatus>("reconnecting")
-      const first = yield* Stream.runCollect(Stream.take(connect(), 1)).pipe(
-        Effect.provide(fakeStore(status, Stream.empty))
-      )
-      yield* SubscriptionRef.set(status, "connected")
-      const second = yield* Stream.runCollect(Stream.take(connect(), 1)).pipe(
-        Effect.provide(fakeStore(status, Stream.empty))
-      )
-      return { first: Array.from(first), second: Array.from(second) }
-    })
-    const { first, second } = await Effect.runPromise(program)
-    expect(first).toEqual([false])
-    expect(second).toEqual([true])
-  })
-
-  it("Events forwards only entries with seq greater than fromSeq when provided", async () => {
-    const entries = [sequenced(1), sequenced(2), sequenced(3)]
-    const program = Effect.gen(function* () {
+const collectEventRequest = (fromSeq: number) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
       const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
-      const layer = fakeStore(status, Stream.fromIterable(entries))
-      const all = yield* Stream.runCollect(events({})).pipe(Effect.provide(layer))
-      const tail = yield* Stream.runCollect(events({ fromSeq: 2 })).pipe(Effect.provide(layer))
-      return {
-        all: Array.from(all).map((e) => e.seq),
-        tail: Array.from(tail).map((e) => e.seq)
+      let requested: { readonly fromSeq?: number } | undefined
+      const layer = makeClientLayer(
+        status,
+        unusedProjectClient((payload = {}) => {
+          requested = payload
+          return Stream.empty
+        }),
+        { health: () => Effect.die("unused") }
+      )
+      yield* Stream.runDrain(events({ fromSeq })).pipe(Effect.provide(layer))
+      return requested
+    })
+  )
+
+const collectConnect = (statuses: ReadonlyArray<ConnectionStatus>) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const status = yield* SubscriptionRef.make<ConnectionStatus>(statuses[0] ?? "disconnected")
+      const layer = makeClientLayer(
+        status,
+        unusedProjectClient(() => Stream.empty),
+        { health: () => Effect.die("unused") }
+      )
+      const fiber = yield* Stream.runCollect(Stream.take(connect(), statuses.length)).pipe(
+        Effect.provide(layer),
+        Effect.forkChild
+      )
+      yield* Effect.yieldNow
+      for (const next of statuses.slice(1)) {
+        yield* SubscriptionRef.set(status, next)
+        yield* Effect.yieldNow
       }
+      return Array.from(yield* Fiber.join(fiber))
     })
-    const { all, tail } = await Effect.runPromise(program)
-    expect(all).toEqual([1, 2, 3])
-    expect(tail).toEqual([3])
+  )
+
+const runHealthStatusScenario = () =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+      let healthCalls = 0
+      const layer = makeClientLayer(
+        status,
+        unusedProjectClient(() => Stream.empty),
+        {
+          health: () => Effect.sync(() => {
+            healthCalls += 1
+            return "ok"
+          })
+        }
+      )
+      const connected = yield* health().pipe(Effect.provide(layer))
+      yield* SubscriptionRef.set(status, "reconnecting")
+      const reconnecting = yield* Effect.exit(health().pipe(Effect.provide(layer)))
+      return { connected, reconnecting, healthCalls }
+    })
+  )
+
+describe("desktop seam honesty", () => {
+  it("Events forwards fromSeq to the upstream epoch", async () => {
+    const requested = await collectEventRequest(17)
+    expect(requested).toEqual({ fromSeq: 17 })
   })
 
-  it("Health answers ok only while connected and dies otherwise", async () => {
-    const program = Effect.gen(function* () {
-      const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
-      const layer = fakeStore(status, Stream.empty)
-      const ok = yield* health().pipe(Effect.provide(layer))
-      yield* SubscriptionRef.set(status, "reconnecting")
-      const exit = yield* Effect.exit(health().pipe(Effect.provide(layer)))
-      return { ok, exit }
-    })
-    const { ok, exit } = await Effect.runPromise(program)
-    expect(ok).toBe("ok")
-    expect(Exit.isFailure(exit)).toBe(true)
+  it("Connect reflects ClientSession status transitions", async () => {
+    const values = await collectConnect(["connected", "reconnecting", "connected"])
+    expect(values).toEqual([true, false, true])
+  })
+
+  it("Health delegates only while connected", async () => {
+    const result = await runHealthStatusScenario()
+    expect(result.connected).toBe("ok")
+    expect(Exit.isFailure(result.reconnecting)).toBe(true)
+    expect(result.healthCalls).toBe(1)
   })
 })

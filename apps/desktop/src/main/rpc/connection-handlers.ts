@@ -1,20 +1,21 @@
 import { Effect, Stream, SubscriptionRef } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ProjectStore } from "@expand/client-ts/project"
+import { ClientSession } from "@expand/client-ts"
+import { ProjectClient } from "@expand/client-ts/project"
 
 export const connectionHandlers: Pick<Handlers, "Connect" | "Events"> = {
   Connect: () =>
     Stream.unwrap(
-      Effect.map(ProjectStore, (s) =>
-        Stream.map(SubscriptionRef.changes(s.status), (status) => status === "connected")
+      Effect.map(ClientSession, (session) =>
+        SubscriptionRef.changes(session.status).pipe(
+          Stream.map((status) => status === "connected")
+        )
       )
     ),
-  Events: ({ fromSeq }) =>
+  Events: (payload) =>
     Stream.unwrap(
-      Effect.map(ProjectStore, (s) =>
-        fromSeq === undefined ? s.events : Stream.filter(s.events, (se) => se.seq > fromSeq)
-      )
+      Effect.map(ProjectClient, (client) => client.events(payload).pipe(Stream.orDie))
     )
 }
 

@@ -2,7 +2,9 @@ import { app, BrowserWindow, MessageChannelMain, session } from "electron"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect } from "effect"
-import type { ProjectStore } from "@expand/client-ts/project"
+import type { ClientSession } from "@expand/client-ts"
+import type { ProjectClient } from "@expand/client-ts/project"
+import type { ServerClient } from "@expand/client-ts/server"
 import { bindIpc } from "@expand/electron-ipc/main"
 import { electronBindDeps } from "@expand/electron-ipc/main-electron"
 import { makeRuntime } from "@expand/desktop/main/runtime"
@@ -58,10 +60,11 @@ const createWindow = () => {
   }
 
   const { ipc, target } = electronBindDeps(win)
-  // Explicit type params: the rpcPort handler is `Effect.sync` (R = never), so
-  // inference leaves bindIpc's R as `unknown`, which then fights runtime.runPromise
-  // (R = ProjectStore). Pin R/Port to the real services and transferable port type.
-  const bound = bindIpc<typeof ExpandIpc, ProjectStore, Electron.MessagePortMain>(
+  const bound = bindIpc<
+    typeof ExpandIpc,
+    ClientSession | ProjectClient | ServerClient,
+    Electron.MessagePortMain
+  >(
     ExpandIpc,
     {
       rpcPort: () =>
