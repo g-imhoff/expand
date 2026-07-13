@@ -295,7 +295,7 @@ const ruleTester = new RuleTester({
 })
 ```
 
-Use `effect-boundary-valid.ts` for every valid typed case and `effect-boundary-invalid.ts` for every invalid typed case. Add cases for aliases, shadowing, destructuring, inferred thenables, mapped/member declarations, MTS/CTS parsing, and exact exemption consumption. Include these core cases:
+Use `effect-boundary-valid.ts` for every valid typed case and `effect-boundary-invalid.ts` for every invalid typed case. Exercise MTS and CTS parsing with two fixed extension-specific syntax cases that override parser options with `project: false` and `projectService: false`; all type-aware assertions stay on the two default-project filenames above. Add cases for aliases, shadowing, destructuring, inferred thenables, mapped/member declarations, MTS/CTS syntax, and exact exemption consumption. Include these core cases:
 
 ```js
 const valid = [
