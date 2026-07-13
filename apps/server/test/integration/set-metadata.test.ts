@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 
@@ -35,7 +39,7 @@ describe.sequential("end-to-end set-metadata", () => {
     const program = Effect.gen(function* () {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const outcome = yield* withClient(bunAdapter, (client) =>
+      const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "e2emeta", ensure: false })
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
@@ -49,7 +53,7 @@ describe.sequential("end-to-end set-metadata", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
 
@@ -67,10 +71,10 @@ describe.sequential("end-to-end set-metadata", () => {
     const durable = Effect.gen(function* () {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const listed = yield* withClient(bunAdapter, (client) => client.ProjectList({}))
+      const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({}))
       yield* Fiber.interrupt(serverFiber)
       return listed
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed2 = await Effect.runPromise(durable)
     const survived = listed2.projects.find((p) => p.id === r.project.id)

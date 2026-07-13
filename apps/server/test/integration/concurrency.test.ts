@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -33,7 +37,7 @@ describe.sequential("project operations under concurrency", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const a = (yield* client.ProjectCreate({ name: "alpha", ensure: false })).project
           const b = (yield* client.ProjectCreate({ name: "beta", ensure: false })).project
@@ -45,7 +49,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -65,7 +69,7 @@ describe.sequential("project operations under concurrency", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const a = (yield* client.ProjectCreate({ name: "alpha", ensure: false })).project
           const b = (yield* client.ProjectCreate({ name: "beta", ensure: false })).project
@@ -80,7 +84,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
@@ -104,7 +108,7 @@ describe.sequential("project operations under concurrency", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "doomed", ensure: false })
           yield* client.ProjectArchive({ id: project.id })
@@ -116,7 +120,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       restore: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<unknown> }
@@ -132,7 +136,7 @@ describe.sequential("project operations under concurrency", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const a = (yield* client.ProjectCreate({ name: "a", ensure: false })).project
           const b = (yield* client.ProjectCreate({ name: "b", ensure: false })).project
@@ -144,7 +148,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -166,7 +170,7 @@ describe.sequential("project operations under concurrency", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const a = (yield* client.ProjectCreate({ name: "a", ensure: false })).project
           const b = (yield* client.ProjectCreate({ name: "b", ensure: false })).project
@@ -181,7 +185,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string }>
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }

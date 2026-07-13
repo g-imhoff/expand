@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -38,7 +42,7 @@ describe.sequential("durability across a backend restart", () => {
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const out = yield* withClient(bunAdapter, use)
+        const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
           Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
         )
@@ -56,7 +60,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed = (await Effect.runPromise(program)) as {
       projects: ReadonlyArray<{
@@ -82,7 +86,7 @@ describe.sequential("durability across a backend restart", () => {
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const out = yield* withClient(bunAdapter, use)
+        const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
           Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
         )
@@ -102,7 +106,7 @@ describe.sequential("durability across a backend restart", () => {
       )
       const listed = yield* boot((client) => client.ProjectList({ includeArchived: true }))
       return { ids, listed }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = (await Effect.runPromise(program)) as {
       ids: { keepId: string; doomedId: string }
@@ -125,7 +129,7 @@ describe.sequential("durability across a backend restart", () => {
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const out = yield* withClient(bunAdapter, use)
+        const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
           Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
         )
@@ -141,7 +145,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const listed = (await Effect.runPromise(program)) as { seq: number; projects: ReadonlyArray<{ name: string }> }
     expect(listed.seq).toBe(3)

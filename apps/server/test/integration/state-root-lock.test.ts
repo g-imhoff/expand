@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import {
   acquireStateRootLock,
@@ -251,7 +252,7 @@ const runContenders = async (root: string, count: number): Promise<ReadonlyArray
   const contenders = Array.from({ length: count }, (_, index) => {
     const readyPath = join(coordinationDir, `ready-${index}`)
     const resultPath = join(coordinationDir, `result-${index}`)
-    const child = spawn(process.execPath, [contenderPath, root, readyPath, startPath, releasePath, resultPath], {
+    const child = spawn(process.execPath, ["--import", "tsx", contenderPath, root, readyPath, startPath, releasePath, resultPath], {
       cwd: fileURLToPath(new URL("../../../../", import.meta.url)),
       stdio: ["ignore", "ignore", "pipe"]
     })
@@ -290,6 +291,6 @@ const waitUntil = async (
     if (Date.now() >= deadline) {
       throw new Error(`contenders did not coordinate: ${contenders.map(({ running }) => running.stderr()).join("\n")}`)
     }
-    await Bun.sleep(5)
+    await setTimeout(5)
   }
 }

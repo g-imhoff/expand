@@ -1,4 +1,4 @@
-import { BunFileSystem, BunRuntime, BunServices } from "@effect/platform-bun"
+import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
 import type { LogLevel } from "effect"
 import { join } from "node:path"
@@ -23,7 +23,7 @@ const fileLogger = Effect.gen(function* () {
 })
 
 const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe(
-  Layer.provide(BunFileSystem.layer)
+  Layer.provide(NodeFileSystem.layer)
 )
 
 const loggedProgram = Effect.gen(function* () {
@@ -46,10 +46,10 @@ const program = Effect.gen(function* () {
 // umask before the logger or anything else touches the filesystem.
 process.umask(0o077)
 
-BunRuntime.runMain(
+NodeRuntime.runMain(
   program.pipe(
     Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
-    Effect.provide(BunServices.layer),
+    Effect.provide(NodeServices.layer),
     Effect.tap(() => Effect.sync(() => process.exit(0)))
   ),
   {

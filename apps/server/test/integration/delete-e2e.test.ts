@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -31,7 +35,7 @@ describe.sequential("project delete e2e", () => {
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const out = yield* withClient(bunAdapter, (client) =>
+        const out = yield* withClient(nodeAdapter, (client) =>
           Effect.gen(function* () {
             const created = yield* client.ProjectCreate({ name: "gone", ensure: false })
             const head = yield* Effect.forkChild(
@@ -46,7 +50,7 @@ describe.sequential("project delete e2e", () => {
         )
         yield* Fiber.interrupt(serverFiber)
         return out
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
@@ -56,10 +60,10 @@ describe.sequential("project delete e2e", () => {
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const listed = yield* withClient(bunAdapter, (client) => client.ProjectList({ includeArchived: true }))
+        const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({ includeArchived: true }))
         yield* Fiber.interrupt(serverFiber)
         return listed
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   })

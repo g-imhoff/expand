@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { EventBusLayer } from "@expand/server/application/event-bus"
 import { ProjectProjectionLayer } from "@expand/server/application/projections"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
@@ -17,8 +17,8 @@ const layer = () => {
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunServices.layer)
+    Layer.provide(NodeFileSystem.layer),
+    Layer.provide(NodeServices.layer)
   )
 }
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectUseCases>) => Effect.runPromise(Effect.provide(eff, layer()))

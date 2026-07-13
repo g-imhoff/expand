@@ -1,27 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
 // client must bound the connect, delete the stale file, and re-discover a healthy
 // server instead of blocking forever on a dead socket.
-//
-// We can't exercise the real auto-spawn path in-process (discovery spawns the
-// COMPILED binary, and `process.execPath` is bun under the test runner), so we
-// drive the same client recovery seam directly: a stale `server.json` (live pid,
-// dead port) is staged, a real `runServer` is running on an ephemeral port, and a
-// background fiber re-advertises the REAL endpoint the instant the client deletes
-// the stale one. A pre-fix client (no connect timeout / no retry) hangs here.
 
 let dir: string
 beforeEach(() => {
@@ -89,7 +86,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         )
 
         // The whole point: this must COMPLETE (not hang) and return real data.
-        const result = yield* withClient(bunAdapter, (client) =>
+        const result = yield* withClient(nodeAdapter, (client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
             const created = yield* client.ProjectCreate({ name: "after-stale", ensure: false })
@@ -105,7 +102,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")

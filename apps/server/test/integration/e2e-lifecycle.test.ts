@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, FileSystem, Option, Schedule, Stream, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 
@@ -38,7 +42,7 @@ describe.sequential("end-to-end lifecycle", () => {
       yield* awaitEndpointUp
       const upDuring = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
 
-      const outcome = yield* withClient(bunAdapter, (client) =>
+      const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const health = yield* client.Health()
           const created = yield* client.ProjectCreate({ name: "e2e", ensure: false })
@@ -55,7 +59,7 @@ describe.sequential("end-to-end lifecycle", () => {
       )
       const upAfter = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
       return { upDuring, upAfter, outcome }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true)
@@ -70,7 +74,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const outcome = yield* withClient(bunAdapter, (client) =>
+      const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "arch-e2e", ensure: false })
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
@@ -86,7 +90,7 @@ describe.sequential("end-to-end lifecycle", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(Option.isSome(r.archivedEvent)).toBe(true)
     if (Option.isSome(r.archivedEvent)) {
@@ -104,7 +108,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
-      const observed = yield* withClient(bunAdapter, (client) =>
+      const observed = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const head = yield* Effect.forkChild(Stream.runHead(Stream.take(client.Events({}), 1)))
           yield* Effect.sleep("150 millis")
@@ -115,7 +119,7 @@ describe.sequential("end-to-end lifecycle", () => {
 
       yield* Fiber.interrupt(serverFiber)
       return observed
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)
