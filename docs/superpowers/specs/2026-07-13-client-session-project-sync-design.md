@@ -16,7 +16,7 @@ Replace its mixed responsibilities with three explicit layers:
 
 1. `ClientSession` owns discovery, backend acquisition, connection status, reconnect, and access to the current RPC client.
 2. `ProjectClient` owns typed project RPC operations, including list and event streaming, and delegates them through `ClientSession`.
-3. `ProjectSync` is a framework-neutral synchronization controller. It consumes an injected project RPC-shaped source and publishes atomic project snapshots to a client-owned sink. It is not an application store and exposes no `SubscriptionRef`, React hook, or Zustand API.
+3. `ProjectSync` is a framework-neutral synchronization controller in the renderer-safe `@expand/contracts/project-sync` module. It consumes an injected project RPC-shaped source and publishes atomic project snapshots to a client-owned sink. It is not an application store and exposes no `SubscriptionRef`, React hook, or Zustand API.
 
 Application state is owned by each application:
 
@@ -102,7 +102,7 @@ Request/response operations wait for or use the current connected epoch. Their d
 
 ## Project synchronization
 
-`ProjectSync` is a structural, framework-neutral controller implemented by the exported `runProjectSync` function. Its source is an injected interface with list, events, and connection-state capabilities. This allows the same controller to work with `ProjectClient` plus `ClientSession` in the TUI and the port-backed `ProjectRpc` in the desktop renderer.
+`ProjectSync` is a structural, framework-neutral controller implemented by the exported `runProjectSync` function in `@expand/contracts/project-sync`. Its source is an injected interface with list, events, and connection-state capabilities. This allows the same controller to work with `ProjectClient` plus `ClientSession` in the TUI and the port-backed `ProjectRpc` in the desktop renderer without weakening Electron's rule that forbids renderer imports from `client-ts`.
 
 Its sink receives atomic values shaped as:
 
@@ -180,12 +180,13 @@ No CLI command subscribes to `ProjectSync`. Existing command behavior, output, a
 
 ## Public API and file layout
 
-The migration introduces connection-level session files under `packages/client-ts` and project synchronization files under `packages/client-ts/project`.
+The migration introduces connection-level session files under `packages/client-ts` and the pure synchronization controller at `packages/contracts/project-sync.ts`.
 
-The package exports:
+The public surfaces export:
 
 - `ClientSession`, `ClientSessionLayer`, `ClientSessionApi`, and `ConnectionStatus` from `@expand/client-ts`;
-- `ProjectClient`, `ProjectClientLayer`, `ProjectClientApi`, `runProjectSync`, `ProjectSyncSource`, `ProjectSyncSink`, and `ProjectSnapshot` from `@expand/client-ts/project`;
+- `ProjectClient`, `ProjectClientLayer`, and `ProjectClientApi` from `@expand/client-ts/project`;
+- `runProjectSync`, `ProjectSyncSource`, `ProjectSyncSink`, and `ProjectSnapshot` from `@expand/contracts/project-sync`;
 - existing project contract vocabulary from `@expand/client-ts/project`.
 
 The package no longer exports or contains `ProjectStore`, `ProjectStoreLayer`, `ProjectStoreApi`, `subscribeRef`, or `project/store.ts`.
@@ -239,7 +240,7 @@ Desktop's Zustand implementation remains under the desktop projects feature. TUI
 
 1. Introduce `ClientSession` and move reconnect responsibilities out of `ProjectStore` under tests.
 2. Rebase `ProjectClient`, `ServerClient`, and `ClientLayer` on the shared session.
-3. Introduce and test `ProjectSync` with an injected source and sink.
+3. Introduce and test renderer-safe `ProjectSync` in `@expand/contracts/project-sync` with an injected source and sink.
 4. Replace desktop main projection handlers and implement the renderer Zustand store.
 5. Replace TUI `ProjectStore` usage with `ProjectClient` plus `ProjectSync` and React-local state.
 6. Confirm CLI behavior through the session-backed layer.
