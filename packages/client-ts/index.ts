@@ -42,7 +42,6 @@ import type { RpcClientError as RpcClientErrorNS } from "effect/unstable/rpc"
 export { ClientLayer } from "./client-layer"
 export { resolveBackendCommand, type ResolveBackendCommandOptions } from "./backend-command"
 
-// Connection state
 export {
   ClientSession,
   ClientSessionLayer,

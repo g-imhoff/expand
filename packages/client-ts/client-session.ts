@@ -8,6 +8,7 @@ import {
   Layer,
   Option,
   Schedule,
+  Semaphore,
   Scope,
   Stream,
   SubscriptionRef
@@ -43,7 +44,8 @@ const withConnectionHooks = (
   adapter: RuntimeAdapter,
   clients: SubscriptionRef.SubscriptionRef<ExpandRpcClientApi | null>,
   status: SubscriptionRef.SubscriptionRef<ConnectionStatus>,
-  disconnected: Deferred.Deferred<void>
+  disconnected: Deferred.Deferred<void>,
+  lifecycle: Semaphore.Semaphore
 ): RuntimeAdapter => ({
   ...adapter,
   protocolLayer: (url: string) =>
@@ -51,15 +53,17 @@ const withConnectionHooks = (
       Layer.provide(
         Layer.succeed(RpcClient.ConnectionHooks, {
           onConnect: Effect.void,
-          onDisconnect: Deferred.isDone(disconnected).pipe(
-            Effect.flatMap((done) =>
-              done
-                ? Effect.void
-                : SubscriptionRef.set(clients, null).pipe(
-                    Effect.andThen(SubscriptionRef.set(status, "reconnecting")),
-                    Effect.andThen(Deferred.succeed(disconnected, undefined)),
-                    Effect.asVoid
-                  )
+          onDisconnect: lifecycle.withPermit(
+            Deferred.isDone(disconnected).pipe(
+              Effect.flatMap((done) =>
+                done
+                  ? Effect.void
+                  : SubscriptionRef.set(clients, null).pipe(
+                      Effect.andThen(SubscriptionRef.set(status, "reconnecting")),
+                      Effect.andThen(Deferred.succeed(disconnected, undefined)),
+                      Effect.asVoid
+                    )
+              )
             )
           )
         })
@@ -92,11 +96,25 @@ const makeSession = (
     const acquireEpoch = Effect.scoped(
       Effect.gen(function* () {
         const disconnected = yield* Deferred.make<void>()
-        const hooked = withConnectionHooks(adapter, clients, status, disconnected)
+        const lifecycle = yield* Semaphore.make(1)
+        const hooked = withConnectionHooks(adapter, clients, status, disconnected, lifecycle)
         const { client } = yield* acquireClient(hooked)
-        yield* SubscriptionRef.set(clients, client)
-        yield* SubscriptionRef.set(status, "connected")
-        yield* Deferred.succeed(ready, undefined)
+        const published = yield* lifecycle.withPermit(
+          Deferred.isDone(disconnected).pipe(
+            Effect.flatMap((done) =>
+              done
+                ? Effect.succeed(false)
+                : SubscriptionRef.set(clients, client).pipe(
+                    Effect.andThen(SubscriptionRef.set(status, "connected")),
+                    Effect.andThen(Deferred.succeed(ready, undefined)),
+                    Effect.as(true)
+                  )
+            )
+          )
+        )
+        if (!published) {
+          return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
+        }
         yield* Deferred.await(disconnected)
         return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
       })

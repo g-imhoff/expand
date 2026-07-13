@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer, BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -14,6 +14,24 @@ import { bunAdapter } from "../../adapters/bun"
 import { ClientSession, ClientSessionLayer, type ClientSessionApi } from "../../client-session"
 import { BackendUnavailable } from "../../errors"
 
+const acquireControl = vi.hoisted(() => ({
+  pause: undefined as (() => Promise<void>) | undefined
+}))
+
+vi.mock("../../rpc-client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../rpc-client")>()
+  const { Effect } = await import("effect")
+  return {
+    ...actual,
+    acquireClient: (adapter: Parameters<typeof actual.acquireClient>[0]) =>
+      actual.acquireClient(adapter).pipe(
+        Effect.tap(() =>
+          Effect.promise(() => acquireControl.pause?.() ?? Promise.resolve())
+        )
+      )
+  }
+})
+
 interface ScriptedBackend {
   readonly adapter: RuntimeAdapter
   readonly appContext: ReturnType<typeof makeAppContext>
@@ -23,6 +41,7 @@ interface ScriptedBackend {
   readonly reconnectCount: () => number
   readonly retryStarted: Effect.Effect<void>
   readonly retryInterrupted: Effect.Effect<void>
+  readonly disconnectHook: Effect.Effect<void>
 }
 
 const makeHandlers = () =>
@@ -48,6 +67,7 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
   let currentScope: Scope.Closeable | undefined
   let reconnects = 0
   let blockSpawn = false
+  let currentDisconnectHook: Effect.Effect<void> = Effect.die("connection hook not installed")
 
   const startServer = Effect.gen(function* () {
     const rpc = RpcServer.layer(ExpandRpcs).pipe(
@@ -88,7 +108,18 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
   })
 
   const adapter: RuntimeAdapter = {
-    protocolLayer: bunAdapter.protocolLayer,
+    protocolLayer: (url) =>
+      bunAdapter.protocolLayer(url).pipe(
+        Layer.tap(() =>
+          RpcClient.ConnectionHooks.pipe(
+            Effect.tap((hooks) =>
+              Effect.sync(() => {
+                currentDisconnectHook = hooks.onDisconnect
+              })
+            )
+          )
+        )
+      ) as Layer.Layer<RpcClient.Protocol>,
     spawnBackend: () =>
       Effect.sync(() => ++reconnects).pipe(
         Effect.flatMap(() =>
@@ -116,7 +147,8 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
     },
     reconnectCount: () => reconnects,
     retryStarted: Deferred.await(retryStarted),
-    retryInterrupted: Deferred.await(retryInterrupted)
+    retryInterrupted: Deferred.await(retryInterrupted),
+    disconnectHook: Effect.suspend(() => currentDisconnectHook)
   }
 }
 
@@ -189,6 +221,57 @@ const runDisconnectOrderingScenario = async (): Promise<{
     await Effect.runPromise(backend.disconnect)
     return { currentResolvedWhileReconnecting: await Effect.runPromise(Fiber.join(probe)) }
   } finally {
+    await closeSession(scope)
+    await Effect.runPromise(backend.dispose)
+  }
+}
+
+const runAcquireDisconnectRaceScenario = async (): Promise<"published" | "retrying"> => {
+  const backend = await makeScriptedBackend()
+  const { session, scope } = await openSession(backend)
+  let resumeAcquire = (): void => {}
+  let acquisitionReached = (): void => {}
+  const acquirePaused = new Promise<void>((resolve) => {
+    acquisitionReached = resolve
+  })
+  const acquireReleased = new Promise<void>((resolve) => {
+    resumeAcquire = resolve
+  })
+  acquireControl.pause = () => {
+    acquireControl.pause = undefined
+    acquisitionReached()
+    return acquireReleased
+  }
+
+  try {
+    await Effect.runPromise(backend.disconnect)
+    await acquirePaused
+    backend.blockNextSpawn()
+    const publication = Effect.runFork(
+      SubscriptionRef.changes(session.status).pipe(
+        Stream.filter((status) => status === "connected"),
+        Stream.take(1),
+        Stream.runDrain,
+        Effect.as("published" as const)
+      )
+    )
+    await Effect.runPromise(backend.disconnectHook)
+    await Effect.runPromise(backend.disconnect)
+    resumeAcquire()
+    return await Effect.runPromise(
+      Effect.race(
+        Fiber.join(publication),
+        backend.retryStarted.pipe(Effect.as("retrying" as const))
+      ).pipe(
+        Effect.timeoutOrElse({
+          duration: "5 seconds",
+          orElse: () => Effect.fail(new Error("session neither published nor retried"))
+        })
+      )
+    )
+  } finally {
+    acquireControl.pause = undefined
+    resumeAcquire()
     await closeSession(scope)
     await Effect.runPromise(backend.dispose)
   }
@@ -292,6 +375,10 @@ describe("ClientSession", () => {
   it("invalidates the stale epoch before publishing reconnecting", async () => {
     const result = await runDisconnectOrderingScenario()
     expect(result.currentResolvedWhileReconnecting).toBe(false)
+  })
+
+  it("does not publish an epoch that disconnects after acquisition", async () => {
+    expect(await runAcquireDisconnectRaceScenario()).toBe("retrying")
   })
 
   it("current waits for and returns the next epoch", async () => {
