@@ -239,6 +239,42 @@ export const utf8ByteOffsetToCodeUnit = (input: string, byteOffset: number): num
   return codeUnits
 }
 
+const utf8ByteBoundaryToCodeUnit = (input: string, byteOffset: number): number | undefined => {
+  const codeUnit = utf8ByteOffsetToCodeUnit(input, byteOffset)
+  return new TextEncoder().encode(input.slice(0, codeUnit)).length === byteOffset ? codeUnit : undefined
+}
+
+interface IndexedSourceLine {
+  readonly text: string
+  readonly codeUnitOffset: number
+  readonly byteOffset: number
+  readonly byteLength: number
+}
+
+const indexSourceLines = (source: string): ReadonlyArray<IndexedSourceLine> => {
+  const lines: Array<IndexedSourceLine> = []
+  let codeUnitOffset = 0
+  let byteOffset = 0
+  for (const terminator of source.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
+    const end = (terminator.index ?? 0) + terminator[0].length
+    const text = source.slice(codeUnitOffset, end)
+    const byteLength = new TextEncoder().encode(text).length
+    lines.push({ text, codeUnitOffset, byteOffset, byteLength })
+    codeUnitOffset = end
+    byteOffset += byteLength
+  }
+  if (codeUnitOffset < source.length) {
+    const text = source.slice(codeUnitOffset)
+    lines.push({
+      text,
+      codeUnitOffset,
+      byteOffset,
+      byteLength: new TextEncoder().encode(text).length
+    })
+  }
+  return lines
+}
+
 const isSourceNode = (value: unknown): value is SourceNode =>
   typeof value === "object" && value !== null && "type" in value && typeof value.type === "string"
 
@@ -442,6 +478,7 @@ const decodeJson = <A, I>(schema: Schema.Codec<A, I>, input: unknown, command: s
 
 interface GrepCandidateEvidence {
   readonly candidate: GrepCandidate
+  readonly computedCandidate: GrepCandidate
   readonly messageId?: string
   readonly stringSyntax: boolean
 }
@@ -483,6 +520,8 @@ const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
     }
 
     const parsedFiles = new Map<string, ParsedSource>()
+    const indexedLines = new Map<string, ReadonlyArray<IndexedSourceLine>>()
+    const sourceCoordinates = new Set<string>()
     const drafts: Array<GrepCandidateDraft> = []
     for (const match of matches) {
       const file = normalizeFile(path, options.root, match.path.text)
@@ -491,19 +530,40 @@ const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
       if (parsed === undefined) {
         parsed = yield* parseSource(options.root, file, "invalid-output")
         parsedFiles.set(file, parsed)
+        indexedLines.set(file, indexSourceLines(parsed.source))
       }
-      const lineOffset = offsetAt(parsed.source, match.line_number, 1)
+      const line = indexedLines.get(file)?.at(match.line_number - 1)
+      if (line === undefined) {
+        return yield* Effect.fail(auditError("invalid-output", `grep-json line number is out of range in ${file}:${match.line_number}`))
+      }
+      if (match.absolute_offset !== line.byteOffset) {
+        return yield* Effect.fail(auditError("invalid-output", `grep-json absolute offset does not resolve in ${file}:${match.line_number}`))
+      }
+      if (match.lines.text !== line.text) {
+        return yield* Effect.fail(auditError("invalid-output", `grep-json line text does not resolve in ${file}:${match.line_number}`))
+      }
       for (const submatch of match.submatches) {
         if (submatch.end < submatch.start) {
           return yield* Effect.fail(auditError("invalid-output", `grep-json has a reversed submatch in ${file}:${match.line_number}`))
         }
-        const startInLine = utf8ByteOffsetToCodeUnit(match.lines.text, submatch.start)
-        const endInLine = utf8ByteOffsetToCodeUnit(match.lines.text, submatch.end)
+        if (submatch.end > line.byteLength) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json submatch is out of range in ${file}:${match.line_number}`))
+        }
+        const startInLine = utf8ByteBoundaryToCodeUnit(line.text, submatch.start)
+        const endInLine = utf8ByteBoundaryToCodeUnit(line.text, submatch.end)
+        if (startInLine === undefined || endInLine === undefined) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json submatch is not on UTF-8 boundaries in ${file}:${match.line_number}`))
+        }
         if (match.lines.text.slice(startInLine, endInLine) !== submatch.match.text) {
           return yield* Effect.fail(auditError("invalid-output", `grep-json submatch text does not resolve in ${file}:${match.line_number}`))
         }
-        const offset = lineOffset + startInLine
-        const endOffset = lineOffset + endInLine
+        const coordinate = [file, String(match.absolute_offset + submatch.start), String(match.absolute_offset + submatch.end)].join("\u0000")
+        if (sourceCoordinates.has(coordinate)) {
+          return yield* Effect.fail(auditError("invalid-output", `grep-json contains duplicate source coordinates in ${file}:${match.line_number}`))
+        }
+        sourceCoordinates.add(coordinate)
+        const offset = line.codeUnitOffset + startInLine
+        const endOffset = line.codeUnitOffset + endInLine
         const matching = parsed.analysis.occurrences
           .flatMap((occurrence) => {
             const range = occurrenceRange(occurrence)
@@ -564,6 +624,7 @@ const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
       })
       return {
         candidate,
+        computedCandidate: candidate,
         ...(draft.messageId === undefined ? {} : { messageId: draft.messageId }),
         stringSyntax: draft.stringSyntax
       } satisfies GrepCandidateEvidence
@@ -582,11 +643,11 @@ const hydrateGrepCandidates = (
   const inventoryByKey = new Map(inventory.map((candidate) => [grepCandidateKey(candidate), candidate]))
   return evidence.map((entry) => {
     const reviewed = inventoryByKey.get(grepCandidateKey(entry.candidate))
-    if (reviewed === undefined) return entry
+    if (reviewed === undefined || reviewed.classification === "migration-debt") return entry
     return {
       ...entry,
       candidate: new GrepCandidate({
-        ...entry.candidate,
+        ...entry.computedCandidate,
         classification: reviewed.classification,
         rationale: reviewed.rationale
       })
@@ -813,15 +874,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         comparison.removed
       ))
     }
-    if (options.mode === "update") {
-      const encoded = yield* Schema.encodeEffect(AuditBaselineJson)(findings).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-      yield* fs.writeFileString(baselineFile, encoded).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-    }
-
     const grepInventoryFile = path.join(options.root, "effect-grep-inventory.json")
     const grepInventoryExists = yield* fs.exists(grepInventoryFile).pipe(
       Effect.mapError((error) => auditError("invalid-output", String(error)))
@@ -829,10 +881,16 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     if (!grepInventoryExists) {
       return yield* Effect.fail(auditError("baseline-missing", "effect-grep-inventory.json does not exist"))
     }
-    const grepInventory = yield* fs.readFileString(grepInventoryFile).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error))),
-      Effect.flatMap((contents) => decodeJson(GrepInventoryJson, contents, "grep inventory"))
+    const grepInventoryRaw = yield* fs.readFileString(grepInventoryFile).pipe(
+      Effect.mapError((error) => auditError("invalid-output", String(error)))
     )
+    const grepInventory = yield* decodeJson(GrepInventoryJson, grepInventoryRaw, "grep inventory")
+    const canonicalGrepInventory = yield* Schema.encodeEffect(GrepInventoryJson)(grepInventory).pipe(
+      Effect.mapError((error) => auditError("invalid-output", String(error)))
+    )
+    if (grepInventoryRaw !== canonicalGrepInventory) {
+      return yield* Effect.fail(auditError("invalid-output", "grep inventory is not in canonical byte form"))
+    }
     const inventoryError = grepInventoryValidationError(grepInventory)
     if (inventoryError !== undefined) return yield* Effect.fail(auditError("invalid-output", inventoryError))
     const grepEvidence = hydrateGrepCandidates(initialGrepEvidence, grepInventory)
@@ -862,15 +920,28 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         `${grepComparison.removed.length} grep inventory records are stale`
       ))
     }
+    const encodedBaseline = options.mode === "update"
+      ? yield* Schema.encodeEffect(AuditBaselineJson)(findings).pipe(
+        Effect.mapError((error) => auditError("invalid-output", String(error)))
+      )
+      : undefined
+    let encodedGrepUpdate: string | undefined
     if (options.mode === "update" && grepComparison.removed.length > 0) {
       const currentKeys = new Set(grepCandidates.map(grepCandidateKey))
       const updatedInventory = grepInventory.filter((candidate) => currentKeys.has(grepCandidateKey(candidate)))
-      const encoded = yield* Schema.encodeEffect(GrepInventoryJson)(updatedInventory).pipe(
+      encodedGrepUpdate = yield* Schema.encodeEffect(GrepInventoryJson)(updatedInventory).pipe(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
       )
-      yield* fs.writeFileString(grepInventoryFile, encoded).pipe(
+    }
+    if (encodedBaseline !== undefined) {
+      yield* fs.writeFileString(baselineFile, encodedBaseline).pipe(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
       )
+      if (encodedGrepUpdate !== undefined) {
+        yield* fs.writeFileString(grepInventoryFile, encodedGrepUpdate).pipe(
+          Effect.mapError((error) => auditError("invalid-output", String(error)))
+        )
+      }
     }
     const grepCounts = {
       "migration-debt": grepCandidates.filter((candidate) => candidate.classification === "migration-debt").length,

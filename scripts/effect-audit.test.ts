@@ -541,17 +541,28 @@ const grepMatch = (
   lines: string,
   lineNumber: number,
   match: string,
-  start = lines.indexOf(match)
+  start = new TextEncoder().encode(lines.slice(0, lines.indexOf(match))).length,
+  absoluteOffset = 0
 ) => ({
   type: "match",
   data: {
     path: { text: file },
     lines: { text: lines },
     line_number: lineNumber,
-    absolute_offset: 0,
+    absolute_offset: absoluteOffset,
     submatches: [{ match: { text: match }, start, end: start + new TextEncoder().encode(match).length }]
   }
 })
+
+const byteOffsetAtLine = (source: string, lineNumber: number) => {
+  let offset = 0
+  for (let line = 1; line < lineNumber; line += 1) {
+    const next = source.indexOf("\n", offset)
+    if (next < 0) return new TextEncoder().encode(source).length
+    offset = next + 1
+  }
+  return new TextEncoder().encode(source.slice(0, offset)).length
+}
 
 const grepJson = (...matches: ReadonlyArray<ReturnType<typeof grepMatch>>) =>
   [...matches, { type: "summary", data: {} }].map((event) => JSON.stringify(event)).join("\n")
@@ -745,7 +756,7 @@ describe("Effect grep inventory command", () => {
       baseline: [],
       inventory: [reviewed],
       source,
-      grepJson: grepJson(grepMatch("src/sample.ts", lines, 2, ".catch("))
+      grepJson: grepJson(grepMatch("src/sample.ts", lines, 2, ".catch(", undefined, byteOffsetAtLine(source, 2)))
     }, ({ root }) =>
       Effect.gen(function*() {
         yield* runAudit({ root, mode: "update" })
@@ -770,7 +781,14 @@ describe("Effect grep inventory command", () => {
     return fixture({
       baseline: [],
       inventory: [reviewed],
-      grepJson: grepJson(grepMatch("apps/cli/cli/main.ts", "NodeRuntime.runMain(program)\n", 3, "NodeRuntime.runMain"))
+      grepJson: grepJson(grepMatch(
+        "apps/cli/cli/main.ts",
+        "NodeRuntime.runMain(program)\n",
+        3,
+        "NodeRuntime.runMain",
+        undefined,
+        byteOffsetAtLine(boundarySource, 3)
+      ))
     }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
   })
 
@@ -822,7 +840,14 @@ describe("Effect grep inventory command", () => {
         baseline: [],
         inventory: [falsePositive],
         source: falsePositiveSource,
-        grepJson: grepJson(grepMatch("src/sample.ts", falsePositiveLine, 2, ".catch("))
+        grepJson: grepJson(grepMatch(
+          "src/sample.ts",
+          falsePositiveLine,
+          2,
+          ".catch(",
+          undefined,
+          byteOffsetAtLine(falsePositiveSource, 2)
+        ))
       }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid)))
     )
   })
@@ -856,5 +881,276 @@ describe("Effect grep inventory command", () => {
             expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("rationale") })
           }))
       ))
+  })
+})
+
+describe("Effect grep inventory hardening", () => {
+  it.effect("rejects computed permanent boundaries stored as debt", () => {
+    const entrypoint = ["NodeRuntime", ".runMain"].join("")
+    const construct = ["runner:NodeRuntime", ".runMain"].join("")
+    const lines = `${boundarySource.split("\n").at(-2) ?? ""}\n`
+    const stored = candidate({
+      file: "apps/cli/cli/main.ts",
+      declaration: "module:<module>",
+      construct,
+      classification: "migration-debt",
+      rationale: "",
+      line: 3,
+      excerpt: lines.trim()
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      grepJson: grepJson(grepMatch(
+        "apps/cli/cli/main.ts",
+        lines,
+        3,
+        entrypoint,
+        undefined,
+        byteOffsetAtLine(boundarySource, 3)
+      ))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+
+        expect(check).toMatchObject({
+          reason: "new-findings",
+          detail: expect.stringContaining("implicit reclassifications")
+        })
+        expect(update).toMatchObject({
+          reason: "baseline-growth",
+          detail: expect.stringContaining("implicit reclassifications")
+        })
+      }))
+  })
+
+  it.effect("rejects inconsistent and out-of-range source line numbers", () => {
+    const keyword = ["as", "ync"].join("")
+    const first = "export const marker = 1\n"
+    const second = `export const sample = ${keyword} () => 1\n`
+    const source = first + second
+    const valid = grepMatch(
+      "src/sample.ts",
+      second,
+      2,
+      keyword,
+      undefined,
+      byteOffsetAtLine(source, 2)
+    )
+    const inconsistent = { ...valid, data: { ...valid.data, line_number: 1 } }
+    const outOfRange = { ...valid, data: { ...valid.data, line_number: 3 } }
+    return fixture({ baseline: [], source, grepJson: grepJson(inconsistent) }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      })).pipe(Effect.andThen(
+        fixture({ baseline: [], source, grepJson: grepJson(outOfRange) }, ({ root }) =>
+          Effect.gen(function*() {
+            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            expect(error.reason).toBe("invalid-output")
+          }))
+      ))
+  })
+
+  it.effect("rejects incorrect byte origins and indexed line text", () => {
+    const keyword = ["as", "ync"].join("")
+    const first = "export const marker = 1\n"
+    const second = `export const sample = ${keyword} () => 1\n`
+    const source = first + second
+    const valid = grepMatch(
+      "src/sample.ts",
+      second,
+      2,
+      keyword,
+      undefined,
+      byteOffsetAtLine(source, 2)
+    )
+    const wrongOffset = { ...valid, data: { ...valid.data, absolute_offset: 0 } }
+    const wrongLines = second.replace("sample", "change")
+    const wrongText = grepMatch(
+      "src/sample.ts",
+      wrongLines,
+      2,
+      keyword,
+      undefined,
+      byteOffsetAtLine(source, 2)
+    )
+    return fixture({ baseline: [], source, grepJson: grepJson(wrongOffset) }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      })).pipe(Effect.andThen(
+        fixture({ baseline: [], source, grepJson: grepJson(wrongText) }, ({ root }) =>
+          Effect.gen(function*() {
+            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            expect(error.reason).toBe("invalid-output")
+          }))
+      ))
+  })
+
+  it.effect("rejects byte spans outside a line or inside a multibyte character", () => {
+    const keyword = ["as", "ync"].join("")
+    const source = `export const marker = "😀"; export const sample = ${keyword} () => 1\n`
+    const valid = grepMatch("src/sample.ts", source, 1, keyword)
+    const byteLength = new TextEncoder().encode(source).length
+    const splitPoint = new TextEncoder().encode(source.slice(0, source.indexOf("😀"))).length + 1
+    const outOfRange = {
+      ...valid,
+      data: {
+        ...valid.data,
+        submatches: [{ match: { text: "" }, start: byteLength, end: byteLength + 1 }]
+      }
+    }
+    const splitCharacter = {
+      ...valid,
+      data: {
+        ...valid.data,
+        submatches: [{ match: { text: "" }, start: splitPoint, end: splitPoint }]
+      }
+    }
+    return fixture({ baseline: [], source, grepJson: grepJson(outOfRange) }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      })).pipe(Effect.andThen(
+        fixture({ baseline: [], source, grepJson: grepJson(splitCharacter) }, ({ root }) =>
+          Effect.gen(function*() {
+            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            expect(error.reason).toBe("invalid-output")
+          }))
+      ))
+  })
+
+  it.effect("rejects duplicate lexical source coordinates", () => {
+    const method = [".ca", "tch("].join("")
+    const source = `import { Effect } from "effect"\nexport const sample = Effect${method}Effect.succeed(1), () => Effect.succeed(2))\n`
+    const lines = source.slice(source.indexOf("\n") + 1)
+    const event = grepMatch(
+      "src/sample.ts",
+      lines,
+      2,
+      method,
+      undefined,
+      byteOffsetAtLine(source, 2)
+    )
+    return fixture({ baseline: [], source, grepJson: grepJson(event, event) }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      }))
+  })
+
+  it.effect("maps a multibyte line to the exact analyzer identity", () => {
+    const keyword = ["as", "ync"].join("")
+    const construct = ["native:", keyword].join("")
+    const source = `export const marker = "😀"; export const load = ${keyword} () => 1\n`
+    const stored = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:load",
+      construct,
+      occurrence: 0,
+      classification: "migration-debt",
+      rationale: "",
+      line: 1,
+      excerpt: source.trim()
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const result = yield* runAudit({ root, mode: "check" })
+        expect(result.grepCandidates).toEqual([stored])
+      }))
+  })
+
+  it.effect("removes stale debt without changing reviewed record bytes", () =>
+    Effect.gen(function*() {
+      const method = [".ca", "tch("].join("")
+      const source = `import { Effect } from "effect"\nexport const sample = Effect${method}Effect.succeed(1), () => Effect.succeed(2))\n`
+      const lines = source.slice(source.indexOf("\n") + 1)
+      const stale = candidate({
+        file: "a/stale.ts",
+        declaration: "module:<module>",
+        construct: "lexical:stale",
+        occurrence: 0,
+        classification: "migration-debt",
+        rationale: ""
+      })
+      const reviewed = candidate({
+        file: "src/sample.ts",
+        declaration: "variable:sample",
+        construct: `lexical:${method}`,
+        occurrence: 0,
+        classification: "false-positive",
+        rationale: "Effect composition method",
+        line: 22,
+        excerpt: "preserve exact reviewed bytes"
+      })
+      const before = yield* Schema.encodeEffect(GrepInventoryJson)([stale, reviewed])
+      const reviewedOnly = yield* Schema.encodeEffect(GrepInventoryJson)([reviewed])
+      yield* fixture({
+        baseline: [],
+        inventory: before,
+        source,
+        grepJson: grepJson(grepMatch(
+          "src/sample.ts",
+          lines,
+          2,
+          method,
+          undefined,
+          byteOffsetAtLine(source, 2)
+        ))
+      }, ({ root }) =>
+        Effect.gen(function*() {
+          const result = yield* runAudit({ root, mode: "update" })
+          const fs = yield* FileSystem.FileSystem
+          const after = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
+
+          expect(result.grepRemoved).toEqual([stale])
+          expect(after).toBe(reviewedOnly)
+          expect(before).toContain(reviewedOnly.slice(1, -1))
+        }))
+    }))
+
+  it.effect("requires canonical inventory bytes before update", () =>
+    fixture({ baseline: [], inventory: "[ ]" }, ({ root }) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const baselineBefore = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
+        const inventoryBefore = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
+        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const baselineAfter = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
+        const inventoryAfter = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
+
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("canonical") })
+        expect(baselineAfter).toBe(baselineBefore)
+        expect(inventoryAfter).toBe(inventoryBefore)
+      })))
+
+  it.effect("validates both ledgers before applying a shrink update", () => {
+    const keyword = ["as", "ync"].join("")
+    const source = `export const sample = ${keyword} () => 1\n`
+    return fixture({
+      baseline: [finding()],
+      inventory: [],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const baselineBefore = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
+        const inventoryBefore = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
+        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const baselineAfter = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
+        const inventoryAfter = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
+
+        expect(error.reason).toBe("baseline-growth")
+        expect(baselineAfter).toBe(baselineBefore)
+        expect(inventoryAfter).toBe(inventoryBefore)
+      }))
   })
 })

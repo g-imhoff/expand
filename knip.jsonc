@@ -14,6 +14,7 @@
   // directly from apps/desktop/src/renderer/index.css and compiled by the Vite
   // plugin, which Knip does not trace. These are false positives, not dead code.
   "ignoreDependencies": ["ws", "@types/ws", "tailwindcss"],
+  "ignoreBinaries": ["rg"],
 
   "workspaces": {
     ".": {
