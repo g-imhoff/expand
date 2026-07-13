@@ -17,6 +17,16 @@ describe("node adapter spawn errors", () => {
     }
   })
 
+  it("fails with BackendUnavailable when the backend command is empty", async () => {
+    const adapter = makeNodeAdapter({ backendCommand: [] })
+    const r = await Effect.runPromise(Effect.result(adapter.spawnBackend(dir)))
+    expect(r._tag).toBe("Failure")
+    if (r._tag === "Failure") {
+      expect(r.failure._tag).toBe("BackendUnavailable")
+      expect(r.failure.reason).toContain("spawn failed: <empty>:")
+    }
+  })
+
   it("fails with BackendUnavailable when the command thunk throws", async () => {
     const adapter = makeNodeAdapter({
       backendCommand: () => {
