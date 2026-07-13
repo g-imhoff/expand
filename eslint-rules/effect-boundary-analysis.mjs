@@ -27,6 +27,8 @@ const platformFunctions = new Set(platformFunctionGlobals)
 const platformConstructors = new Set(platformConstructorGlobals)
 const browserResources = new Set(browserResourceGlobals)
 const listeners = new Set(listenerMethods)
+const effectPackageNamespaces = new Set(["Effect", "ManagedRuntime", "Runtime", "Schema"])
+const listenerReceiverTypes = new Set(["BrowserWindow", "ChildProcess", "EventEmitter", "EventTarget", "MessagePort", "Socket", "WebSocket", "Worker"])
 const repositoryRoot = decodeURIComponent(new URL("../", import.meta.url).pathname).replace(/\\/g, "/")
 
 const isNode = (value) => value !== null && typeof value === "object" && typeof value.type === "string"
@@ -72,6 +74,8 @@ const origin = (root, path = [], module) => ({ root, path, module })
 const appendOrigin = (value, name) => {
   if (!value || name === undefined) return undefined
   if (value.root === "Global" && value.path[0] === "globalThis") return origin("Global", [name], value.module)
+  if (value.root === "EffectPackage" && value.path.length === 0 && effectPackageNamespaces.has(name)) return origin(name)
+  if (value.root === "EffectPlatform" && value.path.length === 0 && name === "NodeRuntime") return origin("NodeRuntime")
   return origin(value.root, [...value.path, name], value.module)
 }
 const last = (values) => values.at(-1)
@@ -380,15 +384,6 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     }
   }
 
-  const typeText = (type) => {
-    if (!checker || !type) return ""
-    try {
-      return checker.typeToString(type)
-    } catch {
-      return ""
-    }
-  }
-
   const isPromiseLikeType = (type) => {
     if (!type || !checker) return false
     try {
@@ -515,26 +510,39 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return undefined
   }
 
-  const platformOf = (value, objectNode) => {
+  const isListenerReceiverType = (type, seen = new Set()) => {
+    if (!type || seen.has(type)) return false
+    seen.add(type)
+    for (const symbol of [type.aliasSymbol, type.symbol, type.target?.aliasSymbol, type.target?.symbol]) {
+      const name = symbol?.name ?? ""
+      if (!listenerReceiverTypes.has(name) && !/ipc/i.test(name)) continue
+      if ((symbol.declarations ?? []).some((declaration) => declaration.getSourceFile?.().fileName?.replace(/\\/g, "/").includes("/node_modules/"))) return true
+    }
+    for (const part of type.types ?? []) if (isListenerReceiverType(part, seen)) return true
+    try {
+      for (const base of type.getBaseTypes?.() ?? []) if (isListenerReceiverType(base, seen)) return true
+    } catch {
+    }
+    return false
+  }
+
+  const platformOf = (value, objectNode, syntacticMethod) => {
+    const method = syntacticMethod ?? last(value?.path ?? [])
+    if (listeners.has(method) && checker && objectNode && isListenerReceiverType(typeAt(objectNode))) return `platform:listener.${method}`
     if (!value) return undefined
     if (value.root === "Global") {
-      const [rootName, method] = value.path
-      if (rootName === "process" && (method === undefined || processState.has(method) || listeners.has(last(value.path)))) return `platform:process${method ? `.${method}` : ""}`
-      if (rootName === "console") return `platform:console${method ? `.${method}` : ""}`
-      if (rootName === "Date") return `platform:Date${method ? `.${method}` : ""}`
-      if (rootName === "performance") return `platform:performance${method ? `.${method}` : ""}`
-      if (rootName === "Math" && method === "random") return "platform:Math.random"
-      if (rootName === "crypto" && [undefined, "getRandomValues", "randomUUID", "subtle"].includes(method)) return `platform:crypto${method ? `.${method}` : ""}`
+      const [rootName, globalMethod] = value.path
+      if (rootName === "process" && (globalMethod === undefined || processState.has(globalMethod) || listeners.has(last(value.path)))) return `platform:process${globalMethod ? `.${globalMethod}` : ""}`
+      if (rootName === "console") return `platform:console${globalMethod ? `.${globalMethod}` : ""}`
+      if (rootName === "Date") return `platform:Date${globalMethod ? `.${globalMethod}` : ""}`
+      if (rootName === "performance") return `platform:performance${globalMethod ? `.${globalMethod}` : ""}`
+      if (rootName === "Math" && globalMethod === "random") return "platform:Math.random"
+      if (rootName === "crypto" && [undefined, "getRandomValues", "randomUUID", "subtle"].includes(globalMethod)) return `platform:crypto${globalMethod ? `.${globalMethod}` : ""}`
       if (platformFunctions.has(rootName)) return `platform:${rootName}`
       if (platformConstructors.has(rootName)) return `platform:${rootName}`
-      if (browserResources.has(rootName)) return `platform:${rootName}${method ? `.${method}` : ""}`
+      if (browserResources.has(rootName)) return `platform:${rootName}${globalMethod ? `.${globalMethod}` : ""}`
     }
     if (value.root === "HostModule") return `platform:${value.module}${value.path.length > 0 ? `.${value.path.join(".")}` : ""}`
-    const method = last(value.path ?? [])
-    if (listeners.has(method) && checker && objectNode) {
-      const text = typeText(typeAt(objectNode))
-      if (/(EventEmitter|EventTarget|WebSocket|Socket|Worker|MessagePort|ChildProcess|BrowserWindow|Ipc)/i.test(text)) return `platform:listener.${method}`
-    }
     return undefined
   }
 
@@ -587,7 +595,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         const moduleName = literalValue(node.arguments[0])
         if (isNodeBuiltinModule(moduleName) || hostModuleNames.has(moduleName)) addOccurrence(node, "platformEffect", `platform:import:${moduleName}`)
       }
-      const platform = platformOf(callee, unwrap(node.callee)?.object)
+      const platform = platformOf(callee, unwrap(node.callee)?.object, syntacticMethod)
       if (platform) addOccurrence(node, "platformEffect", platform)
     }
 
@@ -600,7 +608,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const aliasInitializer = parent?.type === "VariableDeclarator" && parent.init === node
       if (runner && !usedAsCallee && !nestedObject && !aliasInitializer) addOccurrence(node, "runnerOutsideBoundary", `runner:${runner.owner}.${runner.method}`)
       if (!usedAsCallee && !nestedObject) {
-        const platform = platformOf(value, node.object)
+        const platform = platformOf(value, node.object, memberName(node))
         if (platform) addOccurrence(node, "platformEffect", platform)
       }
     }
@@ -636,6 +644,16 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return occurrenceByNode.get(node)?.identity ?? genericIdentities.get(node) ?? Object.freeze({ file, declaration: "module:<module>", construct: "syntax:unknown", occurrence: 0 })
   }
 
+  const fallbackOccurrenceOf = (selected, construct) => {
+    const declaration = declarationOf(selected)
+    let occurrence = counts.get(`${declaration}\u0000${construct}`) ?? 0
+    for (const node of nodes) {
+      if (node === selected) break
+      if (declarationOf(node) === declaration) occurrence += 1
+    }
+    return occurrence
+  }
+
   const identityAtOffset = (offset, fallbackConstruct) => {
     const boundedOffset = Number.isFinite(offset) ? Math.max(0, offset) : 0
     let selected = sourceCode.ast
@@ -644,12 +662,11 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     }
     const direct = occurrenceByNode.get(selected)?.identity
     if (direct?.construct === fallbackConstruct) return direct
-    const generic = genericIdentities.get(selected)
     return Object.freeze({
       file,
       declaration: declarationOf(selected),
       construct: fallbackConstruct,
-      occurrence: generic?.occurrence ?? 0
+      occurrence: fallbackOccurrenceOf(selected, fallbackConstruct)
     })
   }
 

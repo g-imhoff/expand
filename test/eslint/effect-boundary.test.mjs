@@ -1,6 +1,7 @@
 import { RuleTester } from "eslint"
 import tseslint from "typescript-eslint"
-import { describe, it } from "vitest"
+import { describe, expect, it } from "vitest"
+import { analyzeEffectBoundaryProgram } from "../../eslint-rules/effect-boundary-analysis.mjs"
 import { effectBoundary } from "../../eslint-rules/effect-boundary.mjs"
 
 RuleTester.describe = describe
@@ -9,6 +10,20 @@ RuleTester.itOnly = it.only
 
 const repositoryRoot = new URL("../../", import.meta.url)
 const absolute = (relative) => new URL(relative, repositoryRoot).pathname
+const analyze = (code) => {
+  const filename = absolute("effect-boundary-invalid.ts")
+  const parsed = tseslint.parser.parseForESLint(code, { filePath: filename, loc: true, range: true, sourceType: "module" })
+  return analyzeEffectBoundaryProgram({
+    filename,
+    sourceCode: {
+      ast: parsed.ast,
+      parserServices: parsed.services,
+      scopeManager: parsed.scopeManager,
+      visitorKeys: parsed.visitorKeys
+    },
+    parserServices: parsed.services
+  })
+}
 const validCase = (code) => ({ filename: absolute("effect-boundary-valid.ts"), code })
 const invalidCase = (code, errors) => ({ filename: absolute("effect-boundary-invalid.ts"), code, errors })
 const withBoundaries = ({ boundary: entryBoundary, ...entry }) => ({ ...entry, options: [[entryBoundary]] })
@@ -45,6 +60,7 @@ const valid = [
   validCase("const process = { env: { HOME: '' } }\nconst value = process.env.HOME"),
   validCase("const Date = { now: () => 0 }\nconst console = { log: () => undefined }\nDate.now()\nconsole.log('ok')"),
   validCase("const fetch = () => 1\nconst window = {}\nconst document = {}\nconst localStorage = {}\nfetch('/')\nvoid window\nvoid document\nvoid localStorage"),
+  validCase("export {}\nclass EventTarget { addEventListener() {} }\nconst target = new EventTarget()\ntarget.addEventListener()"),
   validCase('import { Effect } from "effect"\nitems.map(() => Effect.succeed(1))'),
   validCase("const parsed = new URL('./worker.js', import.meta.url)\nexport { parsed }"),
   withBoundaries({
@@ -77,11 +93,20 @@ const invalid = [
   invalidCase("const { resolve: settle } = Promise\nsettle(1)", [{ messageId: "nativePromise" }]),
   invalidCase('import { runPromise as run } from "effect/Effect"\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect } from "effect"\nconst { runFork: run } = Effect\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  invalidCase('import * as Package from "effect"\nPackage.Effect.runPromise(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  invalidCase('import * as Package from "effect"\nconst RuntimeApi = Package.Runtime\nRuntimeApi.runPromise(runtime)(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  invalidCase('import * as Package from "effect"\nconst { ManagedRuntime: ManagedRuntimeApi } = Package\nManagedRuntimeApi.runSync(runtime)(program)', [{ messageId: "runnerOutsideBoundary" }]),
+  invalidCase('import * as Package from "effect"\nconst { Effect: Fx, Schema: S } = Package\nFx.sync(() => S.decodeUnknownSync(S.String)(input))', [{ messageId: "syncSchemaInEffect" }]),
+  invalidCase('import * as Platform from "@effect/platform-node"\nPlatform.NodeRuntime.runMain(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect as Program } from "effect"\nexport function load(): Program.Effect<number> { return Program.succeed(1) }', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nexport const load = () => ({ then(resolve: (value: number) => void) { resolve(1) } })', [{ messageId: "promiseSignature" }]),
   invalidCase('import { Effect, Schema as S } from "effect"\nconst { encodeSync: encode } = S\nEffect.sync(() => encode(S.String)(input))', [{ messageId: "syncSchemaInEffect" }]),
   invalidCase('import * as Effect from "effect/Effect"\nimport * as Schema from "effect/Schema"\nEffect.fn("load")(() => Schema.decodeSync(Schema.String)(input))', [{ messageId: "syncSchemaInEffect" }]),
   invalidCase('import { readFile as load } from "node:fs"\nload(path, callback)', [{ messageId: "platformEffect" }]),
+  invalidCase('import constants from "node:constants"\nvoid constants', [{ messageId: "platformEffect" }]),
+  invalidCase('import dgram from "node:dgram"\nvoid dgram', [{ messageId: "platformEffect" }]),
+  invalidCase('import domain from "node:domain"\nvoid domain', [{ messageId: "platformEffect" }]),
+  invalidCase('import sea from "node:sea"\nvoid sea', [{ messageId: "platformEffect" }]),
   invalidCase("console.log('value')", [{ messageId: "platformEffect" }]),
   invalidCase("setTimeout(work, 1)\nqueueMicrotask(work)", [{ messageId: "platformEffect" }, { messageId: "platformEffect" }]),
   invalidCase("Date.now()\nperformance.now()\nMath.random()\ncrypto.randomUUID()", [
@@ -96,6 +121,7 @@ const invalid = [
     { messageId: "platformEffect" },
     { messageId: "platformEffect" }
   ]),
+  invalidCase('declare const target: EventTarget\ntarget.addEventListener("click", work)', [{ messageId: "platformEffect" }]),
   {
     ...invalidCase('import { NodeRuntime } from "@effect/platform-node"\nNodeRuntime.runMain(first)\nNodeRuntime.runMain(second)', [
       { messageId: "runnerOutsideBoundary", line: 3 }
@@ -117,3 +143,33 @@ const invalid = [
 ]
 
 ruleTester.run("effect-boundary", effectBoundary, { valid, invalid })
+
+it("canonicalizes the platform package NodeRuntime namespace construct", () => {
+  const analysis = analyze('import * as Platform from "@effect/platform-node"\nPlatform.NodeRuntime.runMain(program)')
+  expect(analysis.occurrences).toMatchObject([
+    { messageId: "runnerOutsideBoundary", identity: { construct: "runner:NodeRuntime.runMain" } }
+  ])
+})
+
+it("assigns stable fallback identities across selected syntax kinds", () => {
+  const fallbackConstruct = "platform:shared-fallback"
+  const identities = (code) => {
+    const analysis = analyze(code)
+    const importOffset = code.indexOf("node:fs")
+    const timerOffset = code.indexOf(",") + 1
+    return {
+      imported: analysis.identityAtOffset(importOffset, fallbackConstruct),
+      repeated: analysis.identityAtOffset(timerOffset, fallbackConstruct),
+      timer: analysis.identityAtOffset(timerOffset, fallbackConstruct)
+    }
+  }
+  const compact = identities('import fs from "node:fs"\nsetTimeout(work, 1)')
+  const spaced = identities('import   fs   from   "node:fs"\n\n\nsetTimeout( work , 1 )')
+
+  expect(compact.imported).toMatchObject({ declaration: "module:<module>", construct: fallbackConstruct })
+  expect(compact.timer).toMatchObject({ declaration: "module:<module>", construct: fallbackConstruct })
+  expect(compact.imported.occurrence).toBeLessThan(compact.timer.occurrence)
+  expect(compact.repeated).toEqual(compact.timer)
+  expect(spaced.imported).toEqual(compact.imported)
+  expect(spaced.timer).toEqual(compact.timer)
+})
