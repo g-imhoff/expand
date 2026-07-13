@@ -13,14 +13,20 @@ export const promiseChainMethods = Object.freeze(["catch", "finally", "then"])
 
 export const effectRunnerMethods = Object.freeze([
   "runCallback",
+  "runCallbackWith",
   "runFork",
+  "runForkWith",
   "runPromise",
+  "runPromiseWith",
   "runPromiseExit",
+  "runPromiseExitWith",
   "runSync",
-  "runSyncExit"
+  "runSyncWith",
+  "runSyncExit",
+  "runSyncExitWith"
 ])
 
-export const runtimeRunnerMethods = Object.freeze([
+export const managedRuntimeRunnerMethods = Object.freeze([
   "runCallback",
   "runFork",
   "runPromise",
@@ -28,6 +34,8 @@ export const runtimeRunnerMethods = Object.freeze([
   "runSync",
   "runSyncExit"
 ])
+
+export const runtimeRunnerMethods = Object.freeze(["makeRunMain"])
 
 export const nodeRuntimeRunnerMethods = Object.freeze(["runMain"])
 
@@ -75,12 +83,17 @@ export const schemaSyncMethods = Object.freeze([
   "decodeSync",
   "decodeUnknownSync",
   "encodeSync",
-  "validateSync"
+  "encodeUnknownSync"
 ])
 
 export const deterministicNodeUrlExports = Object.freeze([
   "URL",
   "URLSearchParams"
+])
+
+export const hostUrlMethods = Object.freeze([
+  "createObjectURL",
+  "revokeObjectURL"
 ])
 
 export const nodeBuiltinModules = Object.freeze([

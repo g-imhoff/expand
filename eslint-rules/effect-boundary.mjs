@@ -6,23 +6,24 @@ const recordKey = (record) =>
 const identityKey = (identity) =>
   [identity.file, identity.declaration, identity.construct, String(identity.occurrence)].join("\u0000")
 
+const isExactText = (value) =>
+  typeof value === "string"
+  && value.trim().length > 0
+  && !/[*?[\]{}]/u.test(value)
+
 const isExactFile = (file) =>
-  typeof file === "string"
-  && file.length > 0
+  isExactText(file)
   && !file.startsWith("/")
   && !file.endsWith("/")
-  && !/[*?[\]{}]/u.test(file)
   && /\.(?:[cm]?[jt]sx?)$/u.test(file)
-
-const isNonEmpty = (value) => typeof value === "string" && value.trim().length > 0
 
 const isBoundaryRecord = (record) =>
   record !== null
   && typeof record === "object"
   && isExactFile(record.file)
-  && isNonEmpty(record.declaration)
-  && isNonEmpty(record.host)
-  && isNonEmpty(record.construct)
+  && isExactText(record.declaration)
+  && isExactText(record.host)
+  && isExactText(record.construct)
   && Number.isInteger(record.occurrence)
   && record.occurrence >= 0
 
