@@ -113,6 +113,13 @@ sequence with the fresh authoritative result. It does not merge the fresh list
 with state retained from the failed epoch. Events are then replayed from the new
 list sequence.
 
+A failed list or event stream, and a clean event-stream termination, both move
+the sink to `"reconnecting"` and start a complete list-and-events retry loop with
+capped backoff. The first successful fresh snapshot restores `"connected"` and
+re-establishes replay from its sequence. Status-stream failure is not absorbed by
+that epoch loop: it remains in the `runProjectSync` error channel so the owner of
+the synchronization fiber can observe and supervise it.
+
 ## Application ownership
 
 ### Desktop

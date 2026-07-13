@@ -21,19 +21,23 @@ vi.mock("../../rpc-client", async (importOriginal) => {
   const { Effect } = await import("effect")
   return {
     ...actual,
-    acquireClient: () =>
-      Effect.sync(() => {
-        acquisition.count += 1
-        return {
-          client: acquisition.client,
-          endpoint: {
-            url: "ws://127.0.0.1:1/rpc",
-            token: "client-layer-test",
-            pid: process.pid,
-            protocolVersion: 1
-          }
-        }
-      })
+    acquireClient: (adapter: Parameters<typeof actual.acquireClient>[0]) =>
+      Layer.build(adapter.protocolLayer("ws://127.0.0.1:1/rpc?token=client-layer-test")).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            acquisition.count += 1
+            return {
+              client: acquisition.client,
+              endpoint: {
+                url: "ws://127.0.0.1:1/rpc",
+                token: "client-layer-test",
+                pid: process.pid,
+                protocolVersion: 1
+              }
+            }
+          })
+        )
+      )
   }
 })
 

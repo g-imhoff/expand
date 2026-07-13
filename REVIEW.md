@@ -266,7 +266,7 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 - **Bootstrap and reconnect:** the controller lists, subscribes from the returned sequence, ignores stale replay, and replaces the renderer snapshot with a fresh list after reconnect.
 - **MessagePort seam integrity (I-1):** renderer code reaches the backend *only* via the port; `window.expand` is the only bridge.
 - **Inbound decode trust** (`transport.ts`): `parser.decode(event.data)` is cast to the message type with no validation — a hostile message on the port is assumed well-typed. Assess.
-- **Effect/React lifecycle:** `boot` forks `runProjectSync` in its scope, waits for the first snapshot before mounting, and then keeps that scope alive under `Effect.never`; verify the boot fiber owns and interrupts synchronization.
+- **Effect/React lifecycle:** `boot` forks `runProjectSync` in its scope, races the first snapshot against early fiber completion, mounts only after that snapshot, and then joins and supervises the synchronization fiber; verify the boot scope owns and interrupts synchronization and observes status-stream failure.
 
 > ⚠️ **Test-tree gotcha:** several files under `apps/desktop/test` (`connection-honesty`, `transport`, `rpc-server`, `window-options`, `harden-web-contents`, `origin-rules`, `port-lifecycle`, `backend-entry`) actually exercise the **main** process (Stage 6b), not the renderer — don't attribute their coverage to renderer code.
 

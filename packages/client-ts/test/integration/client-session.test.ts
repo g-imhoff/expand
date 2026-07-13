@@ -3,7 +3,7 @@ import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, Subscripti
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { BunHttpServer, BunServices } from "@effect/platform-bun"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -153,12 +153,13 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
 }
 
 const openSession = async (
-  backend: ScriptedBackend
+  backend: ScriptedBackend,
+  adapter: RuntimeAdapter = backend.adapter
 ): Promise<{ readonly session: ClientSessionApi; readonly scope: Scope.Closeable }> => {
   const scope = await Effect.runPromise(Scope.make())
   const context = await Effect.runPromise(
     Layer.build(
-      ClientSessionLayer(backend.adapter).pipe(
+      ClientSessionLayer(adapter).pipe(
         Layer.provide(BunServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
@@ -166,6 +167,54 @@ const openSession = async (
   )
   const session = await Effect.runPromise(ClientSession.pipe(Effect.provide(context)))
   return { session, scope }
+}
+
+const runInternalAcquireRetryScenario = async () => {
+  const backend = await makeScriptedBackend()
+  const endpointFile = backend.appContext.paths.endpointFile
+  const healthyEndpoint = readFileSync(endpointFile, "utf8")
+  const attemptedUrls: Array<string> = []
+  writeFileSync(
+    endpointFile,
+    JSON.stringify({
+      url: "ws://127.0.0.1:9/rpc",
+      token: "stale",
+      pid: process.pid,
+      protocolVersion: PROTOCOL_VERSION
+    })
+  )
+  const adapter: RuntimeAdapter = {
+    protocolLayer: (url) => {
+      attemptedUrls.push(url)
+      return backend.adapter.protocolLayer(url)
+    },
+    spawnBackend: () =>
+      Effect.sync(() => {
+        writeFileSync(endpointFile, healthyEndpoint)
+      })
+  }
+
+  try {
+    return await Effect.runPromise(
+      Effect.gen(function* () {
+        const context = yield* Layer.build(
+          ClientSessionLayer(adapter).pipe(
+            Layer.provide(BunServices.layer),
+            Layer.provide(Layer.succeed(AppContext, backend.appContext))
+          )
+        )
+        const session = yield* ClientSession.pipe(Effect.provide(context))
+        const client = yield* session.current
+        return {
+          attemptedUrls,
+          health: yield* client.Health(),
+          status: yield* SubscriptionRef.get(session.status)
+        }
+      }).pipe(Effect.scoped)
+    )
+  } finally {
+    await Effect.runPromise(backend.dispose)
+  }
 }
 
 const closeSession = (scope: Scope.Closeable): Promise<void> =>
@@ -380,6 +429,18 @@ describe("ClientSession", () => {
   it("does not publish an epoch that disconnects after acquisition", async () => {
     expect(await runAcquireDisconnectRaceScenario()).toBe("retrying")
   })
+
+  it(
+    "publishes a healthy internal acquire retry after a stale transport disconnects",
+    async () => {
+      const result = await runInternalAcquireRetryScenario()
+      expect(result.attemptedUrls).toHaveLength(2)
+      expect(result.attemptedUrls[0]).toContain("127.0.0.1:9")
+      expect(result.health).toBe("ok")
+      expect(result.status).toBe("connected")
+    },
+    10000
+  )
 
   it("current waits for and returns the next epoch", async () => {
     const result = await runCurrentWaitScenario()

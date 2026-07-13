@@ -40,36 +40,61 @@ const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
   Schedule.either(Schedule.spaced("5 seconds"))
 )
 
+interface ConnectionAttempt {
+  readonly disconnected: Deferred.Deferred<void>
+  readonly lifecycle: Semaphore.Semaphore
+  readonly published: Deferred.Deferred<void>
+}
+
 const withConnectionHooks = (
   adapter: RuntimeAdapter,
   clients: SubscriptionRef.SubscriptionRef<ExpandRpcClientApi | null>,
-  status: SubscriptionRef.SubscriptionRef<ConnectionStatus>,
-  disconnected: Deferred.Deferred<void>,
-  lifecycle: Semaphore.Semaphore
-): RuntimeAdapter => ({
-  ...adapter,
-  protocolLayer: (url: string) =>
-    adapter.protocolLayer(url).pipe(
-      Layer.provide(
-        Layer.succeed(RpcClient.ConnectionHooks, {
-          onConnect: Effect.void,
-          onDisconnect: lifecycle.withPermit(
-            Deferred.isDone(disconnected).pipe(
-              Effect.flatMap((done) =>
-                done
-                  ? Effect.void
-                  : SubscriptionRef.set(clients, null).pipe(
-                      Effect.andThen(SubscriptionRef.set(status, "reconnecting")),
-                      Effect.andThen(Deferred.succeed(disconnected, undefined)),
-                      Effect.asVoid
-                    )
+  status: SubscriptionRef.SubscriptionRef<ConnectionStatus>
+): { readonly adapter: RuntimeAdapter; readonly currentAttempt: () => ConnectionAttempt | undefined } => {
+  let currentAttempt: ConnectionAttempt | undefined
+  return {
+    adapter: {
+      ...adapter,
+      protocolLayer: (url: string) => {
+        const attempt: ConnectionAttempt = {
+          disconnected: Deferred.makeUnsafe<void>(),
+          lifecycle: Semaphore.makeUnsafe(1),
+          published: Deferred.makeUnsafe<void>()
+        }
+        currentAttempt = attempt
+        return adapter.protocolLayer(url).pipe(
+          Layer.provide(
+            Layer.succeed(RpcClient.ConnectionHooks, {
+              onConnect: Effect.void,
+              onDisconnect: attempt.lifecycle.withPermit(
+                Deferred.isDone(attempt.disconnected).pipe(
+                  Effect.flatMap((done) =>
+                    done
+                      ? Effect.void
+                      : Deferred.isDone(attempt.published).pipe(
+                          Effect.flatMap((published) =>
+                            (published
+                              ? SubscriptionRef.set(clients, null).pipe(
+                                  Effect.andThen(SubscriptionRef.set(status, "reconnecting"))
+                                )
+                              : Effect.void
+                            ).pipe(
+                              Effect.andThen(Deferred.succeed(attempt.disconnected, undefined)),
+                              Effect.asVoid
+                            )
+                          )
+                        )
+                  )
+                )
               )
-            )
+            })
           )
-        })
-      )
-    )
-})
+        )
+      }
+    },
+    currentAttempt: () => currentAttempt
+  }
+}
 
 const toUnavailable = (error: { readonly _tag: string }): BackendUnavailable =>
   error._tag === "BackendUnavailable"
@@ -95,16 +120,19 @@ const makeSession = (
 
     const acquireEpoch = Effect.scoped(
       Effect.gen(function* () {
-        const disconnected = yield* Deferred.make<void>()
-        const lifecycle = yield* Semaphore.make(1)
-        const hooked = withConnectionHooks(adapter, clients, status, disconnected, lifecycle)
-        const { client } = yield* acquireClient(hooked)
-        const published = yield* lifecycle.withPermit(
-          Deferred.isDone(disconnected).pipe(
+        const hooked = withConnectionHooks(adapter, clients, status)
+        const { client } = yield* acquireClient(hooked.adapter)
+        const attempt = hooked.currentAttempt()
+        if (attempt === undefined) {
+          return yield* Effect.fail(new BackendUnavailable({ reason: "connection attempt missing" }))
+        }
+        const published = yield* attempt.lifecycle.withPermit(
+          Deferred.isDone(attempt.disconnected).pipe(
             Effect.flatMap((done) =>
               done
                 ? Effect.succeed(false)
-                : SubscriptionRef.set(clients, client).pipe(
+                : Deferred.succeed(attempt.published, undefined).pipe(
+                    Effect.andThen(SubscriptionRef.set(clients, client)),
                     Effect.andThen(SubscriptionRef.set(status, "connected")),
                     Effect.andThen(Deferred.succeed(ready, undefined)),
                     Effect.as(true)
@@ -115,7 +143,7 @@ const makeSession = (
         if (!published) {
           return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
         }
-        yield* Deferred.await(disconnected)
+        yield* Deferred.await(attempt.disconnected)
         return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
       })
     )

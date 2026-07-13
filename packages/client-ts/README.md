@@ -94,6 +94,13 @@ again and replaces the old projects and sequence with that fresh authoritative
 snapshot before replaying newer events. Reconnect is replacement, not a merge
 with stale local state.
 
+The controller also recovers when `list` or `Events` fails, or when `Events`
+ends cleanly while the source still reports a connected session. It publishes
+`"reconnecting"`, retries a complete list-and-events epoch with capped backoff,
+and publishes `"connected"` after the fresh snapshot succeeds. A failure of the
+source status stream is owner-visible instead: it fails `runProjectSync` so the
+application supervising the synchronization fiber can surface the failure.
+
 The applications deliberately choose different ownership models:
 
 - Desktop stores synchronized snapshots and connection status in renderer-owned
