@@ -251,11 +251,11 @@ interface IndexedSourceLine {
   readonly byteLength: number
 }
 
-const indexSourceLines = (source: string): ReadonlyArray<IndexedSourceLine> => {
+const indexRipgrepLines = (source: string): ReadonlyArray<IndexedSourceLine> => {
   const lines: Array<IndexedSourceLine> = []
   let codeUnitOffset = 0
   let byteOffset = 0
-  for (const terminator of source.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
+  for (const terminator of source.matchAll(/\n/g)) {
     const end = (terminator.index ?? 0) + terminator[0].length
     const text = source.slice(codeUnitOffset, end)
     const byteLength = new TextEncoder().encode(text).length
@@ -530,7 +530,7 @@ const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
       if (parsed === undefined) {
         parsed = yield* parseSource(options.root, file, "invalid-output")
         parsedFiles.set(file, parsed)
-        indexedLines.set(file, indexSourceLines(parsed.source))
+        indexedLines.set(file, indexRipgrepLines(parsed.source))
       }
       const line = indexedLines.get(file)?.at(match.line_number - 1)
       if (line === undefined) {
@@ -581,7 +581,7 @@ const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
         if (identity === undefined) {
           return yield* Effect.fail(auditError("invalid-output", `grep-json could not resolve ${file}:${match.line_number}`))
         }
-        const excerpt = lineExcerpt(parsed.source, match.line_number)
+        const excerpt = line.text.trim()
         drafts.push({
           file,
           declaration: identity.declaration,

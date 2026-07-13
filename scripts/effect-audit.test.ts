@@ -1154,3 +1154,139 @@ describe("Effect grep inventory hardening", () => {
       }))
   })
 })
+
+describe("Effect grep ripgrep line model", () => {
+  it.effect("resolves a match after a standalone carriage return", () => {
+    const keyword = ["as", "ync"].join("")
+    const construct = ["native:", keyword].join("")
+    const source = `export const marker = 1\rexport const sample = ${keyword} () => 1\n`
+    const expected = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 1,
+      excerpt: source.trim()
+    })
+    const stored = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 99,
+      excerpt: "stale display"
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const result = yield* runAudit({ root, mode: "check" })
+
+        expect(result.grepCandidates).toEqual([expected])
+      }))
+  })
+
+  it.effect("resolves a match on the second CRLF-delimited line", () => {
+    const keyword = ["as", "ync"].join("")
+    const construct = ["native:", keyword].join("")
+    const source = `export const marker = 1\r\nexport const sample = ${keyword} () => 1\n`
+    const lines = source.slice(source.indexOf("\n") + 1)
+    const absoluteOffset = byteOffsetAtLine(source, 2)
+    const expected = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 2,
+      excerpt: lines.trim()
+    })
+    const stored = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 99,
+      excerpt: "stale display"
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", lines, 2, keyword, undefined, absoluteOffset))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const result = yield* runAudit({ root, mode: "check" })
+
+        expect(result.grepCandidates).toEqual([expected])
+      }))
+  })
+
+  it.effect("resolves a match after a Unicode line separator", () => {
+    const keyword = ["as", "ync"].join("")
+    const construct = ["native:", keyword].join("")
+    const source = `export const marker = 1\u2028export const sample = ${keyword} () => 1\n`
+    const expected = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 1,
+      excerpt: source.trim()
+    })
+    const stored = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 99,
+      excerpt: "stale display"
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const result = yield* runAudit({ root, mode: "check" })
+
+        expect(result.grepCandidates).toEqual([expected])
+      }))
+  })
+
+  it.effect("resolves a match after a Unicode paragraph separator", () => {
+    const keyword = ["as", "ync"].join("")
+    const construct = ["native:", keyword].join("")
+    const source = `export const marker = 1\u2029export const sample = ${keyword} () => 1\n`
+    const expected = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 1,
+      excerpt: source.trim()
+    })
+    const stored = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct,
+      occurrence: 0,
+      line: 99,
+      excerpt: "stale display"
+    })
+    return fixture({
+      baseline: [],
+      inventory: [stored],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const result = yield* runAudit({ root, mode: "check" })
+
+        expect(result.grepCandidates).toEqual([expected])
+      }))
+  })
+})
