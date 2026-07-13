@@ -10,7 +10,7 @@ export interface Budget {
 // Boundedness proxy: if ΔRSS grows with N, whole-log materialization snuck back in.
 export const RSS_BUDGET_BYTES = 200 * 1024 * 1024
 
-export const WATCH_MULTIPLIER = 2
+const WATCH_MULTIPLIER = 2
 
 export const BUDGETS: Readonly<Record<string, Budget>> = {
   "s1-cold-boot": { minEventsPerSec: 50_000 },

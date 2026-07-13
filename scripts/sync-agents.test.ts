@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { parse as parseToml } from "smol-toml"
 import {
   AGENT_NAMES,
   AGENT_POLICY,
@@ -143,7 +144,7 @@ describe("validateRoster", () => {
 describe("renderCodexAgent", () => {
   it.each(AGENT_NAMES)("renders deterministic parseable TOML for %s", (name) => {
     const rendered = renderCodexAgent(definition(name))
-    const parsed = Bun.TOML.parse(rendered)
+    const parsed = parseToml(rendered)
     expect(renderCodexAgent(definition(name))).toBe(rendered)
     expect(rendered.endsWith("\n")).toBe(true)
     expect(parsed).toEqual({
@@ -183,7 +184,7 @@ describe("syncAgents", () => {
     for (const name of AGENT_NAMES) {
       const path = join(root, ".codex", "agents", `${name}.toml`)
       expect(existsSync(path)).toBe(true)
-      expect(Bun.TOML.parse(readFileSync(path, "utf8"))).toMatchObject({ name })
+      expect(parseToml(readFileSync(path, "utf8"))).toMatchObject({ name })
     }
     expect(readFileSync(join(root, ".codex", "agents", "README.txt"), "utf8")).toBe("keep")
   })

@@ -35,8 +35,8 @@ describe("I-1: CLI client isolation", () => {
       // Cruise the full frontend + shared-client surface: apps (cli, tui, desktop)
       // and packages (contracts, client-ts). I-1 now guards every frontend.
       output = execFileSync(
-        "bunx",
-        ["depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"],
+        "npm",
+        ["exec", "--", "depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
       )
     } catch (e: any) {

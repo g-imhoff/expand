@@ -70,7 +70,7 @@ describe("typed IPC boundary", () => {
     let output = ""
     let code = 0
     try {
-      output = execFileSync("bunx", ["depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"], {
+      output = execFileSync("npm", ["exec", "--", "depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"]
       })
