@@ -1870,4 +1870,63 @@ describe("Effect launcher inventory command", () => {
         expect(after).toEqual(before)
       }))
     }))
+
+  it("rejects NUL launcher paths before shrink authority", () => {
+    const malformed = launcherBoundary({ file: "scripts/x\u0000.sh" })
+
+    expect(launcherInventoryValidationError([malformed])).toBe(
+      "launcher inventory contains a malformed repository-relative path"
+    )
+    expect(shrinkLauncherInventory([malformed], [])).toBeUndefined()
+  })
+
+  it.effect("rejects a canonical NUL launcher record without writing any ledger", () =>
+    Effect.gen(function*() {
+      const malformed = launcherBoundary({ file: "scripts/x\u0000.sh" })
+      const encoded = yield* Schema.encodeEffect(LauncherInventoryJson)([malformed])
+      const decoded = yield* Schema.decodeUnknownEffect(LauncherInventoryJson)(encoded)
+      expect(yield* Schema.encodeEffect(LauncherInventoryJson)(decoded)).toBe(encoded)
+
+      yield* fixture({
+        baseline: [finding()],
+        inventory: [candidate({ file: "a/stale.ts" })],
+        launcherInventory: encoded
+      }, ({ root }) => Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const files = ["effect-audit-baseline.json", "effect-grep-inventory.json", "effect-launchers.json"]
+        const before = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const after = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("path") })
+        expect(after).toEqual(before)
+      }))
+    }))
+
+  it.effect("preserves every ledger byte when launcher drift rejects removable debt", () =>
+    Effect.gen(function*() {
+      const source = "#!/bin/sh\nexit 0\n"
+      const original = yield* launcherForSource({ file: "scripts/tool.sh", mode: "100644", source })
+      for (const drift of [
+        { kind: "mode", mode: "100755" as const, source },
+        { kind: "source", mode: "100644" as const, source: "#!/bin/sh\nexit 1\n" }
+      ]) {
+        yield* fixture({
+          baseline: [finding()],
+          inventory: [candidate({ file: "a/stale.ts" })],
+          launcherFiles: [{ file: original.file, mode: drift.mode, source: drift.source }],
+          launcherInventory: [original]
+        }, ({ root }) => Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const files = ["effect-audit-baseline.json", "effect-grep-inventory.json", "effect-launchers.json"]
+          const before = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+          const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+          const after = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+
+          expect(error.reason).toBe("baseline-growth")
+          expect(error.detail).toContain(drift.kind)
+          expect(after).toEqual(before)
+        }))
+      }
+    }))
 })

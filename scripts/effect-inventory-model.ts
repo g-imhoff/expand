@@ -96,6 +96,7 @@ export const executableBoundaryKey = (boundary: ExecutableBoundary): string => b
 const validRepositoryRelativePath = (file: string): boolean =>
   file.length > 0
   && !file.startsWith("/")
+  && !file.includes("\0")
   && !file.includes("\\")
   && !file.endsWith("/")
   && !/[*?\[\]{}]/.test(file)
