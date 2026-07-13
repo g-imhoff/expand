@@ -20,19 +20,20 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version-file: .bun-version
+          node-version-file: .node-version
+          cache: npm
       - name: Install dependencies (frozen lockfile)
-        run: bun install --frozen-lockfile
+        run: npm ci
       - name: Agent definitions synchronized
-        run: bun run agents:check
+        run: npm run agents:check
       - name: Typecheck (root + desktop projects)
-        run: bun run typecheck:all
+        run: npm run typecheck:all
       - name: Architecture invariant I-1 (dependency-cruiser, BOUNDARIES.md)
-        run: bun run arch
+        run: npm run arch
       - name: Unit + architecture tests
-        run: bun run test
+        run: npm run test
 
   desktop-e2e:
     name: Desktop e2e (serialized RPC seam, ARCHITECTURE.md §5.4)
@@ -41,15 +42,16 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version-file: .bun-version
+          node-version-file: .node-version
+          cache: npm
       - name: Install dependencies (frozen lockfile)
-        run: bun install --frozen-lockfile
+        run: npm ci
       - name: Electron system libraries (managed by Playwright)
-        run: bunx playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64
+        run: npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64
       - name: Build desktop and run e2e
-        run: xvfb-run -a bun run e2e:desktop
+        run: xvfb-run -a npm run e2e:desktop
 
   binary-smoke:
     name: Compiled-binary certification (I-4 reaping + durability)
@@ -58,10 +60,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
         with:
-          bun-version-file: .bun-version
+          node-version-file: .node-version
+          cache: npm
       - name: Install dependencies (frozen lockfile)
-        run: bun install --frozen-lockfile
+        run: npm ci
       - name: Build CLI/server binaries and smoke-test them
-        run: bun run cert:cli:build
+        run: npm run cert:cli:build

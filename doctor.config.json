@@ -35,7 +35,7 @@
       // mechanisms deslop's import graph cannot see:
       //   • dependency-cruiser → `arch` script invokes the `depcruise` bin
       //     (+ CI and the test/architecture/* suite read .dependency-cruiser.cjs)
-      //   • knip               → `knip` script invokes the `knip-bun` bin
+      //   • knip               → `knip` script invokes the `knip` bin
       //     (+ test/architecture/no-dead-code.test.ts)
       //   • happy-dom          → vitest DOM environment selected per-file via
       //     `// @vitest-environment happy-dom` in 8 desktop test files

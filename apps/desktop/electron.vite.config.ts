@@ -29,7 +29,13 @@ export default (() => {
     main: {
       plugins: [externalizeDepsPlugin()],
       resolve: { alias },
-      build: { rollupOptions: { input: resolve(here, "src/main/index.ts"), external } }
+      build: {
+        rollupOptions: {
+          input: resolve(here, "src/main/index.ts"),
+          external,
+          output: { format: "es", entryFileNames: "index.mjs" }
+        }
+      }
     },
     preload: {
       resolve: { alias },

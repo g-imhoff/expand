@@ -25,7 +25,7 @@ it by name, no registry install:
 | `@expand/client-ts` (the **root**)                        | The connection core: `ClientLayer`, `resolveBackendCommand`, `withClient`, transport errors, `RuntimeAdapter`, `ConnectionStatus`, `SequencedEvent`. |
 | `@expand/client-ts/project`                               | The project domain: `ProjectStore` / `ProjectStoreLayer`, `ProjectClient`, and the project contract vocabulary (`Project`, domain error tags). |
 | `@expand/client-ts/server`                                | The server domain: the `ServerClient` health/presence facade. |
-| `@expand/client-ts/adapters/bun` \| `.../adapters/node`  | The platform seam — `makeBunAdapter` / `makeNodeAdapter`. Kept separate because each pulls in platform-only deps. |
+| `@expand/client-ts/adapters/node`                         | The platform seam — `makeNodeAdapter`, backed by Node WebSocket and process primitives. |
 
 Exactly **one canonical import path per symbol** — the root does not re-export
 the domain surfaces. Everything else is internal and unreachable (enforced by
@@ -36,8 +36,8 @@ entrypoints).
 
 Every layer this SDK builds leaves exactly one dependency unprovided:
 `FileSystem` (used to read/write the backend endpoint descriptor). Supply it with
-`BunServices.layer` / `NodeServices.layer`. You pick a platform **adapter** and,
-usually, a **backend command** (how to spawn the server) resolved via
+`NodeServices.layer`. Supply the Node **adapter** and, usually, a **backend
+command** (how to spawn the server) resolved via
 `resolveBackendCommand`.
 
 ### Reactive store (GUI / TUI)
@@ -45,23 +45,26 @@ usually, a **backend command** (how to spawn the server) resolved via
 ```ts
 import { Layer, ManagedRuntime } from "effect"
 import { fileURLToPath } from "node:url"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { resolveBackendCommand } from "@expand/client-ts"
 import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 
 // Resolve the server entry to an ABSOLUTE path relative to this module — a bare
 // relative path would resolve against the process cwd and break when the app is
 // launched from anywhere but the repo root.
 const serverEntry = fileURLToPath(new URL("../server/main.ts", import.meta.url))
 
-const adapter = makeBunAdapter({
+const adapter = makeNodeAdapter({
   // How to start the backend if one isn't already running.
-  backendCommand: () => resolveBackendCommand({ sourceEntry: serverEntry })
+  backendCommand: () => resolveBackendCommand({
+    runtimeArgs: ["--import", "tsx"],
+    sourceEntry: serverEntry
+  })
 })
 
 const runtime = ManagedRuntime.make(
-  ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer))
+  ProjectStoreLayer(adapter).pipe(Layer.provide(NodeServices.layer))
 )
 
 const store = await runtime.runPromise(ProjectStore)
@@ -81,12 +84,11 @@ unsubscribe()
 await runtime.dispose()
 ```
 
-Node/Electron consumers use `makeNodeAdapter` + `NodeServices.layer` identically,
-except `makeNodeAdapter` **requires** a `backendCommand` (there is no safe
-default: Electron's `process.execPath` is the Electron binary, not a JS runtime).
-Run the source entry under a real JS runtime by passing `execPath`, which keeps
-the resolver's source/compiled existence check:
-`resolveBackendCommand({ execPath: "bun", sourceEntry: absoluteEntry })`.
+`makeNodeAdapter` **requires** a `backendCommand`. Electron consumers pass an
+explicit Node executable because Electron's `process.execPath` is the Electron
+binary, not a JavaScript runtime. Source execution also needs the TypeScript
+loader: `resolveBackendCommand({ execPath: "node", runtimeArgs: ["--import",
+"tsx"], sourceEntry: absoluteEntry })`.
 
 #### Overriding the backend command
 
@@ -97,7 +99,7 @@ at a prebuilt binary without touching code.
 
 Caveat: the override only applies when the command flows through
 `resolveBackendCommand`. Passing a **literal array** straight to
-`makeBunAdapter`/`makeNodeAdapter` (`backendCommand: ["bun", entry]`) bypasses the
+`makeNodeAdapter` (`backendCommand: ["node", "--import", "tsx", entry]`) bypasses the
 resolver entirely, so `EXPAND_BACKEND_CMD` is ignored. Wrap it in
 `resolveBackendCommand` (or `() => resolveBackendCommand({...})`) to keep the env
 override live.
@@ -106,14 +108,16 @@ override live.
 
 ```ts
 import { Effect } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { ClientLayer } from "@expand/client-ts"
 import { ServerClient } from "@expand/client-ts/server"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+
+const adapter = makeNodeAdapter({ backendCommand: ["expand-server"] })
 
 const program = Effect.flatMap(ServerClient, (server) => server.health()).pipe(
-  Effect.provide(ClientLayer(makeBunAdapter())),
-  Effect.provide(BunServices.layer)
+  Effect.provide(ClientLayer(adapter)),
+  Effect.provide(NodeServices.layer)
 )
 
 await Effect.runPromise(program)

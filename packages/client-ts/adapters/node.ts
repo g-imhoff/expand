@@ -21,7 +21,7 @@ export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
           resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${command}: ${String(e)}` })))
         }
         try {
-          const child = spawn(head!, args, { detached: true, stdio: "ignore", env: process.env })
+          const child = spawn(head!, args, { stdio: "ignore", env: process.env })
           child.once("error", fail)
           child.once("spawn", () => {
             child.unref()

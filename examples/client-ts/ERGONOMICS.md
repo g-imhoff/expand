@@ -73,19 +73,19 @@ three examples.
 ## 3. "Public API only" leaks two peer dependencies
 
 The examples are meant to import *only* `@expand/client-ts` and
-`@expand/client-ts/adapters/bun`. In practice every one of them also imports
+`@expand/client-ts/adapters/node`. In practice every one of them also imports
 `effect` (`Effect`, `Layer`, `ManagedRuntime`, `Stream`) and, critically,
-`BunServices` from `@effect/platform-bun` (`bootstrap-projects.ts:1-2`, etc.).
+`NodeServices` from `@effect/platform-node` (`bootstrap-projects.ts:1-2`, etc.).
 
 That second import isn't optional: `ClientLayer(adapter)` and
 `ProjectStoreLayer(adapter)` both require a `FileSystem.FileSystem` in their
 environment (`project/client.ts:55`, `project/store.ts:235`), which the consumer
-satisfies with `.pipe(Layer.provide(BunServices.layer))`. So the Bun consumer
-must know to add `@effect/platform-bun` and wire its layer, even though they
-already selected the *Bun* adapter — the platform is named twice.
+satisfies with `.pipe(Layer.provide(NodeServices.layer))`. So the Node consumer
+must know to add `@effect/platform-node` and wire its layer, even though they
+already selected the Node adapter — the platform is named twice.
 
-**Possible cleanup:** have `makeBunAdapter` / the Bun subpath provide the Bun
-`FileSystem` itself, so `ClientLayer(bunAdapter)` needs no external platform
+**Possible cleanup:** have `makeNodeAdapter` / the Node subpath provide the Node
+`FileSystem` itself, so `ClientLayer(nodeAdapter)` needs no external platform
 layer — the adapter choice already implies the platform.
 
 ## 4. Data-dir isolation is entirely off-surface (a magic argv flag)

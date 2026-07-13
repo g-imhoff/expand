@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json",
     "stage:publish": "node scripts/prepare-publish.mjs",
-    "pack:tgz": "bun run build && bun run stage:publish && npm pack ./dist-publish"
+    "pack:tgz": "npm run build && npm run stage:publish && npm pack ./dist-publish"
   },
   "dependencies": {
     "@expand/contracts": "0.0.0",

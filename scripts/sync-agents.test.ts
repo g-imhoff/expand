@@ -166,8 +166,8 @@ describe("syncAgents", () => {
   it("runs the synchronization gate before commits and in CI", () => {
     const hook = readFileSync(join(repositoryRoot, ".githooks", "pre-commit"), "utf8")
     const workflow = readFileSync(join(repositoryRoot, ".github", "workflows", "ci.yml"), "utf8")
-    expect(hook).toContain("bun run agents:check")
-    expect(workflow).toContain("run: bun run agents:check")
+    expect(hook).toContain("npm run agents:check")
+    expect(workflow).toContain("run: npm run agents:check")
   })
 
   it("writes only expected TOML files and then passes check mode", async () => {

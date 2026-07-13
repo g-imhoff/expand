@@ -3,19 +3,19 @@
 Runnable, real-world programs that use `@expand/client-ts` as an **external
 consumer** would: every import comes from the package's public entrypoints only —
 `@expand/client-ts` (the connection core), `@expand/client-ts/project` (the
-project domain), and `@expand/client-ts/adapters/bun`. Contract types (`Project`,
+project domain), and `@expand/client-ts/adapters/node`. Contract types (`Project`,
 error tags, `SequencedEvent`, …) are re-exported from those entrypoints, so no
 example ever deep-imports a package internal or `@expand/contracts` directly. A deep import into a client-ts internal fails the `depcruise`
 `client-ts-barrel-only` rule, which now covers this directory.
 
 Each example builds its runtime from the shared adapter in
 [`adapter.ts`](./adapter.ts) — the one bit of setup a real consumer writes once:
-how to locate and spawn the backend (`resolveBackendCommand` + `makeBunAdapter`).
+how to locate and spawn the backend (`resolveBackendCommand` + `makeNodeAdapter`).
 
 ## Running
 
 ```sh
-bun run examples/client-ts/<name>.ts <args...>
+node --import tsx examples/client-ts/<name>.ts <args...>
 ```
 
 Pass `--data-dir <dir>` to point the client (and the backend it spawns) at an
@@ -27,15 +27,15 @@ fresh temp dir per run for exactly this reason.
 - **[`bootstrap-projects.ts`](./bootstrap-projects.ts)** — create an Expand project
   for each subfolder of a given directory, deduping against existing projects and
   skipping conflicts. Prints `bootstrap: created <N>, skipped <M>`.
-  Run: `bun run examples/client-ts/bootstrap-projects.ts <dir>`
+  Run: `node --import tsx examples/client-ts/bootstrap-projects.ts <dir>`
 - **[`archive-stale.ts`](./archive-stale.ts)** — list the active projects and archive
   any whose `directory` no longer exists on disk. Prints
   `archive-stale: archived <N> of <M> active`.
-  Run: `bun run examples/client-ts/archive-stale.ts`
+  Run: `node --import tsx examples/client-ts/archive-stale.ts`
 - **[`audit-log.ts`](./audit-log.ts)** — tail the store's change stream and append every
   project mutation to a JSONL file (`{ seq, tag, projectId, at }` per line); runs until
   interrupted (SIGINT).
-  Run: `bun run examples/client-ts/audit-log.ts <outfile>`
+  Run: `node --import tsx examples/client-ts/audit-log.ts <outfile>`
 
 Each example has a subprocess smoke test in [`test/`](./test) that runs it
 against an isolated backend and asserts its output, so an API change that breaks

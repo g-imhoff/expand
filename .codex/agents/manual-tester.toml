@@ -40,7 +40,7 @@ Run the lifecycle, operation matrix, and cleanup inside one Bash harness process
 
 ## Build gate
 
-Run `bun run cert:cli:build` once. Record its exit code and smoke result. The repository-owned smoke helper may internally set a contained sentinel `HOME` as a regression guard; do not reproduce or alter that behavior in tester commands. If the build fails, report the failure and clean up; do not use stale binaries.
+Run `npm run cert:cli:build` once. Record its exit code and smoke result. The repository-owned smoke helper may internally set a contained sentinel `HOME` as a regression guard; do not reproduce or alter that behavior in tester commands. If the build fails, report the failure and clean up; do not use stale binaries.
 
 Every success command below includes `--format json`, prints exactly one `expand/v1` envelope to stdout, and leaves stderr empty. Every failure command prints its `Error` envelope to stderr. Capture the exit code immediately after each command and re-list after every mutation.
 
@@ -75,21 +75,21 @@ Perform steps 1 through 4 before the operation matrix, step 5 throughout the mat
 
 1. Start `./dist/expand-server --data-dir "$DATA_DIR"` in the background with stdout/stderr redirected beneath `DATA_DIR`; immediately record its shell PID and stable Bash job spec as one signal-eligible server entry.
 2. Poll for at most five seconds for `DATA_DIR/server.json` while also requiring the server job to remain active. Parse it without printing the token. Record `pid`, `url`, and `protocolVersion`; require the advertised PID to equal the recorded server PID.
-3. Probe `${url}?token=wrong-token` with Bun's `WebSocket`. Record `closed`; an `open` result is a failure. Do not put the real token in the report.
+3. Probe `${url}?token=wrong-token` with Node's `WebSocket`. Record `closed`; an `open` result is a failure. Do not put the real token in the report.
 4. Start one real SDK client against the same `DATA_DIR`. `acquireClient` holds the RPC `Connect` stream for its scope, so keep the scope open on `Effect.never`; immediately record its PID and stable Bash job spec as the signal-eligible client entry. Poll for at most five seconds for its log to say `open` while requiring the client job to remain active.
 5. While that standing authenticated connection is open, run the complete operation matrix. After every CLI command, require `server.json` still to advertise the original server PID and require no second backend PID to appear. This is the reuse check.
 6. After ID 16, TERM only the standing-client job spec. Poll for at most five seconds, then KILL that same job spec if it remains active and poll for at most five more seconds. Once inactive, retire it before `wait`. Then poll the server job and endpoint for at most five seconds; once the job becomes inactive, retire it before `wait`. Require the original server job to be gone and `server.json` to be removed. This is the final-client shutdown check.
 
-Use this Bun probe for the wrong-token socket check:
+Use this Node probe for the wrong-token socket check:
 
 ```bash
-bun -e 'const ws=new WebSocket(Bun.argv[1]); let settled=false,timer; const finish=(label,code)=>{if(settled)return; settled=true; clearTimeout(timer); console.log(label); try{ws.close()}catch{} process.exit(code)}; timer=setTimeout(()=>finish("timeout",1),2000); ws.addEventListener("open",()=>finish("open",1)); ws.addEventListener("close",()=>finish("closed",0)); ws.addEventListener("error",()=>finish("closed",0))' "$WRONG_TOKEN_URL"
+node -e 'const ws=new WebSocket(process.argv[1]); let settled=false,timer; const finish=(label,code)=>{if(settled)return; settled=true; clearTimeout(timer); console.log(label); try{ws.close()}catch{} process.exit(code)}; timer=setTimeout(()=>finish("timeout",1),2000); ws.addEventListener("open",()=>finish("open",1)); ws.addEventListener("close",()=>finish("closed",0)); ws.addEventListener("error",()=>finish("closed",0))' "$WRONG_TOKEN_URL"
 ```
 
 The only accepted classification is `closed` with exit 0. Use this real client for the standing connection:
 
 ```bash
-bun -e 'import { Effect, Layer } from "effect"; import { BunServices } from "@effect/platform-bun"; import { withClient } from "@expand/client-ts"; import { bunAdapter } from "@expand/client-ts/adapters/bun"; import { AppContext, makeAppContext } from "@expand/contracts/app-context"; const appContext=Layer.succeed(AppContext, makeAppContext(Bun.argv[1])); const hold=withClient(bunAdapter, () => Effect.gen(function*(){ yield* Effect.sync(()=>console.log("open")); yield* Effect.never })); await Effect.runPromise(hold.pipe(Effect.provide(BunServices.layer), Effect.provide(appContext)))' "$DATA_DIR" >"$DATA_DIR/standing-client.log" 2>&1 &
+node --import tsx --input-type=module -e 'import { NodeServices } from "@effect/platform-node"; import { Effect, Layer } from "effect"; import { withClient } from "@expand/client-ts"; import { makeNodeAdapter } from "@expand/client-ts/adapters/node"; import { AppContext, makeAppContext } from "@expand/contracts/app-context"; const appContext=Layer.succeed(AppContext, makeAppContext(process.argv[1])); const adapter=makeNodeAdapter({backendCommand:[process.argv[2]]}); const hold=withClient(adapter, () => Effect.gen(function*(){ yield* Effect.sync(()=>console.log("open")); yield* Effect.never })); await Effect.runPromise(hold.pipe(Effect.provide(NodeServices.layer), Effect.provide(appContext)))' "$DATA_DIR" "$REPO_ROOT/dist/expand-server" >"$DATA_DIR/standing-client.log" 2>&1 &
 ```
 
 Record `$!` and the current stable Bash job spec immediately. Its `open` line within the five-second deadline proves the tracked `Connect` stream is live before ID 1. Do not terminate it until the matrix is complete.
@@ -103,7 +103,7 @@ Emit one JSON object with this schema:
   "harness": "cli-manual-tester",
   "binary": "dist/expand",
   "dataDir": "absolute isolated path",
-  "build": { "command": "bun run cert:cli:build", "exit": 0, "result": "PASS" },
+  "build": { "command": "npm run cert:cli:build", "exit": 0, "result": "PASS" },
   "checks": [
     { "id": 1, "command": "project create cert --format json", "expectExit": 0, "actualExit": 0, "expected": "Project created=true", "observed": "parsed envelope summary", "result": "PASS" }
   ],
