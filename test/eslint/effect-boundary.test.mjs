@@ -26,6 +26,46 @@ const ruleTester = new RuleTester({
 const runRuleTester = (valid, invalid) =>
   ruleTester.run("effect-boundary", effectBoundary, { valid, invalid })
 
+const syncSchemaErrors = (lines) => lines.map((line) => ({ messageId: "syncSchemaInEffect", line }))
+const syntaxInvalidCase = (code, errors) => ({
+  filename: absolute("effect-boundary-invalid.mjs"),
+  code,
+  errors,
+  languageOptions: {
+    parserOptions: { project: false, projectService: false }
+  }
+})
+const typedCatchIfCase = (call, lines) => invalidCase([
+  'import { Effect, Schema } from "effect"',
+  "declare const program: Effect.Effect<void, unknown>",
+  "const predicate = (error: unknown) => Schema.decodeUnknownSync(Schema.Boolean)(error)",
+  "const handler = (error: unknown) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error))",
+  "const orElse = (error: unknown) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error))",
+  call
+].join("\n"), syncSchemaErrors(lines))
+const syntaxCatchIfCase = (call, lines) => syntaxInvalidCase([
+  'import { Effect, Schema } from "effect"',
+  "const predicate = (error) => Schema.decodeUnknownSync(Schema.Boolean)(error)",
+  "const handler = (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error))",
+  "const orElse = (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error))",
+  call
+].join("\n"), syncSchemaErrors(lines))
+const typedCatchTagCase = (call, lines) => invalidCase([
+  'import { Effect, Schema } from "effect"',
+  'type Failure = { readonly _tag: "Failure"; readonly value: unknown }',
+  'type Other = { readonly _tag: "Other"; readonly value: unknown }',
+  "declare const program: Effect.Effect<void, Failure | Other>",
+  "const handler = (error: Failure) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value))",
+  "const orElse = (error: Other) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error.value))",
+  call
+].join("\n"), syncSchemaErrors(lines))
+const syntaxCatchTagCase = (call, lines) => syntaxInvalidCase([
+  'import { Effect, Schema } from "effect"',
+  "const handler = (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error))",
+  "const orElse = (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error))",
+  call
+].join("\n"), syncSchemaErrors(lines))
+
 const runnerBoundary = {
   file: "effect-boundary-valid.ts",
   declaration: "module:<module>",
@@ -1038,6 +1078,28 @@ const invalid = [
     "Effect.validate([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(value)))",
     "Effect.validate((value: unknown) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(value)), { concurrency: 1 })([input])"
   ].join("\n"), Array.from({ length: 6 }, () => ({ messageId: "syncSchemaInEffect" }))),
+  typedCatchIfCase("Effect.catchIf(predicate, handler)(program)", [3, 4]),
+  typedCatchIfCase("Effect.catchIf(program, predicate, handler)", [3, 4]),
+  typedCatchIfCase("Effect.catchIf(predicate, handler, orElse)(program)", [3, 4, 5]),
+  typedCatchIfCase("Effect.catchIf(program, predicate, handler, orElse)", [3, 4, 5]),
+  syntaxCatchIfCase("Effect.catchIf(predicate, handler)(program)", [2, 3]),
+  syntaxCatchIfCase("Effect.catchIf(program, predicate, handler)", [2, 3]),
+  syntaxCatchIfCase("Effect.catchIf(predicate, handler, orElse)(program)", [2, 3, 4]),
+  syntaxCatchIfCase("Effect.catchIf(program, predicate, handler, orElse)", [2, 3, 4]),
+  typedCatchTagCase(
+    'Effect.catchTag<"Failure", Failure | Other, string, never, never>("Failure", handler)(program)',
+    [5]
+  ),
+  typedCatchTagCase('Effect.catchTag(program, "Failure", handler)', [5]),
+  typedCatchTagCase(
+    'Effect.catchTag<"Failure", Failure | Other, string, never, never, unknown, never, never>("Failure", handler, orElse)(program)',
+    [5, 6]
+  ),
+  typedCatchTagCase('Effect.catchTag(program, "Failure", handler, orElse)', [5, 6]),
+  syntaxCatchTagCase('Effect.catchTag("Failure", handler)(program)', [2]),
+  syntaxCatchTagCase('Effect.catchTag(program, "Failure", handler)', [2]),
+  syntaxCatchTagCase('Effect.catchTag("Failure", handler, orElse)(program)', [2, 3]),
+  syntaxCatchTagCase('Effect.catchTag(program, "Failure", handler, orElse)', [2, 3]),
   invalidCase([
     'import { Effect, Schema } from "effect"',
     'type Failure = { readonly _tag: "Failure"; readonly value: unknown }',

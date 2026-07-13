@@ -39,10 +39,11 @@ export const runtimeRunnerMethods = Object.freeze(["makeRunMain"])
 
 export const nodeRuntimeRunnerMethods = Object.freeze(["runMain"])
 
-const callbackForm = ({ direct = [], max, min, options = [], properties = [] }) => Object.freeze({
+const callbackForm = ({ direct = [], max, min, nonCallbacks = [], options = [], properties = [] }) => Object.freeze({
   direct: direct === "all" ? direct : Object.freeze(direct),
   max,
   min,
+  nonCallbacks: Object.freeze(nonCallbacks),
   options: Object.freeze(options),
   properties: Object.freeze(properties.map(([index, names]) => Object.freeze([
     index,
@@ -79,11 +80,11 @@ export const effectCallbackOwnership = Object.freeze({
   catch: dataLastCallbackForms,
   catchIf: Object.freeze([
     callbackForm({ direct: [0, 1, 2], min: 2, max: 3 }),
-    callbackForm({ direct: [1, 2, 3], min: 3, max: 4 })
+    callbackForm({ direct: [1, 2, 3], min: 3, max: 4, nonCallbacks: [0] })
   ]),
   catchTag: Object.freeze([
-    callbackForm({ direct: [1, 2], min: 2, max: 3 }),
-    callbackForm({ direct: [2, 3], min: 3, max: 4 })
+    callbackForm({ direct: [1, 2], min: 2, max: 3, nonCallbacks: [0] }),
+    callbackForm({ direct: [2, 3], min: 3, max: 4, nonCallbacks: [0, 1] })
   ]),
   catchTags: Object.freeze([
     callbackForm({ direct: [1], min: 1, max: 2, properties: [[0, "all"]] }),

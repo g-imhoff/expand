@@ -809,6 +809,12 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
           && argument.type !== "SpreadElement"
           && callbackArgumentStatus(argument) === "non-callback"
       })) return false
+      if (form.nonCallbacks.some((index) => {
+        const argument = call.arguments[index]
+        return argument !== undefined
+          && argument.type !== "SpreadElement"
+          && callbackArgumentStatus(argument) === "callback"
+      })) return false
       if (form.properties.some(([index]) => {
         const argument = call.arguments[index]
         return !direct.includes(index)
