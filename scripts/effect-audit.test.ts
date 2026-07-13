@@ -61,7 +61,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
     use: (input: {
       readonly root: string
       readonly requests: Array<AuditCommandRequest>
-    }) => Effect.Effect<A, unknown, AuditCommandRunner | FileSystem.FileSystem | Path.Path>
+    }) => Effect.Effect<A, unknown, AuditCommandRunner | FileSystem.FileSystem | (AuditFixturePath & {})>
   ) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
@@ -125,6 +125,40 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
         return Effect.succeed({ ...defaults[request.name], ...options.result?.[request.name] })
       })
     }))
+
+    const launcherFiles = options.launcherFiles ?? []
+    const launcherPaths = launcherFiles.map(({ file }) => file)
+    const allTracked = [...tracked, ...launcherPaths]
+    const modeByFile = new Map(launcherFiles.map(({ file, mode }) => [file, mode]))
+    defaults["tracked-files"] = { exitCode: 0, stdout: `${allTracked.join("\0")}\0`, stderr: "" }
+    defaults["tracked-modes"] = {
+      exitCode: 0,
+      stdout: `${allTracked.map((file) => `${modeByFile.get(file) ?? "100644"} ${"0".repeat(40)} 0\t${file}`).join("\0")}\0`,
+      stderr: ""
+    }
+    for (const launcher of launcherFiles) {
+      if (launcher.write === false) continue
+      yield* fs.makeDirectory(path.dirname(path.join(root, launcher.file)), { recursive: true })
+      yield* fs.writeFileString(path.join(root, launcher.file), launcher.source)
+    }
+    yield* fs.writeFileString(
+      path.join(root, "package.json"),
+      yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Struct({
+        scripts: Schema.Record(Schema.String, Schema.String)
+      })))({ scripts: {
+        "agents:check": "agents-check",
+        "effect:audit": "effect-audit",
+        lint: "lint",
+        "typecheck:all": "typecheck-all"
+      } })
+    )
+    if (!options.omitLauncherInventory) {
+      const inventory = options.launcherInventory ?? []
+      const encoded = typeof inventory === "string"
+        ? inventory
+        : yield* Schema.encodeEffect(LauncherInventoryJson)([...inventory])
+      yield* fs.writeFileString(path.join(root, "effect-launchers.json"), encoded)
+    }
 
     return yield* use({ root, requests }).pipe(Effect.provide(runner))
   }
@@ -515,14 +549,21 @@ describe("live audit command runner", () => {
 })
 
 import {
+  ExecutableBoundary,
   GrepCandidate,
   GrepInventoryJson,
+  LauncherInventoryJson,
+  compareLauncherInventory,
   compareGrepInventory,
+  executableBoundaryKey,
   grepCandidateKey,
   grepInventoryValidationError,
+  launcherInventoryValidationError,
+  shrinkLauncherInventory,
   shrinkGrepInventory
 } from "./effect-inventory-model"
-import { EFFECT_GREP_ARGS, utf8ByteOffsetToCodeUnit } from "./effect-audit"
+import { EFFECT_GREP_ARGS, parseTrackedModes, utf8ByteOffsetToCodeUnit } from "./effect-audit"
+import { Crypto, Encoding } from "effect"
 
 const candidate = (overrides: Partial<GrepCandidate> = {}) => new GrepCandidate({
   file: "src/example.ts",
@@ -1289,4 +1330,544 @@ describe("Effect grep ripgrep line model", () => {
         expect(result.grepCandidates).toEqual([expected])
       }))
   })
+})
+
+interface FixtureOptions {
+  readonly launcherInventory?: ReadonlyArray<ExecutableBoundary> | string | undefined
+  readonly omitLauncherInventory?: boolean | undefined
+  readonly launcherFiles?: ReadonlyArray<{
+    readonly file: string
+    readonly mode: "100644" | "100755" | "120000" | "160000"
+    readonly source: string
+    readonly write?: boolean | undefined
+  }> | undefined
+}
+
+type AuditFixturePath = Crypto.Crypto | Path.Path
+
+const launcherBoundary = (overrides: Partial<ExecutableBoundary> = {}) => new ExecutableBoundary({
+  file: "scripts/example.sh",
+  mode: "100644",
+  sourceSha256: "0".repeat(64),
+  classification: "migration-debt",
+  host: "Legacy shell launcher",
+  ...overrides
+})
+
+const launcherForSource = Effect.fn("EffectAuditTest.launcherForSource")(
+  (options: {
+    readonly file: string
+    readonly mode: "100644" | "100755"
+    readonly source: string
+    readonly classification?: "host-launcher" | "host-fixture" | "migration-debt"
+    readonly host?: string
+  }) => Effect.gen(function*() {
+    const crypto = yield* Crypto.Crypto
+    const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(options.source))
+    return new ExecutableBoundary({
+      file: options.file,
+      mode: options.mode,
+      sourceSha256: Encoding.encodeHex(digest),
+      classification: options.classification ?? "migration-debt",
+      host: options.host ?? "Synthetic launcher"
+    })
+  }).pipe(Effect.provide(NodeServices.layer))
+)
+
+describe("Effect launcher inventory model", () => {
+  it("accepts only lower-case 64-character SHA-256 fingerprints", () => {
+    expect(Schema.decodeUnknownSync(ExecutableBoundary)(launcherBoundary())).toEqual(launcherBoundary())
+    for (const sourceSha256 of [
+      "A".repeat(64),
+      `${"0".repeat(63)}g`,
+      "0".repeat(63),
+      "0".repeat(65)
+    ]) {
+      expect(() => Schema.decodeUnknownSync(ExecutableBoundary)({
+        ...launcherBoundary(),
+        sourceSha256
+      })).toThrow()
+    }
+    expect(() => Schema.decodeUnknownSync(ExecutableBoundary)({
+      ...launcherBoundary(),
+      classification: "approved"
+    })).toThrow()
+  })
+
+  it("keys launcher records only by repository-relative path", () => {
+    const original = launcherBoundary()
+    const changed = launcherBoundary({
+      mode: "100755",
+      sourceSha256: "1".repeat(64),
+      classification: "host-launcher",
+      host: "Reviewed entry hook"
+    })
+
+    expect(executableBoundaryKey(original)).toBe("scripts/example.sh")
+    expect(executableBoundaryKey(original)).toBe(executableBoundaryKey(changed))
+  })
+
+  it("rejects duplicate, unsorted, malformed, unsupported, and blank-host records", () => {
+    const first = launcherBoundary({ file: "a/first.sh" })
+    const second = launcherBoundary({ file: "b/second.sh" })
+
+    expect(launcherInventoryValidationError([first, first])).toContain("duplicate")
+    expect(launcherInventoryValidationError([second, first])).toContain("sorted")
+    for (const file of ["", "/absolute.sh", "../escape.sh", "a/../escape.sh", "a//b.sh", "a/./b.sh", "a\\b.sh", "a/*.sh", "a/"]) {
+      expect(launcherInventoryValidationError([launcherBoundary({ file })])).toContain("path")
+    }
+    expect(launcherInventoryValidationError([launcherBoundary({ mode: "120000" })])).toContain("mode")
+    expect(launcherInventoryValidationError([launcherBoundary({ file: "src/not-selected.ts" })])).toContain("selected")
+    expect(launcherInventoryValidationError([launcherBoundary({ host: "" })])).toContain("host")
+    expect(launcherInventoryValidationError([launcherBoundary({ host: " padded " })])).toContain("host")
+    expect(launcherInventoryValidationError([first, second])).toBeUndefined()
+  })
+
+  it("compares every mutable field independently while preserving path identity", () => {
+    const expected = [
+      launcherBoundary({ file: "a/removed.sh" }),
+      launcherBoundary({ file: "b/mode.sh" }),
+      launcherBoundary({ file: "c/source.sh" }),
+      launcherBoundary({ file: "d/classification.sh" }),
+      launcherBoundary({ file: "e/host.sh" })
+    ]
+    const modeChanged = launcherBoundary({ file: "b/mode.sh", mode: "100755" })
+    const sourceChanged = launcherBoundary({ file: "c/source.sh", sourceSha256: "1".repeat(64) })
+    const reclassified = launcherBoundary({
+      file: "d/classification.sh",
+      classification: "host-fixture"
+    })
+    const hostChanged = launcherBoundary({ file: "e/host.sh", host: "Changed host" })
+    const added = launcherBoundary({ file: "f/added.sh" })
+
+    expect(compareLauncherInventory(expected, [modeChanged, sourceChanged, reclassified, hostChanged, added])).toEqual({
+      added: [added],
+      removed: [expected[0]],
+      modeChanged: [modeChanged],
+      sourceChanged: [sourceChanged],
+      reclassified: [reclassified],
+      hostChanged: [hostChanged]
+    })
+  })
+
+  it.effect("permits only strict-subset debt removal and returns canonical expected survivors", () =>
+    Effect.gen(function*() {
+      const stale = launcherBoundary({ file: "a/stale.sh" })
+      const reviewed = launcherBoundary({
+        file: "b/reviewed.sh",
+        mode: "100755",
+        sourceSha256: "2".repeat(64),
+        classification: "host-launcher",
+        host: "Reviewed host"
+      })
+      const fixtureRecord = launcherBoundary({
+        file: "c/fixture.sh",
+        classification: "host-fixture",
+        host: "Reviewed fixture"
+      })
+      const survivors = shrinkLauncherInventory([stale, reviewed], [reviewed])
+      const before = yield* Schema.encodeEffect(LauncherInventoryJson)([stale, reviewed])
+      const after = yield* Schema.encodeEffect(LauncherInventoryJson)(survivors ?? [])
+
+      expect(survivors).toEqual([reviewed])
+      expect(survivors?.[0]).toBe(reviewed)
+      expect(before).toContain(after.slice(1, -1))
+      expect(shrinkLauncherInventory([stale, reviewed], [stale, reviewed])).toBeUndefined()
+      expect(shrinkLauncherInventory([stale], [stale, launcherBoundary({ file: "z/added.sh" })])).toBeUndefined()
+      expect(shrinkLauncherInventory([stale, reviewed], [launcherBoundary({ file: "b/reviewed.sh", mode: "100644" })])).toBeUndefined()
+      expect(shrinkLauncherInventory([stale, reviewed], [launcherBoundary({
+        file: "b/reviewed.sh",
+        mode: "100755",
+        sourceSha256: "3".repeat(64),
+        classification: "host-launcher",
+        host: "Reviewed host"
+      })])).toBeUndefined()
+      expect(shrinkLauncherInventory([stale, reviewed], [launcherBoundary({
+        file: "b/reviewed.sh",
+        mode: "100755",
+        sourceSha256: "2".repeat(64),
+        classification: "host-fixture",
+        host: "Reviewed host"
+      })])).toBeUndefined()
+      expect(shrinkLauncherInventory([stale, reviewed], [launcherBoundary({
+        file: "b/reviewed.sh",
+        mode: "100755",
+        sourceSha256: "2".repeat(64),
+        classification: "host-launcher",
+        host: "Changed host"
+      })])).toBeUndefined()
+      expect(shrinkLauncherInventory([reviewed], [])).toBeUndefined()
+      expect(shrinkLauncherInventory([fixtureRecord], [])).toBeUndefined()
+    }))
+})
+
+describe("Effect tracked mode parser", () => {
+  it.effect("parses 40- and 64-character object IDs, preserves unusual paths, and sorts raw paths", () => {
+    const first = "scripts/a shell.sh"
+    const second = "scripts/z\nname\tpart.zsh"
+    const output = [
+      `100644 ${"1".repeat(64)} 0\t${second}`,
+      `100755 ${"0".repeat(40)} 0\t${first}`
+    ].join("\0") + "\0"
+    return Effect.gen(function*() {
+      const parsed = yield* parseTrackedModes([second, first], output)
+      expect(parsed).toEqual([
+        { file: first, mode: "100755" },
+        { file: second, mode: "100644" }
+      ])
+    })
+  })
+
+  it.effect("rejects malformed metadata, conflict stages, invalid object IDs, and unsupported Git modes", () =>
+    Effect.forEach([
+      `100644 ${"0".repeat(40)} 1\tscripts/a.sh\0`,
+      `100644 ${"A".repeat(40)} 0\tscripts/a.sh\0`,
+      `100644 ${"0".repeat(39)} 0\tscripts/a.sh\0`,
+      `100664 ${"0".repeat(40)} 0\tscripts/a.sh\0`,
+      `100644 ${"0".repeat(40)}\tscripts/a.sh\0`,
+      `100644 ${"0".repeat(40)} 0 scripts/a.sh\0`
+    ], (output) => Effect.gen(function*() {
+      const error = yield* parseTrackedModes(["scripts/a.sh"], output).pipe(Effect.flip)
+      expect(error.reason).toBe("invalid-output")
+    })))
+
+  it.effect("requires an exact path bijection across both tracked manifests", () => {
+    const record = (file: string) => `100644 ${"0".repeat(40)} 0\t${file}`
+    return Effect.forEach([
+      { tracked: ["scripts/a.sh", "scripts/a.sh"], output: `${record("scripts/a.sh")}\0` },
+      { tracked: ["scripts/a.sh"], output: `${record("scripts/a.sh")}\0${record("scripts/a.sh")}\0` },
+      { tracked: ["scripts/a.sh", "scripts/b.sh"], output: `${record("scripts/a.sh")}\0` },
+      { tracked: ["scripts/a.sh"], output: `${record("scripts/a.sh")}\0${record("scripts/b.sh")}\0` },
+      { tracked: ["../scripts/a.sh"], output: `${record("../scripts/a.sh")}\0` }
+    ], ({ tracked, output }) => Effect.gen(function*() {
+      const error = yield* parseTrackedModes(tracked, output).pipe(Effect.flip)
+      expect(error.reason).toBe("invalid-output")
+    }))
+  })
+})
+
+describe("Effect launcher inventory command", () => {
+  it.effect("rejects a missing launcher registry in check and update modes without creating it", () =>
+    fixture({ baseline: [], omitLauncherInventory: true }, ({ root }) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+
+        expect(check).toMatchObject({ reason: "baseline-missing", detail: expect.stringContaining("effect-launchers.json") })
+        expect(update).toMatchObject({ reason: "baseline-missing", detail: expect.stringContaining("effect-launchers.json") })
+        expect(yield* fs.exists(`${root}/effect-launchers.json`)).toBe(false)
+      })))
+
+  it.effect("discovers executable files and lower-case shell extensions while ignoring ordinary files", () =>
+    Effect.gen(function*() {
+      const launcherFiles = [
+        { file: "bin/extensionless", mode: "100755" as const, source: "#!/bin/sh\nexit 0\n" },
+        { file: "scripts/plain.bash", mode: "100644" as const, source: "#!/bin/bash\nexit 0\n" },
+        { file: "scripts/plain.sh", mode: "100644" as const, source: "#!/bin/sh\nexit 0\n" },
+        { file: "scripts/plain.zsh", mode: "100644" as const, source: "#!/bin/zsh\nexit 0\n" }
+      ]
+      const inventory = yield* Effect.forEach(launcherFiles, (entry) => launcherForSource(entry))
+      yield* fixture({ baseline: [], launcherFiles, launcherInventory: inventory }, ({ root }) =>
+        Effect.gen(function*() {
+          const result = yield* runAudit({ root, mode: "check" })
+
+          expect(result.launchers.map(({ file }) => file)).toEqual(launcherFiles.map(({ file }) => file))
+          expect(result.launcherAdded).toEqual([])
+          expect(result.launcherRemoved).toEqual([])
+          expect(result.launcherModeChanged).toEqual([])
+          expect(result.launcherSourceChanged).toEqual([])
+          expect(result.launcherCounts).toEqual({
+            "host-launcher": 0,
+            "host-fixture": 0,
+            "migration-debt": 4
+          })
+        }))
+    }))
+
+  it.effect("types selected symlinks, submodules, and missing source bytes as invalid output", () =>
+    Effect.forEach([
+      { file: "scripts/link.sh", mode: "120000" as const, source: "target\n", write: true },
+      { file: "scripts/module.sh", mode: "160000" as const, source: "target\n", write: true },
+      { file: "scripts/missing.sh", mode: "100644" as const, source: "", write: false }
+    ], (entry) => fixture({ baseline: [], launcherFiles: [entry] }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      }))))
+
+  it.effect("rejects launcher additions in both modes without writing any ledger", () =>
+    fixture({
+      baseline: [finding()],
+      inventory: [candidate({ file: "a/stale.ts" })],
+      launcherFiles: [{ file: "bin/new-launcher", mode: "100755", source: "#!/bin/sh\nexit 0\n" }]
+    }, ({ root }) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const files = ["effect-audit-baseline.json", "effect-grep-inventory.json", "effect-launchers.json"]
+      const before = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+      const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+      const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+      const after = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+
+      expect(check.reason).toBe("new-findings")
+      expect(update.reason).toBe("baseline-growth")
+      expect(after).toEqual(before)
+    })))
+
+  it.effect("rejects tracked mode and source-byte drift without refreshing the registry", () =>
+    Effect.gen(function*() {
+      const source = "#!/bin/sh\nexit 0\n"
+      const original = yield* launcherForSource({ file: "scripts/tool.sh", mode: "100644", source })
+      const sourceDrift = yield* launcherForSource({ file: "scripts/tool.sh", mode: "100644", source: `${source}echo changed\n` })
+      yield* fixture({
+        baseline: [],
+        launcherFiles: [{ file: "scripts/tool.sh", mode: "100755", source }],
+        launcherInventory: [original]
+      }, ({ root }) => Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const before = yield* fs.readFileString(`${root}/effect-launchers.json`)
+        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        expect(check.reason).toBe("new-findings")
+        expect(update.reason).toBe("baseline-growth")
+        expect(yield* fs.readFileString(`${root}/effect-launchers.json`)).toBe(before)
+      }))
+      yield* fixture({
+        baseline: [],
+        launcherFiles: [{ file: "scripts/tool.sh", mode: "100644", source: `${source}echo changed\n` }],
+        launcherInventory: [original]
+      }, ({ root }) => Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("new-findings")
+        expect(error.detail).toContain("source")
+        expect(sourceDrift.sourceSha256).not.toBe(original.sourceSha256)
+      }))
+    }))
+
+  it.effect("keeps deleted launcher debt stale until update removes it", () => {
+    const stale = launcherBoundary()
+    return fixture({ baseline: [], launcherInventory: [stale] }, ({ root }) =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(check.reason).toBe("stale-baseline")
+
+        const updated = yield* runAudit({ root, mode: "update" })
+        expect(updated.launcherRemoved).toEqual([stale])
+        expect(yield* Schema.decodeUnknownEffect(LauncherInventoryJson)(
+          yield* fs.readFileString(`${root}/effect-launchers.json`)
+        )).toEqual([])
+        yield* runAudit({ root, mode: "check" })
+      }))
+  })
+
+  it.effect("never removes a stale host launcher or host fixture", () =>
+    Effect.forEach(["host-launcher", "host-fixture"] as const, (classification) =>
+      fixture({
+        baseline: [],
+        launcherInventory: [launcherBoundary({ classification, host: "Reviewed permanent host" })]
+      }, ({ root }) => Effect.gen(function*() {
+        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        expect(check.reason).toBe("stale-baseline")
+        expect(update.reason).toBe("baseline-growth")
+      }))))
+
+  it.effect("accepts the current and Task 6 host-launcher grammar", () =>
+    Effect.gen(function*() {
+      for (const source of [
+        "#!/bin/sh\nset -e\necho \"gate\"\nnpm run lint\n",
+        "#!/bin/sh\nset -e\necho 'gate'\nnpm run effect:audit\n"
+      ]) {
+        const record = yield* launcherForSource({
+          file: ".githooks/test-hook",
+          mode: "100755",
+          source,
+          classification: "host-launcher",
+          host: "Git test hook"
+        })
+        yield* fixture({
+          baseline: [],
+          launcherFiles: [{ file: record.file, mode: "100755", source }],
+          launcherInventory: [record]
+        }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
+      }
+    }))
+
+  it.effect("rejects arbitrary, redirected, composed, or unresolved host-launcher commands", () =>
+    Effect.gen(function*() {
+      const bodies = [
+        "npm run lint\n",
+        "#!/bin/sh\n",
+        "#!/bin/sh\nrm -rf tmp\n",
+        "#!/bin/sh\nnpm run lint -- --fix\n",
+        "#!/bin/sh\nnpm run lint > result\n",
+        "#!/bin/sh\nnpm run lint | tee result\n",
+        "#!/bin/sh\nnpm run lint &\n",
+        "#!/bin/sh\necho \"$(pwd)\"\n",
+        "#!/bin/sh\nVALUE=1\n",
+        "#!/bin/sh\nrun() { npm run lint; }\n",
+        "#!/bin/sh\nfor x in lint; do npm run $x; done\n",
+        "#!/bin/sh\nnpm run unknown-selector\n",
+        "#!/bin/sh\nnpm run toString\n",
+        "#!/bin/sh\n npm run lint\n"
+      ]
+      for (const source of bodies) {
+        const record = yield* launcherForSource({
+          file: ".githooks/test-hook",
+          mode: "100755",
+          source,
+          classification: "host-launcher",
+          host: "Git test hook"
+        })
+        yield* fixture({
+          baseline: [],
+          launcherFiles: [{ file: record.file, mode: "100755", source }],
+          launcherInventory: [record]
+        }, ({ root }) => Effect.gen(function*() {
+          const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+          expect(error.reason).toBe("invalid-output")
+        }))
+      }
+      const source = "#!/bin/sh\nnpm run lint\n"
+      const record = yield* launcherForSource({
+        file: "scripts/not-a-hook.sh",
+        mode: "100755",
+        source,
+        classification: "host-launcher",
+        host: "Not a hook"
+      })
+      yield* fixture({
+        baseline: [],
+        launcherFiles: [{ file: record.file, mode: "100755", source }],
+        launcherInventory: [record]
+      }, ({ root }) => Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      }))
+      const nonExecutable = yield* launcherForSource({
+        file: ".githooks/non-executable.sh",
+        mode: "100644",
+        source,
+        classification: "host-launcher",
+        host: "Non-executable hook"
+      })
+      yield* fixture({
+        baseline: [],
+        launcherFiles: [{ file: nonExecutable.file, mode: "100644", source }],
+        launcherInventory: [nonExecutable]
+      }, ({ root }) => Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      }))
+    }))
+
+  it.effect("requires exact AST string-literal proof for host fixtures", () =>
+    Effect.gen(function*() {
+      const fixtureFile = "scripts/fixture.sh"
+      const fixtureSource = "#!/bin/sh\nexit 0\n"
+      const record = yield* launcherForSource({
+        file: fixtureFile,
+        mode: "100644",
+        source: fixtureSource,
+        classification: "host-fixture",
+        host: "Shell test fixture"
+      })
+      yield* fixture({
+        baseline: [],
+        sampleFile: "test/sample.test.ts",
+        source: `export const fixture = "${fixtureFile}"\n`,
+        launcherFiles: [{ file: fixtureFile, mode: "100644", source: fixtureSource }],
+        launcherInventory: [record]
+      }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
+
+      for (const source of [
+        `// ${fixtureFile}\nexport const fixture = "other"\n`,
+        `export const fixture = "prefix ${fixtureFile}"\n`,
+        "const name = \"fixture\"\nexport const fixture = `scripts/${name}.sh`\n"
+      ]) {
+        yield* fixture({
+          baseline: [],
+          sampleFile: "test/sample.test.ts",
+          source,
+          launcherFiles: [{ file: fixtureFile, mode: "100644", source: fixtureSource }],
+          launcherInventory: [record]
+        }, ({ root }) => Effect.gen(function*() {
+          const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+          expect(error.reason).toBe("invalid-output")
+        }))
+      }
+
+      yield* fixture({
+        baseline: [],
+        source: `export const fixture = "${fixtureFile}"\n`,
+        launcherFiles: [{ file: fixtureFile, mode: "100644", source: fixtureSource }],
+        launcherInventory: [record]
+      }, ({ root }) => Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error.reason).toBe("invalid-output")
+      }))
+    }))
+
+  it.effect("removes launcher debt without changing surviving reviewed bytes", () =>
+    Effect.gen(function*() {
+      const source = "#!/bin/sh\nset -e\necho \"gate\"\nnpm run lint\n"
+      const reviewed = yield* launcherForSource({
+        file: ".githooks/test-hook",
+        mode: "100755",
+        source,
+        classification: "host-launcher",
+        host: "Preserve reviewed bytes"
+      })
+      const stale = launcherBoundary({ file: "z/stale.sh" })
+      const before = yield* Schema.encodeEffect(LauncherInventoryJson)([reviewed, stale])
+      const reviewedOnly = yield* Schema.encodeEffect(LauncherInventoryJson)([reviewed])
+      yield* fixture({
+        baseline: [],
+        launcherFiles: [{ file: reviewed.file, mode: "100755", source }],
+        launcherInventory: before
+      }, ({ root }) => Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        yield* runAudit({ root, mode: "update" })
+        const after = yield* fs.readFileString(`${root}/effect-launchers.json`)
+        expect(after).toBe(reviewedOnly)
+        expect(before).toContain(reviewedOnly.slice(1, -1))
+      }))
+    }))
+
+  it.effect("validates all three ledgers before writing any shrink", () =>
+    Effect.gen(function*() {
+      const keyword = ["as", "ync"].join("")
+      const source = `export const sample = ${keyword} () => 1\n`
+      const staleLauncher = launcherBoundary()
+      yield* fixture({
+        baseline: [finding()],
+        inventory: [],
+        launcherInventory: [staleLauncher],
+        source,
+        grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword))
+      }, ({ root }) => Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const files = ["effect-audit-baseline.json", "effect-grep-inventory.json", "effect-launchers.json"]
+        const before = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const after = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+        expect(error.reason).toBe("baseline-growth")
+        expect(after).toEqual(before)
+      }))
+
+      yield* fixture({
+        baseline: [finding()],
+        inventory: [candidate({ file: "a/stale.ts" })],
+        launcherInventory: "[ ]"
+      }, ({ root }) => Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const files = ["effect-audit-baseline.json", "effect-grep-inventory.json", "effect-launchers.json"]
+        const before = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const after = yield* Effect.forEach(files, (file) => fs.readFileString(`${root}/${file}`))
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("canonical") })
+        expect(after).toEqual(before)
+      }))
+    }))
 })
