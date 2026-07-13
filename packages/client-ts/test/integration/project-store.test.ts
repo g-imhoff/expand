@@ -1,36 +1,37 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, ManagedRuntime, Layer, SubscriptionRef, Stream } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
-let bunMainBefore: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-store-"))
-  bunMainBefore = (Bun as unknown as { main: string }).main
-  ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
-  ;(Bun as unknown as { main: string }).main = bunMainBefore
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("ProjectStore", () => {
   it("snapshot + live cross-store updates", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
 
-      await new Promise((r) => setTimeout(r, 500))
+      await setTimeout(500)
 
       const seen = rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
@@ -52,13 +53,13 @@ describe("ProjectStore", () => {
   })
 
   it("renameProject updates the reactive projects ref via the live fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("alpha"))
       await rt.runPromise(store.renameProject(created.id, "alpha-renamed"))
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(snapshot.find((p) => p.id === created.id)?.name).toBe("alpha-renamed")
     } finally {
@@ -67,14 +68,14 @@ describe("ProjectStore", () => {
   })
 
   it("changeDirectory updates the reactive projects ref", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rt = ManagedRuntime.make(appLayer)
     const tmp = mkdtempSync(join(tmpdir(), "expand-cds-"))
     try {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("cdstore"))
       const moved = await rt.runPromise(store.changeDirectory(created.id, tmp))
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       expect(moved.directory).toBe(tmp)
       expect(snapshot.find((p) => p.id === created.id)?.directory).toBe(tmp)
@@ -85,11 +86,11 @@ describe("ProjectStore", () => {
   })
 
   it("archive toggles archived in the live ref via the Events fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
       const created = await rt.runPromise(store.createProject("toggleme"))
       const seenArchived = rt.runPromise(
         SubscriptionRef.changes(store.projects).pipe(
@@ -107,13 +108,13 @@ describe("ProjectStore", () => {
   })
 
   it("seeds the startup snapshot with archived projects (restore stays reachable)", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const created = await rtA.runPromise(storeA.createProject("archived-at-rest"))
       await rtA.runPromise(storeA.archiveProject(created.id))
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
 
       const rtB = ManagedRuntime.make(appLayer)
       try {
@@ -131,7 +132,7 @@ describe("ProjectStore", () => {
   })
 
   it("exposes a live events stream that emits ProjectCreated", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
@@ -142,7 +143,7 @@ describe("ProjectStore", () => {
           Stream.runCollect
         )
       )
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
       await rt.runPromise(store.createProject("gamma"))
       const events = await seen
       expect(Array.from(events)[0]).toMatchObject({ event: { _tag: "ProjectCreated", name: "gamma" } })
@@ -151,13 +152,13 @@ describe("ProjectStore", () => {
     }
   })
   it("setMetadata mutates the reactive ref via the live fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rt = ManagedRuntime.make(appLayer)
     try {
       const store = await rt.runPromise(ProjectStore)
       const created = await rt.runPromise(store.createProject("withmeta"))
       await rt.runPromise(store.setMetadata(created.id, { description: "desc", tags: ["a", "a"] }))
-      await new Promise((r) => setTimeout(r, 300))
+      await setTimeout(300)
       const snapshot = await rt.runPromise(SubscriptionRef.get(store.projects))
       const p = snapshot.find((x) => x.id === created.id)
       expect(p?.description).toBe("desc")
@@ -167,13 +168,13 @@ describe("ProjectStore", () => {
     }
   })
   it("delete shrinks the live ref and propagates cross-store", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
-      await new Promise((r) => setTimeout(r, 500))
+      await setTimeout(500)
       const created = await rtA.runPromise(storeA.createProject("toremove"))
       await rtB.runPromise(
         SubscriptionRef.changes(storeB.projects).pipe(
@@ -197,5 +198,4 @@ describe("ProjectStore", () => {
     }
   })
 })
-
 

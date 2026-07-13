@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { ClientLayer } from "@expand/client-ts"
@@ -36,7 +36,7 @@ const program = Effect.gen(function*() {
   console.log(`bootstrap: created ${created}, skipped ${skipped}`)
 })
 
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => {

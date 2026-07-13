@@ -5,14 +5,14 @@
 //
 // Two client-ts specifics beyond the contracts recipe:
 //   1. Exports stay SCOPED-ENTRYPOINTS-ONLY — only ".", "./project", "./server",
-//      "./adapters/bun", "./adapters/node" and "./package.json" are exposed;
+//      "./adapters/node" and "./package.json" are exposed;
 //      internal modules (rpc-client, spawn, …) are unreachable. (They are also
 //      physically absent: tsup bundles each entry.)
 //   2. The `@expand/contracts` dependency is rewritten from the in-repo
 //      `workspace:*` protocol to the real version from packages/contracts, so the
 //      published tarball is installable outside the workspace.
 //
-// Flow:  bun run build              -> tsup emits ./dist/*.js, tsc emits ./dist/*.d.ts
+// Flow:  npm run build              -> tsup emits ./dist/*.js, tsc emits ./dist/*.d.ts
 //        node scripts/prepare-publish.mjs -> writes ./dist-publish/{package.json, dist/**}
 //        npm pack ./dist-publish    -> tarball whose package.json exports resolve dist/*.js
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -24,7 +24,7 @@ const distDir = join(pkgDir, "dist")
 const stageDir = join(pkgDir, "dist-publish")
 
 if (!existsSync(distDir)) {
-  console.error("[prepare-publish] ./dist not found — run `bun run build` first.")
+  console.error("[prepare-publish] ./dist not found — run `npm run build` first.")
   process.exit(1)
 }
 
@@ -61,11 +61,6 @@ const publishPkg = {
       types: "./dist/server/index.d.ts",
       import: "./dist/server/index.js",
       default: "./dist/server/index.js"
-    },
-    "./adapters/bun": {
-      types: "./dist/adapters/bun.d.ts",
-      import: "./dist/adapters/bun.js",
-      default: "./dist/adapters/bun.js"
     },
     "./adapters/node": {
       types: "./dist/adapters/node.d.ts",

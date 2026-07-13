@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Layer, Option } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -16,8 +16,8 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const run = <A, E>(eff: Effect.Effect<A, E, BunServices.BunServices>) =>
-  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(BunServices.layer, Layer.succeed(AppContext, makeAppContext(dir)))))
+const run = <A, E>(eff: Effect.Effect<A, E, NodeServices.NodeServices>) =>
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeAppContext(dir)))))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(

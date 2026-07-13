@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime, Stream } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { appendFileSync } from "node:fs"
 import { ProjectStore, ProjectStoreLayer } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
@@ -24,7 +24,7 @@ const program = Effect.scoped(Effect.gen(function*() {
   )
 }))
 
-const runtime = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+const runtime = ManagedRuntime.make(ProjectStoreLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => {

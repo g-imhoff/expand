@@ -6,10 +6,6 @@ import { spawn } from "node:child_process"
 import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable } from "../errors"
 
-// backendCommand is REQUIRED: unlike Bun, there is no safe self-re-invoking
-// default here. Under Electron process.execPath is the Electron binary, not a JS
-// runtime, so a derived default would silently spawn the wrong thing. Consumers
-// (e.g. desktop) pass an explicit command, typically via resolveBackendCommand.
 export interface NodeAdapterOptions {
   readonly backendCommand: ReadonlyArray<string> | (() => ReadonlyArray<string>)
 }

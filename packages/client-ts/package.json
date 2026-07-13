@@ -8,7 +8,6 @@
     ".": "./index.ts",
     "./project": "./project/index.ts",
     "./server": "./server/index.ts",
-    "./adapters/bun": "./adapters/bun.ts",
     "./adapters/node": "./adapters/node.ts",
     "./package.json": "./package.json"
   },
@@ -18,7 +17,6 @@
     "pack:tgz": "bun run build && bun run stage:publish && npm pack ./dist-publish"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-beta.74",
     "@expand/contracts": "0.0.0",
     "effect": "4.0.0-beta.74",
     "ws": "^8.21.0"

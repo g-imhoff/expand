@@ -19,7 +19,6 @@ export default defineConfig({
     "index": "index.ts",
     "project/index": "project/index.ts",
     "server/index": "server/index.ts",
-    "adapters/bun": "adapters/bun.ts",
     "adapters/node": "adapters/node.ts"
   },
   format: ["esm"],
@@ -37,5 +36,5 @@ export default defineConfig({
   treeshake: false,
   // Do NOT bundle dependencies — ship references, resolved from the consumer's
   // node_modules. The tracked package.json declares each as a dependency.
-  external: ["effect", /^effect\//, "@effect/platform-bun", "ws", "@expand/contracts", /^@expand\/contracts\//]
+  external: ["effect", /^effect\//, "ws", "@expand/contracts", /^@expand\/contracts\//]
 })
