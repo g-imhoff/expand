@@ -65,7 +65,18 @@ total deterministic calculations remain ordinary functions. Wrapping them in
 
 The policy covers tracked first-party TypeScript, TSX, MTS, CTS, JavaScript,
 MJS, and CJS under applications, packages, scripts, examples, benchmarks,
-migrations, test support, and root configuration.
+migrations, test support, and root configuration. It also covers executable
+host-language launchers and test harnesses. Declarative workflow, package,
+architecture, HTML, and style configuration remains ordinary data.
+
+New product, build, and test orchestration is written as TypeScript Effect
+programs. A host that cannot launch Effect directly may retain an exact,
+registered launcher that delegates immediately to one entry program. The
+current large `scripts/binary-smoke.sh` harness is not grandfathered: migrate
+its orchestration to an Effect program and retain only a minimal shell fixture
+if POSIX job-control behavior itself still requires one. The Git pre-commit
+hook is a registered launcher and may contain only the commands necessary to
+enter the repository checks.
 
 The audit excludes dependency trees and generated build products such as
 `node_modules`, `dist`, `out`, `coverage`, Playwright output, and test-result
@@ -109,8 +120,8 @@ already-total calculations.
 ### Official Effect diagnostics
 
 Pin `@effect/language-service` as a development dependency and configure it in
-the root and desktop TypeScript projects. TypeScript 6 uses this package rather
-than the TypeScript 7-only `@effect/tsgo` replacement.
+the root and desktop TypeScript projects for editor feedback. TypeScript 6 uses
+this package rather than the TypeScript 7-only `@effect/tsgo` replacement.
 
 Run its standalone project diagnostic command in CI instead of patching the
 installed TypeScript compiler. The audit enables semantic correctness rules and
@@ -130,9 +141,12 @@ promotes the relevant Effect-native boundary diagnostics to errors, including:
 - `floatingEffect`;
 - `lazyPromiseInEffectSync`;
 - `runEffectInsideEffect`;
-- `schemaSyncInEffect`;
 - `tryCatchInEffectGen`;
 - `globalErrorInEffectCatch` and `globalErrorInEffectFailure`.
+
+Only diagnostics verified for the pinned Effect v4 release are mandatory.
+`schemaSyncInEffect` is not included because the pinned language-service
+release exposes it for Effect v3 only.
 
 Correctness diagnostics already emitted as errors remain enabled.
 `effectFnOpportunity` remains advisory because it cannot distinguish a reusable
@@ -141,21 +155,54 @@ the coding convention below require `Effect.fn` for exported or reusable named
 effectful operations. Style-only diagnostics unrelated to the Effect-only
 invariant do not become mandatory as part of this project.
 
-The repository exposes separate root and desktop audit scripts because the
-existing root TypeScript project deliberately excludes Electron sources.
-`npm run effect:audit` runs both and then the repository-specific ESLint gate.
+Add a dedicated audit TypeScript project that includes every tracked
+first-party TypeScript input, including desktop E2E tests, Electron/Vite
+configuration, root tests, scripts, examples, and benchmarks. It does not rely
+on the narrower existing root and desktop build projects. An architecture test
+compares its resolved file set with the tracked TypeScript source manifest so
+new roots cannot escape semantic diagnostics.
+
+The standalone language-service diagnostic command runs against that audit
+project without patching the installed TypeScript compiler. JavaScript,
+configuration modules, and executable host launchers receive the repository
+checks described below. `npm run effect:audit` runs the official diagnostics,
+the repository rule, the exemption validator, and the tracked-source coverage
+test.
 
 ### Repository-specific AST gate
 
 Extend the local ESLint plugin with a focused Effect-boundary rule. It supplies
 the policy that an upstream language service cannot infer:
 
-- reject explicit Promise types outside registered host signatures;
-- reject `.then`, `.catch`, and `.finally` Promise-style chains;
+- reject async functions, `AwaitExpression`, Promise construction and statics,
+  and Promise-style chains in both TypeScript and JavaScript;
+- use TypeScript type information to reject explicit or inferred
+  `PromiseLike`-returning first-party flows unless the value is consumed
+  directly by `Effect.tryPromise` or required by a registered host signature;
 - reject Effect runners outside registered entrypoint or bridge functions;
+- reject ambient Node and browser capabilities and direct platform imports or
+  calls outside registered adapters, using an enumerated policy that includes
+  process state, timers, time, randomness, console, filesystem, networking,
+  IPC, workers, ports, and browser storage or event resources;
+- require exported named Effect-returning operations to use `Effect.fn` or an
+  explicitly permitted `Effect.fnUntraced` boundary;
 - reject broad file or directory exemptions;
-- reject unused or stale exemptions;
 - enforce exact declaration identities for required host signatures.
+
+Extend the ESLint file globs beyond their current `apps`, `packages`, and
+`examples` TypeScript coverage to include `bench`, `scripts`, `test`, root
+configuration modules, `eslint-rules` itself, and all in-scope TypeScript and
+JavaScript extensions. TypeScript files use the dedicated audit project for
+type information; JavaScript receives the same syntax and ambient-capability
+checks. Effectful JavaScript utilities migrate to TypeScript, leaving only pure
+configuration and rule infrastructure at completion.
+
+An architecture test compares configured coverage with tracked source files so
+a new first-party root or extension cannot silently escape the audit. A
+repository-wide registry validator separately resolves every exemption to
+exactly one tracked AST declaration and fails for missing, duplicate, unused,
+or stale entries; a per-file ESLint rule cannot prove that a deleted file no
+longer exists.
 
 The rule configuration owns a small structured exemption registry. Each entry
 contains the file, declaration, host API, and permitted construct. Inline
@@ -166,6 +213,17 @@ Representative legitimate host signatures include Electron's invoke and
 handler Promise contracts and the single wrappers used to adapt Vitest and
 Playwright callbacks. APIs such as `BrowserWindow.loadURL` or `esbuild.build`
 are not exemptions: their Promises are consumed inside `Effect.tryPromise`.
+
+### Temporary migration ratchet
+
+Stage 1 records each existing violation in a temporary, exact migration ledger
+keyed by rule, file, declaration, and construct. During migration,
+`effect:audit` fails on a new or moved violation, a broadened entry, or a stale
+entry that no longer has a matching diagnostic. Each implementation task
+removes the entries it fixes. This ledger is not a host exemption registry and
+cannot receive new debt after its initial capture; it is deleted when empty
+before final certification. This makes CI and pre-commit enforcement usable
+through a multi-commit migration without accepting a permanent baseline.
 
 ### Fast ripgrep discovery
 
@@ -178,13 +236,16 @@ rg -n --hidden \
   -g '!.git/**' \
   -g '!**/node_modules/**' \
   -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' \
-  "\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|fetch)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|Math\\.random|crypto\\.randomUUID|process\\.env)\\b|\\bnode:(?:fs(?:/promises)?|timers(?:/promises)?|crypto|http|https|child_process)\\b|\\b(?:Effect|Runtime|NodeRuntime|BunRuntime)\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\s*\\("
+  "\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\s*\\(|new\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|performance\\.now|Math\\.random|crypto\\.randomUUID|JSON\\.(?:parse|stringify)|process\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\.)|\\bnode:[^'\"[:space:]]+|\\b[A-Za-z_$][A-Za-z0-9_$]*\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\b"
 ```
 
 Search output is not proof of noncompliance because it includes type mentions,
-comments, and legitimate adapters. The language-service and AST gates are the
-authoritative proof. At completion, every remaining grep match must correspond
-to the exact committed host-boundary inventory.
+rule-test source snippets, valid Effect methods such as `Effect.catch`, and
+legitimate adapters. The language-service and repository gates are the
+authoritative proof. At completion, every remaining match is recorded in an
+exact, validated candidate inventory as a host boundary, host-required type,
+audit fixture, or lexical false positive. Only the first category permits
+executable native control flow.
 
 ## Effect Coding Conventions
 
@@ -249,15 +310,21 @@ must not weaken the existing cross-process ownership protocol.
 ### Stage 1: Audit foundation
 
 - add and configure the Effect language service;
-- implement and test the local Effect-boundary ESLint rule;
-- add `effect:grep`, root/desktop diagnostic commands, and `effect:audit`;
+- add the dedicated semantic audit project and tracked-source coverage test;
+- implement and test the type-aware Effect-boundary ESLint rule and the
+  repository-wide exemption validator;
+- add `effect:grep`, the candidate inventory, and `effect:audit`;
 - add CI and pre-commit enforcement;
 - document the policy and initial exact host exemption registry;
-- capture the initial diagnostic inventory as migration input rather than
-  accepting it as a permanent baseline.
+- capture and validate the exact temporary migration ledger.
 
 The final rule is introduced first so every later task reduces measured debt
 and cannot add a new category of violation.
+
+Stage 1 replaces the current broad ESLint infrastructure ignores with layered
+configuration, adds `effect:audit` to both `.githooks/pre-commit` and the CI
+checks job, and preserves the existing agent-sync, lint, typecheck,
+dependency-cruiser, test, desktop E2E, and binary-certification checks.
 
 ### Stage 2: Core runtime and SDK
 
@@ -287,27 +354,34 @@ and cannot add a new category of violation.
 
 - convert build, generator, agent-sync, packaging, and maintenance scripts to
   NodeRuntime Effect programs;
+- replace the Bash binary-smoke orchestration with an Effect program and retain
+  only a minimal registered shell fixture if POSIX job control requires it;
 - convert examples and benchmarks to Effect-returning APIs and scoped runners;
 - introduce Effect-aware Vitest and Playwright adapters;
 - convert test bodies, fixtures, process helpers, filesystem helpers, and timing
   control to Effect;
-- remove all temporary migration exemptions.
+- remove all development-and-test entries from the migration ledger.
 
 ### Stage 5: Final ratchet and certification
 
 - require zero unapproved semantic and AST diagnostics;
-- compare every grep match with the exact host-boundary inventory;
-- remove stale exemptions and migration-only tooling;
+- validate every grep match against the exact candidate inventory;
+- prove every executable host-language launcher is minimal and registered;
+- delete the empty migration ledger and remove stale exemptions or
+  migration-only tooling;
 - run the entire static, unit, integration, build, package, CLI, and desktop
   certification matrix;
 - perform a final manual whole-tree audit against this specification.
 
 ## Testing Strategy
 
-The audit foundation has focused RuleTester coverage for every prohibited
-construct, every legitimate host signature, narrow versus broad exemptions,
-stale exemptions, root and desktop project coverage, and fixer idempotence if a
-fix is offered.
+The audit foundation has focused RuleTester coverage for async declarations,
+top-level and nested `await`, Promise construction, statics, chains, explicit
+and inferred `PromiseLike` results, every ambient capability in the policy,
+Effect runners, every legitimate host signature, and narrow versus broad
+exemptions. Repository tests cover stale or missing registry declarations,
+tracked TypeScript audit-project coverage, JavaScript and launcher coverage,
+candidate-inventory drift, and fixer idempotence if a fix is offered.
 
 Each runtime migration starts with a behavioral test at the public boundary.
 Clock, Crypto, Config, and filesystem services are injected in tests so time,
@@ -326,11 +400,13 @@ Effect reaches the host test runner correctly.
 The project is complete only when all of the following evidence exists from a
 fresh current checkout:
 
-1. `npm run effect:audit` passes root and desktop projects with zero unapproved
-   diagnostics.
-2. `npm run effect:grep` contains only exact registered host-boundary matches.
-3. Architecture tests prove the audit is enabled, covers all first-party source
-   roots, and has no broad exclusion.
+1. `npm run effect:audit` passes the dedicated semantic project and repository
+   gates with zero unapproved diagnostics.
+2. Every `npm run effect:grep` match has one exact, validated candidate
+   classification; executable exceptions are registered host boundaries only.
+3. Architecture tests prove the audit is enabled, covers all tracked
+   first-party source and executable launcher roots, and has no broad
+   exclusion.
 4. No native asynchronous control flow, ambient platform read, direct I/O, or
    unowned resource remains outside an approved adapter.
 5. `npm run lint`, both TypeScript projects, dependency-cruiser, Knip, agent
