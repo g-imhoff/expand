@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Queue, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -35,7 +39,7 @@ describe.sequential("project operations over the wire", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
-      const outcome = yield* withClient(bunAdapter, (client) =>
+      const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const events = yield* client.Events({}, { asQueue: true })
           yield* Effect.sleep("500 millis")
@@ -57,7 +61,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.renamed.name).toBe("ops-renamed")
@@ -80,7 +84,7 @@ describe.sequential("project operations over the wire", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const result = yield* withClient(bunAdapter, (client) =>
+      const result = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const { project } = yield* client.ProjectCreate({ name: "dirfail", ensure: false })
           return yield* client.ProjectChangeDirectory({ id: project.id, directory: "/definitely/not/here" }).pipe(Effect.result)
@@ -88,7 +92,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r._tag).toBe("Failure")
     if (r._tag === "Failure") expect((r.failure as { _tag: string })._tag).toBe("ProjectDirectoryInvalid")

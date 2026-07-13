@@ -1,35 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { ManagedRuntime, Layer, SubscriptionRef, Stream } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
-let bunMainBefore: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-xstore-"))
-  bunMainBefore = (Bun as unknown as { main: string }).main
-  ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
-  ;(Bun as unknown as { main: string }).main = bunMainBefore
   rmSync(dir, { recursive: true, force: true })
 })
 
 describe("cross-store live sync", () => {
   it("a rename through store A appears in store B via the live event-fold", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
-      await new Promise((r) => setTimeout(r, 500))
+      await setTimeout(500)
 
       const created = await rtA.runPromise(storeA.createProject("sync-me"))
       await rtB.runPromise(
@@ -56,13 +57,13 @@ describe("cross-store live sync", () => {
   })
 
   it("an archive then a delete through store A both propagate to store B", async () => {
-    const appLayer = ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    const appLayer = ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const rtA = ManagedRuntime.make(appLayer)
     const rtB = ManagedRuntime.make(appLayer)
     try {
       const storeA = await rtA.runPromise(ProjectStore)
       const storeB = await rtB.runPromise(ProjectStore)
-      await new Promise((r) => setTimeout(r, 500))
+      await setTimeout(500)
 
       const created = await rtA.runPromise(storeA.createProject("xstore-archdel"))
       await rtB.runPromise(

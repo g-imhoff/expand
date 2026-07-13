@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, Logger, References, Schedule } from "effect"
 import { HttpServer } from "effect/unstable/http"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -27,8 +27,8 @@ const testCore = (dbPath: string) => {
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunServices.layer)
+    Layer.provide(NodeFileSystem.layer),
+    Layer.provide(NodeServices.layer)
   )
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
@@ -55,6 +55,7 @@ describe("access log redaction", () => {
   it("never writes the rpc token into http.url log annotations", async () => {
     const dir = mkdtempSync(join(tmpdir(), "expand-redact-"))
     const records: Array<Record<string, unknown>> = []
+    const token = "trust-boundary-token"
     const captureLogger = Logger.make(({ fiber }) => {
       records.push({ ...fiber.getRef(References.CurrentLogAnnotations) })
     })
@@ -63,10 +64,10 @@ describe("access log redaction", () => {
     const program = Effect.gen(function* () {
       const transport = yield* Layer.build(
         Layer.mergeAll(
-          httpServerLayer(0, "trust-boundary-token").pipe(
+          httpServerLayer(0, token).pipe(
             Layer.provide(testCore(join(dir, "redact.db")))
           ),
-          BunServices.layer
+          NodeServices.layer
         ).pipe(
           Layer.provide(Logger.layer([captureLogger])),
           Layer.provide(Layer.succeed(References.MinimumLogLevel)("Debug"))
@@ -76,7 +77,7 @@ describe("access log redaction", () => {
       const addr = server.address
       const port = addr._tag === "TcpAddress" ? addr.port : 0
       const opened = yield* Effect.promise(() =>
-        probeWs(`ws://127.0.0.1:${port}/rpc?token=trust-boundary-token`)
+        probeWs(`ws://127.0.0.1:${port}/rpc?token=${token}`)
       )
       yield* Effect.suspend(() =>
         rpcRecords().length > 0 ? Effect.void : Effect.fail("pending" as const)
@@ -87,13 +88,18 @@ describe("access log redaction", () => {
           orElse: () => Effect.fail(new Error("no /rpc access-log record was captured"))
         })
       )
-      return opened
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer))
+      const hostname = addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
+      return { hostname, opened }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
     try {
-      const opened = await Effect.runPromise(program)
+      const { hostname, opened } = await Effect.runPromise(program)
+      const logOutput = JSON.stringify(records)
       expect(opened).toBe("open")
+      expect(hostname).toBe("127.0.0.1")
       expect(rpcRecords().length).toBeGreaterThan(0)
+      expect(logOutput).not.toContain(token)
+      expect(logOutput).toContain("/rpc")
       for (const annotations of records) {
         expect(JSON.stringify(annotations)).not.toContain("token=")
       }

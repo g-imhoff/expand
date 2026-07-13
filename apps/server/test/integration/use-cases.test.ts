@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Layer, PubSub, Stream } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -26,7 +26,7 @@ const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provideMerge(Replay),
   Layer.provideMerge(EventBusLayer)
 )
-const TestLayerFs = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
+const TestLayerFs = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provide(NodeServices.layer))
 
 describe("ProjectUseCases.createProject", () => {
   it("appends a durable event, broadcasts it live, and reflects it in the projection", async () => {
@@ -72,7 +72,7 @@ describe("ProjectUseCases.createProject", () => {
   })
 
   it("ProjectUseCases resolves with FileSystem+Path provided", async () => {
-    const FsTestLayer = TestLayer.pipe(Layer.provide(BunFileSystem.layer), Layer.provide(BunServices.layer))
+    const FsTestLayer = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provide(NodeServices.layer))
     const projects = await Effect.runPromise(Effect.provide(Effect.flatMap(ProjectUseCases, (u) => u.listProjects()), FsTestLayer))
     expect(projects).toEqual([])
   })

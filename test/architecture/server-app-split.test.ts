@@ -12,15 +12,14 @@ describe("server app split", () => {
 
   it("builds CLI and server as separate binaries", () => {
     const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> }
-    expect(pkg.scripts["build:cli"]).toContain("apps/cli/cli/main.ts")
-    expect(pkg.scripts["build:server"]).toContain("apps/server/main.ts")
-    expect(pkg.scripts.build).toContain("build:cli")
-    expect(pkg.scripts.build).toContain("build:server")
+    expect(pkg.scripts.build).toBe("node scripts/build.mjs")
+    expect(read("scripts/build.mjs")).toContain('["apps/cli/cli/main.ts", "dist/expand"]')
+    expect(read("scripts/build.mjs")).toContain('["apps/server/main.ts", "dist/expand-server"]')
   })
 
   it("keeps the compiled-binary smoke inside cert:cli:build", () => {
     const pkg = JSON.parse(read("package.json")) as { scripts: Record<string, string> }
-    expect(pkg.scripts["cert:cli:build"]).toContain("bun run build")
+    expect(pkg.scripts["cert:cli:build"]).toContain("npm run build")
     expect(pkg.scripts["cert:cli:build"]).toContain("binary-smoke.sh")
   })
 

@@ -9,7 +9,7 @@ export interface Sampled<A> {
 // Interval RSS sampler: GC + baseline before, peak during (~50ms period), final
 // sample after. ΔRSS is a boundedness proxy — it must NOT grow with event count.
 export const withRss = async <A>(run: () => Promise<A>): Promise<Sampled<A>> => {
-  Bun.gc(true)
+  globalThis.gc?.()
   const baseline = process.memoryUsage().rss
   let peak = baseline
   const timer = setInterval(() => {

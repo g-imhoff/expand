@@ -1,8 +1,8 @@
 import { Effect, Exit, FileSystem, Layer, Scope } from "effect"
 import { dirname } from "node:path"
 import { HttpServer } from "effect/unstable/http"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -28,7 +28,7 @@ export const runServer = (options: RunServerOptions) => {
 
   const transportLayer = Layer.mergeAll(
     httpServerLayer(portHint, token).pipe(Layer.provide(core)),
-    BunServices.layer
+    NodeServices.layer
   )
 
   const program = Effect.gen(function*() {
@@ -73,7 +73,7 @@ export const runServer = (options: RunServerOptions) => {
   })
 
   return program.pipe(
-    Effect.provide(Layer.mergeAll(core, BunServices.layer)),
+    Effect.provide(Layer.mergeAll(core, NodeServices.layer)),
     Effect.scoped
   )
 }
@@ -93,8 +93,8 @@ const coreLayer = (dbPath: string) => {
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunServices.layer)
+    Layer.provide(NodeFileSystem.layer),
+    Layer.provide(NodeServices.layer)
   )
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }

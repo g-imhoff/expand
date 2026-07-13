@@ -1,3 +1,3 @@
-// Baked into release binaries by `bun build --define '__EXPAND_CHANNEL__="release"'`.
-// Undefined when running from source (dev, tests, `bun apps/...`).
+// Baked into release artifacts by esbuild with `__EXPAND_CHANNEL__` set to `"release"`.
+// Undefined when running from source during development and tests.
 declare const __EXPAND_CHANNEL__: "dev" | "release" | undefined

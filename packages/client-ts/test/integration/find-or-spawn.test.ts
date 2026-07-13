@@ -1,18 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Deferred, Effect, Fiber, FileSystem, Option } from "effect"
 import { TestClock } from "effect/testing"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { findOrSpawnBackend } from "../../spawn"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { type Endpoint, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { Layer } from "effect"
 import type { BackendUnavailable } from "../../errors"
 
 let dir: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
+const reviverOwnedAdapter = {
+  protocolLayer: nodeAdapter.protocolLayer,
+  spawnBackend: () => Effect.void
+}
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-spawn-"))
 })
@@ -32,7 +40,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend(bunAdapter), Layer.mergeAll(BunServices.layer, Layer.succeed(AppContext, makeAppContext(dir))))
+      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeAppContext(dir))))
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -47,7 +55,7 @@ describe("findOrSpawnBackend", () => {
       protocolVersion: PROTOCOL_VERSION
     }
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: (dataDir: string) => Effect.gen(function* () {
         spawnCount += 1
         yield* Effect.sleep("25 millis")
@@ -60,7 +68,7 @@ describe("findOrSpawnBackend", () => {
         [findOrSpawnBackend(adapter), findOrSpawnBackend(adapter)],
         { concurrency: "unbounded" }
       ).pipe(
-        Effect.provide(BunServices.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
       )
     )
@@ -81,7 +89,7 @@ describe("findOrSpawnBackend", () => {
       protocolVersion: PROTOCOL_VERSION
     }
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: () => Effect.sync(() => {
         expect(existsSync(dataDir)).toBe(false)
         expect(existsSync(externalLock)).toBe(true)
@@ -92,7 +100,7 @@ describe("findOrSpawnBackend", () => {
 
     const actual = await Effect.runPromise(
       findOrSpawnBackend(adapter).pipe(
-        Effect.provide(BunServices.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(Layer.succeed(AppContext, { channel: context.channel, paths }))
       )
     )
@@ -106,7 +114,7 @@ describe("findOrSpawnBackend", () => {
     const rightRoot = join(dir, "right")
     const spawnedRoots: Array<string> = []
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: (dataDir: string) => Effect.sync(() => {
         spawnedRoots.push(dataDir)
         writeFileSync(
@@ -128,7 +136,7 @@ describe("findOrSpawnBackend", () => {
           findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeAppContext(rightRoot))))
         ],
         { concurrency: "unbounded" }
-      ).pipe(Effect.provide(BunServices.layer))
+      ).pipe(Effect.provide(NodeServices.layer))
     )
 
     expect(new Set(spawnedRoots)).toEqual(new Set([leftRoot, rightRoot]))
@@ -147,7 +155,7 @@ describe("findOrSpawnBackend", () => {
       const postSpawnPollCompleted = yield* Deferred.make<void>()
       let backendSpawned = false
       const adapter = {
-        ...bunAdapter,
+        ...nodeAdapter,
         spawnBackend: () => Effect.sync(() => {
           backendSpawned = true
         })
@@ -178,7 +186,7 @@ describe("findOrSpawnBackend", () => {
       return endpoint
     }).pipe(
       Effect.provide(TestClock.layer()),
-      Effect.provide(BunServices.layer),
+      Effect.provide(NodeServices.layer),
       Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
     )
 
@@ -192,7 +200,7 @@ describe("findOrSpawnBackend", () => {
       const postSpawnPollCompleted = yield* Deferred.make<void>()
       let backendSpawned = false
       const adapter = {
-        ...bunAdapter,
+        ...nodeAdapter,
         spawnBackend: () => Effect.sync(() => {
           backendSpawned = true
         })
@@ -218,7 +226,7 @@ describe("findOrSpawnBackend", () => {
       return { beforeDeadline, result }
     }).pipe(
       Effect.provide(TestClock.layer()),
-      Effect.provide(BunServices.layer),
+      Effect.provide(NodeServices.layer),
       Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
     )
 
@@ -260,10 +268,10 @@ describe("findOrSpawnBackend", () => {
       // Pre-fix: this would wait the full 10s awaitEndpoint window and then fail
       // with BackendUnavailable, never clearing the lock. Post-fix: it clears the
       // stale lock, "spawns", and returns the advertised endpoint.
-      const endpoint = yield* findOrSpawnBackend(bunAdapter)
+      const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
       return endpoint
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const endpoint = await Effect.runPromise(program)
     expect(endpoint.url).toBe(realEndpoint.url)

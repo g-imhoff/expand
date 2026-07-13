@@ -7,8 +7,8 @@ import type { BackendUnavailable } from "./errors"
  *
  * @remarks
  * Implementations isolate RPC transport and backend process primitives from the
- * platform-independent client core. The built-in Bun and Node adapters satisfy
- * this contract.
+ * platform-independent client core. The built-in Node adapter satisfies this
+ * contract.
  */
 export interface RuntimeAdapter {
   /**

@@ -1,6 +1,6 @@
 import { Cause, Console, Effect, Layer, Runtime } from "effect"
 import { CliOutput, Command } from "effect/unstable/cli"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
@@ -36,7 +36,7 @@ export const runCli = async (
   const infra = Layer.mergeAll(
     Layer.succeed(Console.Console, capturingConsole(stdout, stderr)),
     CliOutput.layer(jsonCliErrorFormatter),
-    BunServices.layer
+    NodeServices.layer
   )
   const exit = await Effect.runPromise(
     renderErrors(Command.runWith(command, { version: "test" })(argv) as Effect.Effect<void, unknown, never>).pipe(

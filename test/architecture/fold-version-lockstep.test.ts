@@ -9,7 +9,7 @@ describe("FOLD_VERSIONS generation", () => {
   it("the committed per-projection hashes match a fresh hash of each fold's nodes", () => {
     expect(
       FOLD_VERSIONS,
-      "fold source changed — run `bun run gen:fold-version` and commit packages/contracts/fold-version.generated.ts"
+      "fold source changed — run `npm run gen:fold-version` and commit packages/contracts/fold-version.generated.ts"
     ).toEqual(computeFoldHashes())
   })
 })

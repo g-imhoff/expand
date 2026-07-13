@@ -1,7 +1,7 @@
 // S4 — scan drain: ReplayFeed.read(0) fully consumed. Isolates SQL fetch +
 // fail-fast decode throughput, no consumer work, no wire. Budget: ≥100k events/s.
 import { Duration, Effect, Layer, Stream } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { EventScanChunkSize } from "@expand/server/db/event-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { withRss } from "../rss"

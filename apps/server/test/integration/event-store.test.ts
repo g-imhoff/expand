@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Cause, Effect, Layer, Pull, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { EventScanChunkSize } from "@expand/server/db/event-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"

@@ -1,10 +1,12 @@
-import { access, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { spawn } from "node:child_process"
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { Readable } from "node:stream"
 import { describe, expect, it } from "vitest"
 
 async function readSmokeSource() {
-  return Bun.file(new URL("./binary-smoke.sh", import.meta.url)).text()
+  return readFile(new URL("./binary-smoke.sh", import.meta.url), "utf8")
 }
 
 function extractFunctions(source: string) {
@@ -18,21 +20,40 @@ async function runShell(script: string) {
     timedOut = true
     controller.abort()
   }, 8_000)
-  const shell = Bun.spawn(["bash", "-c", script], {
+  const shell = spawn("bash", ["-c", script], {
     signal: controller.signal,
-    stdout: "pipe",
-    stderr: "pipe",
+    stdio: ["ignore", "pipe", "pipe"]
   })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(shell.stdout).text(),
-    new Response(shell.stderr).text(),
-    shell.exited,
-  ]).finally(() => clearTimeout(timer))
-  if (timedOut) {
-    throw new Error("shell harness timed out after 8 seconds")
+  const exited = new Promise<number>((resolve, reject) => {
+    shell.once("error", reject)
+    shell.once("exit", (code, signal) => {
+      if (code !== null) resolve(code)
+      else reject(new Error(`shell terminated by ${signal ?? "unknown signal"}`))
+    })
+  })
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      collect(shell.stdout),
+      collect(shell.stderr),
+      exited
+    ])
+    return { exitCode, stderr, stdout }
+  } catch (error) {
+    if (timedOut) throw new Error("shell harness timed out after 8 seconds")
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
-  return { exitCode, stderr, stdout }
 }
+
+const collect = (stream: Readable): Promise<string> =>
+  new Promise((resolve, reject) => {
+    let output = ""
+    stream.setEncoding("utf8")
+    stream.on("data", (chunk: string) => { output += chunk })
+    stream.once("error", reject)
+    stream.once("end", () => resolve(output))
+  })
 
 type AutospawnControllerScenario = {
   readonly evidence?: "malformed" | "missing" | "valid"

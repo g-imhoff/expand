@@ -1,9 +1,9 @@
 import { Command, GlobalFlag, CliOutput } from "effect/unstable/cli"
-import { BunRuntime, BunServices } from "@effect/platform-bun"
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { ClientLayer, resolveBackendCommand } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
@@ -28,22 +28,22 @@ export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | Server
   )
 }
 
-export const expand = makeExpand(ClientLayer(makeBunAdapter({ backendCommand })))
+export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand })))
 
-// From source (apps/cli/cli/main.ts) the sibling apps/server/main.ts exists →
-// `bun apps/server/main.ts`; from the compiled binary it does not → the
-// packaged `expand-server` next to the executable.
 function backendCommand(): ReadonlyArray<string> {
+  const sourceEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts")
   return resolveBackendCommand({
-    sourceEntry: join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts"),
-    binaryArgs: [join(dirname(process.execPath), "expand-server")]
+    execPath: process.execPath,
+    runtimeArgs: ["--import", "tsx"],
+    sourceEntry,
+    binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
   })
 }
 
 if (import.meta.main) {
   renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(
     Effect.provide(CliOutput.layer(jsonCliErrorFormatter)),
-    Effect.provide(BunServices.layer),
-    BunRuntime.runMain
+    Effect.provide(NodeServices.layer),
+    NodeRuntime.runMain
   )
 }

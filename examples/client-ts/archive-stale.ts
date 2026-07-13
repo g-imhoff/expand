@@ -1,5 +1,5 @@
 import { Effect, Layer, ManagedRuntime } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { existsSync } from "node:fs"
 import { ClientLayer } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
@@ -19,7 +19,7 @@ const program = Effect.gen(function*() {
   console.log(`archive-stale: archived ${archived} of ${projects.length} active`)
 })
 
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => {

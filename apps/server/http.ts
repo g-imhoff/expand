@@ -1,13 +1,14 @@
 import { Effect, Layer, Option } from "effect"
 import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { BunHttpServer } from "@effect/platform-bun"
+import { NodeHttpServer } from "@effect/platform-node"
 import { timingSafeEqual } from "node:crypto"
+import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc-handlers"
 
 export const httpServerLayer = (port: number, token: string) => {
-  const bun = BunHttpServer.layer({ port, hostname: "127.0.0.1" })
+  const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
   const rpc = RpcServer.layer(ExpandRpcs).pipe(
     Layer.provide(ExpandHandlers),
     Layer.provide(guardedRpcWebsocket(token)),
@@ -15,8 +16,8 @@ export const httpServerLayer = (port: number, token: string) => {
   )
   return Layer.mergeAll(
     HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }),
-    bun
-  ).pipe(Layer.provide(bun))
+    node
+  ).pipe(Layer.provide(node))
 }
 
 const accessLogger = HttpMiddleware.make((httpApp) =>

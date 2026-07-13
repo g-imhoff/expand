@@ -1,23 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Layer, ManagedRuntime, SubscriptionRef } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
-let bunMainBefore: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-reconnect-"))
-  bunMainBefore = (Bun as unknown as { main: string }).main
-  ;(Bun as unknown as { main: string }).main = join(process.cwd(), "apps/server/main.ts")
 })
 afterEach(() => {
-  ;(Bun as unknown as { main: string }).main = bunMainBefore
   rmSync(dir, { recursive: true, force: true })
 })
 
@@ -25,14 +26,14 @@ const waitFor = async (predicate: () => Promise<boolean>, timeoutMs: number): Pr
   const deadline = Date.now() + timeoutMs
   while (!(await predicate())) {
     if (Date.now() > deadline) throw new Error(`condition not met within ${timeoutMs}ms`)
-    await new Promise((r) => setTimeout(r, 25))
+    await setTimeout(25)
   }
 }
 
 describe("ProjectStore reconnect", () => {
   it("recovers after the backend dies: status leaves connected, then a mutation and the list succeed", async () => {
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     try {
       const store = await rt.runPromise(ProjectStore)

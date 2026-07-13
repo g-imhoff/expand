@@ -28,13 +28,13 @@ Use them as the current selector and flow contract. At startup verify the expect
 
 ## Build and launch
 
-Before building, require `bun`, `node`, `agent-browser`, and `curl` to exist and run `agent-browser --version`; if a tool is missing or unusable, return `BLOCKED_MISSING_TOOL:<tool>` before invoking it.
+Before building, require `node`, `npm`, `agent-browser`, and `curl` to exist and run `agent-browser --version`; if a tool is missing or unusable, return `BLOCKED_MISSING_TOOL:<tool>` before invoking it.
 
 Then run:
 
 ```bash
-bun run build
-bun run build:desktop
+npm run build
+npm run build:desktop
 ```
 
 Require both builds to exit 0. Require `http://127.0.0.1:9222/json/list` to be unreachable before launch; if another CDP process owns the fixed development port, return `BLOCKED_PORT_IN_USE` and do not kill it.
@@ -51,7 +51,7 @@ test -x "$ELECTRON_EXECUTABLE"
 (
   unset ELECTRON_RENDERER_URL ELECTRON_RUN_AS_NODE
   export EXPAND_DEVTOOLS_CDP=1
-  export EXPAND_BACKEND_CMD="[\"bun\",\"$REPO_ROOT/apps/server/main.ts\"]"
+  export EXPAND_BACKEND_CMD="[\"$REPO_ROOT/dist/expand-server\"]"
   exec "$ELECTRON_EXECUTABLE" --no-sandbox \
     --user-data-dir="$DATA_DIR/electron-user-data" \
     apps/desktop/out/main/index.mjs --data-dir "$DATA_DIR"

@@ -1,5 +1,7 @@
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { basename, extname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { parse as parseYaml } from "yaml"
 
 export const AGENT_NAMES = [
   "code-reviewer",
@@ -111,7 +113,7 @@ export const parseClaudeAgent = (filePath: string, source: string): ClaudeAgentD
   if (frontmatterSource === undefined || bodySource === undefined) {
     throw new Error(`${filename}: invalid frontmatter boundary`)
   }
-  const parsed = Bun.YAML.parse(frontmatterSource)
+  const parsed = parseYaml(frontmatterSource)
   if (!isRecord(parsed)) throw new Error(`${filename}: frontmatter must be a mapping`)
 
   const rawName = requiredString(parsed, "name", filename)
@@ -239,14 +241,14 @@ export const syncAgents = async ({ rootDir, mode }: SyncAgentsOptions): Promise<
 }
 
 if (import.meta.main) {
-  const args = Bun.argv.slice(2)
+  const args = process.argv.slice(2)
   if (args.some((arg) => arg !== "--check") || args.filter((arg) => arg === "--check").length > 1) {
-    console.error("usage: bun run scripts/sync-agents.ts [--check]")
+    console.error("usage: npm run agents:sync -- [--check]")
     process.exit(2)
   }
   const mode = args[0] === "--check" ? "check" : "write"
   try {
-    await syncAgents({ rootDir: resolve(import.meta.dir, ".."), mode })
+    await syncAgents({ rootDir: resolve(fileURLToPath(new URL("..", import.meta.url))), mode })
     console.log(mode === "check" ? "agent definitions are synchronized" : "agent definitions synchronized")
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))

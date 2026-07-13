@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { existsSync, writeFileSync } from "node:fs"
+import { setTimeout } from "node:timers/promises"
 import {
   acquireStateRootLock,
   releaseStateRootLock
@@ -19,12 +20,12 @@ if (
 
 writeFileSync(readyPath, String(process.pid))
 
-while (!existsSync(startPath)) await Bun.sleep(1)
+while (!existsSync(startPath)) await setTimeout(1)
 
 try {
   const lease = await Effect.runPromise(acquireStateRootLock(root))
   writeFileSync(resultPath, JSON.stringify({ status: "acquired", pid: lease.pid, token: lease.token }))
-  while (!existsSync(releasePath)) await Bun.sleep(1)
+  while (!existsSync(releasePath)) await setTimeout(1)
   await Effect.runPromise(releaseStateRootLock(lease))
 } catch (error) {
   writeFileSync(resultPath, JSON.stringify({

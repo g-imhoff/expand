@@ -3,7 +3,7 @@
 // in-repo source `.ts`. The tracked package.json is NEVER mutated, so in-repo
 // resolution (which relies on `exports` -> source `.ts`) keeps working.
 //
-// Flow:  bun run build            -> tsc emits ./dist
+// Flow:  npm run build            -> tsc emits ./dist
 //        node scripts/prepare-publish.mjs -> writes ./dist-publish/{package.json, dist/**}
 //        npm pack ./dist-publish  -> tarball whose package.json exports resolve dist/*.js
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -15,7 +15,7 @@ const distDir = join(pkgDir, "dist")
 const stageDir = join(pkgDir, "dist-publish")
 
 if (!existsSync(distDir)) {
-  console.error("[prepare-publish] ./dist not found — run `bun run build` first.")
+  console.error("[prepare-publish] ./dist not found — run `npm run build` first.")
   process.exit(1)
 }
 

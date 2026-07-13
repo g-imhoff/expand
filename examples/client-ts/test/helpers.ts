@@ -1,6 +1,9 @@
+import { spawn } from "node:child_process"
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { Readable } from "node:stream"
+import type { ChildProcess } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
@@ -19,12 +22,6 @@ export interface ExampleHandle {
 /** Create an isolated, caller-owned data dir. Caller removes it (e.g. `rmSync(..., { recursive: true })`). */
 export const makeDataDir = (): string => mkdtempSync(join(tmpdir(), "expand-ex-"))
 
-/**
- * Run `bun run examples/client-ts/<relPath> <...args> --data-dir <isolated>` and capture output.
- *
- * When `dataDir` is provided the caller owns its lifecycle (pin multiple runs to one backend);
- * otherwise a fresh temp dir is created and removed around this single run.
- */
 export const runExample = async (
   relPath: string,
   args: ReadonlyArray<string>,
@@ -33,13 +30,13 @@ export const runExample = async (
   const owned = dataDir === undefined
   const dir = dataDir ?? makeDataDir()
   try {
-    const proc = Bun.spawn(["bun", "run", join(examplesDir, relPath), ...args, "--data-dir", dir], {
-      stdout: "pipe", stderr: "pipe", env: { ...process.env }
+    const proc = spawn(process.execPath, ["--import", "tsx", join(examplesDir, relPath), ...args, "--data-dir", dir], {
+      stdio: ["ignore", "pipe", "pipe"], env: { ...process.env }
     })
     const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited
+      collect(proc.stdout),
+      collect(proc.stderr),
+      exitCode(proc)
     ])
     return { code, stdout, stderr }
   } finally {
@@ -60,45 +57,45 @@ export const spawnExample = (
   args: ReadonlyArray<string>,
   dataDir: string
 ): ExampleHandle => {
-  const proc = Bun.spawn(["bun", "run", join(examplesDir, relPath), ...args, "--data-dir", dataDir], {
-    stdout: "pipe", stderr: "inherit", env: { ...process.env }
+  const proc = spawn(process.execPath, ["--import", "tsx", join(examplesDir, relPath), ...args, "--data-dir", dataDir], {
+    stdio: ["ignore", "pipe", "inherit"], env: { ...process.env }
   })
 
   const lines: string[] = []
   const waiters = new Set<(line: string | null) => void>()
   const notify = (line: string | null) => { for (const w of [...waiters]) w(line) }
 
-  // Drain stdout, splitting into lines; feed each to any pending waiters. A final
-  // `null` (stream end) lets waiters reject rather than hang.
-  void (async () => {
-    const reader = proc.stdout.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
-    const flush = (chunk: string) => {
-      buffer += chunk
-      let nl: number
-      while ((nl = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, nl)
-        buffer = buffer.slice(nl + 1)
-        lines.push(line)
-        notify(line)
-      }
+  let buffer = ""
+  const flush = (chunk: string) => {
+    buffer += chunk
+    let nl: number
+    while ((nl = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, nl)
+      buffer = buffer.slice(nl + 1)
+      lines.push(line)
+      notify(line)
     }
-    try {
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        flush(decoder.decode(value, { stream: true }))
-      }
-    } catch { /* stream torn down on kill */ }
+  }
+  proc.stdout.setEncoding("utf8")
+  proc.stdout.on("data", flush)
+  proc.stdout.once("error", () => notify(null))
+  proc.stdout.once("end", () => {
     if (buffer.length > 0) { lines.push(buffer); notify(buffer) }
     notify(null)
-  })()
+  })
+  const exited = new Promise<void>((resolve, reject) => {
+    proc.once("error", (error) => {
+      notify(null)
+      reject(error)
+    })
+    proc.once("exit", () => resolve())
+  })
+  void exited.catch(() => undefined)
 
   return {
     kill: async () => {
       proc.kill()
-      await proc.exited
+      await exited
     },
     waitForLine: (substr, timeoutMs) =>
       new Promise<void>((resolve, reject) => {
@@ -131,3 +128,21 @@ export const makeFixtureDir = (subdirs: ReadonlyArray<string>): string => {
 }
 
 const examplesDir = join(fileURLToPath(import.meta.url), "..", "..")
+
+const collect = (stream: Readable): Promise<string> =>
+  new Promise((resolve, reject) => {
+    let output = ""
+    stream.setEncoding("utf8")
+    stream.on("data", (chunk: string) => { output += chunk })
+    stream.once("error", reject)
+    stream.once("end", () => resolve(output))
+  })
+
+const exitCode = (process: ChildProcess): Promise<number> =>
+  new Promise((resolve, reject) => {
+    process.once("error", reject)
+    process.once("exit", (code, signal) => {
+      if (code !== null) resolve(code)
+      else reject(new Error(`example terminated by ${signal ?? "unknown signal"}`))
+    })
+  })

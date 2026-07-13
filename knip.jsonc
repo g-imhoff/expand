@@ -10,10 +10,10 @@
 
   // ws / @types/ws ARE used: packages/client-ts/adapters/node.ts imports the
   // Node `WebSocket` and is consumed by the Electron main process (apps/desktop,
-  // a workspace whose package.json declares no deps). Knip can't credit a root
-  // dependency across that workspace boundary, so this is a false positive, not
-  // dead — suppress it explicitly rather than remove a live dependency.
-  "ignoreDependencies": ["ws", "@types/ws"],
+  // a workspace whose package.json declares no deps). tailwindcss is imported
+  // directly from apps/desktop/src/renderer/index.css and compiled by the Vite
+  // plugin, which Knip does not trace. These are false positives, not dead code.
+  "ignoreDependencies": ["ws", "@types/ws", "tailwindcss"],
 
   "workspaces": {
     ".": {
@@ -23,15 +23,12 @@
         "apps/server/**/*.{ts,tsx}",
         "apps/tui/**/*.{ts,tsx}",
         "packages/**/*.{ts,tsx}",
-        "scripts/**/*.ts"
+        "scripts/**/*.ts",
+        "bench/**/*.ts"
       ]
     },
     "apps/desktop": {
       "entry": [
-        "src/main/index.ts",
-        "src/preload/index.ts",
-        "src/renderer/main.tsx",
-        "electron.vite.config.ts",
         "test/**/*.test.{ts,tsx}",
         "e2e/**/*.spec.ts"
       ]

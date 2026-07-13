@@ -1,6 +1,3 @@
-// Entry point: bun run bench:events [--scale 100k|1m|10m]... [--smoke]
-//   [--scenario s1..s5]... [--chunk N] [--reseed] [--json <path>]
-// Exit code: 0 if no scenario FAILs/ERRORs, 1 otherwise.
 import { writeFileSync } from "node:fs"
 import { ensureSeed, SCALES } from "./seed"
 import { hasBlocker, renderReport, toJsonReport } from "./report"

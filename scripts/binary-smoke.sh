@@ -6,8 +6,8 @@ cd "$(dirname "$0")/.."
 
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 1; }
 command -v ps >/dev/null || { echo "ps is required" >&2; exit 1; }
-test -x dist/expand || { echo "dist/expand missing — run 'bun run build' first" >&2; exit 1; }
-test -x dist/expand-server || { echo "dist/expand-server missing — run 'bun run build' first" >&2; exit 1; }
+test -x dist/expand || { echo "dist/expand missing — run 'npm run build' first" >&2; exit 1; }
+test -x dist/expand-server || { echo "dist/expand-server missing — run 'npm run build' first" >&2; exit 1; }
 
 unset EXPAND_BACKEND_CMD
 

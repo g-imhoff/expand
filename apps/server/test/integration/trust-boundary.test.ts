@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Fiber, FileSystem, Layer, Option, Schedule, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
-import { BunFileSystem, BunServices } from "@effect/platform-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { connect } from "node:net"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { networkInterfaces, tmpdir } from "node:os"
@@ -22,7 +22,11 @@ import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases
 import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 import { readEndpoint } from "@expand/client-ts"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -58,8 +62,8 @@ const testCore = (dbPath: string) => {
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
-    Layer.provide(BunFileSystem.layer),
-    Layer.provide(BunServices.layer)
+    Layer.provide(NodeFileSystem.layer),
+    Layer.provide(NodeServices.layer)
   )
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
@@ -112,13 +116,13 @@ describe.sequential("trust boundary", () => {
       const transport = yield* Layer.build(
         Layer.mergeAll(
           httpServerLayer(0, "trust-boundary-token").pipe(Layer.provide(testCore(join(dir, "bind.db")))),
-          BunServices.layer
+          NodeServices.layer
         )
       )
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
       return addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const hostname = await Effect.runPromise(program)
     expect(hostname).toBe("127.0.0.1")
@@ -140,7 +144,7 @@ describe.sequential("trust boundary", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return { advertisedHost, loopback, offLoopback }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.advertisedHost).toBe("127.0.0.1")
@@ -161,7 +165,7 @@ describe.sequential("trust boundary", () => {
       const endpoint = yield* currentEndpoint
       const noToken = yield* Effect.promise(() => probeWs(endpoint.url))
       const wrongToken = yield* Effect.promise(() => probeWs(`${endpoint.url}?token=wrong-token`))
-      const health = yield* withClient(bunAdapter, (client) => client.Health())
+      const health = yield* withClient(nodeAdapter, (client) => client.Health())
       yield* Fiber.join(serverFiber).pipe(
         Effect.timeoutOrElse({
           duration: "5 seconds",
@@ -169,7 +173,7 @@ describe.sequential("trust boundary", () => {
         })
       )
       return { noToken, wrongToken, health }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.noToken).toBe("closed")
@@ -197,7 +201,7 @@ describe.sequential("trust boundary", () => {
       const dirInfo = yield* fs.stat(home)
       yield* Scope.close(scope, Exit.void)
       return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(home))))
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(home))))
 
     const r = await Effect.runPromise(program)
     expect(r.fileMode).toBe(0o600)
@@ -223,7 +227,7 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(file)
       yield* Scope.close(scope, Exit.void)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     expect(await Effect.runPromise(program)).toBe(0o600)
   })
@@ -237,7 +241,7 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(dbPath)
       yield* Fiber.interrupt(serverFiber)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     expect(await Effect.runPromise(program)).toBe(0o600)
   })
@@ -265,7 +269,7 @@ describe.sequential("trust boundary", () => {
         const dirMode = yield* mode(dataDir)
         yield* Fiber.interrupt(serverFiber)
         return { db, wal, shm, dirMode }
-      }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dataDir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dataDir))))
 
       const r = await Effect.runPromise(program)
       expect(r.db, "events.db must be owner-only").toBe(0o600)
@@ -292,7 +296,7 @@ describe.sequential("trust boundary", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return { sameLengthWrong, realToken }
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.sameLengthWrong).toBe("closed")

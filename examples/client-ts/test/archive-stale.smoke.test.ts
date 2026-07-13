@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, rmSync } from "node:fs"
 import { join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 import { describe, expect, it } from "vitest"
 import { makeDataDir, makeFixtureDir, runExample, spawnExample } from "./helpers"
 
@@ -62,6 +63,6 @@ const waitUntil = async (predicate: () => boolean, label: string): Promise<void>
   const deadline = Date.now() + 5_000
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error(`${label} was not observed before timeout`)
-    await Bun.sleep(10)
+    await delay(10)
   }
 }

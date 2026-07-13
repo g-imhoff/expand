@@ -10,12 +10,12 @@
 set -e
 
 echo "pre-commit › agent definitions"
-bun run agents:check
+npm run agents:check
 
 echo "pre-commit › eslint"
-bun run lint
+npm run lint
 
 echo "pre-commit › typecheck"
-bun run typecheck:all
+npm run typecheck:all
 
 echo "pre-commit › ok"

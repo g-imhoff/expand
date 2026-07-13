@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Deferred, Effect, Exit, Fiber, Layer, PubSub, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { BunHttpServer, BunServices } from "@effect/platform-bun"
+import { NodeHttpServer, NodeServices } from "@effect/platform-node"
+import { createServer } from "node:http"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -13,10 +14,14 @@ import { ProjectCreated } from "@expand/contracts/events/project"
 import { Project } from "@expand/contracts/project"
 import { ProjectStore } from "../../project/store"
 import { ProjectStoreLayer } from "../../project/store"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-snap-"))
 })
@@ -91,8 +96,8 @@ const makeServer = (
       Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
       Layer.provide(RpcSerialization.layerNdjson)
     )
-    const bun = BunHttpServer.layer({ port: 0, gracefulShutdownTimeout: "500 millis" })
-    const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), bun).pipe(Layer.provide(bun))
+    const node = NodeHttpServer.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
+    const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(Layer.provide(node))
     const serverScope = yield* Scope.make()
     const transport = yield* Layer.build(serverLayer).pipe(Scope.provide(serverScope))
     // Drive events from the long-lived server scope (not a per-RPC handler scope),
@@ -176,14 +181,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const finalSnap = yield* store.snapshot
         return { firstMismatch, finalSnap }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
+        Effect.provide(ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("events never fully converged"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const { firstMismatch, finalSnap } = await Effect.runPromise(program)
 
@@ -239,14 +244,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const hubEvents = Exit.isSuccess(hubExit) ? Array.from(hubExit.value) : []
         return { snap, hubSeqs: hubEvents.map((se) => se.seq) }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
+        Effect.provide(ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("tracer e3 never applied"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const { snap, hubSeqs } = await Effect.runPromise(program)
     // stale seq-1 event must NOT have created p99
@@ -274,14 +279,14 @@ describe.sequential("ProjectStore snapshot consistency (C2)", () => {
         const snap = yield* store.snapshot
         return { mirror: Array.from(mirror), snap }
       }).pipe(
-        Effect.provide(ProjectStoreLayer(bunAdapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
+        Effect.provide(ProjectStoreLayer(nodeAdapter).pipe(Layer.provide(NodeServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))),
         Effect.timeoutOrElse({
           duration: "15 seconds",
           orElse: () => Effect.fail(new Error("mirror never reached N"))
         }),
         Effect.ensuring(Scope.close(serverScope, Exit.void).pipe(Effect.exit))
       )
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
 
     const { mirror, snap } = await Effect.runPromise(program)
     const last = mirror[mirror.length - 1] ?? []

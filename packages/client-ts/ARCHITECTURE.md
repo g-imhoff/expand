@@ -5,7 +5,7 @@
 
 The client-side library of the Expand monorepo. It discovers/spawns the backend
 server, opens an RPC-over-WebSocket session, and maintains a reactive,
-event-sourced mirror of project state. Built on **Bun + Effect v4 beta**.
+event-sourced mirror of project state. Built on **Node + Effect v4 beta**.
 
 ## The mental model
 
@@ -16,7 +16,7 @@ ProjectStore / ServerClient / ProjectClient   ← state + typed facades  (what a
         │
    ExpandRpcClient (acquireClient)              ← a live, connected RPC-over-WS session
         │
-   RuntimeAdapter (Bun | Node)                 ← platform seam: how to open a socket / spawn a process
+   RuntimeAdapter (Node)                       ← platform seam: how to open a socket / spawn a process
 ```
 
 Everything is wired with **Effect Layers**. Two facts make the rest readable:
@@ -112,16 +112,13 @@ exactly what the `find-or-spawn` regression test guards.
 ### The adapter seam (`adapter.ts`, `adapters/*.ts`)
 
 `RuntimeAdapter` is just two members (`adapter.ts`): `protocolLayer(url)` and
-`spawnBackend`. The two implementations differ only in platform primitives:
+`spawnBackend`. The Node implementation (`adapters/node.ts`) builds
+`Socket.layerWebSocket` with `ws` injected through
+`Socket.WebSocketConstructor`, uses NDJSON RPC serialization, and starts the
+required `backendCommand` with `child_process.spawn` in `Effect.callback`,
+resolving on `'spawn'` or `'error'`.
 
-|                 | Bun (`adapters/bun.ts`)                       | Node (`adapters/node.ts`)                                              |
-| --------------- | --------------------------------------------- | ---------------------------------------------------------------------- |
-| socket          | `BunSocket.layerWebSocket`                    | `Socket.layerWebSocket` + injected `ws` via `Socket.WebSocketConstructor` |
-| serialization   | `RpcSerialization.layerNdjson` (NDJSON)       | same                                                                   |
-| spawn           | `Bun.spawn` in `Effect.try` (sync)            | `child_process.spawn` in `Effect.callback`, resolving on `'spawn'`/`'error'` |
-| default command | `defaultBackendCommand()` (source vs binary)  | none — `backendCommand` is **required**                                |
-
-Both detach the child (`child.unref()`, stdio ignored) — fire-and-forget;
+It unrefs the child (`child.unref()`, stdio ignored) — fire-and-forget;
 readiness is confirmed by Stage A's `awaitEndpoint`, not by the spawn itself.
 
 ---
@@ -308,9 +305,8 @@ path per symbol (the root does not re-export the domain surfaces):
   `ProjectDirectoryConflict`, `ProjectInvalidInput`.
 - `@expand/client-ts/server` — the server domain: `ServerClient` /
   `ServerClientLayer` / `ServerClientApi`.
-- `@expand/client-ts/adapters/bun` and `@expand/client-ts/adapters/node` — the
-  platform seams (`makeBunAdapter` / `makeNodeAdapter`, and the `bunAdapter`
-  convenience singleton). Kept separate because each imports platform-only deps.
+- `@expand/client-ts/adapters/node` — the platform seam (`makeNodeAdapter`). It
+  stays separate because it imports platform-only dependencies.
 
 Everything else is internal: not re-exported from any entrypoint, tagged
 `@internal` where exported, and unreachable from outside by the

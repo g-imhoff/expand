@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { existsSync, writeFileSync } from "node:fs"
+import { setTimeout } from "node:timers/promises"
 import { acquireSpawnLock, releaseSpawnLock } from "../../spawn-lock"
 
 const [lockPath, readyPath, startPath, releasePath, resultPath] = process.argv.slice(2)
@@ -15,7 +16,7 @@ if (
 }
 
 writeFileSync(readyPath, "ready")
-while (!existsSync(startPath)) await Bun.sleep(1)
+while (!existsSync(startPath)) await setTimeout(1)
 
 const lease = await Effect.runPromise(acquireSpawnLock(lockPath))
 writeFileSync(
@@ -26,6 +27,6 @@ writeFileSync(
 )
 
 if (lease !== undefined) {
-  while (!existsSync(releasePath)) await Bun.sleep(1)
+  while (!existsSync(releasePath)) await setTimeout(1)
   await Effect.runPromise(releaseSpawnLock(lease))
 }
