@@ -180,7 +180,7 @@ describe("findOrSpawnBackend", () => {
       )
       yield* Deferred.await(postSpawnPollCompleted)
       yield* TestClock.adjust("6 seconds")
-      yield* TestClock.adjust("50 millis")
+      yield* TestClock.adjust("100 millis")
       const endpoint = yield* Fiber.join(finder)
       yield* Fiber.join(advertiser)
       return endpoint
@@ -194,7 +194,7 @@ describe("findOrSpawnBackend", () => {
     expect(endpoint.url).toBe(realEndpoint.url)
   })
 
-  it("fails when the backend has not advertised by ten seconds", async () => {
+  it("fails when the backend has not advertised by thirty seconds", async () => {
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const postSpawnPollCompleted = yield* Deferred.make<void>()
@@ -219,7 +219,7 @@ describe("findOrSpawnBackend", () => {
         findOrSpawnBackend(adapter).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
       ).pipe(Effect.forkChild)
       yield* Deferred.await(postSpawnPollCompleted)
-      yield* TestClock.adjust("9 seconds")
+      yield* TestClock.adjust("29 seconds")
       const beforeDeadline = yield* Deferred.poll(completed)
       yield* TestClock.adjust("1 second")
       const result = yield* Deferred.await(completed).pipe(Effect.result)
