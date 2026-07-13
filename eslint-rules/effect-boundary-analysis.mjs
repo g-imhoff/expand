@@ -2254,13 +2254,17 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   const identityOf = (node) => occurrenceIdentities.get(node)
     ?? fallbackIdentity(node, `syntax:${node?.type ?? "unknown"}`)
 
+  const fallbackIdentityAtOffset = (offset, fallbackConstruct) =>
+    fallbackIdentity(deepestNodeAt(offset), fallbackConstruct)
+
   const identityAtOffset = (offset, fallbackConstruct) => occurrenceContaining(offset)?.identity
-    ?? fallbackIdentity(deepestNodeAt(offset), fallbackConstruct)
+    ?? fallbackIdentityAtOffset(offset, fallbackConstruct)
 
   return Object.freeze({
     occurrences: Object.freeze(occurrences),
     declarations: new Set(declarations),
     identityOf,
+    fallbackIdentityAtOffset,
     identityAtOffset
   })
 }

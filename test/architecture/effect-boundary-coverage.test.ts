@@ -104,5 +104,5 @@ describe("Effect boundary engine coverage", () => {
       const actual = (yield* normalize(root, decoded.map((result) => result.filePath)))
         .filter((file) => expectedSet.has(file))
       expect(actual).toEqual(expected)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 })

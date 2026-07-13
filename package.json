@@ -19,6 +19,7 @@
   "scripts": {
     "effect:audit": "tsx scripts/effect-audit.ts",
     "effect:audit:update": "tsx scripts/effect-audit.ts --update",
+    "effect:grep": "rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}' -g '!.git/**' -g '!**/node_modules/**' -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' \"\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\s*\\(|new\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|performance\\.now|Math\\.random|crypto\\.randomUUID|JSON\\.(?:parse|stringify)|process\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\.)|\\bnode:[^'\\\"[:space:]]+|\\b[A-Za-z_$][A-Za-z0-9_$]*\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\b\"",
     "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
     "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
     "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
@@ -81,6 +82,7 @@
     "@types/react": "19",
     "@types/react-dom": "19",
     "@types/ws": "^8.18.1",
+    "@typescript-eslint/parser": "^8.61.1",
     "@vitejs/plugin-react": "5.2.0",
     "@vitest/coverage-istanbul": "4.1.7",
     "@vitest/coverage-v8": "4.1.7",
