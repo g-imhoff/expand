@@ -3,7 +3,7 @@ import { ManagedRuntime, Layer } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -42,6 +42,10 @@ describe("Node adapter", () => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

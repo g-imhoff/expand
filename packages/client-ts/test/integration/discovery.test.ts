@@ -3,7 +3,7 @@ import { Effect, Layer, Option } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { readEndpoint } from "../../discovery"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -46,14 +46,22 @@ describe("readEndpoint", () => {
     writeFileSync(makeTestAppContext(dir).paths.endpointFile, "{ not json")
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
+
+  it("resolves a relative AppContext root from the supplied current directory", () => {
+    expect(makeTestAppContext("state", "/work").paths.dataDir).toBe(resolve("/work", "state"))
+  })
 })
 
-const makeTestAppContext = (dataDir: string) =>
+const makeTestAppContext = (dataDir: string, cwd = dataDir) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
+    { join, resolve },
+    { homeDir: cwd, cwd, dataDir }
   )
 
 namespace TestContext {
   export type Services = NodeServices.NodeServices | AppContext
+}
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
 }

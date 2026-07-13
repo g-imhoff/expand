@@ -21,7 +21,5 @@ export const nodeAppContextFromArgs = Effect.fn("ServerNodeAppContext.fromArgs")
 
 export const nodeAppContextLayer = Layer.effect(AppContext, nodeAppContextFromArgs())
 
-export const NodeAppContext = { nodeAppContextLayer }
-
 const toHostContextError = (cause: unknown): Cause.UnknownError =>
   new Cause.UnknownError(cause, "Unable to acquire AppContext host values")

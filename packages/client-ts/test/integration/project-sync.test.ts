@@ -3,7 +3,7 @@ import { Effect, Fiber, Layer, ManagedRuntime, Option, Stream, SubscriptionRef }
 import { NodeServices } from "@effect/platform-node"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { Project } from "@expand/contracts/project"
 import {
@@ -168,6 +168,10 @@ describe.sequential("ProjectSync integration", () => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

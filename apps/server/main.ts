@@ -1,6 +1,6 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
-import { NodeAppContext } from "@expand/server/node-app-context"
+import { nodeAppContextLayer } from "@expand/server/node-app-context"
 import { join } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
 import { runServer } from "@expand/server/composition/app"
@@ -49,8 +49,10 @@ process.umask(0o077)
 NodeRuntime.runMain(
   program.pipe(
     Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
-    Effect.provide(NodeAppContext.nodeAppContextLayer),
-    Effect.tap(() => Effect.sync(() => process.exit(0))),
+    Effect.provide(nodeAppContextLayer),
+    Effect.tap(() => {
+      return Effect.sync(() => process.exit(0))
+    }),
     Effect.provide(NodeServices.layer)
   ),
   {

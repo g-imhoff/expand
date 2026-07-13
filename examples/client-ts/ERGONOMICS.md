@@ -35,10 +35,7 @@ Every example ends with the same runtime incantation
 
 ```ts
 const runtime = ManagedRuntime.make(
-  ClientLayer(adapter).pipe(
-    Layer.provide(nodeAppContextLayer),
-    Layer.provide(NodeServices.layer)
-  )
+  clientLayer(adapter).pipe(Layer.provide(NodeServices.layer))
 )
 runtime.runPromise(program).then(
   () => runtime.dispose(),
@@ -65,12 +62,13 @@ The examples are meant to import *only* `@expand/client-ts` and
 `NodeServices` from `@effect/platform-node` (`bootstrap-projects.ts:1-2`, etc.).
 
 That second import isn't optional: `ClientLayer(adapter)` requires both
-`FileSystem.FileSystem` and `AppContext`. The consumer satisfies the platform
-services with `NodeServices.layer` and supplies the application-owned
-`nodeAppContextLayer` before it. That layer acquires home and cwd lazily and
-maps `Stdio.args` through the pure `dataDirFromArgs` helper. The Node consumer
-therefore still names the platform separately from selecting the Node adapter,
-and now also owns its context composition explicitly.
+`FileSystem.FileSystem` and `AppContext`. The example-owned `clientLayer`
+helper supplies `nodeAppContextLayer` directly before each entrypoint supplies
+`NodeServices.layer`. The context layer therefore receives `Path.Path` and
+`Stdio.Stdio`, acquires home and cwd lazily, and maps `Stdio.args` through the
+pure `dataDirFromArgs` helper. The Node consumer still names the platform
+separately from selecting the Node adapter while retaining explicit application
+ownership of context composition.
 
 **Possible cleanup:** have `makeNodeAdapter` or the Node subpath provide the Node
 `FileSystem` itself while preserving application ownership of `AppContext`, so

@@ -88,7 +88,7 @@ DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryC
 UPDATED 4. `events/domain-event.ts` → `events/domain.ts` — the internal module constructs the `DomainEvent` union and JSON codec once; the public module constructs `SequencedEvent {seq, event}` and re-exports those exact schema identities. The helper subpath is explicitly blocked from the source and staged package exports.
 DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-NEW (2026-07-12) 7. `app-context.ts` — the single path derivation contract: `defaultDataDir()` chooses the channel home, `makeAppContext(dataDir?)` derives every runtime path from an explicit override, and the default reference still recognizes raw `--data-dir` argv for standalone server/Electron entrypoints.
+UPDATED 7. `app-context.ts` — the pure path derivation contract: `defaultDataDir(path, homeDir, channel)` chooses the channel home, `makeAppContext(path, { homeDir, cwd, dataDir, channel })` derives every runtime path from explicit inputs, and the required `AppContext` `Context.Service` has no ambient default. Application-owned Node adapters acquire home, cwd, and arguments before providing the service.
 MOVED 8. `cli.ts` — the stable `expand/v1` JSON envelopes the CLI prints.
 
 **Scrutinize hardest:**

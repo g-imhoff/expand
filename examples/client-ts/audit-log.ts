@@ -1,9 +1,9 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime, Option, Ref, Stream, SubscriptionRef } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { appendFileSync } from "node:fs"
-import { ClientLayer, ClientSession } from "@expand/client-ts"
+import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
-import { adapter } from "./adapter"
+import { adapter, clientLayer } from "./adapter"
 
 export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(function*() {
   const session = yield* ClientSession
@@ -72,13 +72,3 @@ if (import.meta.main) {
     }
   )
 }
-
-function clientLayer(runtimeAdapter: Parameters<typeof ClientLayer>[0]) {
-  return ClientLayer(runtimeAdapter).pipe(Layer.provide(appContextLayer))
-}
-
-const appContextLayer = (
-  adapter as typeof adapter & {
-    readonly nodeAppContextLayer: typeof import("./node-app-context").nodeAppContextLayer
-  }
-).nodeAppContextLayer

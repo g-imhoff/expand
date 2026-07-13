@@ -28,7 +28,11 @@ export interface AppContextShape {
 
 export class AppContext extends Context.Service<AppContext, AppContextShape>()(
   "expand/AppContext"
-) {}
+) {
+  static make(path: AppContextPathOps, input: AppContextInput): AppContextShape {
+    return makeAppContext(path, input)
+  }
+}
 
 export const defaultDataDir = (
   path: AppContextPathOps,

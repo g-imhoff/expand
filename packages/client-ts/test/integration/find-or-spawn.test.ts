@@ -4,7 +4,7 @@ import { TestClock } from "effect/testing"
 import { NodeServices } from "@effect/platform-node"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { findOrSpawnBackend } from "../../spawn"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -279,6 +279,10 @@ describe("findOrSpawnBackend", () => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

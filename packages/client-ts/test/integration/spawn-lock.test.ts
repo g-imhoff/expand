@@ -14,7 +14,7 @@ import {
   writeFileSync
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, resolve } from "node:path"
 import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -389,6 +389,10 @@ const lockArtifacts = (lockPath: string): ReadonlyArray<string> => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

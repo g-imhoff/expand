@@ -6,7 +6,7 @@ import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { connect } from "node:net"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { networkInterfaces, tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
@@ -307,6 +307,10 @@ describe.sequential("trust boundary", () => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

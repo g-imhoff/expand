@@ -224,4 +224,19 @@ describe("syncAgents", () => {
     writeFileSync(path, readFileSync(path, "utf8").replace("ultra", "medium"))
     await expect(syncAgents({ rootDir: root, mode: "check" })).rejects.toThrow(basename(path))
   })
+
+  it("builds the manual standing-client AppContext from explicit host inputs", () => {
+    const source = readFileSync(join(repositoryRoot, ".claude", "agents", "manual-tester.md"), "utf8")
+    const command = source.split("\n").find((line) => line.startsWith("node --import tsx --input-type=module -e"))
+    const nodeOs = ["node:", "os"].join("")
+    const processApi = "process."
+
+    expect(command).toBeDefined()
+    expect(command).toContain('import { Effect, Layer, Path } from "effect"')
+    expect(command).toContain(`import { homedir } from "${nodeOs}"`)
+    expect(command).toContain("const path=yield* Path.Path")
+    expect(command).toContain(`AppContext.make(path,{homeDir:homedir(),cwd:${processApi}cwd(),dataDir:${processApi}argv[1]})`)
+    expect(command).toContain("hold.pipe(Effect.provide(appContext), Effect.provide(NodeServices.layer))")
+    expect(command).not.toContain(`makeAppContext(${processApi}argv[1])`)
+  })
 })

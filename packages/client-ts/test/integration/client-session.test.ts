@@ -6,7 +6,7 @@ import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { createServer } from "node:http"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { ExpandRpcs } from "@expand/contracts/rpc"
@@ -37,7 +37,7 @@ vi.mock("../../rpc-client", async (importOriginal) => {
 
 interface ScriptedBackend {
   readonly adapter: RuntimeAdapter
-  readonly appContext: ReturnType<typeof makeAppContext>
+  readonly appContext: ReturnType<typeof AppContext.make>
   readonly disconnect: Effect.Effect<void>
   readonly dispose: Effect.Effect<void>
   readonly blockNextSpawn: () => void
@@ -460,6 +460,10 @@ describe("ClientSession", () => {
 
 const makeTestAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}

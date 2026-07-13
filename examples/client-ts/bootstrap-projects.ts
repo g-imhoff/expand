@@ -2,7 +2,7 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { ClientLayer } from "@expand/client-ts"
+import { clientLayer } from "./node-app-context"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 
@@ -44,13 +44,3 @@ runtime.runPromise(program).then(
     return runtime.dispose().finally(() => process.exit(1))
   }
 )
-
-function clientLayer(runtimeAdapter: Parameters<typeof ClientLayer>[0]) {
-  return ClientLayer(runtimeAdapter).pipe(Layer.provide(appContextLayer))
-}
-
-const appContextLayer = (
-  adapter as typeof adapter & {
-    readonly nodeAppContextLayer: typeof import("./node-app-context").nodeAppContextLayer
-  }
-).nodeAppContextLayer

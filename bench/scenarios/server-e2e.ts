@@ -3,7 +3,7 @@
 // Pattern mirrors apps/server/test/integration/durability-restart.test.ts.
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { resolve } from "node:path"
 import { Duration, Effect, Fiber, Option, Schedule, Layer } from "effect"
 import type { Scope } from "effect"
 import { NodeServices } from "@effect/platform-node"
@@ -91,6 +91,10 @@ export const runServerE2e = async (ctx: ScenarioContext): Promise<ReadonlyArray<
 
 const makeBenchAppContext = (dataDir: string) =>
   makeAppContext(
-    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { join, resolve },
     { homeDir: dataDir, cwd: dataDir, dataDir }
   )
+
+function join(...paths: ReadonlyArray<string>): string {
+  return resolve(...paths)
+}
