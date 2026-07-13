@@ -1,0 +1,228 @@
+import { describe, expect, it } from "vitest"
+import { Effect, Fiber, PubSub, Schema, Stream } from "effect"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProjectRenamed } from "@expand/contracts/events/project"
+import { Project } from "@expand/contracts/project"
+import {
+  runProjectSync,
+  type ProjectSnapshot,
+  type ProjectSyncSink,
+  type ProjectSyncSource,
+  type ProjectSyncStatus
+} from "@expand/contracts/project-sync"
+
+const alpha = Schema.decodeUnknownSync(Project)({
+  id: "00000000-0000-4000-8000-000000000001",
+  name: "alpha",
+  directory: null,
+  description: null,
+  tags: [],
+  archived: false,
+  createdAt: "t1",
+  updatedAt: "t1"
+})
+
+const beta = Schema.decodeUnknownSync(Project)({
+  id: "00000000-0000-4000-8000-000000000002",
+  name: "beta",
+  directory: null,
+  description: null,
+  tags: [],
+  archived: false,
+  createdAt: "t5",
+  updatedAt: "t5"
+})
+
+const renamed = (seq: number, project: Project, name: string): SequencedEvent => ({
+  seq,
+  event: ProjectRenamed.make({ projectId: project.id, name, occurredAt: `t${seq}` })
+})
+
+const waitUntil = (predicate: () => boolean) =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if (predicate()) return
+      yield* Effect.sleep("5 millis")
+    }
+    return yield* Effect.die(new Error("scenario did not reach the expected state"))
+  })
+
+const makeRecorder = () => {
+  const snapshots: Array<ProjectSnapshot> = []
+  const statuses: Array<ProjectSyncStatus> = []
+  const sink: ProjectSyncSink = {
+    snapshot: (snapshot) => snapshots.push(snapshot),
+    status: (status) => statuses.push(status)
+  }
+  return { sink, snapshots, statuses }
+}
+
+const statusStream = (status: PubSub.PubSub<ProjectSyncStatus>) =>
+  Stream.make("connected" as ProjectSyncStatus).pipe(Stream.concat(Stream.fromPubSub(status)))
+
+const runInitialSyncScenario = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const eventRequests: Array<{ readonly fromSeq: number }> = []
+        const recorder = makeRecorder()
+        const source: ProjectSyncSource = {
+          status: statusStream(statuses),
+          list: () => Effect.succeed({ projects: [alpha], seq: 4 }),
+          events: (payload) => {
+            eventRequests.push(payload)
+            return Stream.never
+          }
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => eventRequests.length === 1)
+        yield* Fiber.interrupt(fiber)
+        return { snapshots: recorder.snapshots, eventRequests }
+      })
+    )
+  )
+
+const runSequenceGateScenario = (sequences: ReadonlyArray<number>) =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const recorder = makeRecorder()
+        const source: ProjectSyncSource = {
+          status: statusStream(statuses),
+          list: () => Effect.succeed({ projects: [alpha], seq: 4 }),
+          events: () =>
+            Stream.fromIterable(sequences.map((seq) => renamed(seq, alpha, `alpha-${seq}`))).pipe(
+              Stream.concat(Stream.never)
+            )
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => recorder.snapshots.length === 3)
+        yield* Fiber.interrupt(fiber)
+        return { snapshots: recorder.snapshots }
+      })
+    )
+  )
+
+const runBootstrapReplayScenario = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const replay: Array<SequencedEvent> = []
+        const recorder = makeRecorder()
+        const source: ProjectSyncSource = {
+          status: statusStream(statuses),
+          list: () =>
+            Effect.sync(() => {
+              replay.push(renamed(2, alpha, "alpha-2"))
+              return { projects: [alpha], seq: 1 }
+            }),
+          events: ({ fromSeq }) =>
+            Stream.fromIterable(replay.filter((event) => event.seq > fromSeq)).pipe(
+              Stream.concat(Stream.never)
+            )
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => recorder.snapshots.some((snapshot) => snapshot.seq === 2))
+        yield* Fiber.interrupt(fiber)
+        return { snapshot: recorder.snapshots.at(-1)! }
+      })
+    )
+  )
+
+const runResnapshotScenario = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const recorder = makeRecorder()
+        let epoch = 0
+        const source: ProjectSyncSource<Error> = {
+          status: statusStream(statuses),
+          list: () =>
+            Effect.sync(() => {
+              epoch += 1
+              return epoch === 1
+                ? { projects: [alpha], seq: 1 }
+                : { projects: [beta], seq: 5 }
+            }),
+          events: () => epoch === 1 ? Stream.fail(new Error("epoch failed")) : Stream.never
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => recorder.snapshots.length === 1)
+        yield* PubSub.publish(statuses, "reconnecting")
+        yield* waitUntil(() => recorder.statuses.includes("reconnecting"))
+        const atReconnect = recorder.snapshots.at(-1)!
+        yield* PubSub.publish(statuses, "connected")
+        yield* waitUntil(() => recorder.snapshots.length === 2)
+        const afterReconnect = recorder.snapshots.at(-1)!
+        yield* Fiber.interrupt(fiber)
+        return { atReconnect, afterReconnect }
+      })
+    )
+  )
+
+const runInterruptionScenario = () =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const events = yield* PubSub.unbounded<SequencedEvent>()
+        const recorder = makeRecorder()
+        let subscribed = false
+        const source: ProjectSyncSource<never> = {
+          status: statusStream(statuses),
+          list: () => Effect.succeed({ projects: [alpha], seq: 1 }),
+          events: () =>
+            Stream.unwrap(
+              Effect.gen(function* () {
+                const subscription = yield* PubSub.subscribe(events)
+                subscribed = true
+                return Stream.fromSubscription(subscription)
+              })
+            )
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => subscribed)
+        yield* PubSub.publish(events, renamed(2, alpha, "alpha-2"))
+        yield* waitUntil(() => recorder.snapshots.some((snapshot) => snapshot.seq === 2))
+        const beforeInterrupt = recorder.snapshots.slice()
+        yield* Fiber.interrupt(fiber)
+        yield* PubSub.publish(events, renamed(3, alpha, "alpha-3"))
+        yield* Effect.sleep("20 millis")
+        return { beforeInterrupt, afterInterrupt: recorder.snapshots.slice() }
+      })
+    )
+  )
+
+describe("ProjectSync", () => {
+  it("publishes the initial snapshot atomically", async () => {
+    const result = await runInitialSyncScenario()
+    expect(result.snapshots).toEqual([{ projects: [alpha], seq: 4 }])
+    expect(result.eventRequests).toEqual([{ fromSeq: 4 }])
+  })
+
+  it("ignores duplicate and stale event sequences", async () => {
+    const result = await runSequenceGateScenario([5, 5, 3, 6])
+    expect(result.snapshots.map((snapshot) => snapshot.seq)).toEqual([4, 5, 6])
+  })
+
+  it("replays a mutation between list and event subscription", async () => {
+    const result = await runBootstrapReplayScenario()
+    expect(result.snapshot.projects.map((project) => project.name)).toEqual(["alpha-2"])
+    expect(result.snapshot.seq).toBe(2)
+  })
+
+  it("retains state while reconnecting and replaces it after resnapshot", async () => {
+    const result = await runResnapshotScenario()
+    expect(result.atReconnect).toEqual({ projects: [alpha], seq: 1 })
+    expect(result.afterReconnect).toEqual({ projects: [beta], seq: 5 })
+  })
+
+  it("interruption stops delivery", async () => {
+    const result = await runInterruptionScenario()
+    expect(result.afterInterrupt).toEqual(result.beforeInterrupt)
+  })
+})
