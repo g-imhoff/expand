@@ -63,7 +63,7 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
 if (import.meta.main) {
   const outfile = process.argv[2]
   if (!outfile || outfile.startsWith("--")) { console.error("usage: audit-log <outfile>"); process.exit(2) }
-  const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
+  const runtime = ManagedRuntime.make(clientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
   runtime.runPromise(runAuditLog(outfile)).then(
     () => runtime.dispose(),
     (err) => {
@@ -72,3 +72,13 @@ if (import.meta.main) {
     }
   )
 }
+
+function clientLayer(runtimeAdapter: Parameters<typeof ClientLayer>[0]) {
+  return ClientLayer(runtimeAdapter).pipe(Layer.provide(appContextLayer))
+}
+
+const appContextLayer = (
+  adapter as typeof adapter & {
+    readonly nodeAppContextLayer: typeof import("./node-app-context").nodeAppContextLayer
+  }
+).nodeAppContextLayer

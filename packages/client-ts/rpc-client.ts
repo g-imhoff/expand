@@ -4,6 +4,7 @@ import { Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
+import type { AppContext } from "@expand/contracts/app-context"
 import { BackendUnavailable } from "./errors"
 import { deleteEndpoint } from "./discovery"
 import { findOrSpawnBackend } from "./spawn"
@@ -17,7 +18,7 @@ export const acquireClient = (
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
-  FileSystem.FileSystem | Scope.Scope
+  FileSystem.FileSystem | Scope.Scope | AppContext
 > => {
   const once = findOrSpawnBackend(adapter).pipe(
     Effect.catchIf(

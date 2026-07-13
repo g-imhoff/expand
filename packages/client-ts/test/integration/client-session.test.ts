@@ -64,7 +64,7 @@ const makeHandlers = () =>
 
 const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
   const dir = mkdtempSync(join(tmpdir(), "expand-client-session-"))
-  const appContext = makeAppContext(dir)
+  const appContext = makeTestAppContext(dir)
   const retryStarted = Deferred.makeUnsafe<void>()
   const retryInterrupted = Deferred.makeUnsafe<void>()
   let currentScope: Scope.Closeable | undefined
@@ -403,7 +403,7 @@ describe("ClientSession", () => {
           Layer.build(
             ClientSessionLayer(failingAdapter).pipe(
               Layer.provide(NodeServices.layer),
-              Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+              Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
             )
           )
         ).pipe(Effect.result)
@@ -457,3 +457,9 @@ describe("ClientSession", () => {
     expect(result.retryFiberInterrupted).toBe(true)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

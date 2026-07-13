@@ -1,4 +1,4 @@
-import { Effect, Fiber } from "effect"
+import { Cause, Effect, Fiber } from "effect"
 import type { ManagedRuntime } from "effect"
 import type { BackendUnavailable, ClientSession } from "@expand/client-ts"
 import type { ProjectClient } from "@expand/client-ts/project"
@@ -10,7 +10,7 @@ export interface ConnectPortDeps {
   readonly port: MainPortLike
   readonly runtime: ManagedRuntime.ManagedRuntime<
     ClientSession | ProjectClient | ServerClient,
-    BackendUnavailable
+    BackendUnavailable | Cause.UnknownError
   >
 }
 

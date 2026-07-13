@@ -61,7 +61,7 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.renamed.name).toBe("ops-renamed")
@@ -92,9 +92,15 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r._tag).toBe("Failure")
     if (r._tag === "Failure") expect((r.failure as { _tag: string })._tag).toBe("ProjectDirectoryInvalid")
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

@@ -1,17 +1,17 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
-import type { LogLevel } from "effect"
+import { NodeAppContext } from "@expand/server/node-app-context"
 import { join } from "node:path"
 import { AppContext } from "@expand/contracts/app-context"
 import { runServer } from "@expand/server/composition/app"
 import { stateRootLockForStartup } from "@expand/server/state-root-lock"
 
-const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
+const LOG_LEVELS: ReadonlyArray<ServerLogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
 
-const minimumLogLevel = (): LogLevel.LogLevel => {
+const minimumLogLevel = (): ServerLogLevel => {
   const raw = process.env.EXPAND_LOG_LEVEL
   return raw !== undefined && (LOG_LEVELS as ReadonlyArray<string>).includes(raw)
-    ? (raw as LogLevel.LogLevel)
+    ? (raw as ServerLogLevel)
     : "Info"
 }
 
@@ -49,11 +49,14 @@ process.umask(0o077)
 NodeRuntime.runMain(
   program.pipe(
     Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
-    Effect.provide(NodeServices.layer),
-    Effect.tap(() => Effect.sync(() => process.exit(0)))
+    Effect.provide(NodeAppContext.nodeAppContextLayer),
+    Effect.tap(() => Effect.sync(() => process.exit(0))),
+    Effect.provide(NodeServices.layer)
   ),
   {
     teardown: (exit, onExit) =>
       onExit(Exit.isSuccess(exit) || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) ? 0 : 1)
   }
 )
+
+type ServerLogLevel = import("effect").LogLevel.LogLevel

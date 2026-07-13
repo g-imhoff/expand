@@ -50,7 +50,7 @@ describe.sequential("project delete e2e", () => {
         )
         yield* Fiber.interrupt(serverFiber)
         return out
-      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     )
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
@@ -63,8 +63,14 @@ describe.sequential("project delete e2e", () => {
         const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({ includeArchived: true }))
         yield* Fiber.interrupt(serverFiber)
         return listed
-      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     )
     expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

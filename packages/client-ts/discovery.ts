@@ -2,7 +2,7 @@ import { Effect, FileSystem, Option, Schema } from "effect"
 import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext } from "@expand/contracts/app-context"
 
-export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem> =
+export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem | AppContext> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext
@@ -18,7 +18,7 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     return Option.some(endpoint)
   })
 
-export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
+export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem | AppContext> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext

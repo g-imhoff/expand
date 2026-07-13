@@ -11,10 +11,11 @@ import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { nodeAppContextLayer } from "@expand/desktop/main/node-app-context"
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
   ClientSession | ProjectClient | ServerClient,
-  BackendUnavailable
+  BackendUnavailable | Layer.Error<typeof nodeAppContextLayer>
 >
 
 export const defaultBackendEntry = (moduleUrl: string): string =>
@@ -22,9 +23,7 @@ export const defaultBackendEntry = (moduleUrl: string): string =>
 
 export const makeRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    ClientLayer(makeNodeAdapter({ backendCommand })).pipe(
-      Layer.provide(NodeServices.layer)
-    )
+    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(NodeServices.layer))
   )
 
 const backendCommand = (): ReadonlyArray<string> =>
@@ -33,3 +32,6 @@ const backendCommand = (): ReadonlyArray<string> =>
     runtimeArgs: ["--import", "tsx"],
     sourceEntry: defaultBackendEntry(import.meta.url)
   })
+
+const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
+  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))

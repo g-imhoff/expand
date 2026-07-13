@@ -49,7 +49,7 @@ describe.sequential("ProjectSync integration", () => {
     })
     const layer = ClientLayer(adapter).pipe(
       Layer.provide(NodeServices.layer),
-      Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+      Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
     const runtimeA = ManagedRuntime.make(layer)
     const runtimeB = ManagedRuntime.make(layer)
@@ -110,7 +110,7 @@ describe.sequential("ProjectSync integration", () => {
     })
     const layer = ClientLayer(adapter).pipe(
       Layer.provide(NodeServices.layer),
-      Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+      Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
     const runtime = ManagedRuntime.make(layer)
     let syncFiber: Fiber.Fiber<never, unknown> | undefined
@@ -165,3 +165,9 @@ describe.sequential("ProjectSync integration", () => {
     }
   }, 60_000)
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

@@ -16,12 +16,12 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const run = <A, E>(eff: Effect.Effect<A, E, NodeServices.NodeServices>) =>
-  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeAppContext(dir)))))
+const run = <A, E>(eff: Effect.Effect<A, E, TestContext.Services>) =>
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeTestAppContext(dir)))))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
-    makeAppContext(dir).paths.endpointFile,
+    makeTestAppContext(dir).paths.endpointFile,
     JSON.stringify({ url: "ws://127.0.0.1:51789/rpc", token: "t", pid, protocolVersion })
   )
 
@@ -43,7 +43,17 @@ describe("readEndpoint", () => {
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for malformed JSON", async () => {
-    writeFileSync(makeAppContext(dir).paths.endpointFile, "{ not json")
+    writeFileSync(makeTestAppContext(dir).paths.endpointFile, "{ not json")
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )
+
+namespace TestContext {
+  export type Services = NodeServices.NodeServices | AppContext
+}

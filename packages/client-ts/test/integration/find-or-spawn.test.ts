@@ -31,7 +31,7 @@ afterEach(() => {
 describe("findOrSpawnBackend", () => {
   it("returns the existing live backend without spawning", async () => {
     writeFileSync(
-      makeAppContext(dir).paths.endpointFile,
+      makeTestAppContext(dir).paths.endpointFile,
       JSON.stringify({
         url: "ws://127.0.0.1:51789/rpc",
         token: "t",
@@ -40,7 +40,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeAppContext(dir))))
+      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeTestAppContext(dir))))
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -59,7 +59,7 @@ describe("findOrSpawnBackend", () => {
       spawnBackend: (dataDir: string) => Effect.gen(function* () {
         spawnCount += 1
         yield* Effect.sleep("25 millis")
-        writeFileSync(makeAppContext(dataDir).paths.endpointFile, JSON.stringify(endpoint))
+        writeFileSync(makeTestAppContext(dataDir).paths.endpointFile, JSON.stringify(endpoint))
       })
     }
 
@@ -69,7 +69,7 @@ describe("findOrSpawnBackend", () => {
         { concurrency: "unbounded" }
       ).pipe(
         Effect.provide(NodeServices.layer),
-        Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+        Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
       )
     )
 
@@ -79,7 +79,7 @@ describe("findOrSpawnBackend", () => {
 
   it("holds the default external lease without creating the nested target before spawn", async () => {
     const dataDir = join(dir, ".expand", "expand-dev")
-    const context = makeAppContext(dataDir)
+    const context = makeTestAppContext(dataDir)
     const externalLock = join(dir, ".expand-locks", "expand-dev.spawn.lock")
     const paths = { ...context.paths, spawnLockFile: externalLock }
     const endpoint = {
@@ -118,7 +118,7 @@ describe("findOrSpawnBackend", () => {
       spawnBackend: (dataDir: string) => Effect.sync(() => {
         spawnedRoots.push(dataDir)
         writeFileSync(
-          makeAppContext(dataDir).paths.endpointFile,
+          makeTestAppContext(dataDir).paths.endpointFile,
           JSON.stringify({
             url: `ws://127.0.0.1:${dataDir === leftRoot ? 51793 : 51794}/rpc`,
             token: dataDir,
@@ -132,8 +132,8 @@ describe("findOrSpawnBackend", () => {
     await Effect.runPromise(
       Effect.all(
         [
-          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeAppContext(leftRoot)))),
-          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeAppContext(rightRoot))))
+          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeTestAppContext(leftRoot)))),
+          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeTestAppContext(rightRoot))))
         ],
         { concurrency: "unbounded" }
       ).pipe(Effect.provide(NodeServices.layer))
@@ -170,7 +170,7 @@ describe("findOrSpawnBackend", () => {
       })
       const advertiser = yield* Effect.sleep("6 seconds").pipe(
         Effect.andThen(
-          Effect.sync(() => writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint)))
+          Effect.sync(() => writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint)))
         ),
         Effect.forkChild
       )
@@ -187,7 +187,7 @@ describe("findOrSpawnBackend", () => {
     }).pipe(
       Effect.provide(TestClock.layer()),
       Effect.provide(NodeServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
 
     const endpoint = await Effect.runPromise(program)
@@ -227,7 +227,7 @@ describe("findOrSpawnBackend", () => {
     }).pipe(
       Effect.provide(TestClock.layer()),
       Effect.provide(NodeServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
 
     const { beforeDeadline, result } = await Effect.runPromise(program)
@@ -244,7 +244,7 @@ describe("findOrSpawnBackend", () => {
   // re-spawned (pre-fix). The acquire must now detect the dead-pid lock as stale,
   // clear it, and proceed to spawn instead of waiting out the timeout and failing.
   it("recovers from a stale (dead-pid) spawn lock with no server.json", async () => {
-    const lockPath = makeAppContext(dir).paths.spawnLockFile
+    const lockPath = makeTestAppContext(dir).paths.spawnLockFile
     // Orphaned lock: a dead pid (out-of-range -> ESRCH -> treated as dead). No
     // server.json exists, so readEndpoint is None and we go straight to acquire.
     writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, startedAt: Date.now() }))
@@ -261,14 +261,14 @@ describe("findOrSpawnBackend", () => {
       // stale lock and (no-op) spawn fires, advertise a live endpoint so the
       // acquiring fiber's awaitEndpoint resolves instead of timing out.
       const reviver = yield* Effect.forkChild(
-        Effect.sync(() => writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))).pipe(
+        Effect.sync(() => writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))).pipe(
           Effect.delay("100 millis")
         )
       )
       const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
       return endpoint
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const endpoint = await Effect.runPromise(program)
     expect(endpoint.url).toBe(realEndpoint.url)
@@ -276,3 +276,9 @@ describe("findOrSpawnBackend", () => {
     expect(existsSync(lockPath)).toBe(false)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

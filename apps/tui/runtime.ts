@@ -12,19 +12,18 @@ import {
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { nodeAppContextLayer } from "@expand/tui/node-app-context"
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
   ClientSession | ProjectClient | ServerClient,
-  BackendUnavailable
+  BackendUnavailable | Layer.Error<typeof nodeAppContextLayer>
 >
 
 export const RuntimeContext = createContext<ExpandRuntime | null>(null)
 
 export const makeProductionRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    ClientLayer(makeNodeAdapter({ backendCommand })).pipe(
-      Layer.provide(NodeServices.layer)
-    )
+    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(NodeServices.layer))
   )
 
 const backendCommand = (): ReadonlyArray<string> => {
@@ -36,3 +35,6 @@ const backendCommand = (): ReadonlyArray<string> => {
     binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
   })
 }
+
+const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
+  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))

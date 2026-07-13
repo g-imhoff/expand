@@ -18,7 +18,7 @@ afterEach(() => {
 
 describe("endpoint file (I-3)", () => {
   it("writes the file inside the scope and removes it when the scope closes", async () => {
-    const file = makeAppContext(dir).paths.endpointFile
+    const file = makeTestAppContext(dir).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -36,10 +36,16 @@ describe("endpoint file (I-3)", () => {
       yield* Scope.close(scope, Exit.void)
       const after = yield* fs.exists(file)
       return { during, after }
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.during).toBe(true)
     expect(r.after).toBe(false)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

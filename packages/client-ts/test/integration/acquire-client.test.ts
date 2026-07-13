@@ -26,7 +26,7 @@ describe("acquireClient", () => {
       const { client, endpoint } = yield* acquireClient(nodeAdapter)
       const health = yield* client.Health()
       return { health, endpoint }
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const { health, endpoint } = await Effect.runPromise(program)
     expect(health).toBe("ok")
@@ -35,3 +35,9 @@ describe("acquireClient", () => {
     expect(endpoint.token.length).toBeGreaterThan(0)
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

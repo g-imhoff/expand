@@ -1,7 +1,17 @@
 import { Context } from "effect"
-import { homedir } from "node:os"
-import { join, resolve } from "node:path"
 import { channel, type Channel } from "@expand/contracts/channel"
+
+export interface AppContextPathOps {
+  readonly join: (...paths: ReadonlyArray<string>) => string
+  readonly resolve: (...paths: ReadonlyArray<string>) => string
+}
+
+export interface AppContextInput {
+  readonly homeDir: string
+  readonly cwd: string
+  readonly dataDir?: string
+  readonly channel?: Channel
+}
 
 export interface AppPath {
   readonly dataDir: string
@@ -16,24 +26,33 @@ export interface AppContextShape {
   readonly paths: AppPath
 }
 
-export const defaultDataDir = (selectedChannel: Channel = channel): string =>
-  join(homedir(), NAMES.home, NAMES.channel[selectedChannel])
+export class AppContext extends Context.Service<AppContext, AppContextShape>()(
+  "expand/AppContext"
+) {}
+
+export const defaultDataDir = (
+  path: AppContextPathOps,
+  homeDir: string,
+  selectedChannel: Channel = channel
+): string => path.join(homeDir, NAMES.home, NAMES.channel[selectedChannel])
 
 export const makeAppContext = (
-  dataDir?: string,
-  selectedChannel: Channel = channel
+  path: AppContextPathOps,
+  input: AppContextInput
 ): AppContextShape => {
-  const defaultDir = resolve(defaultDataDir(selectedChannel))
-  const base = resolve(dataDir ?? defaultDir)
+  const selectedChannel = input.channel ?? channel
+  const fallback = path.resolve(input.cwd, defaultDataDir(path, input.homeDir, selectedChannel))
+  const base = path.resolve(input.cwd, input.dataDir ?? fallback)
   return {
     channel: selectedChannel,
-    paths: derivePaths(base, defaultDir, selectedChannel)
+    paths: derivePaths(path, input.homeDir, base, fallback, selectedChannel)
   }
 }
 
-export const AppContext = Context.Reference<AppContextShape>("expand/AppContext", {
-  defaultValue: () => makeAppContext(processDataDir())
-})
+export const dataDirFromArgs = (args: ReadonlyArray<string>): string | undefined => {
+  const index = args.indexOf("--data-dir")
+  return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined
+}
 
 const NAMES = {
   home: ".expand",
@@ -45,17 +64,18 @@ const NAMES = {
   spawnLock: { dev: "expand-dev.spawn.lock", release: "expand.spawn.lock" }
 } as const
 
-const derivePaths = (base: string, defaultDir: string, selectedChannel: Channel): AppPath => ({
+const derivePaths = (
+  path: AppContextPathOps,
+  homeDir: string,
+  base: string,
+  fallback: string,
+  selectedChannel: Channel
+): AppPath => ({
   dataDir: base,
-  dbPath: join(base, NAMES.db),
-  endpointFile: join(base, NAMES.endpoint),
-  logDir: join(base, NAMES.logs),
-  spawnLockFile: base === defaultDir
-    ? join(homedir(), NAMES.coordination, NAMES.spawnLock[selectedChannel])
-    : join(base, `${NAMES.endpoint}.lock`)
+  dbPath: path.join(base, NAMES.db),
+  endpointFile: path.join(base, NAMES.endpoint),
+  logDir: path.join(base, NAMES.logs),
+  spawnLockFile: base === fallback
+    ? path.join(homeDir, NAMES.coordination, NAMES.spawnLock[selectedChannel])
+    : path.join(base, `${NAMES.endpoint}.lock`)
 })
-
-const processDataDir = (): string | undefined => {
-  const i = process.argv.indexOf("--data-dir")
-  return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined
-}

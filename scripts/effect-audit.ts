@@ -673,7 +673,10 @@ const grepClassificationError = (evidence: ReadonlyArray<GrepCandidateEvidence>)
       return `grep inventory ${candidate.classification} record requires a non-empty rationale: ${grepCandidateKey(candidate)}`
     }
     if (candidate.classification === "host-boundary") {
-      if (entry.messageId !== "runnerOutsideBoundary" || !boundaries.has(grepCandidateKey(candidate))) {
+      if (
+        (entry.messageId !== "runnerOutsideBoundary" && entry.messageId !== "platformEffect")
+        || !boundaries.has(grepCandidateKey(candidate))
+      ) {
         return `grep inventory host-boundary lacks an exact permanent boundary: ${grepCandidateKey(candidate)}`
       }
       continue

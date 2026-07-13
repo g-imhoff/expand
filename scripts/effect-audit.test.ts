@@ -68,7 +68,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-effect-audit-" })
     const sample = options.sampleFile ?? "src/sample.ts"
     const source = options.source ?? "export const sample = 1\n"
-    const tracked = [...boundaryFiles, sample]
+    const tracked = [...allBoundaryFiles, sample]
 
     for (const file of tracked) {
       yield* fs.makeDirectory(path.dirname(path.join(root, file)), { recursive: true })
@@ -167,7 +167,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
 const fixture = <A>(
   options: FixtureOptions,
   use: Parameters<typeof withAuditFixture<A>>[1]
-) => withAuditFixture(options, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+) => withAppContextAuditFixture(options, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
 describe("Effect audit model", () => {
   it("keeps identity stable across line and excerpt changes", () => {
@@ -389,7 +389,7 @@ describe("Effect audit command", () => {
       baseline: [],
       source,
       eslint: JSON.stringify([
-        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
           messages: [{
@@ -427,7 +427,7 @@ describe("Effect audit command", () => {
     Effect.forEach([0, 3], (severity) => fixture({
       baseline: [],
       eslint: JSON.stringify([
-        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
           messages: [{
@@ -449,7 +449,7 @@ describe("Effect audit command", () => {
     fixture({
       baseline: [],
       eslint: JSON.stringify([
-        ...boundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
           messages: [{
@@ -1929,4 +1929,94 @@ describe("Effect launcher inventory command", () => {
         }))
       }
     }))
+})
+
+const appContextBoundaryFiles = [
+  "apps/cli/cli/node-app-context.ts",
+  "apps/server/node-app-context.ts",
+  "apps/tui/node-app-context.ts",
+  "apps/desktop/src/main/node-app-context.ts",
+  "examples/client-ts/node-app-context.ts"
+] as const
+
+const allBoundaryFiles = [...boundaryFiles, ...appContextBoundaryFiles]
+
+const nodeOs = ["node", "os"].join(":")
+const hostProcessCwd = ["process", "cwd"].join(".")
+const platformProcessCwd = ["platform:process", "cwd"].join(".")
+const asyncKeyword = ["as", "ync"].join("")
+const nativeAsync = ["native:as", "ync"].join("")
+
+const appContextBoundarySource = `import { Effect } from "effect"
+import { homedir } from "${nodeOs}"
+export const nodeAppContext = Effect.fn("NodeAppContext.make")(function*() {
+  const homeDir = yield* Effect.try({ try: homedir, catch: String })
+  const cwd = yield* Effect.try({ try: () => ${hostProcessCwd}(), catch: String })
+  return { homeDir, cwd }
+})
+`
+
+const withAppContextAuditFixture = <A>(
+  options: FixtureOptions,
+  use: Parameters<typeof withAuditFixture<A>>[1]
+) => withAuditFixture(options, (input) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    for (const file of appContextBoundaryFiles) {
+      yield* fs.writeFileString(path.join(input.root, file), appContextBoundarySource)
+    }
+    return yield* use(input)
+  }))
+
+describe("Effect platform host-boundary classification", () => {
+  it.effect("accepts an exact analyzer-proven platform host-boundary classification", () => {
+    const line = `  const cwd = yield* Effect.try({ try: () => ${hostProcessCwd}(), catch: String })\n`
+    const reviewed = candidate({
+      file: "apps/cli/cli/node-app-context.ts",
+      declaration: "member:cwd.try",
+      construct: platformProcessCwd,
+      classification: "host-boundary",
+      rationale: "Node AppContext host acquisition",
+      line: 5,
+      excerpt: line.trim()
+    })
+    return fixture({
+      baseline: [],
+      inventory: [reviewed],
+      grepJson: grepJson(grepMatch(
+        "apps/cli/cli/node-app-context.ts",
+        line,
+        5,
+        hostProcessCwd,
+        undefined,
+        byteOffsetAtLine(appContextBoundarySource, 5)
+      ))
+    }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
+  })
+
+  it.effect("rejects a reviewed host boundary without analyzer and permanent-registry proof", () => {
+    const source = `export const sample = ${asyncKeyword} () => 1\n`
+    const reviewed = candidate({
+      file: "src/sample.ts",
+      declaration: "variable:sample",
+      construct: nativeAsync,
+      classification: "host-boundary",
+      rationale: "Unproven host boundary",
+      excerpt: source.trim()
+    })
+    return fixture({
+      baseline: [],
+      inventory: [reviewed],
+      source,
+      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, asyncKeyword))
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        expect(error).toMatchObject({
+          reason: "invalid-output",
+          detail: expect.stringContaining("lacks an exact permanent boundary")
+        })
+      }))
+  })
 })

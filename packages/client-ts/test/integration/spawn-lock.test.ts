@@ -209,7 +209,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after success", async () => {
-    const context = makeAppContext(join(dir, "success"))
+    const context = makeTestAppContext(join(dir, "success"))
     mkdirSync(context.paths.dataDir)
     const endpoint = liveEndpoint("success")
     const adapter = {
@@ -229,7 +229,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after a spawn error", async () => {
-    const context = makeAppContext(join(dir, "error"))
+    const context = makeTestAppContext(join(dir, "error"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
       ...nodeAdapter,
@@ -248,7 +248,7 @@ describe("client spawn lock", () => {
   })
 
   it("cleans its lease after interruption", async () => {
-    const context = makeAppContext(join(dir, "interruption"))
+    const context = makeTestAppContext(join(dir, "interruption"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
       ...nodeAdapter,
@@ -386,3 +386,9 @@ const lockArtifacts = (lockPath: string): ReadonlyArray<string> => {
   const prefix = lockPath.slice(parent.length + 1)
   return readdirSync(parent).filter((entry) => entry.startsWith(`${prefix}.`))
 }
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

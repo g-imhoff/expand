@@ -50,7 +50,7 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r.first.seq).toBe(2)
     expect(r.first.event._tag).toBe("ProjectCreated")
@@ -76,9 +76,15 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const [e1, e2] = await Effect.runPromise(program)
     expect([e1.seq, e2.seq]).toEqual([1, 2])
     expect([e1.event._tag, e2.event._tag]).toEqual(["ProjectCreated", "ProjectCreated"])
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

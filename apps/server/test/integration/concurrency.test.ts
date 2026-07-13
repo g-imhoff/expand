@@ -49,7 +49,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -84,7 +84,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
@@ -120,7 +120,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       restore: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<unknown> }
@@ -148,7 +148,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -185,7 +185,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string }>
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }
@@ -201,3 +201,9 @@ describe.sequential("project operations under concurrency", () => {
     rmSync(shared, { recursive: true, force: true })
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

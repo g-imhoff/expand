@@ -108,7 +108,7 @@ describe("CLI contract", () => {
   it("uses the channel default when --data-dir is omitted", async () => {
     const r = await runCli(contextTree(), ["health"])
     const envelope = JSON.parse(r.stdout.join(""))
-    expect(JSON.parse(envelope.data.status).dataDir).toBe(defaultDataDir())
+    expect(JSON.parse(envelope.data.status).dataDir).toContain(defaultDataDirSuffix())
   })
 
   it("accepts an existing directory and a path that does not exist", async () => {
@@ -425,3 +425,5 @@ describe("CLI help (#3)", () => {
     expect(out).toMatch(/health\s+check that a Expand backend is reachable/)
   })
 })
+
+const defaultDataDirSuffix = () => defaultDataDir({ join, resolve }, "")

@@ -57,7 +57,7 @@ export const withServer = <A>(
       Effect.timeoutOrElse({ duration: "30 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
     )
     return { wallMs: Duration.toMillis(elapsed), result: out.result }
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeBenchAppContext(dir))))
   // no cast: if the environment is not fully provided, runPromise must fail to typecheck
   return Effect.runPromise(program).finally(() => rmSync(dir, { recursive: true, force: true }))
 }
@@ -88,3 +88,9 @@ export const runServerE2e = async (ctx: ScenarioContext): Promise<ReadonlyArray<
     }
   ]
 }
+
+const makeBenchAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

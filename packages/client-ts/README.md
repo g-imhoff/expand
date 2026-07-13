@@ -40,26 +40,32 @@ epoch; and `epochs` emits each newly connected epoch.
 and `ServerClient`. The facades delegate each operation through the session, so
 commands issued after a reconnect use the current epoch.
 
-Every SDK layer leaves `FileSystem` unprovided. Node hosts satisfy it with
-`NodeServices.layer` and provide a backend command through `makeNodeAdapter`.
+Every SDK layer leaves `FileSystem` and `AppContext` unprovided. Applications
+own the context that selects their data root; Node hosts satisfy the platform
+services with `NodeServices.layer` and provide an application-defined
+`nodeAppContextLayer` that lazily acquires home, cwd, and `Stdio.args`. The SDK
+does not read argv or install a context internally.
 
 ```ts
-import { Effect } from "effect"
+import { Effect, Layer } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { ClientLayer } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { nodeAppContextLayer } from "./node-app-context"
 
 const adapter = makeNodeAdapter({
   backendCommand: [process.execPath, "--import", "tsx", "/absolute/path/to/apps/server/main.ts"]
 })
 
+const clientLayer = ClientLayer(adapter).pipe(
+  Layer.provide(nodeAppContextLayer),
+  Layer.provide(NodeServices.layer)
+)
+
 const program = Effect.flatMap(ProjectClient, (client) =>
   client.list({ includeArchived: true })
-).pipe(
-  Effect.provide(ClientLayer(adapter)),
-  Effect.provide(NodeServices.layer)
-)
+).pipe(Effect.provide(clientLayer))
 
 const snapshot = await Effect.runPromise(program)
 ```

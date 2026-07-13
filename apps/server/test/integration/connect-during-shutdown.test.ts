@@ -36,7 +36,7 @@ const writeStaleEndpoint = () =>
   // Live pid (this process) so readEndpoint accepts it, but a port nothing is
   // listening on — i.e. a server that has already gone away.
   writeFileSync(
-    makeAppContext(dir).paths.endpointFile,
+    makeTestAppContext(dir).paths.endpointFile,
     JSON.stringify({
       url: "ws://127.0.0.1:9/rpc",
       token: "stale",
@@ -83,7 +83,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
             Effect.retry(Schedule.spaced("10 millis")),
             Effect.andThen(
               Effect.sync(() =>
-                writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
+                writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
               )
             )
           )
@@ -106,7 +106,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
       const r = await Effect.runPromise(program)
       expect(r.health).toBe("ok")
@@ -115,3 +115,9 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
     20000
   )
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

@@ -40,7 +40,7 @@ describe.sequential("end-to-end lifecycle", () => {
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
 
       yield* awaitEndpointUp
-      const upDuring = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
+      const upDuring = yield* fs.exists(makeTestAppContext(dir).paths.endpointFile)
 
       const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
@@ -57,9 +57,9 @@ describe.sequential("end-to-end lifecycle", () => {
           orElse: () => Effect.fail(new Error("server did not shut down after last client left (I-4)"))
         })
       )
-      const upAfter = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
+      const upAfter = yield* fs.exists(makeTestAppContext(dir).paths.endpointFile)
       return { upDuring, upAfter, outcome }
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const r = await Effect.runPromise(program)
     expect(r.upDuring).toBe(true)
@@ -90,7 +90,7 @@ describe.sequential("end-to-end lifecycle", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(Option.isSome(r.archivedEvent)).toBe(true)
     if (Option.isSome(r.archivedEvent)) {
@@ -119,7 +119,7 @@ describe.sequential("end-to-end lifecycle", () => {
 
       yield* Fiber.interrupt(serverFiber)
       return observed
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const observed = await Effect.runPromise(program)
     expect(Option.isSome(observed)).toBe(true)
@@ -131,3 +131,9 @@ describe.sequential("end-to-end lifecycle", () => {
     }
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

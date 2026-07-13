@@ -36,7 +36,7 @@ const program = Effect.gen(function*() {
   console.log(`bootstrap: created ${created}, skipped ${skipped}`)
 })
 
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
+const runtime = ManagedRuntime.make(clientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => {
@@ -44,3 +44,13 @@ runtime.runPromise(program).then(
     return runtime.dispose().finally(() => process.exit(1))
   }
 )
+
+function clientLayer(runtimeAdapter: Parameters<typeof ClientLayer>[0]) {
+  return ClientLayer(runtimeAdapter).pipe(Layer.provide(appContextLayer))
+}
+
+const appContextLayer = (
+  adapter as typeof adapter & {
+    readonly nodeAppContextLayer: typeof import("./node-app-context").nodeAppContextLayer
+  }
+).nodeAppContextLayer

@@ -74,7 +74,7 @@ module.exports = {
     {
       name: "renderer-no-node-appcontext",
       severity: "error",
-      comment: "packages/contracts/app-context pulls node:os/fs — the renderer/preload must never import it.",
+      comment: "The renderer and preload must not acquire or depend on application AppContext state.",
       from: { path: "^apps/desktop/src/(renderer|preload)/" },
       to: { path: "^packages/contracts/app-context(\\.ts)?$" }
     }

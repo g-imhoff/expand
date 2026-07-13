@@ -24,7 +24,7 @@ describe("Node adapter", () => {
     const rt = ManagedRuntime.make(
       ProjectClientLayer(adapter).pipe(
         Layer.provide(NodeServices.layer),
-        Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+        Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
       )
     )
     try {
@@ -39,3 +39,9 @@ describe("Node adapter", () => {
     }
   })
 })
+
+const makeTestAppContext = (dataDir: string) =>
+  makeAppContext(
+    { join, resolve: (...paths) => paths[paths.length - 1] ?? "" },
+    { homeDir: dataDir, cwd: dataDir, dataDir }
+  )

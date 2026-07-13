@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Fiber, Layer, Ref, Stream } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
 import { NodeServices } from "@effect/platform-node"
-import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { AppContext } from "@expand/contracts/app-context"
 import { ProjectCreated } from "@expand/contracts/events/project"
 import type { RuntimeAdapter } from "../../adapter"
 import { ClientLayer } from "../../client-layer"
@@ -156,7 +156,7 @@ const runSharedLayerScenario = async () => {
         serverHealthEpoch: serverHealth
       }
     }).pipe(
-      Effect.provide(ClientLayer(adapter)),
+      Effect.provide(clientLayer(adapter)),
       Effect.provide(NodeServices.layer)
     )
   )
@@ -186,3 +186,19 @@ describe("client layer", () => {
     expect(result.sessionHealthEpoch).toBe(result.serverHealthEpoch)
   })
 })
+
+const clientLayer = (runtimeAdapter: RuntimeAdapter) =>
+  ClientLayer(runtimeAdapter).pipe(
+    Layer.provide(Layer.succeed(AppContext, {
+      channel: "dev",
+      paths: {
+        dataDir: "/work/state",
+        dbPath: "/work/state/events.db",
+        endpointFile: "/work/state/server.json",
+        logDir: "/work/state/logs",
+        spawnLockFile: "/work/state/server.json.lock"
+      }
+    }))
+  )
+
+type SequencedEvent = import("@expand/contracts/events/domain").SequencedEvent
