@@ -1,4 +1,4 @@
-import { Effect, Fiber, Option, Ref, Stream } from "effect"
+import { Cause, Effect, Exit, Fiber, Option, Ref, Schedule, Stream } from "effect"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { Project } from "@expand/contracts/project"
 
@@ -28,7 +28,7 @@ export type ProjectSyncStatus =
 export const runProjectSync = <E, R>(
   source: ProjectSyncSource<E, R>,
   sink: ProjectSyncSink
-): Effect.Effect<never, never, R> =>
+): Effect.Effect<never, E, R> =>
   Effect.scoped(
     Effect.gen(function* () {
       const active = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>())
@@ -47,26 +47,55 @@ export const runProjectSync = <E, R>(
             yield* interruptActive
             if (status === "connected") {
               const fiber = yield* Effect.forkScoped(
-                runEpoch(source, sink).pipe(Effect.catch(() => Effect.void))
+                runEpochLoop(source, sink)
               )
               yield* Ref.set(active, Option.some(fiber))
             }
           })
         ),
-        Effect.catch(() => Effect.never),
         Effect.andThen(Effect.never)
       )
     })
   )
 
-const runEpoch = <E, R>(
+const epochRetryPolicy = Schedule.exponential("100 millis", 2).pipe(
+  Schedule.either(Schedule.spaced("5 seconds"))
+)
+
+const epochEnded = Symbol("epoch ended")
+
+const runEpochLoop = <E, R>(
   source: ProjectSyncSource<E, R>,
   sink: ProjectSyncSink
+): Effect.Effect<never, never, R> =>
+  Effect.gen(function* () {
+    const recovering = yield* Ref.make(false)
+    return yield* Ref.get(recovering).pipe(
+      Effect.flatMap((recovered) => runEpoch(source, sink, recovered)),
+      Effect.exit,
+      Effect.flatMap((exit): Effect.Effect<never, E | typeof epochEnded> =>
+        Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
+          ? Effect.failCause(exit.cause)
+          : Ref.set(recovering, true).pipe(
+              Effect.andThen(Effect.sync(() => sink.status("reconnecting"))),
+              Effect.andThen(Effect.fail(epochEnded))
+            )
+      ),
+      Effect.retry(epochRetryPolicy),
+      Effect.catch(() => Effect.never)
+    )
+  })
+
+const runEpoch = <E, R>(
+  source: ProjectSyncSource<E, R>,
+  sink: ProjectSyncSink,
+  recovered = false
 ): Effect.Effect<void, E, R> =>
   Effect.gen(function* () {
     const initial = yield* source.list()
     const current = yield* Ref.make(initial)
     yield* Effect.sync(() => sink.snapshot(initial))
+    if (recovered) yield* Effect.sync(() => sink.status("connected"))
     yield* source.events({ fromSeq: initial.seq }).pipe(
       Stream.runForEach((sequenced) =>
         Ref.modify(current, (snapshot) => {

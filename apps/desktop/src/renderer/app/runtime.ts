@@ -1,5 +1,6 @@
-import { Effect } from "effect"
+import { Effect, Fiber } from "effect"
 import type { Cause } from "effect"
+import type { RpcClientError } from "effect/unstable/rpc"
 import { runProjectSync } from "@expand/contracts/project-sync"
 import { makeIpcClient, type IpcTransportError, type MakeIpcClientOptions } from "@expand/electron-ipc/renderer"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
@@ -14,9 +15,9 @@ export const acquireRpcPort = (options: MakeIpcClientOptions): Effect.Effect<Mes
 
 export const boot = (
   mount: (value: ProjectContextValue) => void
-): Effect.Effect<never, Cause.TimeoutError | IpcTransportError> =>
+): Effect.Effect<never, Cause.TimeoutError | IpcTransportError | RpcClientError.RpcClientError> =>
   Effect.gen(function* () {
-    const value = yield* Effect.timeout(
+    const initialized = yield* Effect.timeout(
       Effect.gen(function* () {
         const messagePort = yield* acquireRpcPort({ bridge: () => window.expand, win: window })
         const client = yield* buildRendererClient(makeRendererPort(messagePort))
@@ -30,7 +31,7 @@ export const boot = (
         const firstSnapshot = new Promise<void>((resolve) => {
           resolveFirstSnapshot = resolve
         })
-        yield* Effect.forkScoped(
+        const syncFiber = yield* Effect.forkScoped(
           runProjectSync({
             status: rpc.status,
             list: () => rpc.list({ includeArchived: true }),
@@ -43,13 +44,16 @@ export const boot = (
             }
           })
         )
-        yield* Effect.promise(() => firstSnapshot)
-        return { store, rpc }
+        yield* Effect.raceFirst(
+          Effect.promise(() => firstSnapshot),
+          Fiber.join(syncFiber)
+        )
+        return { value: { store, rpc }, syncFiber }
       }),
       BOOT_TIMEOUT
     )
-    yield* Effect.sync(() => mount(value))
-    return yield* Effect.never
+    yield* Effect.sync(() => mount(initialized.value))
+    return yield* Fiber.join(initialized.syncFiber)
   }).pipe(Effect.scoped)
 
 const BOOT_TIMEOUT = "10 seconds"

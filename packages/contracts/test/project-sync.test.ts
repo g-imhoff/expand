@@ -164,6 +164,61 @@ const runResnapshotScenario = () =>
     )
   )
 
+const runUnexpectedEpochEndScenario = (kind: "failure" | "completion") =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const statuses = yield* PubSub.unbounded<ProjectSyncStatus>()
+        const recorder = makeRecorder()
+        const eventRequests: Array<{ readonly fromSeq: number }> = []
+        let epoch = 0
+        const source: ProjectSyncSource<Error> = {
+          status: statusStream(statuses),
+          list: () =>
+            Effect.sync(() => {
+              epoch += 1
+              return epoch === 1
+                ? { projects: [alpha], seq: 1 }
+                : { projects: [beta], seq: 5 }
+            }),
+          events: (payload) => {
+            eventRequests.push(payload)
+            return epoch === 1
+              ? kind === "failure"
+                ? Stream.fail(new Error("epoch failed"))
+                : Stream.empty
+              : Stream.never
+          }
+        }
+        const fiber = yield* Effect.forkScoped(runProjectSync(source, recorder.sink))
+        yield* waitUntil(() => recorder.snapshots.length === 2)
+        yield* Fiber.interrupt(fiber)
+        return {
+          snapshots: recorder.snapshots,
+          statuses: recorder.statuses,
+          eventRequests
+        }
+      })
+    )
+  )
+
+const runStatusFailureScenario = () => {
+  const failure = new Error("status stream failed")
+  const source: ProjectSyncSource<Error> = {
+    status: Stream.fail(failure),
+    list: () => Effect.die("unused"),
+    events: () => Stream.die("unused")
+  }
+  return Effect.runPromise(
+    Effect.flip(runProjectSync(source, makeRecorder().sink)).pipe(
+      Effect.timeoutOrElse({
+        duration: "100 millis",
+        orElse: () => Effect.succeed(new Error("status failure was not propagated"))
+      })
+    )
+  ).then((observed) => ({ failure, observed }))
+}
+
 const runSingleActiveEpochScenario = () =>
   Effect.runPromise(
     Effect.scoped(
@@ -284,6 +339,33 @@ describe("ProjectSync", () => {
     const result = await runResnapshotScenario()
     expect(result.atReconnect).toEqual({ projects: [alpha], seq: 1 })
     expect(result.afterReconnect).toEqual({ projects: [beta], seq: 5 })
+  })
+
+  it("restarts list and replay when Events fails without a status transition", async () => {
+    const result = await runUnexpectedEpochEndScenario("failure")
+    expect(result.statuses).toContain("reconnecting")
+    expect(result.statuses.at(-1)).toBe("connected")
+    expect(result.snapshots).toEqual([
+      { projects: [alpha], seq: 1 },
+      { projects: [beta], seq: 5 }
+    ])
+    expect(result.eventRequests).toEqual([{ fromSeq: 1 }, { fromSeq: 5 }])
+  })
+
+  it("restarts list and replay when Events completes without a status transition", async () => {
+    const result = await runUnexpectedEpochEndScenario("completion")
+    expect(result.statuses).toContain("reconnecting")
+    expect(result.statuses.at(-1)).toBe("connected")
+    expect(result.snapshots).toEqual([
+      { projects: [alpha], seq: 1 },
+      { projects: [beta], seq: 5 }
+    ])
+    expect(result.eventRequests).toEqual([{ fromSeq: 1 }, { fromSeq: 5 }])
+  })
+
+  it("propagates status stream failure to its owner", async () => {
+    const result = await runStatusFailureScenario()
+    expect(result.observed).toBe(result.failure)
   })
 
   it("interrupts the active epoch before reconnecting and resnapshotting", async () => {

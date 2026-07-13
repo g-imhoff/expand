@@ -1,7 +1,7 @@
-import { readFileSync, rmSync, existsSync } from "node:fs"
+import { readFileSync, rmSync, existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { Effect, Fiber, Layer, Stream, SubscriptionRef } from "effect"
+import { Cause, Effect, Exit, Fiber, Layer, Stream, SubscriptionRef } from "effect"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ClientSession, type ClientSessionApi, type ConnectionStatus } from "@expand/client-ts"
@@ -36,6 +36,46 @@ const pollUntil = async (predicate: () => boolean, timeoutMs: number, stepMs = 1
 }
 
 describe("example: audit-log", () => {
+  it("fails loudly when the output cannot be appended", async () => {
+    const dataDir = makeDataDir()
+    const outfile = join(dataDir, "audit-directory")
+    mkdirSync(outfile)
+    const status = await Effect.runPromise(SubscriptionRef.make<ConnectionStatus>("connected"))
+    const session: ClientSessionApi = {
+      status,
+      current: Effect.die("unused"),
+      epochs: Stream.empty
+    }
+    const client = {
+      events: () =>
+        Stream.make({
+          seq: 1,
+          event: ProjectRenamed.make({
+            projectId: "00000000-0000-4000-8000-000000000001",
+            name: "unwritten",
+            occurredAt: "t1"
+          })
+        }).pipe(Stream.concat(Stream.never))
+    } as unknown as ProjectClientApi
+    try {
+      const exit = await Effect.runPromiseExit(
+        runAuditLog(outfile).pipe(
+          Effect.provide(Layer.mergeAll(
+            Layer.succeed(ClientSession, session),
+            Layer.succeed(ProjectClient, client)
+          )),
+          Effect.timeout("500 millis")
+        )
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(String(Cause.squash(exit.cause))).toMatch(/EISDIR|illegal operation on a directory/i)
+      }
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   it("reopens Events from the last cursor on a newly connected session epoch", async () => {
     const dataDir = makeDataDir()
     const outfile = join(dataDir, "audit.jsonl")

@@ -1,4 +1,4 @@
-import { Effect, Fiber, Layer, ManagedRuntime, Option, Ref, Stream, SubscriptionRef } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime, Option, Ref, Stream, SubscriptionRef } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { appendFileSync } from "node:fs"
 import { ClientLayer, ClientSession } from "@expand/client-ts"
@@ -9,6 +9,7 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
   const session = yield* ClientSession
   const client = yield* ProjectClient
   const cursor = yield* Ref.make(0)
+  const failed = yield* Deferred.make<never>()
   const active = yield* Ref.make(Option.none<Fiber.Fiber<void, never>>())
   const interruptActive = Ref.getAndSet(active, Option.none()).pipe(
     Effect.flatMap(
@@ -19,7 +20,7 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
     )
   )
   console.log(`audit-log: writing to ${outfile}`)
-  yield* SubscriptionRef.changes(session.status).pipe(
+  const statuses = SubscriptionRef.changes(session.status).pipe(
     Stream.runForEach((status) =>
       Effect.gen(function* () {
         yield* interruptActive
@@ -28,26 +29,27 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
           const fiber = yield* Effect.forkScoped(
             client.events({ fromSeq }).pipe(
               Stream.runForEach((se) =>
-                Ref.modify(cursor, (lastSeq) =>
-                  se.seq <= lastSeq
-                    ? [false, lastSeq] as const
-                    : [true, se.seq] as const
-                ).pipe(
-                  Effect.flatMap((shouldAppend) =>
-                    shouldAppend
-                      ? Effect.sync(() => {
+                Ref.get(cursor).pipe(
+                  Effect.flatMap((lastSeq) =>
+                    se.seq <= lastSeq
+                      ? Effect.void
+                      : Effect.sync(() => {
                           appendFileSync(outfile, JSON.stringify({
                             seq: se.seq,
                             tag: se.event._tag,
                             projectId: se.event.projectId,
                             at: se.event.occurredAt
                           }) + "\n")
-                        })
-                      : Effect.void
+                        }).pipe(Effect.andThen(Ref.set(cursor, se.seq)))
                   )
                 )
               ),
-              Effect.catch(() => Effect.void)
+              Effect.catch(() => Effect.void),
+              Effect.onExit((exit) =>
+                Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
+                  ? Deferred.failCause(failed, exit.cause).pipe(Effect.asVoid)
+                  : Effect.void
+              )
             )
           )
           yield* Ref.set(active, Option.some(fiber))
@@ -55,6 +57,7 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
       })
     )
   )
+  yield* Effect.raceFirst(statuses, Deferred.await(failed))
 }))
 
 if (import.meta.main) {
