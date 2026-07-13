@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "likec4 start",
-    "build": "bun run clean && bun run build:png && bun run build:svg && echo '✓ built png in ./out and svg in ./out-svg'",
+    "build": "npm run clean && npm run build:png && npm run build:svg && echo '✓ built png in ./out and svg in ./out-svg'",
     "build:png": "echo '→ rendering PNG via likec4 (Playwright)' && likec4 export png -o ./out",
-    "build:svg": "echo '→ generating D2 sources + rendering SVG' && likec4 gen d2 -o ./d2 && bun run render:svg",
+    "build:svg": "echo '→ generating D2 sources + rendering SVG' && likec4 gen d2 -o ./d2 && npm run render:svg",
     "render:svg": "mkdir -p ./out-svg && for f in ./d2/*.d2; do name=$(basename \"$f\" .d2); d2 --layout elk --theme 300 \"$f\" \"./out-svg/${name}.svg\"; done",
     "clean": "rm -rf ./out ./out-svg ./d2"
   },
