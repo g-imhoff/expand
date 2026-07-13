@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Crypto, Effect, Encoding, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
+import { parse as parseYaml } from "yaml"
 import { AuditCommandRunner, AuditCommandRunnerLive, runAudit } from "../../scripts/effect-audit"
 import {
   GrepInventoryJson,
@@ -13,6 +14,140 @@ import {
 const PackageJson = Schema.fromJsonString(Schema.Struct({
   scripts: Schema.Struct({ "effect:grep": Schema.String })
 }))
+
+const WorkflowStep = Schema.Struct({
+  name: Schema.optionalKey(Schema.String),
+  run: Schema.optionalKey(Schema.String),
+  uses: Schema.optionalKey(Schema.String)
+})
+
+const WorkflowJob = Schema.Struct({
+  steps: Schema.Array(WorkflowStep)
+})
+
+const Workflow = Schema.Struct({
+  jobs: Schema.Struct({
+    checks: WorkflowJob,
+    "desktop-e2e": WorkflowJob,
+    "binary-smoke": WorkflowJob
+  })
+})
+
+const parseWorkflow = Effect.fn("EffectAuditTest.parseWorkflow")((source: string) =>
+  Effect.try({
+    try: () => parseYaml(source),
+    catch: (cause) => ({ _tag: "WorkflowYamlError" as const, cause })
+  }).pipe(Effect.flatMap(Schema.decodeUnknownEffect(Workflow))))
+
+const expectedPreCommit = [
+  "#!/bin/sh",
+  "set -e",
+  "",
+  "echo \"pre-commit › agent definitions\"",
+  "npm run agents:check",
+  "",
+  "echo \"pre-commit › Effect boundary audit\"",
+  "npm run effect:audit",
+  "",
+  "echo \"pre-commit › eslint\"",
+  "npm run lint",
+  "",
+  "echo \"pre-commit › typecheck\"",
+  "npm run typecheck:all",
+  "",
+  "echo \"pre-commit › ok\"",
+  ""
+].join("\n")
+
+const expectedJobCommands = {
+  checks: [
+    "npm ci",
+    "npm run effect:audit",
+    "npm run agents:check",
+    "npm run typecheck:all",
+    "npm run arch",
+    "npm run test"
+  ],
+  "desktop-e2e": [
+    "npm ci",
+    "npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64",
+    "xvfb-run -a npm run e2e:desktop"
+  ],
+  "binary-smoke": [
+    "npm ci",
+    "npm run cert:cli:build"
+  ]
+} as const
+
+const expectedCodeOwners = [
+  ["/docs/architecture/BOUNDARIES.md", "@g-imhoff"],
+  ["/.dependency-cruiser.cjs", "@g-imhoff"],
+  ["/test/architecture/", "@g-imhoff"],
+  ["/docs/architecture/EFFECT_ONLY.md", "@g-imhoff"],
+  ["/tsconfig.effect-audit.json", "@g-imhoff"],
+  ["/eslint.effect.config.mjs", "@g-imhoff"],
+  ["/eslint-rules/effect-*", "@g-imhoff"],
+  ["/scripts/effect-*", "@g-imhoff"],
+  ["/effect-*.json", "@g-imhoff"]
+] as const
+
+const expectedPolicyHeadings = [
+  "Effect-only boundary",
+  "Pure code stays pure",
+  "Required Effect shapes",
+  "Host adapters and launchers",
+  "Commands",
+  "Migration inventories",
+  "Changing an exception",
+  "Completion"
+] as const
+
+const expectedPureRules = [
+  "The boundary is a functional core around an effectful shell: total deterministic calculations stay ordinary functions, while effectful behavior is represented by Effect, Stream, Layer, or a service.",
+  "Pure code receives every value it needs as input, performs no I/O, inspects no ambient state, and is total over its declared inputs."
+] as const
+
+const expectedEffectRules = [
+  "Reusable named functions that return Effect use a named `Effect.fn` boundary; measured hot paths and anonymous protocol callbacks may use `Effect.fnUntraced`.",
+  "`Effect.gen` is used for sequential control flow. Direct `map`, `flatMap`, `andThen`, and pipe-based combinators remain valid for expressions and small pipelines.",
+  "Effect platform services are preferred whenever they model the capability; thin `Effect.try`, `Effect.tryPromise`, `Effect.callback`, or `Stream.callback` adapters are limited to missing services.",
+  "Recoverable external failures are translated into tagged errors in the Effect error channel; impossible internal states are explicit defects.",
+  "Resources have scoped release, finalizers, or interruption cleanup."
+] as const
+
+const expectedHostRules = [
+  "Host adapters are exact by file, declaration, host, construct, and occurrence. Runners stay in registered entrypoints or bridges, and executable launchers are exact path, mode, classification, host, and source-fingerprint records.",
+  "Fire-and-forget work is owned and supervised so neither rejection nor Effect failure is silently discarded.",
+  "A launcher delegates immediately to the Effect entry program or repository gate and contains only the commands required by that host."
+] as const
+
+const normalizeMarkdown = (source: string): string =>
+  source.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
+
+const markdownSection = (source: string, heading: string, nextHeading?: string): string => {
+  const normalized = source.replace(/\r\n/g, "\n")
+  const remainder = normalized.split(`${heading}\n`)[1] ?? ""
+  return (nextHeading === undefined ? remainder : remainder.split(`\n${nextHeading}`)[0] ?? "").trim()
+}
+
+const markdownList = (source: string, marker: RegExp): ReadonlyArray<string> => {
+  const items: Array<string> = []
+  for (const line of source.replace(/\r\n/g, "\n").split("\n")) {
+    const match = marker.exec(line)
+    if (match !== null) {
+      items.push(match[1] ?? "")
+    } else if (/^\s+\S/.test(line) && items.length > 0) {
+      const index = items.length - 1
+      items[index] = `${items[index] ?? ""} ${line.trim()}`
+    }
+  }
+  return items.map((item) => item.replace(/\s+/g, " ").trim())
+}
+
+const numberedItems = (source: string): ReadonlyArray<string> => markdownList(source, /^\d+\. (.*)$/)
+const bulletItems = (source: string): ReadonlyArray<string> => markdownList(source, /^- (.*)$/)
+const paragraphs = (source: string): ReadonlyArray<string> =>
+  source.replace(/\r\n/g, "\n").split(/\n\s*\n/).map(normalizeMarkdown).filter(Boolean)
 
 const approvedHumanCommand = String.raw`rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}' -g '!.git/**' -g '!**/node_modules/**' -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' "\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\s*\\(|new\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|performance\\.now|Math\\.random|crypto\\.randomUUID|JSON\\.(?:parse|stringify)|process\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\.)|\\bnode:[^'\"[:space:]]+|\\b[A-Za-z_$][A-Za-z0-9_$]*\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\b"`
 
@@ -101,4 +236,126 @@ describe("Effect grep architecture", () => {
       Effect.provide(AuditCommandRunnerLive),
       Effect.provide(NodeServices.layer)
     ), 120_000)
+})
+
+describe("Effect-only enforcement policy", () => {
+  it.effect("keeps the pre-commit hook at the exact reviewed byte string", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+
+      expect(yield* fs.readFileString(path.join(root, ".githooks/pre-commit"))).toBe(expectedPreCommit)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("runs the complete CI job command sequences with the audit in its exact position", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+      const workflow = yield* parseWorkflow(
+        yield* fs.readFileString(path.join(root, ".github/workflows/ci.yml"))
+      )
+      const runCommands = (job: typeof WorkflowJob.Type) =>
+        job.steps.flatMap((step) => step.run === undefined ? [] : [step.run])
+      const checksSteps = workflow.jobs.checks.steps
+      const auditIndexes = checksSteps.flatMap((step, index) =>
+        step.name === "Effect-only boundary audit" ? [index] : [])
+
+      expect(Object.keys(workflow.jobs)).toEqual(["checks", "desktop-e2e", "binary-smoke"])
+      expect({
+        checks: runCommands(workflow.jobs.checks),
+        "desktop-e2e": runCommands(workflow.jobs["desktop-e2e"]),
+        "binary-smoke": runCommands(workflow.jobs["binary-smoke"])
+      }).toEqual(expectedJobCommands)
+      expect(auditIndexes).toEqual([3])
+      expect(checksSteps[2]).toEqual({
+        name: "Install dependencies (frozen lockfile)",
+        run: "npm ci"
+      })
+      expect(checksSteps[3]).toEqual({
+        name: "Effect-only boundary audit",
+        run: "npm run effect:audit"
+      })
+      expect(checksSteps[4]).toEqual({
+        name: "Agent definitions synchronized",
+        run: "npm run agents:check"
+      })
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("keeps the exact ordered architecture ownership pairs", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+      const source = yield* fs.readFileString(path.join(root, "CODEOWNERS"))
+      const records = source.split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line !== "" && !line.startsWith("#"))
+        .map((line) => line.split(/\s+/))
+
+      expect(records).toEqual(expectedCodeOwners)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("publishes the approved invariant and cumulative completion contract", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+      const [design, policy] = yield* Effect.all([
+        fs.readFileString(path.join(root, "docs/superpowers/specs/2026-07-13-effect-only-codebase-design.md")),
+        fs.readFileString(path.join(root, "docs/architecture/EFFECT_ONLY.md"))
+      ])
+      const designDefinition = markdownSection(
+        design,
+        "## Definition of Effect-Only",
+        "## Repository-Wide Invariants"
+      )
+      const designInvariants = markdownSection(
+        design,
+        "## Repository-Wide Invariants",
+        "## Scope"
+      )
+      const designCompletion = markdownSection(
+        design,
+        "## Completion Evidence",
+        "## Delivery and Review"
+      )
+      const policyBoundary = markdownSection(policy, "# Effect-only boundary", "## Pure code stays pure")
+      const policyPure = markdownSection(policy, "## Pure code stays pure", "## Required Effect shapes")
+      const policyEffects = markdownSection(policy, "## Required Effect shapes", "## Host adapters and launchers")
+      const policyHosts = markdownSection(policy, "## Host adapters and launchers", "## Commands")
+      const policyCommands = markdownSection(policy, "## Commands", "## Migration inventories")
+      const policyExceptions = markdownSection(policy, "## Changing an exception", "## Completion")
+      const policyCompletion = markdownSection(policy, "## Completion")
+      const commandLines = policyCommands.split(/\r?\n/).map((line) => line.trim())
+        .filter((line) => line.startsWith("npm run effect:"))
+      const headings = [...policy.matchAll(/^#{1,6} (.+)$/gm)].map((match) => match[1] ?? "")
+
+      expect(headings).toEqual(expectedPolicyHeadings)
+      expect(normalizeMarkdown(policyBoundary).startsWith(normalizeMarkdown(designDefinition))).toBe(true)
+      expect(numberedItems(designInvariants)).toHaveLength(13)
+      expect(numberedItems(policyBoundary)).toEqual(numberedItems(designInvariants))
+      expect(paragraphs(policyBoundary).at(-1)).toBe(
+        "Official diagnostics, the local semantic rule, registry validation, source coverage, grep classifications, and launcher fingerprints are cumulative evidence."
+      )
+      expect(bulletItems(policyPure)).toEqual(expectedPureRules)
+      expect(bulletItems(policyEffects)).toEqual(expectedEffectRules)
+      expect(bulletItems(policyHosts)).toEqual(expectedHostRules)
+      expect(commandLines).toEqual([
+        "npm run effect:grep",
+        "npm run effect:audit",
+        "npm run effect:audit:update"
+      ])
+      expect(paragraphs(policyExceptions)).toEqual([
+        "The update command is shrink-only. It cannot initialize a missing ledger, add debt, reclassify records, refresh reviewed non-debt fingerprints, or broaden an exception.",
+        "A legitimate permanent change requires an explicit reviewed registry edit with exact analyzer or fingerprint proof."
+      ])
+      expect(numberedItems(designCompletion)).toHaveLength(10)
+      expect(numberedItems(policyCompletion)).toEqual(numberedItems(designCompletion))
+      expect(normalizeMarkdown(policyCompletion).startsWith(normalizeMarkdown(designCompletion))).toBe(true)
+      expect(paragraphs(policyCompletion).at(-1)).toBe(
+        "Semantic, grep, and launcher migration debt must all reach zero before temporary ledgers or migration-only validation are deleted."
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

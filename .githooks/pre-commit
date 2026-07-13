@@ -1,16 +1,11 @@
 #!/bin/sh
-# Pre-commit gate. Runs the fast static checks before a commit lands:
-#   - eslint (incl. the local/module-order layout rule)
-#   - tsc --noEmit across all packages + the desktop app
-#
-# The full test suite is intentionally NOT run here (too slow for every commit)
-# — that belongs on push / CI. Bypass in a pinch with `git commit --no-verify`.
-#
-# Installed via the package.json "prepare" script: git config core.hooksPath .githooks
 set -e
 
 echo "pre-commit › agent definitions"
 npm run agents:check
+
+echo "pre-commit › Effect boundary audit"
+npm run effect:audit
 
 echo "pre-commit › eslint"
 npm run lint
