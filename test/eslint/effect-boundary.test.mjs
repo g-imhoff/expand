@@ -68,6 +68,20 @@ const ownedAnonymousBoundaries = [
   construct: "platform:process.env.HOME",
   occurrence: 0
 }))
+const templatePropertyBoundary = {
+  file: "effect-boundary-valid.ts",
+  declaration: "property:handlers.load/scope:anonymous:Property:value:property:handlers.load:0/variable:task",
+  host: "Static template property callback",
+  construct: "platform:process.env.HOME",
+  occurrence: 0
+}
+const classFieldBoundary = {
+  file: "effect-boundary-valid.ts",
+  declaration: "member:Handlers.load/scope:anonymous:PropertyDefinition:value:member:Handlers.load:0/variable:task",
+  host: "Owned class field callback",
+  construct: "platform:process.env.HOME",
+  occurrence: 0
+}
 
 const valid = [
   validCase('import { Effect } from "effect"\nexport const load = Effect.fn("load")(function*() { return yield* Effect.tryPromise(() => host()) })'),
@@ -180,6 +194,12 @@ const valid = [
     "export default api",
     'export type * from "effect/Schema"'
   ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
+    "const local = { Effect: { succeed: (value) => value } }",
+    "export const duplicate = { Effect, Effect: local.Effect }",
+    "export const spread = { Effect, ...local }"
+  ].join("\n")),
   validCase("type PromiseLike<Value> = { readonly value: Value }\ntype Result = PromiseLike<string>"),
   validCase("export const add = (left, right) => left + right"),
   validCase([
@@ -262,6 +282,21 @@ const valid = [
     "declare const operations: { load?: undefined }",
     "export const { load = Effect.fnUntraced(() => Effect.succeed(1)) } = operations"
   ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
+    "const operations = { nested: {} }",
+    'export const { nested: { load = Effect.fn("load")(() => Effect.succeed(1)) } } = operations'
+  ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
+    "declare const operations: { nested: { load?: undefined } }",
+    "export const { nested: { load = Effect.fnUntraced(() => Effect.succeed(1)) } } = operations"
+  ].join("\n")),
+  validCase([
+    'import { Schema } from "effect"',
+    "consume(Schema[key])",
+    "Schema[key](input)"
+  ].join("\n")),
   validCase('import { Effect } from "effect"\nexport const values = [1].map(() => Effect.succeed(1))'),
   validCase([
     "const Effect = { runPromise: () => undefined, gen: (body) => body }",
@@ -335,6 +370,14 @@ const valid = [
     'state.nested.resource.addEventListener("event", receive)'
   ].join("\n")),
   validCase([
+    "class LocalResource { close() {} start() {} subscribe() {} }",
+    "const state = { resource: new LocalResource() }",
+    "const { resource } = state",
+    "resource.close()",
+    "resource.start()",
+    "resource.subscribe(receive)"
+  ].join("\n")),
+  validCase([
     'import { Exit, PubSub, Scope } from "effect"',
     "declare const scope: Scope.Closeable",
     "declare const pubsub: PubSub.PubSub<string>",
@@ -369,6 +412,19 @@ const valid = [
   withBoundaries(
     validCase('import { Effect } from "effect"\nEffect.runPromise(program)'),
     [runnerBoundary]
+  ),
+  withBoundaries(
+    validCase([
+      'import { Effect } from "effect"',
+      "export const api = { first: Effect, second: Effect }"
+    ].join("\n")),
+    ["first", "second"].map((property) => ({
+      file: "effect-boundary-valid.ts",
+      declaration: `property:api.${property}`,
+      host: `Test ${property} Effect capability export`,
+      construct: "runner-re-export:namespace:Effect",
+      occurrence: 0
+    }))
   ),
   withBoundaries(
     validCase([
@@ -417,6 +473,40 @@ const valid = [
       "const handlers = { unrelated: () => 0, load: () => { const task = () => process.env.HOME; return task } }"
     ].join("\n")),
     ownedAnonymousBoundaries
+  ),
+  withBoundaries(
+    validCase([
+      "const handlers = {",
+      "  [`load`]: () => { const task = () => process.env.HOME; return task }",
+      "}"
+    ].join("\n")),
+    [templatePropertyBoundary]
+  ),
+  withBoundaries(
+    validCase([
+      "const handlers = {",
+      "  [`save`]: () => 0,",
+      "  [`load`]: () => { const task = () => process.env.HOME; return task }",
+      "}"
+    ].join("\n")),
+    [templatePropertyBoundary]
+  ),
+  withBoundaries(
+    validCase([
+      "class Handlers {",
+      "  [`load`] = () => { const task = () => process.env.HOME; return task }",
+      "}"
+    ].join("\n")),
+    [classFieldBoundary]
+  ),
+  withBoundaries(
+    validCase([
+      "class Handlers {",
+      "  [`save`] = () => 0;",
+      "  [`load`] = () => { const task = () => process.env.HOME; return task }",
+      "}"
+    ].join("\n")),
+    [classFieldBoundary]
   ),
   withBoundaries(
     validCase([
@@ -585,6 +675,43 @@ const valid = [
     languageOptions: {
       parserOptions: { project: false, projectService: false }
     }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
+      'import { Effect } from "effect"',
+      "const local = { Effect: { succeed: (value) => value } }",
+      "export const duplicate = { Effect, Effect: local.Effect }",
+      "export const spread = { Effect, ...local }"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
+      'import { Schema } from "effect"',
+      "consume(Schema[key])",
+      "Schema[key](input)"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
+      "class LocalResource { close() {} start() {} subscribe() {} }",
+      "const state = { resource: new LocalResource() }",
+      "const { resource } = state",
+      "resource.close()",
+      "resource.start()",
+      "resource.subscribe(receive)"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
   }
 ]
 
@@ -685,6 +812,32 @@ const invalid = [
     { messageId: "syncSchemaInEffect", line: 4, column: 20 }
   ]),
   invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "const producer = () => Promise.resolve(1)",
+    "const recover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+    "const replacement = { try: () => host(), catch: identity }",
+    "Effect.tryPromise({ try: producer, ...replacement })",
+    "Effect.tryPromise({ try: producer, try: () => host() })",
+    "Effect.tryPromise({ try: () => host(), catch: recover, ...replacement })"
+  ].join("\n"), [
+    { messageId: "promiseSignature", line: 2, column: 18 },
+    { messageId: "nativePromise", line: 2, column: 24 }
+  ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "const producer = () => Promise.resolve(1)",
+    "const recover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+    "const matchRecover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+    "const { producer: tryFn, recover: body } = { producer, recover }",
+    "Effect.tryPromise(tryFn)",
+    "Effect.sync(body)",
+    "const handlers = { onFailure: matchRecover, onSuccess: identity }",
+    "Effect.match(program, handlers)"
+  ].join("\n"), [
+    { messageId: "syncSchemaInEffect", line: 3, column: 28 },
+    { messageId: "syncSchemaInEffect", line: 4, column: 33 }
+  ]),
+  invalidCase([
     'import { Effect } from "effect"',
     "declare const unknown: Record<string, unknown>",
     "const produce = () => Promise.resolve(1)",
@@ -720,6 +873,31 @@ const invalid = [
   ].join("\n"), [
     { messageId: "promiseSignature", line: 3, column: 1 },
     { messageId: "promiseSignature", line: 5, column: 1 }
+  ]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(use: (value: Value) => unknown): unknown }",
+    "declare const pending: AsyncValue<number>",
+    "function overloaded(flag: false): number",
+    "function overloaded(flag: true): AsyncValue<number>",
+    "function overloaded(flag: boolean): number | AsyncValue<number> { return flag ? pending : 1 }",
+    "overloaded(false)",
+    "overloaded(true)"
+  ].join("\n"), [
+    { messageId: "promiseSignature", line: 4, column: 1 },
+    { messageId: "promiseSignature", line: 7, column: 1 }
+  ]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(use: (value: Value) => unknown): unknown }",
+    "interface Factory {",
+    "  new (flag: false): { value: number }",
+    "  new (flag: true): AsyncValue<number>",
+    "}",
+    "declare const Factory: Factory",
+    "new Factory(false)",
+    "new Factory(true)"
+  ].join("\n"), [
+    { messageId: "promiseSignature", line: 4, column: 3 },
+    { messageId: "promiseSignature", line: 8, column: 1 }
   ]),
   invalidCase([
     "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
@@ -874,6 +1052,16 @@ const invalid = [
   ]),
   invalidCase([
     'import { Effect, Schema } from "effect"',
+    "Effect.runPromise[key].call(undefined, program)",
+    "Effect.sync(() => Schema.decodeUnknownSync[key].call(Schema, Schema.String)(input))",
+    "Promise.resolve[key].call(Promise, value)"
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" },
+    { messageId: "nativePromise" }
+  ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
     "Effect.sync(() => Schema.decodeUnknownSync.call(Schema, Schema.String)(input))"
   ].join("\n"), [{ messageId: "syncSchemaInEffect" }]),
   invalidCase([
@@ -918,6 +1106,12 @@ const invalid = [
     "NodeURL.revokeObjectURL.apply(NodeURL, [value])"
   ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "platformEffect" }))),
   invalidCase([
+    'import { URL as NodeURL } from "node:url"',
+    "const { createObjectURL, revokeObjectURL: revoke } = NodeURL",
+    "consume(createObjectURL)",
+    "consume(revoke)"
+  ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "platformEffect" }))),
+  invalidCase([
     "console.log(value)",
     "setTimeout(task, 1)",
     "queueMicrotask(task)",
@@ -948,6 +1142,15 @@ const invalid = [
     "state.resource.subscribe(receive)",
     'state.resource.addEventListener("event", receive)'
   ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "platformEffect" }))),
+  invalidCase([
+    "class LocalResource { close() {} start() {} subscribe() {} }",
+    "const known = { resource: new LocalResource() }",
+    "declare const unknown: { resource?: LocalResource }",
+    "const { resource } = { ...known, ...unknown }",
+    "resource.close()",
+    "resource.start()",
+    "resource.subscribe(receive)"
+  ].join("\n"), Array.from({ length: 3 }, () => ({ messageId: "platformEffect" }))),
   invalidCase([
     "declare const element: HTMLElement",
     "declare const messagePort: MessagePort",
@@ -1050,6 +1253,16 @@ const invalid = [
   ]),
   invalidCase([
     'import { Effect, Schema } from "effect"',
+    "export const tuple = [Effect, Schema]",
+    "declare const unknown: Record<string, unknown>",
+    "export const conservative = { Effect, ...unknown }"
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary", line: 2, column: 23 },
+    { messageId: "syncSchemaInEffect", line: 2, column: 31 },
+    { messageId: "runnerOutsideBoundary", line: 4, column: 31 }
+  ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
     "const api = { Effect, Schema }",
     "export { api }",
     "export default api"
@@ -1073,6 +1286,13 @@ const invalid = [
     'const Runtime = require("@effect/platform-node/NodeRuntime")',
     "exports.Runtime = Runtime"
   ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "runnerOutsideBoundary" }))),
+  invalidCase([
+    'module.exports[key] = require("effect/Effect")',
+    'exports[key] = require("effect/Schema")'
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" }
+  ]),
   withBoundaries(
     invalidCase([
       'import fs from "node:fs"',
@@ -1129,6 +1349,12 @@ const invalid = [
     'import { Effect } from "effect"',
     "declare const operations: { load?: () => Effect.Effect<number> }",
     'export const { load = Effect.fn("load")(() => Effect.succeed(1)) } = operations'
+  ].join("\n"), [{ messageId: "effectFunctionBoundary" }]),
+  invalidCase([
+    'import { Effect } from "effect"',
+    "declare const unknown: { load?: () => Effect.Effect<number> }",
+    "const operations = { nested: unknown }",
+    'export const { nested: { load = Effect.fn("load")(() => Effect.succeed(1)) } } = operations'
   ].join("\n"), [{ messageId: "effectFunctionBoundary" }]),
   invalidCase([
     'import { Effect } from "effect"',
@@ -1283,6 +1509,22 @@ const invalid = [
   {
     filename: absolute("effect-boundary-invalid.mjs"),
     code: [
+      "class LocalResource { close() {} start() {} subscribe() {} }",
+      "const known = { resource: new LocalResource() }",
+      "const unknown = source()",
+      "const { resource } = { ...known, ...unknown }",
+      "resource.close()",
+      "resource.start()",
+      "resource.subscribe(receive)"
+    ].join("\n"),
+    errors: Array.from({ length: 3 }, () => ({ messageId: "platformEffect" })),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
       'import { Effect, Schema } from "effect"',
       "Effect[key].call(undefined, program)",
       "Effect.sync(() => Schema[key].call(Schema, Schema.String)(input))",
@@ -1304,9 +1546,39 @@ const invalid = [
   {
     filename: absolute("effect-boundary-invalid.mjs"),
     code: [
+      'import { Effect, Schema } from "effect"',
+      "Effect.runPromise[key].call(undefined, program)",
+      "Effect.sync(() => Schema.decodeUnknownSync[key].call(Schema, Schema.String)(input))",
+      "Promise.resolve[key].call(Promise, value)"
+    ].join("\n"),
+    errors: [
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "syncSchemaInEffect" },
+      { messageId: "nativePromise" }
+    ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
       'import { URL as NodeURL } from "node:url"',
       "consume(NodeURL.createObjectURL)",
       "consume(NodeURL.revokeObjectURL)"
+    ].join("\n"),
+    errors: Array.from({ length: 2 }, () => ({ messageId: "platformEffect" })),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { URL as NodeURL } from "node:url"',
+      "const { createObjectURL, revokeObjectURL: revoke } = NodeURL",
+      "consume(createObjectURL)",
+      "consume(revoke)"
     ].join("\n"),
     errors: Array.from({ length: 2 }, () => ({ messageId: "platformEffect" })),
     languageOptions: {
@@ -1363,6 +1635,53 @@ const invalid = [
     }
   },
   {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "const overwrittenProducer = () => Promise.resolve(1)",
+      "const recover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+      "const matchRecover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+      "const selectedProducer = () => Promise.resolve(2)",
+      "const replacement = { try: () => host(), catch: identity }",
+      "Effect.tryPromise({ try: overwrittenProducer, ...replacement })",
+      "Effect.tryPromise({ try: overwrittenProducer, try: () => host() })",
+      "Effect.tryPromise({ try: () => host(), catch: recover, ...replacement })",
+      "const { producer: tryFn, recover: body } = { producer: selectedProducer, recover }",
+      "Effect.tryPromise(tryFn)",
+      "Effect.sync(body)",
+      "const handlers = { onFailure: matchRecover, onSuccess: identity }",
+      "Effect.match(program, handlers)"
+    ].join("\n"),
+    errors: [
+      { messageId: "nativePromise", line: 2, column: 35 },
+      { messageId: "syncSchemaInEffect", line: 3, column: 28 },
+      { messageId: "syncSchemaInEffect", line: 4, column: 33 }
+    ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "export const api = { first: Effect, second: Effect }",
+      "export const tuple = [Effect, Schema]",
+      "const unknown = source()",
+      "export const conservative = { Effect, ...unknown }"
+    ].join("\n"),
+    errors: [
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "syncSchemaInEffect" },
+      { messageId: "runnerOutsideBoundary" }
+    ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
     filename: absolute("effect-boundary-invalid.cjs"),
     code: [
       'module.exports.Fx = require("effect/Effect")',
@@ -1373,6 +1692,25 @@ const invalid = [
     errors: [
       { messageId: "runnerOutsideBoundary" },
       { messageId: "syncSchemaInEffect" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "syncSchemaInEffect" }
+    ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.cjs"),
+    code: [
+      'const { URL: { createObjectURL, revokeObjectURL: revoke } } = require("node:url")',
+      "consume(createObjectURL)",
+      "consume(revoke)",
+      'module.exports[key] = require("effect/Effect")',
+      'exports[key] = require("effect/Schema")'
+    ].join("\n"),
+    errors: [
+      { messageId: "platformEffect" },
+      { messageId: "platformEffect" },
       { messageId: "runnerOutsideBoundary" },
       { messageId: "syncSchemaInEffect" }
     ],
