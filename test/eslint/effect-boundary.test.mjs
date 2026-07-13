@@ -59,8 +59,21 @@ const valid = [
     "globalThis.fetch()",
     "globalThis.process.env.HOME"
   ].join("\n")),
+  validCase([
+    "const globalThis = { Promise: class {}, fetch: () => undefined, process: { env: {} } }",
+    "const { Promise: NativePromise, fetch: hostFetch, process: hostProcess } = globalThis",
+    "new NativePromise()",
+    "hostFetch()",
+    "hostProcess.env.HOME"
+  ].join("\n")),
   validCase("type PromiseLike<Value> = { readonly value: Value }\ntype Result = PromiseLike<string>"),
   validCase("export const add = (left, right) => left + right"),
+  validCase([
+    'import { URL as NodeURL, URLSearchParams as NodeSearchParams } from "node:url"',
+    'new NodeURL("/path", "https://example.test")',
+    'new NodeSearchParams("key=value")'
+  ].join("\n")),
+  validCase('import { Option } from "effect"\nexport const load = () => Option.some(1)'),
   validCase("type Effect<Value> = { readonly value: Value }\nexport const load = (): Effect<number> => ({ value: 1 })"),
   validCase([
     "namespace Effect { export interface X<Value> { readonly value: Value } }",
@@ -108,6 +121,12 @@ const valid = [
     "document.body",
     "navigator.userAgent",
     "localStorage.getItem()"
+  ].join("\n")),
+  validCase([
+    "const crypto = { subtle: { digest: () => undefined } }",
+    "const performance = { mark: () => undefined }",
+    "crypto.subtle.digest()",
+    "performance.mark()"
   ].join("\n")),
   withBoundaries(
     validCase('import { Effect } from "effect"\nEffect.runPromise(program)'),
@@ -192,6 +211,16 @@ const invalid = [
     { messageId: "platformEffect" },
     { messageId: "platformEffect" }
   ]),
+  invalidCase([
+    "const { Promise: NativePromise, fetch: hostFetch, process: hostProcess } = globalThis",
+    "new NativePromise(() => undefined)",
+    "hostFetch(url)",
+    "hostProcess.env.HOME"
+  ].join("\n"), [
+    { messageId: "nativePromise" },
+    { messageId: "platformEffect" },
+    { messageId: "platformEffect" }
+  ]),
   invalidCase("const NativePromise = Promise\nnew NativePromise(() => undefined)", [{ messageId: "nativePromise" }]),
   invalidCase("Promise.all([host()])\nPromise.resolve(1)", [{ messageId: "nativePromise" }, { messageId: "nativePromise" }]),
   invalidCase([
@@ -201,6 +230,16 @@ const invalid = [
     "  queued: [Promise.resolve(2)]",
     "}))"
   ].join("\n"), [{ messageId: "nativePromise" }, { messageId: "nativePromise" }]),
+  invalidCase([
+    'import { Effect } from "effect"',
+    "Effect.tryPromise({",
+    "  try: () => Promise.resolve(1),",
+    "  catch: () => new Promise((resolve) => resolve(\"failure\"))",
+    "})"
+  ].join("\n"), [
+    { messageId: "promiseSignature", line: 4, column: 10 },
+    { messageId: "nativePromise", line: 4, column: 16 }
+  ]),
   invalidCase("type Result = PromiseLike<string>", [{ messageId: "promiseSignature" }]),
   invalidCase("interface Api { load(): Promise<string> }", [{ messageId: "promiseSignature" }]),
   invalidCase("type Results<T> = { [Key in keyof T]: PromiseLike<T[Key]> }", [{ messageId: "promiseSignature" }]),
@@ -212,11 +251,20 @@ const invalid = [
     "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
     "type Results<Input> = { [Key in keyof Input]: () => AsyncValue<Input[Key]> }"
   ].join("\n"), [{ messageId: "promiseSignature", line: 2, column: 47 }]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
+    "interface Api { load: AsyncValue<string> }"
+  ].join("\n"), [{ messageId: "promiseSignature", line: 2, column: 17 }]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
+    "type Results<Input> = { [Key in keyof Input]: AsyncValue<Input[Key]> }"
+  ].join("\n"), [{ messageId: "promiseSignature", line: 2, column: 47 }]),
   invalidCase("declare const host: { then(consume: (value: string) => unknown): unknown }\nconst load = () => host", [{ messageId: "promiseSignature" }]),
   invalidCase("host().then(use)", [{ messageId: "promiseChain" }]),
   invalidCase("host().catch(recover).finally(cleanup)", [{ messageId: "promiseChain" }, { messageId: "promiseChain" }]),
   invalidCase("const value = process.env.HOME", [{ messageId: "platformEffect" }]),
   invalidCase('import { readFile as read } from "node:fs/promises"\nread(file)', [{ messageId: "platformEffect" }]),
+  invalidCase('import { URL, fileURLToPath } from "node:url"\nfileURLToPath(URL)', [{ messageId: "platformEffect" }]),
   invalidCase([
     "console.log(value)",
     "setTimeout(task, 1)",
@@ -236,6 +284,13 @@ const invalid = [
     "localStorage.getItem(\"key\")",
     "indexedDB.open(\"database\")"
   ].join("\n"), Array.from({ length: 17 }, () => ({ messageId: "platformEffect" }))),
+  invalidCase([
+    'crypto.subtle.digest("SHA-256", data)',
+    'performance.mark("start")'
+  ].join("\n"), [
+    { messageId: "platformEffect" },
+    { messageId: "platformEffect" }
+  ]),
   invalidCase('import { Effect } from "effect"\nEffect.runPromise(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect as Fx } from "effect"\nconst { runPromise: run } = Fx\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { runPromise as run } from "effect/Effect"\nrun(program)', [{ messageId: "runnerOutsideBoundary" }]),
@@ -249,6 +304,7 @@ const invalid = [
   invalidCase('import { Effect } from "effect"\nexport const load = () => Effect.succeed(1)', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nexport function load() { return Effect.succeed(1) }', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nfunction load() { return Effect.succeed(1) }\nexport { load }', [{ messageId: "effectFunctionBoundary" }]),
+  invalidCase('import { Effect } from "effect"\nfunction load() { return Effect.succeed(1) }\nexport default load', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nconst load = () => Effect.succeed(1)\nexport { load }', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase([
     'import { Effect } from "effect"',

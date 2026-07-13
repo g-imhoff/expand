@@ -3,6 +3,7 @@ import {
   ambientPlatformFunctions,
   ambientPlatformMembers,
   ambientPlatformObjects,
+  deterministicNodeUrlExports,
   effectCallbackMethods,
   effectFunctionMethods,
   effectRunnerMethods,
@@ -29,6 +30,10 @@ const checkerSignatureTypes = new Set([
   "TSDeclareFunction",
   "TSFunctionType",
   "TSMethodSignature"
+])
+const checkerValueTypes = new Set([
+  "TSMappedType",
+  "TSPropertySignature"
 ])
 const transparentExpressionTypes = new Set([
   "ChainExpression",
@@ -112,6 +117,15 @@ const importProvenance = (specifier, source) => {
   }
   return null
 }
+
+const isDeterministicNodeUrlImport = (node) =>
+  ["node:url", "url"].includes(node.source.value)
+  && node.specifiers.length > 0
+  && node.specifiers.every((specifier) => specifier.type === "ImportSpecifier"
+    && deterministicNodeUrlExports.includes(importName(specifier.imported)))
+
+const isAmbientPlatformMember = (path) =>
+  ambientPlatformMembers.some((member) => path === member || path.startsWith(`${member}.`))
 
 const isNode = (value) =>
   value !== null && typeof value === "object" && typeof value.type === "string"
@@ -382,7 +396,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
             }
             if (base.startsWith("namespace:")) provenance = `method:${base.slice("namespace:".length)}:${member}`
             if (base === "instance:ManagedRuntime") provenance = `method:ManagedRuntimeInstance:${member}`
-            if (base.startsWith("global:")) provenance = `${base}.${member}`
+            if (base === "global:globalThis") provenance = `global:${member}`
+            else if (base.startsWith("global:")) provenance = `${base}.${member}`
           }
         }
       }
@@ -422,22 +437,25 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const callbackOwner = (fn) => {
     const parent = parents.get(fn)
-    if (parent?.type === "CallExpression" && parent.arguments.includes(fn)) return parent
+    if (parent?.type === "CallExpression" && parent.arguments.includes(fn)) {
+      return { call: parent, property: undefined }
+    }
     if (parent?.type === "Property") {
       const object = parents.get(parent)
       const call = parents.get(object)
       if (object?.type === "ObjectExpression" && call?.type === "CallExpression" && call.arguments.includes(object)) {
-        return call
+        return { call, property: propertyName(parent.key) }
       }
     }
     return undefined
   }
 
   const isEffectCallback = (fn, requiredMethod) => {
-    const call = callbackOwner(fn)
-    if (call === undefined) return false
-    const method = effectMethodForCall(call)
+    const owner = callbackOwner(fn)
+    if (owner === undefined) return false
+    const method = effectMethodForCall(owner.call)
     if (method === undefined || !effectCallbackMethods.includes(method)) return false
+    if (method === "tryPromise" && owner.property !== undefined && owner.property !== "try") return false
     return requiredMethod === undefined || method === requiredMethod
   }
 
@@ -604,7 +622,6 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         const declarationFile = declaration.getSourceFile().fileName.replaceAll("\\", "/")
         return /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?effect\//u.test(declarationFile)
       }
-      if (type.symbol?.declarations?.some(isEffectDeclaration)) return true
       return type.getProperties?.().some((property) =>
         property.getName() === "~effect/Effect" && property.declarations?.some(isEffectDeclaration)) ?? false
     } catch {
@@ -633,9 +650,12 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     if (identifier?.type !== "Identifier") return false
     const variable = variableForIdentifier(identifier)
     if (variable === null) return false
-    return nodes.some((node) => node.type === "ExportSpecifier"
+    return nodes.some((node) => (node.type === "ExportSpecifier"
       && parents.get(node)?.source == null
       && variableForIdentifier(node.local) === variable)
+      || (node.type === "ExportDefaultDeclaration"
+        && node.declaration.type === "Identifier"
+        && variableForIdentifier(node.declaration) === variable))
   }
 
   const isDirectEffectFunctionWrapper = (node) => {
@@ -650,6 +670,14 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const hasExplicitPromiseReturn = (fn) =>
     fn.returnType !== undefined && hasExplicitPromiseType(fn.returnType)
+
+  const promiseLikeValueNode = (node) => {
+    const value = node.type === "TSPropertySignature"
+      ? node.typeAnnotation?.typeAnnotation
+      : node.typeAnnotation
+    if (value === null || value === undefined || hasExplicitPromiseType(value)) return undefined
+    return isPromiseLikeType(typeAt(value)) ? value : undefined
+  }
 
   for (const node of nodes) declarations.add(declarationFor(node, parents))
 
@@ -679,7 +707,8 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     }
 
     if (node.type === "ImportDeclaration" && typeof node.source.value === "string") {
-      if (isNodeBuiltin(node.source.value) || isPlatformPackage(node.source.value)) {
+      if ((isNodeBuiltin(node.source.value) || isPlatformPackage(node.source.value))
+        && !isDeterministicNodeUrlImport(node)) {
         add("platformEffect", node, `platform:import:${node.source.value}`)
       }
     }
@@ -756,7 +785,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const path = globalPath(node)
       if (path !== undefined) {
         const root = path.split(".")[0]
-        if (ambientPlatformObjects.includes(root) || ambientPlatformMembers.includes(path)) {
+        if (ambientPlatformObjects.includes(root) || isAmbientPlatformMember(path)) {
           add("platformEffect", node, `platform:${path}`)
         }
       }
@@ -764,6 +793,13 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
     if (checkerSignatureTypes.has(node.type) && !hasExplicitPromiseType(node) && returnsPromiseLike(node)) {
       add("promiseSignature", node, "promise-like:return")
+    }
+
+    if (checkerValueTypes.has(node.type)) {
+      const value = promiseLikeValueNode(node)
+      if (value !== undefined) {
+        add("promiseSignature", node.type === "TSPropertySignature" ? node : value, "promise-like:value")
+      }
     }
 
     if (functionTypes.has(node.type) && node.async !== true && node.body !== undefined

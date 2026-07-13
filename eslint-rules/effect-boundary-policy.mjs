@@ -78,6 +78,11 @@ export const schemaSyncMethods = Object.freeze([
   "validateSync"
 ])
 
+export const deterministicNodeUrlExports = Object.freeze([
+  "URL",
+  "URLSearchParams"
+])
+
 export const nodeBuiltinModules = Object.freeze([
   "assert",
   "assert/strict",
@@ -156,6 +161,7 @@ export const ambientPlatformObjects = Object.freeze([
   "localStorage",
   "location",
   "navigator",
+  "performance",
   "process",
   "screen",
   "sessionStorage",
