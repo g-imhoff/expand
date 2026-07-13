@@ -1,23 +1,21 @@
 import tseslint from "typescript-eslint"
 import local from "./eslint-rules/index.mjs"
 
-// Lean ESLint setup: the TypeScript parser plus Expand's own layout rules. We
-// intentionally do NOT pull in the full typescript-eslint recommended set —
-// the goal here is to enforce project conventions, not to retrofit a style
-// guide across the existing codebase.
 export default tseslint.config(
   {
     ignores: [
+      "**/node_modules/**",
       "**/dist/**",
+      "**/out/**",
       "**/build/**",
       "**/coverage/**",
+      "**/test-results/**",
+      "**/playwright-report/**",
       "**/*.snap",
-      "eslint-rules/**",
-      "eslint.config.mjs"
     ]
   },
   {
-    files: ["apps/**/*.{ts,tsx}", "packages/**/*.{ts,tsx}", "examples/**/*.{ts,tsx}"],
+    files: ["apps/**/*.{ts,tsx,mts,cts}", "packages/**/*.{ts,tsx,mts,cts}", "examples/**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } }
@@ -27,5 +25,22 @@ export default tseslint.config(
       "local/module-order": "error",
       "local/no-export-star": "error"
     }
+  },
+  {
+    files: [
+      "scripts/**/*.{ts,tsx,mts,cts}",
+      "test/**/*.{ts,tsx,mts,cts}",
+      "bench/**/*.{ts,tsx,mts,cts}",
+      "migrations/**/*.{ts,tsx,mts,cts}",
+      "eslint-rules/**/*.d.mts",
+      "*.{ts,tsx,mts,cts}"
+    ],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaFeatures: { jsx: true } }
+    }
+  },
+  {
+    files: ["**/*.{js,jsx,mjs,cjs}"]
   }
 )
