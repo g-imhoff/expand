@@ -14,6 +14,10 @@ import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 const nodeAdapter = makeNodeAdapter({
   backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
 })
+const reviverOwnedAdapter = {
+  protocolLayer: nodeAdapter.protocolLayer,
+  spawnBackend: () => Effect.void
+}
 
 // Regression for Bug 2 (connect-during-shutdown race): a command must NOT hang
 // when discovery hands it a stale endpoint pointing at a dead/dying server. The
@@ -86,7 +90,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         )
 
         // The whole point: this must COMPLETE (not hang) and return real data.
-        const result = yield* withClient(nodeAdapter, (client) =>
+        const result = yield* withClient(reviverOwnedAdapter, (client) =>
           Effect.gen(function* () {
             const health = yield* client.Health()
             const created = yield* client.ProjectCreate({ name: "after-stale", ensure: false })

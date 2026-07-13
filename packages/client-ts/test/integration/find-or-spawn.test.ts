@@ -16,6 +16,10 @@ let dir: string
 const nodeAdapter = makeNodeAdapter({
   backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
 })
+const reviverOwnedAdapter = {
+  protocolLayer: nodeAdapter.protocolLayer,
+  spawnBackend: () => Effect.void
+}
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-spawn-"))
@@ -264,7 +268,7 @@ describe("findOrSpawnBackend", () => {
       // Pre-fix: this would wait the full 10s awaitEndpoint window and then fail
       // with BackendUnavailable, never clearing the lock. Post-fix: it clears the
       // stale lock, "spawns", and returns the advertised endpoint.
-      const endpoint = yield* findOrSpawnBackend(nodeAdapter)
+      const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
       return endpoint
     }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
