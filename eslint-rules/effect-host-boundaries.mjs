@@ -12,5 +12,12 @@ export const effectHostBoundaries = Object.freeze([
     host: "Node application entrypoint",
     construct: "runner:NodeRuntime.runMain",
     occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/effect-audit.ts",
+    declaration: "module:<module>",
+    host: "Node audit entrypoint",
+    construct: "runner:NodeRuntime.runMain",
+    occurrence: 0
   })
 ])
