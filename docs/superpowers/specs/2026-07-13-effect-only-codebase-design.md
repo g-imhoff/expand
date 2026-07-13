@@ -145,8 +145,10 @@ promotes the relevant Effect-native boundary diagnostics to errors, including:
 - `globalErrorInEffectCatch` and `globalErrorInEffectFailure`.
 
 Only diagnostics verified for the pinned Effect v4 release are mandatory.
-`schemaSyncInEffect` is not included because the pinned language-service
-release exposes it for Effect v3 only.
+`schemaSyncInEffect` is not configured because the pinned language-service
+release exposes it for Effect v3 only; the typed repository rule owns the
+equivalent blocking check for synchronous Schema decoding or encoding inside
+Effect v4.
 
 Correctness diagnostics already emitted as errors remain enabled.
 `effectFnOpportunity` remains advisory because it cannot distinguish a reusable
@@ -186,6 +188,7 @@ the policy that an upstream language service cannot infer:
   IPC, workers, ports, and browser storage or event resources;
 - require exported named Effect-returning operations to use `Effect.fn` or an
   explicitly permitted `Effect.fnUntraced` boundary;
+- reject synchronous Schema decoding or encoding inside an Effect body;
 - reject broad file or directory exemptions;
 - enforce exact declaration identities for required host signatures.
 
