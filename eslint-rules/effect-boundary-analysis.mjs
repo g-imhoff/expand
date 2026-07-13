@@ -5,6 +5,7 @@ import {
   ambientPlatformObjects,
   deterministicNodeUrlExports,
   effectCallbackMethods,
+  effectCallbackOwnership,
   effectFunctionMethods,
   effectRunnerMethods,
   hostUrlMethods,
@@ -104,12 +105,21 @@ const staticStringValue = (node) => {
   return undefined
 }
 
+const staticPropertyName = (node) => staticStringValue(node)
+  ?? (node?.type === "Literal" && typeof node.value === "number" && Number.isFinite(node.value)
+    ? String(node.value)
+    : undefined)
+
 const memberName = (node) => {
-  if (node.computed) return staticStringValue(node.property)
+  if (node.computed) return staticPropertyName(node.property)
   return propertyName(node.property)
 }
 
-const objectPropertyName = (node) => node.computed ? staticStringValue(node.key) : propertyName(node.key)
+const objectPropertyName = (node) => node.computed ? staticPropertyName(node.key) : propertyName(node.key)
+
+const declarationPropertyName = (node) => !node.computed && node.key?.type === "PrivateIdentifier"
+  ? `#${node.key.name}`
+  : objectPropertyName(node)
 
 const requiredModuleProvenance = (source) => {
   if (source === "effect") return "module:effect"
@@ -272,7 +282,7 @@ const declarationDetailsFor = (node, parents) => {
       const owner = classFor(current, parents)
       return {
         anchor: owner ?? current,
-        declaration: `member:${owner?.id?.name ?? "<anonymous>"}.${objectPropertyName(current) ?? "<computed>"}`
+        declaration: `member:${owner?.id?.name ?? "<anonymous>"}.${declarationPropertyName(current) ?? "<computed>"}`
       }
     }
     if (["TSCallSignatureDeclaration", "TSConstructSignatureDeclaration", "TSIndexSignature"].includes(current.type)) {
@@ -385,7 +395,12 @@ const scopeRoleFor = (node, parents) => {
         return `Property:value:${declarationDetailsFor(parent, parents).declaration}`
       }
     }
-    if (["AccessorProperty", "PropertyDefinition", "TSAbstractPropertyDefinition"].includes(parent?.type)
+    if ([
+      "AccessorProperty",
+      "MethodDefinition",
+      "PropertyDefinition",
+      "TSAbstractPropertyDefinition"
+    ].includes(parent?.type)
       && parent.value === value) {
       return `${parent.type}:value:${declarationDetailsFor(parent, parents).declaration}`
     }
@@ -571,19 +586,32 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   }
 
   const destructuredPathFor = (pattern, name, prefix = []) => {
-    if (pattern.type !== "ObjectPattern") return undefined
-    for (const property of pattern.properties) {
-      if (property.type === "RestElement") {
-        if (patternName(property.argument) === name) return prefix
-        continue
+    if (pattern.type === "ArrayPattern") {
+      for (const [index, element] of pattern.elements.entries()) {
+        if (element === null || element.type === "RestElement") continue
+        const local = element.type === "AssignmentPattern" ? element.left : element
+        if (patternName(local) === name) return [...prefix, String(index)]
+        if (local.type === "ArrayPattern" || local.type === "ObjectPattern") {
+          const nested = destructuredPathFor(local, name, [...prefix, String(index)])
+          if (nested !== undefined) return nested
+        }
       }
-      const local = property.value.type === "AssignmentPattern" ? property.value.left : property.value
-      const member = objectPropertyName(property)
-      if (patternName(local) === name) return [...prefix, member]
-      if (member === undefined) continue
-      if (local.type === "ObjectPattern") {
-        const nested = destructuredPathFor(local, name, [...prefix, member])
-        if (nested !== undefined) return nested
+      return undefined
+    }
+    if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) {
+        if (property.type === "RestElement") {
+          if (patternName(property.argument) === name) return prefix
+          continue
+        }
+        const local = property.value.type === "AssignmentPattern" ? property.value.left : property.value
+        const member = objectPropertyName(property)
+        if (patternName(local) === name) return [...prefix, member]
+        if (member === undefined) continue
+        if (local.type === "ArrayPattern" || local.type === "ObjectPattern") {
+          const nested = destructuredPathFor(local, name, [...prefix, member])
+          if (nested !== undefined) return nested
+        }
       }
     }
     return undefined
@@ -617,8 +645,13 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         } else {
           const path = destructuredPathFor(declarator.id, variable.name)
           if (path !== undefined) {
-            provenance = provenanceOfExpression(declarator.init)
-            for (const member of path) provenance = provenanceAtMember(provenance, member)
+            const selected = sourceValueAtPath(declarator.init, path)
+            if (selected !== undefined) {
+              provenance = provenanceOfExpression(selected)
+            } else {
+              provenance = provenanceOfExpression(declarator.init)
+              for (const member of path) provenance = provenanceAtMember(provenance, member)
+            }
           }
         }
       }
@@ -715,12 +748,25 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       if (node.type !== "CallExpression") continue
       const method = effectMethodForCall(node)
       if (method === undefined || !effectCallbackMethods.includes(method)) continue
-      for (const argument of node.arguments) {
-        if (argument.type === "SpreadElement") continue
-        if (callbackFunctionOf(argument) === fn) addOwner(node, undefined)
-        for (const property of aggregatePropertyNames(argument)) {
-          const source = sourceValueAtPath(argument, [property])
-          if (source !== undefined && callbackFunctionOf(source) === fn) addOwner(node, property)
+      const forms = effectCallbackOwnership[method] ?? []
+      for (const form of forms) {
+        if (node.arguments.length < form.min || node.arguments.length > form.max) continue
+        const direct = form.direct === "all"
+          ? node.arguments.map((_, index) => index)
+          : form.direct
+        for (const index of direct) {
+          const argument = node.arguments[index]
+          if (argument === undefined || argument.type === "SpreadElement") continue
+          if (callbackFunctionOf(argument) === fn) addOwner(node, undefined)
+        }
+        for (const [index, configured] of form.properties) {
+          const argument = node.arguments[index]
+          if (argument === undefined || argument.type === "SpreadElement") continue
+          const properties = configured === "all" ? aggregatePropertyNames(argument) : configured
+          for (const property of properties) {
+            const source = sourceValueAtPath(argument, [property])
+            if (source !== undefined && callbackFunctionOf(source) === fn) addOwner(node, property)
+          }
         }
       }
     }
@@ -1021,17 +1067,31 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       add("runnerOutsideBoundary", node, `runner-dynamic:${normalized}`)
       return
     }
+    const hostUrlMethod = hostUrlMethodFor(normalized)
+    if (hostUrlMethod !== undefined) {
+      add("platformEffect", node, `platform-dynamic:${normalized}`)
+      return
+    }
     const schemaMethod = normalized.startsWith("method:Schema:")
       ? normalized.slice("method:Schema:".length)
       : undefined
     if (normalized === "namespace:Schema"
-      || (schemaMethod !== undefined && schemaSyncMethods.includes(schemaMethod))
       || normalized.startsWith("schema-factory:")) {
       if (isWithinEffectCallback(node)) {
         add("syncSchemaInEffect", node, `schema:${normalized}.<dynamic>`)
       }
       return
     }
+    if (schemaMethod !== undefined) {
+      if (schemaSyncMethods.includes(schemaMethod)
+        && isWithinEffectCallback(node)) {
+        add("syncSchemaInEffect", node, `schema:${normalized}.<dynamic>`)
+      }
+      return
+    }
+    if (/^method:(?:Effect|ManagedRuntime|ManagedRuntimeInstance|NodeRuntime|Runtime):/u.test(normalized)
+      || normalized.startsWith("global:URL.")
+      || /^platform-import:(?:node:url|url):(?:URL|URLSearchParams)\./u.test(normalized)) return
     const promiseMethod = normalized.startsWith("global:Promise.")
       ? normalized.slice("global:Promise.".length)
       : undefined
@@ -1286,9 +1346,54 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return []
   }
 
+  const unknownSource = Object.freeze({ status: "unknown" })
+  const missingSource = Object.freeze({ status: "missing" })
+  const resolvedSource = (value) => ({ status: "value", value })
+  const resolveSelectedSource = (value, path, seen) => path.length === 0
+    ? resolvedSource(unwrapExpression(value))
+    : resolveSourceAtPath(value, path, seen)
+  const nonNegativeArrayIndex = (value) => /^(?:0|[1-9][0-9]*)$/u.test(value)
+    && Number.isSafeInteger(Number(value))
+    ? Number(value)
+    : undefined
+
+  const staticArrayLength = (input, seen = new WeakSet()) => {
+    const node = unwrapExpression(input)
+    if (node === null || node === undefined) return undefined
+    if (node.type === "Identifier") {
+      const variable = variableForIdentifier(node)
+      if (variable === null || seen.has(variable)) return undefined
+      seen.add(variable)
+      try {
+        const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
+        if (definition === undefined) return undefined
+        if (definition.node.id.type === "Identifier") {
+          return staticArrayLength(definition.node.init, seen)
+        }
+        const selected = resolvedBindingValue(definition.node, variable.name, seen)
+        return selected.status === "value" ? staticArrayLength(selected.value, seen) : undefined
+      } finally {
+        seen.delete(variable)
+      }
+    }
+    if (node.type !== "ArrayExpression") return undefined
+    let length = 0
+    for (const element of node.elements) {
+      if (element?.type !== "SpreadElement") {
+        length += 1
+        continue
+      }
+      const spreadLength = staticArrayLength(element.argument, seen)
+      if (spreadLength === undefined) return undefined
+      length += spreadLength
+    }
+    return length
+  }
+
   const isStaticallyKnownAggregate = (input, seen = new WeakSet()) => {
     const node = unwrapExpression(input)
     if (node === null || node === undefined) return false
+    if (node.type === "ArrayExpression") return staticArrayLength(node, seen) !== undefined
     if (node.type === "ObjectExpression") {
       return node.properties.every((property) => property.type === "Property"
         ? objectPropertyName(property) !== undefined
@@ -1298,87 +1403,98 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     const variable = variableForIdentifier(node)
     if (variable === null || seen.has(variable)) return false
     seen.add(variable)
-    const definition = variable.defs?.find((candidate) => candidate.type === "Variable"
-      && candidate.node.id.type === "Identifier")
-    return definition !== undefined && isStaticallyKnownAggregate(definition.node.init, seen)
+    try {
+      const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
+      if (definition === undefined) return false
+      if (definition.node.id.type === "Identifier") {
+        return isStaticallyKnownAggregate(definition.node.init, seen)
+      }
+      const selected = resolvedBindingValue(definition.node, variable.name, seen)
+      return selected.status === "value" && isStaticallyKnownAggregate(selected.value, seen)
+    } finally {
+      seen.delete(variable)
+    }
+  }
+
+  const resolveSourceAtPath = (input, path, seen = new WeakSet()) => {
+    const node = unwrapExpression(input)
+    if (node === null || node === undefined) return unknownSource
+    if (node.type === "Identifier") {
+      const variable = variableForIdentifier(node)
+      if (variable === null || seen.has(variable)) return unknownSource
+      seen.add(variable)
+      try {
+        const functionDefinition = variable.defs?.find((candidate) =>
+          candidate.node?.type === "FunctionDeclaration")
+        if (functionDefinition !== undefined) {
+          return path.length === 0 ? resolvedSource(functionDefinition.node) : unknownSource
+        }
+        const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
+        if (definition === undefined) return unknownSource
+        if (definition.node.id.type === "Identifier") {
+          return resolveSourceAtPath(definition.node.init, path, seen)
+        }
+        const selected = resolvedBindingValue(definition.node, variable.name, seen)
+        if (selected.status !== "value" || path.length === 0) return selected
+        return resolveSourceAtPath(selected.value, path, seen)
+      } finally {
+        seen.delete(variable)
+      }
+    }
+    if (node.type === "MemberExpression") {
+      const member = memberName(node)
+      return member === undefined
+        ? unknownSource
+        : resolveSourceAtPath(node.object, [member, ...path], seen)
+    }
+    if (path.length === 0) return resolvedSource(node)
+    if (node.type === "ObjectExpression") {
+      for (let index = node.properties.length - 1; index >= 0; index -= 1) {
+        const property = node.properties[index]
+        if (property.type === "Property") {
+          const key = objectPropertyName(property)
+          if (key === undefined) return unknownSource
+          if (key === path[0]) return resolveSelectedSource(property.value, path.slice(1), seen)
+          continue
+        }
+        const spread = resolveSourceAtPath(property.argument, path, seen)
+        if (spread.status !== "missing") return spread
+      }
+      return missingSource
+    }
+    if (node.type === "ArrayExpression") {
+      const target = nonNegativeArrayIndex(path[0])
+      if (target === undefined) return unknownSource
+      let offset = 0
+      for (const element of node.elements) {
+        if (element?.type === "SpreadElement") {
+          const spreadLength = staticArrayLength(element.argument)
+          if (spreadLength === undefined) return unknownSource
+          if (target < offset + spreadLength) {
+            return resolveSourceAtPath(
+              element.argument,
+              [String(target - offset), ...path.slice(1)],
+              seen
+            )
+          }
+          offset += spreadLength
+          continue
+        }
+        if (target === offset) {
+          return element === null
+            ? missingSource
+            : resolveSelectedSource(element, path.slice(1), seen)
+        }
+        offset += 1
+      }
+      return missingSource
+    }
+    return unknownSource
   }
 
   const sourceValueAtPath = (input, path, seen = new WeakSet()) => {
-    const node = unwrapExpression(input)
-    if (node === null || node === undefined) return undefined
-    if (node.type === "Identifier") {
-      const variable = variableForIdentifier(node)
-      if (variable === null || seen.has(variable)) return undefined
-      seen.add(variable)
-      const functionDefinition = variable.defs?.find((candidate) => candidate.node?.type === "FunctionDeclaration")
-      if (functionDefinition !== undefined) {
-        return path.length === 0 ? functionDefinition.node : undefined
-      }
-      const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
-      if (definition === undefined) return undefined
-      if (definition.node.id.type === "Identifier") {
-        return sourceValueAtPath(definition.node.init, path, seen)
-      }
-      const bindingPath = destructuredPathFor(definition.node.id, variable.name)
-      return bindingPath === undefined
-        ? undefined
-        : sourceValueAtPath(definition.node.init, [...bindingPath, ...path], seen)
-    }
-    if (node.type === "MemberExpression") {
-      const member = memberName(node)
-      return member === undefined ? undefined : sourceValueAtPath(node.object, [member, ...path], seen)
-    }
-    if (path.length === 0) return node
-    if (node.type !== "ObjectExpression") return undefined
-    for (let index = node.properties.length - 1; index >= 0; index -= 1) {
-      const property = node.properties[index]
-      if (property.type === "Property") {
-        const key = objectPropertyName(property)
-        if (key === undefined) return undefined
-        if (key === path[0]) {
-          return path.length === 1
-            ? unwrapExpression(property.value)
-            : sourceValueAtPath(property.value, path.slice(1), seen)
-        }
-        continue
-      }
-      if (property.type === "SpreadElement") {
-        const spreadValue = sourceValueAtPath(property.argument, path, seen)
-        if (spreadValue !== undefined) return spreadValue
-        if (!isStaticallyKnownAggregate(property.argument)) return undefined
-      }
-    }
-    return undefined
-  }
-
-  const isStaticallyAbsentAtPath = (input, path, seen = new WeakSet()) => {
-    const node = unwrapExpression(input)
-    if (node === null || node === undefined || path.length === 0) return false
-    if (node.type === "Identifier") {
-      const variable = variableForIdentifier(node)
-      if (variable === null || seen.has(variable)) return false
-      seen.add(variable)
-      const definition = variable.defs?.find((candidate) => candidate.type === "Variable")
-      if (definition === undefined || definition.node.id.type !== "Identifier") return false
-      return isStaticallyAbsentAtPath(definition.node.init, path, seen)
-    }
-    if (node.type === "MemberExpression") {
-      const member = memberName(node)
-      return member !== undefined && isStaticallyAbsentAtPath(node.object, [member, ...path], seen)
-    }
-    if (node.type !== "ObjectExpression") return false
-    for (let index = node.properties.length - 1; index >= 0; index -= 1) {
-      const property = node.properties[index]
-      if (property.type === "Property") {
-        const key = objectPropertyName(property)
-        if (key === undefined) return false
-        if (key !== path[0]) continue
-        return path.length > 1 && isStaticallyAbsentAtPath(property.value, path.slice(1), seen)
-      }
-      if (!isStaticallyKnownAggregate(property.argument)) return false
-      if (!isStaticallyAbsentAtPath(property.argument, path, seen)) return false
-    }
-    return true
+    const resolved = resolveSourceAtPath(input, path, seen)
+    return resolved.status === "value" ? resolved.value : undefined
   }
 
   const isLocallyDefinedNonPromiseInvocation = (invocation, callee) => {
@@ -1456,16 +1572,23 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return isOnlyUndefinedType(typeAt(node))
   }
 
+  const resolvedBindingValue = (declarator, name, seen = new WeakSet()) => {
+    const path = destructuredPathFor(declarator.id, name)
+    if (path === undefined) return unknownSource
+    const selected = resolveSourceAtPath(declarator.init, path, seen)
+    const fallback = assignmentDefaultForBinding(declarator.id, name)
+    if (fallback === undefined) return selected
+    if (selected.status === "missing"
+      || (selected.status === "value" && isDefinitelyUndefinedValue(selected.value))
+      || (selected.status === "unknown" && isOnlyUndefinedType(typeAtPath(declarator.init, path)))) {
+      return resolvedSource(fallback)
+    }
+    return selected
+  }
+
   const isWrappedDestructuredBinding = (declarator, binding) => {
-    const path = destructuredPathFor(declarator.id, binding.name)
-    if (path === undefined) return false
-    const source = sourceValueAtPath(declarator.init, path)
-    if (source !== undefined && isDirectEffectFunctionWrapper(source)) return true
-    const fallback = assignmentDefaultForBinding(declarator.id, binding.name)
-    if (fallback === undefined || !isDirectEffectFunctionWrapper(fallback)) return false
-    if (source !== undefined) return isDefinitelyUndefinedValue(source)
-    return isStaticallyAbsentAtPath(declarator.init, path)
-      || isOnlyUndefinedType(typeAtPath(declarator.init, path))
+    const selected = resolvedBindingValue(declarator, binding.name)
+    return selected.status === "value" && isDirectEffectFunctionWrapper(selected.value)
   }
 
   const hasExplicitPromiseType = (node) =>
@@ -1488,10 +1611,12 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return false
   }
 
+  const calleeOfCallLike = (node) => node.type === "TaggedTemplateExpression" ? node.tag : node.callee
+
   const hasAuthoritativeCallFinding = (node, callee) => {
     if (runnerConstruct(callee) !== undefined) return true
     if (callee?.startsWith("dynamic:")) return true
-    let nested = unwrapExpression(node.callee)
+    let nested = unwrapExpression(calleeOfCallLike(node))
     while (nested?.type === "CallExpression") {
       if (runnerConstruct(provenanceOfExpression(nested.callee)) !== undefined) return true
       nested = unwrapExpression(nested.callee)
@@ -1507,7 +1632,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         || ambientPlatformObjects.includes(root)
         || isAmbientPlatformMember(path)) return true
     }
-    return promiseChainMethodForCall(node) !== undefined
+    return node.type === "CallExpression" && promiseChainMethodForCall(node) !== undefined
   }
 
   const rootIdentifierOf = (input) => {
@@ -1727,6 +1852,17 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const global = callee?.startsWith("global:") ? callee.slice("global:".length) : undefined
       if (global === "Date" || (global !== undefined && ambientPlatformConstructors.includes(global))) {
         add("platformEffect", node, `platform:new:${global}`)
+      }
+    }
+
+    if (node.type === "TaggedTemplateExpression") {
+      const callee = provenanceOfExpression(node.tag)
+      if (!isDirectTryPromiseConsumption(node)
+        && !hasDirectFunctionFinding(node)
+        && !hasAuthoritativeCallFinding(node, callee)
+        && !isLocallyDefinedNonPromiseInvocation(node, node.tag)
+        && returnsPromiseLikeCall(node)) {
+        add("promiseSignature", node, "promise-like:call")
       }
     }
 
