@@ -24,8 +24,8 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
    apps/server   ── one backend/root ─┐          packages/client-ts
    (SQLite event log, sequencing,     │          the "connection brain":
     event bus, lifecycle, RPC)        │          discover/spawn backend,
-        ▲                             │          one RPC session, reactive
-        │  WebSocket RPC              │          project store, reconnect
+        ▲                             │          reconnecting ClientSession,
+        │  WebSocket RPC              │          session-backed facades
         │                            (frontends may NEVER import apps/server — I-1)
         │                             │
    ┌────┴──────────┬──────────────────┴──────────────┐
@@ -50,9 +50,9 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 
 **Recurring themes** worth understanding once, because they appear in almost every module:
 
-- **Event sourcing + one shared fold.** The backend stores immutable domain events; current project state is *derived* by folding them. The fold lives in **one place** (`Project.foldList` in contracts) and is reused verbatim by the server *and* every client — so a snapshot can never disagree with a replayed stream.
+- **Event sourcing + one shared fold.** The backend stores immutable domain events; current project state is *derived* by folding them. The fold lives in **one place** (`Project.foldList` in contracts) and is reused verbatim by the server and the framework-neutral project-sync controller, so synchronized UI state follows the same transition rules as the authoritative read model.
 - **Server read-model cache (optimization).** The server no longer re-folds the whole log on every read. It keeps an **in-memory live read model** (a `SubscriptionRef`) seeded at boot from a **persisted `projection_state` row** (name-keyed: serialized state + `last_seq` + per-projection fold version) and advanced per commit — reads are O(rows), boot is O(tail-since-checkpoint). Checkpoints are written at boot, **debounced during the session (500ms quiet)**, and **once more at I-4 shutdown**, so a boot's tail is bounded by the debounce window after a crash and ~empty after a graceful cycle. The row is a disposable cache stamped with `FOLD_VERSIONS.projects` (rebuild-from-zero on mismatch) and proven equal to a full replay by `snapshot-equivalence.test.ts` — *snapshot can never disagree with replay* still holds as a **checked invariant**. See `docs/architecture/decisions/2026-07-05-event-store-foundation-design.md`.
-- **Protocol v2.** Clients bootstrap by (1) subscribing to the `Events` stream *first*, (2) seeding from a `{projects, seq}` snapshot, (3) gating the live fold by `seq`. This avoids losing or double-applying events during the bootstrap window.
+- **Protocol v2.** Long-lived clients bootstrap by (1) listing a `{projects, seq}` snapshot, (2) publishing that snapshot atomically, and (3) opening `Events({ fromSeq: seq })`. The server replays anything committed after the list cursor, while the client ignores stale or duplicate sequences, so the bootstrap window loses and double-applies nothing.
 - **One explicit state root.** `AppContext` normalizes one data directory to an absolute path and derives the database, endpoint, log, and client spawn-lock paths from it. The CLI exposes it as a true global `--data-dir` flag; the desktop and standalone server retain raw-argv support; every spawned backend receives the same selected directory; and `backend.lock` prevents two live backends from sharing it.
 - **Branded scalars.** `ProjectId` / `ProjectName` / `Tag` are nominal types validated at the schema boundary — the system's trust boundary for untrusted input.
 - **Effects-as-data / dependency injection.** UI logic and Electron wiring are kept pure and testable; side effects and platform primitives are isolated to a single seam each.
@@ -139,7 +139,7 @@ UPDATED (2026-07-13) 10. `composition/app.ts` → `main.ts` — lifecycle orches
 
 **What:** The "connection brain" shared by all three frontends: a platform seam (Bun/Node), per-root find-or-spawn discovery, the reconnecting `ClientSession`, and session-backed typed facades. Applications own their state, with the framework-neutral controller from `@expand/contracts/project-sync` handling list/replay synchronization for long-lived UIs. Hosts no `AppLayer` (I-2); reaches the selected root's backend only via its discovery file (I-3) and never imports `apps/server` (I-1). Its public API is a **curated, Effect-native SDK surface**: external code enters *only* through the scoped entrypoints — `@expand/client-ts` (connection core), `@expand/client-ts/project`, `@expand/client-ts/server`, and `@expand/client-ts/adapters/{bun,node}` — every other module is internal (tagged `@internal`) and made unreachable from outside by the `client-ts-barrel-only` dependency-cruiser rule (see Stage 7).
 
-**Why here:** Depends on `contracts` + `server`; consumed by every frontend. The CLI/TUI/desktop chapters are short because this is where their real logic lives.
+**Why here:** Depends on `contracts` + `server`; consumed by every frontend. Connection and reconnect behavior is centralized here, while the later frontend chapters show how each application owns its state and lifecycle.
 
 **Read in order:** *(public entrypoints = `index.ts`/`project/index.ts`/`server/index.ts` + `adapters/{bun,node}`; everything else is package-internal)*
 DONE 1. `ARCHITECTURE.md` — **read first**, the author's own line-referenced walkthrough. Its "Public API surface" section is the map of what each entrypoint (root, `/project`, `/server`, `adapters/*`) exports and what is `@internal`.
@@ -150,7 +150,7 @@ UPDATED (2026-07-13) 4. `discovery.ts` + `spawn.ts` + `spawn-lock.ts` — `disco
 6. `adapters/bun.ts` + `adapters/node.ts` — the two platform implementations (socket + spawn); the platform subpath entrypoints (public alongside `/project` and `/server`).
 7. `client-session.ts` — the reconnect loop, connection status, active epoch, and scope teardown.
 8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
-9. `project/client.ts` + `client-layer.ts` — the session-backed facades and how layers share one session.
+9. `project/client.ts` + the package-root `client-layer.ts` — the session-backed facades and how layers share one session.
 
 **Scrutinize hardest:**
 - **Project synchronization** (`packages/contracts/project-sync.ts`): list first, publish `{projects, seq}` atomically, then replay `Events({ fromSeq: seq })`; stale sequences are ignored and fresh reconnect lists replace retained state.
@@ -161,9 +161,9 @@ UPDATED (2026-07-13) 4. `discovery.ts` + `spawn.ts` + `spawn-lock.ts` — `disco
 - **Non-optimistic state:** typed facade mutations only call RPC; desktop and TUI state changes only through fresh lists and sequenced events.
 - **Entrypoint boundary** (`index.ts`/`project/index.ts`/`server/index.ts` + the `client-ts-barrel-only` rule): external code must reach the package only via the entrypoints; internals are `@internal` and depcruise-forbidden from outside. Confirm the rule is non-vacuous (it flags a real deep import) and note its one blind spot — depcruise excludes `test/`, so the rule does not police test files (all current out-of-package tests go through the public entrypoints; client-ts's own tests deliberately deep-import internals relatively).
 
-**Best tests to read:** `packages/contracts/test/project-sync.test.ts` (atomic snapshots, replay, sequence gating, interruption, and fresh-list replacement), `packages/client-ts/test/integration/client-session.test.ts`, `packages/client-ts/test/integration/project-sync.test.ts`, `test/integration/find-or-spawn.test.ts` (same-root convergence, distinct-root independence, stale locks, and the six-/ten-second deadline), `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), and `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root).
+**Best tests to read:** `packages/contracts/test/project-sync.test.ts` (atomic snapshots, replay, sequence gating, interruption, and fresh-list replacement), `packages/client-ts/test/integration/client-session.test.ts`, `packages/client-ts/test/integration/project-sync.test.ts`, `packages/client-ts/test/integration/find-or-spawn.test.ts` (same-root convergence, distinct-root independence, stale locks, and the six-/ten-second deadline), `test/architecture/client-ts-barrel.test.ts` (the public-API boundary), and `packages/client-ts/test/unit/entrypoints.test.ts` (pins the `/project` + `/server` surfaces and the strict-core root).
 
-**Dogfood the public surface — `examples/client-ts/`:** three runnable real-world programs written as an *external consumer* would — `bootstrap-projects.ts` (create a project per subfolder, deduping/skipping conflicts), `archive-stale.ts` (archive projects whose directory has vanished), and `audit-log.ts` (tail `ProjectClient.events` to a JSONL file). Every import comes only from the public entrypoints (`@expand/client-ts`, `@expand/client-ts/project`, `@expand/client-ts/adapters/bun`) — the `client-ts-barrel-only` rule (Stage 7) covers this directory, so a deep import into a package internal fails CI, and each example has a subprocess smoke test in `examples/client-ts/test/` that runs it against an isolated backend.
+**Dogfood the public surface — `examples/client-ts/`:** three runnable real-world programs written as an *external consumer* would — `bootstrap-projects.ts` (create a project per subfolder, deduping/skipping conflicts), `archive-stale.ts` (archive projects whose directory has vanished), and `audit-log.ts` (tail `ProjectClient.events` to a JSONL file across session epochs). Every import comes only from the public entrypoints (`@expand/client-ts`, `@expand/client-ts/project`, `@expand/client-ts/adapters/bun`) — the `client-ts-barrel-only` rule (Stage 7) covers this directory, so a deep import into a package internal fails CI, and each example has a subprocess smoke test in `examples/client-ts/test/` that runs it against an isolated backend. Read `examples/client-ts/ERGONOMICS.md` for the preserved dogfooding findings and the migration notes for removed store-specific friction.
 
 ---
 
@@ -260,17 +260,17 @@ The largest area (85 files). Read the IPC framework, then the privileged main pr
 
 **What:** The React + TanStack Router UI. All backend access flows over the single `MessagePort` (I-1): a port-backed `RpcClient`, a thin project facade, the framework-neutral sync controller, and renderer-owned Zustand state. React reads the Zustand store and never owns the connection lifecycle.
 
-**Read in order:** `rpc/renderer-port.ts` → `rpc/transport.ts` (the port-backed protocol — the heart of the seam) → `rpc/project-rpc.ts` → `features/projects/data/project-store.ts` (Protocol v2 store) → `app/app-handle.ts` (the Effect→React bridge) → `app/runtime.ts` (boot: nonce-correlated port acquisition + 10s timeout) → `main.tsx` → `features/projects/data/use-projects.ts` → `features/command/components/CommandPalette.tsx` → `features/projects/pages/ProjectsView.tsx`.
+**Read in order:** `rpc/renderer-port.ts` → `rpc/transport.ts` (the port-backed protocol — the heart of the seam) → `rpc/project-rpc.ts` → `features/projects/data/project-store.ts` (the renderer-owned Zustand state and project-sync sink) → `features/projects/data/project-context.tsx` (the React bridge) → `app/runtime.ts` (nonce-correlated port acquisition, scoped synchronization, first-snapshot gate, and 10s timeout) → `main.tsx` → `features/projects/data/use-projects.ts` → `features/command/components/CommandPalette.tsx` → `features/projects/pages/ProjectsView.tsx`.
 
 **Scrutinize hardest:**
 - **Bootstrap and reconnect:** the controller lists, subscribes from the returned sequence, ignores stale replay, and replaces the renderer snapshot with a fresh list after reconnect.
 - **MessagePort seam integrity (I-1):** renderer code reaches the backend *only* via the port; `window.expand` is the only bridge.
 - **Inbound decode trust** (`transport.ts`): `parser.decode(event.data)` is cast to the message type with no validation — a hostile message on the port is assumed well-typed. Assess.
-- **Effect/React lifecycle:** detached mirror fiber + `Effect.scoped` boot under `Effect.never` — verify scopes/fibers aren't orphaned.
+- **Effect/React lifecycle:** `boot` forks `runProjectSync` in its scope, waits for the first snapshot before mounting, and then keeps that scope alive under `Effect.never`; verify the boot fiber owns and interrupts synchronization.
 
 > ⚠️ **Test-tree gotcha:** several files under `apps/desktop/test` (`connection-honesty`, `transport`, `rpc-server`, `window-options`, `harden-web-contents`, `origin-rules`, `port-lifecycle`, `backend-entry`) actually exercise the **main** process (Stage 6b), not the renderer — don't attribute their coverage to renderer code.
 
-**Best tests:** `test/unit/renderer-project-store.test.ts` (the seq-gate), `test/unit/app-handle.test.ts`, `test/unit/renderer-boot-port.test.ts` (the I-1 handshake), `e2e/set-metadata.spec.ts` (full Playwright round-trip).
+**Best tests:** `test/integration/project-reconnect-sync.test.ts` (list/replay and fresh-list replacement through the MessagePort), `test/unit/project-store.test.ts` (independent Zustand state and atomic snapshots), `test/unit/project-context.test.tsx` (React updates and non-optimistic mutations), `test/unit/renderer-boot-port.test.ts` (the I-1 handshake), and `e2e/set-metadata.spec.ts` (full Playwright round-trip).
 
 ---
 

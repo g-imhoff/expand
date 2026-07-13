@@ -33,7 +33,8 @@ fresh temp dir per run for exactly this reason.
   `archive-stale: archived <N> of <M> active`.
   Run: `bun run examples/client-ts/archive-stale.ts`
 - **[`audit-log.ts`](./audit-log.ts)** — tail the project client's event stream and append every
-  project mutation to a JSONL file (`{ seq, tag, projectId, at }` per line); runs until
+  project mutation to a JSONL file (`{ seq, tag, projectId, at }` per line); retains its
+  sequence cursor and reopens the event stream after backend reconnects, and runs until
   interrupted (SIGINT).
   Run: `bun run examples/client-ts/audit-log.ts <outfile>`
 
