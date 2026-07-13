@@ -27,9 +27,9 @@ export const makeRuntime = (): ExpandRuntime =>
     )
   )
 
-// Electron's process.execPath is the Electron binary, not a JS runtime, so the
-// backend runs under `bun` (execPath) against the absolute source entry. Going
-// through source mode (rather than an explicit fallback) keeps the resolver's
-// source/compiled existence check and its EXPAND_BACKEND_CMD override.
 const backendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({ execPath: "bun", sourceEntry: defaultBackendEntry(import.meta.url) })
+  resolveBackendCommand({
+    execPath: "node",
+    runtimeArgs: ["--import", "tsx"],
+    sourceEntry: defaultBackendEntry(import.meta.url)
+  })

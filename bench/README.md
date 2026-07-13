@@ -5,17 +5,17 @@ checkpointed projection boot, RPC replay) at scales far beyond real usage.
 Design: `docs/superpowers/specs/2026-07-06-event-store-benchmark-design.md`.
 
 **Quarantined by design:** nothing here is reachable from vitest, coverage,
-knip, depcruise, or the eslint rule block. Verification is `bun bench/selfcheck.ts`
-plus `bun bench/main.ts --smoke`. Zero production code is imported mutably —
+knip, depcruise, or the eslint rule block. Verification is `npm run bench:selfcheck`
+plus `npm run bench:events -- --smoke`. Zero production code is imported mutably —
 only public layers/exports.
 
 ## Run
 
-    bun run bench:events                 # default: 100k + 1m, all scenarios
-    bun run bench:events --smoke         # 1k events, seconds — harness sanity
-    bun run bench:events --scale 10m     # opt-in, seeding takes minutes
-    bun run bench:events --scenario s1 --scenario s4 --chunk 200
-    bun run bench:events --json out.json --reseed
+    npm run bench:events                            # default: 100k + 1m, all scenarios
+    npm run bench:events -- --smoke                 # 1k events, seconds — harness sanity
+    npm run bench:events -- --scale 10m             # opt-in, seeding takes minutes
+    npm run bench:events -- --scenario s1 --scenario s4 --chunk 200
+    npm run bench:events -- --json out.json --reseed
 
 ## Scenarios
 

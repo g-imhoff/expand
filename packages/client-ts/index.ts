@@ -11,8 +11,8 @@
  *   the project contract vocabulary.
  * - `@expand/client-ts/server` — the server domain: the `ServerClient`
  *   health/presence facade.
- * - `@expand/client-ts/adapters/{bun,node}` — the platform seams
- *   (`makeBunAdapter` / `makeNodeAdapter`).
+ * - `@expand/client-ts/adapters/node` — the Node platform seam
+ *   (`makeNodeAdapter`).
  *
  * What lives here (in export order below):
  *

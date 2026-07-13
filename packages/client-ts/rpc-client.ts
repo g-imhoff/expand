@@ -1,4 +1,5 @@
-import { RpcClient, RpcClientError } from "effect/unstable/rpc"
+import { RpcClient } from "effect/unstable/rpc"
+import type { RpcClientError } from "effect/unstable/rpc"
 import { Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
@@ -11,7 +12,6 @@ import type { RuntimeAdapter } from "./adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-/** @internal */
 export const acquireClient = (
   adapter: RuntimeAdapter
 ): Effect.Effect<

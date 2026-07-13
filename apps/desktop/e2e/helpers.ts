@@ -18,7 +18,7 @@ export const launchApp = async (): Promise<LaunchedApp> => {
     args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs"), "--data-dir", dataHome],
     env: {
       ...process.env,
-      EXPAND_BACKEND_CMD: JSON.stringify(["bun", resolve(repoRoot, "apps/server/main.ts")])
+      EXPAND_BACKEND_CMD: JSON.stringify(["node", "--import", "tsx", resolve(repoRoot, "apps/server/main.ts")])
     }
   })
   const win = await app.firstWindow()

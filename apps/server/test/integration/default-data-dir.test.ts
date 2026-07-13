@@ -24,7 +24,7 @@ describe("default data directory", () => {
     writeFileSync(join(legacyDir, "events.db"), "")
     writeFileSync(join(legacyDir, "marker"), "legacy")
 
-    const child = spawn(process.execPath, ["apps/server/main.ts"], {
+    const child = spawn(process.execPath, ["--import", "tsx", "apps/server/main.ts"], {
       cwd: process.cwd(),
       env: { ...process.env, HOME: root, EXPAND_LOG_LEVEL: "None" },
       stdio: ["ignore", "ignore", "pipe"]

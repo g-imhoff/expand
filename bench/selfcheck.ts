@@ -1,4 +1,3 @@
-// Plain-assert verification for the bench harness — run with: bun bench/selfcheck.ts
 // The bench is quarantined from vitest by design (spec §3); this file is its test suite.
 import assert from "node:assert/strict"
 import { verdictFor, BUDGETS, RSS_BUDGET_BYTES } from "./budgets"
@@ -109,6 +108,6 @@ assert.ok(rendered.includes("pipeline boundedness"), "S3/S5 in-process caveat is
 
 const parsed = JSON.parse(toJsonReport([ok]))
 assert.equal(parsed.measurements[0].verdict, "PASS")
-assert.ok(typeof parsed.machine.bunVersion === "string")
+assert.ok(typeof parsed.machine.nodeVersion === "string")
 
 console.log("selfcheck OK")

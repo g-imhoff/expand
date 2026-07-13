@@ -1,12 +1,12 @@
 // Deterministic event-script generator + (in Task 3) batched seeding into cached
 // SQLite files. Bump GENERATOR_VERSION whenever generated output changes — it is
 // part of the cache filename.
-import { Database } from "bun:sqlite"
+import Database from "better-sqlite3"
 import { existsSync, mkdirSync, rmSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { DomainEventFromJson } from "@expand/contracts/events/domain"
 import type { ProjectEvent } from "@expand/contracts/events/project"
 import {
@@ -25,8 +25,8 @@ import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/applic
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 
-export const GENERATOR_VERSION = 1
-export const PRNG_SEED = 42
+const GENERATOR_VERSION = 1
+const PRNG_SEED = 42
 export const LIVE_PROJECT_CAP = 200
 
 export const SCALES: Readonly<Record<string, number>> = {
@@ -41,7 +41,7 @@ export const SCALES: Readonly<Record<string, number>> = {
 export const ProjectsFromJson = Schema.fromJsonString(Schema.Array(Project))
 
 // mulberry32 — tiny deterministic PRNG. Same seed → same script, every run.
-export const mulberry32 = (seed: number): (() => number) => {
+const mulberry32 = (seed: number): (() => number) => {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0
@@ -116,14 +116,14 @@ const uuidOf = (n: number): string => "00000000-0000-4000-8000-" + String(n).pad
 const BASE_MS = Date.UTC(2026, 0, 1)
 
 // Build a layer once (running its acquisition, e.g. DDL) and release it.
-export const buildLayerOnce = <ROut, E>(layer: Layer.Layer<ROut, E>): Effect.Effect<void, E> =>
+const buildLayerOnce = <ROut, E>(layer: Layer.Layer<ROut, E>): Effect.Effect<void, E> =>
   Effect.gen(function* () {
     const scope = yield* Scope.make()
     yield* Layer.buildWithScope(layer, scope)
     yield* Scope.close(scope, Exit.void)
   })
 
-export const cachePathFor = (scale: string): string =>
+const cachePathFor = (scale: string): string =>
   join(BENCH_DIR, ".cache", `events-${scale}-seed${PRNG_SEED}-g${GENERATOR_VERSION}.db`)
 
 // Seed (or reuse) the cached DB for a scale. Rows are written with raw batched
@@ -145,7 +145,7 @@ export const ensureSeed = async (scale: string, opts?: { readonly reseed?: boole
   // 2) batched inserts (10k per transaction), payloads via the production codec
   const db = new Database(path)
   db.exec("PRAGMA journal_mode = WAL")
-  const insert = db.prepare("INSERT INTO events (stream_id, event_type, payload) VALUES (?1, ?2, ?3)")
+  const insert = db.prepare("INSERT INTO events (stream_id, event_type, payload) VALUES (?, ?, ?)")
   const flush = db.transaction((rows: Array<readonly [string, string, string]>) => {
     for (const r of rows) insert.run(r[0], r[1], r[2])
   })
@@ -167,9 +167,9 @@ export const ensureSeed = async (scale: string, opts?: { readonly reseed?: boole
 
 // Loud abort if the seed is bad — numbers from a bad seed are worse than none.
 // Decodes first/middle/last chunks through the REAL feed (fail-fast decode, D10).
-export const validateSeed = async (dbPath: string, expected: number): Promise<void> => {
+const validateSeed = async (dbPath: string, expected: number): Promise<void> => {
   const db = new Database(dbPath, { readonly: true })
-  const row = db.query("SELECT COUNT(*) AS c, COALESCE(MAX(seq), 0) AS m FROM events").get() as { c: number; m: number }
+  const row = db.prepare("SELECT COUNT(*) AS c, COALESCE(MAX(seq), 0) AS m FROM events").get() as { c: number; m: number }
   db.close()
   if (row.c !== expected || row.m !== expected) {
     throw new Error(`seed validation failed: count=${row.c} maxSeq=${row.m} expected=${expected}`)
@@ -192,9 +192,9 @@ export const validateSeed = async (dbPath: string, expected: number): Promise<vo
   }
 }
 
-export const maxSeqOf = (dbPath: string): number => {
+const maxSeqOf = (dbPath: string): number => {
   const db = new Database(dbPath, { readonly: true })
-  const row = db.query("SELECT COALESCE(MAX(seq), 0) AS m FROM events").get() as { m: number }
+  const row = db.prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM events").get() as { m: number }
   db.close()
   return row.m
 }
@@ -203,7 +203,7 @@ export const maxSeqOf = (dbPath: string): number => {
 // it via CREATE IF NOT EXISTS at next boot, so no DDL is duplicated here.
 export const deleteCheckpoint = (dbPath: string): void => {
   const db = new Database(dbPath)
-  db.run("DROP TABLE IF EXISTS projection_state")
+  db.exec("DROP TABLE IF EXISTS projection_state")
   db.close()
 }
 

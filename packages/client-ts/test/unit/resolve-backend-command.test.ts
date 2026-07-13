@@ -50,9 +50,20 @@ describe("resolveBackendCommand", () => {
       expect(cmd).toEqual([process.execPath, realSource, "server"])
     })
 
-    it("uses an explicit execPath for the source-mode command (e.g. Electron's bun)", () => {
-      const cmd = resolveBackendCommand({ env: {}, execPath: "bun", sourceEntry: realSource, sourceArgs: ["server"] })
-      expect(cmd).toEqual(["bun", realSource, "server"])
+    it("places Node runtime arguments before the TypeScript source entry", () => {
+      const cmd = resolveBackendCommand({
+        env: {},
+        execPath: "node",
+        runtimeArgs: ["--import", "tsx"],
+        sourceEntry: realSource,
+        sourceArgs: ["server"]
+      })
+      expect(cmd).toEqual(["node", "--import", "tsx", realSource, "server"])
+    })
+
+    it("uses an explicit execPath for the source-mode command", () => {
+      const cmd = resolveBackendCommand({ env: {}, execPath: "node", sourceEntry: realSource, sourceArgs: ["server"] })
+      expect(cmd).toEqual(["node", realSource, "server"])
     })
 
     it("falls back to binaryArgs when the source entry does not exist", () => {
@@ -61,8 +72,8 @@ describe("resolveBackendCommand", () => {
     })
 
     it("falls back to binaryArgs when no sourceEntry is given", () => {
-      const cmd = resolveBackendCommand({ env: {}, binaryArgs: ["bun", "/abs/apps/server/main.ts"] })
-      expect(cmd).toEqual(["bun", "/abs/apps/server/main.ts"])
+      const cmd = resolveBackendCommand({ env: {}, binaryArgs: ["node", "/abs/apps/server/main.ts"] })
+      expect(cmd).toEqual(["node", "/abs/apps/server/main.ts"])
     })
 
     it("throws when nothing resolves a command", () => {

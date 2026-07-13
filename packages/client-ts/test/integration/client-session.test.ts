@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { BunHttpServer, BunServices } from "@effect/platform-bun"
+import { NodeHttpServer, NodeServices } from "@effect/platform-node"
+import { createServer } from "node:http"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -10,13 +11,15 @@ import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RuntimeAdapter } from "../../adapter"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { ClientSession, ClientSessionLayer, type ClientSessionApi } from "../../client-session"
 import { BackendUnavailable } from "../../errors"
 
 const acquireControl = vi.hoisted(() => ({
   pause: undefined as (() => Promise<void>) | undefined
 }))
+
+const nodeAdapter = makeNodeAdapter({ backendCommand: [] })
 
 vi.mock("../../rpc-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../rpc-client")>()
@@ -75,9 +78,9 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
       Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
       Layer.provide(RpcSerialization.layerNdjson)
     )
-    const bun = BunHttpServer.layer({ port: 0, gracefulShutdownTimeout: "500 millis" })
-    const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), bun).pipe(
-      Layer.provide(bun)
+    const node = NodeHttpServer.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
+    const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
+      Layer.provide(node)
     )
     const serverScope = yield* Scope.make()
     const transport = yield* Layer.build(serverLayer).pipe(Scope.provide(serverScope))
@@ -109,7 +112,7 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
 
   const adapter: RuntimeAdapter = {
     protocolLayer: (url) =>
-      bunAdapter.protocolLayer(url).pipe(
+      nodeAdapter.protocolLayer(url).pipe(
         Layer.tap(() =>
           RpcClient.ConnectionHooks.pipe(
             Effect.tap((hooks) =>
@@ -128,7 +131,7 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
                 Effect.andThen(Effect.never),
                 Effect.onInterrupt(() => Deferred.succeed(retryInterrupted, undefined))
               )
-            : startServer
+            : startServer.pipe(Effect.orDie)
         )
       )
   }
@@ -160,7 +163,7 @@ const openSession = async (
   const context = await Effect.runPromise(
     Layer.build(
       ClientSessionLayer(adapter).pipe(
-        Layer.provide(BunServices.layer),
+        Layer.provide(NodeServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
     ).pipe(Scope.provide(scope))
@@ -199,7 +202,7 @@ const runInternalAcquireRetryScenario = async () => {
       Effect.gen(function* () {
         const context = yield* Layer.build(
           ClientSessionLayer(adapter).pipe(
-            Layer.provide(BunServices.layer),
+            Layer.provide(NodeServices.layer),
             Layer.provide(Layer.succeed(AppContext, backend.appContext))
           )
         )
@@ -391,7 +394,7 @@ describe("ClientSession", () => {
   it("fails the layer with BackendUnavailable when first acquisition fails", async () => {
     const dir = mkdtempSync(join(tmpdir(), "expand-client-session-failure-"))
     const failingAdapter: RuntimeAdapter = {
-      protocolLayer: bunAdapter.protocolLayer,
+      protocolLayer: nodeAdapter.protocolLayer,
       spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
     }
     try {
@@ -399,7 +402,7 @@ describe("ClientSession", () => {
         Effect.scoped(
           Layer.build(
             ClientSessionLayer(failingAdapter).pipe(
-              Layer.provide(BunServices.layer),
+              Layer.provide(NodeServices.layer),
               Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
             )
           )

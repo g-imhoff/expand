@@ -10,10 +10,11 @@ internals.
 
 ## Install
 
-`@expand/client-ts` is a workspace package inside the Expand monorepo:
+The repository requires Node `>=24.15` and npm `>=11`. This package is an npm
+workspace dependency:
 
 ```json
-{ "dependencies": { "@expand/client-ts": "workspace:*" } }
+{ "dependencies": { "@expand/client-ts": "0.0.0" } }
 ```
 
 ## Entrypoints
@@ -23,8 +24,8 @@ internals.
 | `@expand/client-ts` | `ClientSession`, `ClientSessionLayer`, `ClientLayer`, `withClient`, adapter-independent connection types, and transport errors. |
 | `@expand/client-ts/project` | The session-backed `ProjectClient` facade and project contract vocabulary. |
 | `@expand/client-ts/server` | The session-backed `ServerClient` facade. |
-| `@expand/client-ts/adapters/bun` or `@expand/client-ts/adapters/node` | Platform-specific socket and process adapters. |
-| `@expand/contracts/project-sync` | The renderer-safe, framework-neutral `runProjectSync` controller and its source, sink, snapshot, and status types. |
+| `@expand/client-ts/adapters/node` | The Node WebSocket and process adapter. |
+| `@expand/contracts/project-sync` | The renderer-safe `runProjectSync` controller and its source, sink, snapshot, and status types. |
 
 The root does not re-export domain clients. Use their scoped entrypoints.
 
@@ -39,18 +40,25 @@ epoch; and `epochs` emits each newly connected epoch.
 and `ServerClient`. The facades delegate each operation through the session, so
 commands issued after a reconnect use the current epoch.
 
+Every SDK layer leaves `FileSystem` unprovided. Node hosts satisfy it with
+`NodeServices.layer` and provide a backend command through `makeNodeAdapter`.
+
 ```ts
 import { Effect } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { ClientLayer } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
-import { makeBunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+
+const adapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", "/absolute/path/to/apps/server/main.ts"]
+})
 
 const program = Effect.flatMap(ProjectClient, (client) =>
   client.list({ includeArchived: true })
 ).pipe(
-  Effect.provide(ClientLayer(makeBunAdapter())),
-  Effect.provide(BunServices.layer)
+  Effect.provide(ClientLayer(adapter)),
+  Effect.provide(NodeServices.layer)
 )
 
 const snapshot = await Effect.runPromise(program)
@@ -58,6 +66,20 @@ const snapshot = await Effect.runPromise(program)
 
 Use `ProjectClientLayer(adapter)` or `ServerClientLayer(adapter)` when only one
 facade is needed. Use `withClient(adapter, use)` for a scoped low-level call.
+
+## Backend commands
+
+`makeNodeAdapter` accepts a command array or a function returning one. In
+application code, `resolveBackendCommand` applies this priority:
+
+1. `EXPAND_BACKEND_CMD`, when it is a JSON array of strings.
+2. An absolute TypeScript `sourceEntry`, normally with
+   `runtimeArgs: ["--import", "tsx"]`.
+3. `binaryArgs` for packaged execution.
+
+The adapter appends the selected `--data-dir` argument itself. Electron hosts
+must pass an explicit `execPath: "node"` because Electron's `process.execPath`
+names the Electron executable.
 
 ## Application-owned project state
 
@@ -90,39 +112,28 @@ Each connected epoch uses a race-free bootstrap:
 
 On `"reconnecting"`, the controller interrupts the old event epoch and retains
 the last visible snapshot. When the session becomes connected again, it lists
-again and replaces the old projects and sequence with that fresh authoritative
-snapshot before replaying newer events. Reconnect is replacement, not a merge
-with stale local state.
+again and replaces the old projects and sequence with the fresh authoritative
+snapshot before replaying newer events.
 
 The controller also recovers when `list` or `Events` fails, or when `Events`
 ends cleanly while the source still reports a connected session. It publishes
 `"reconnecting"`, retries a complete list-and-events epoch with capped backoff,
-and publishes `"connected"` after the fresh snapshot succeeds. A failure of the
+and publishes `"connected"` after a fresh snapshot succeeds. A failure of the
 source status stream is owner-visible instead: it fails `runProjectSync` so the
-application supervising the synchronization fiber can surface the failure.
+application supervising the synchronization fiber can surface it.
 
 The applications deliberately choose different ownership models:
 
-- Desktop stores synchronized snapshots and connection status in renderer-owned
-  Zustand state.
+- Desktop stores synchronized snapshots and status in a renderer-owned Zustand
+  store. Boot races the first snapshot against sync failure and then joins the
+  sync fiber so later failures reach its owner.
 - TUI stores synchronized snapshots in React state and interrupts the sync fiber
   when the component unmounts.
 - CLI remains stateless: each command calls the typed facade and renders the
-  response without maintaining a project replica.
+  response without maintaining a replica.
 
 Mutation responses are not an optimistic state source for desktop or TUI. Their
 visible state changes only through a fresh list or sequenced server event.
-
-## Backend command and adapters
-
-Every SDK layer leaves `FileSystem` unprovided. Supply `BunServices.layer` or
-`NodeServices.layer` in the host. Bun and Node/Electron consumers select their
-adapter from the corresponding adapter entrypoint.
-
-`makeNodeAdapter` requires a backend command. `makeBunAdapter` can use its
-default, but applications can pass a command resolved by
-`resolveBackendCommand`. The resolver honors `EXPAND_BACKEND_CMD` when it is a
-JSON array of strings.
 
 ## Errors
 
@@ -130,7 +141,7 @@ Import transport errors from the root and domain errors from
 `@expand/client-ts/project`:
 
 - `BackendUnavailable` means initial backend discovery, startup, or connection
-  failed. After initial acquisition, reconnecting is reflected by the session
+  failed. After initial acquisition, reconnecting is reflected by session
   status.
 - `RpcClientError` is the type for transport or protocol RPC failures.
 - Project commands can fail with domain errors such as `ProjectNotFound`,

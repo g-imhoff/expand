@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Queue, Schedule, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 let dir: string
 beforeEach(() => {
@@ -33,7 +37,7 @@ describe.sequential("Events replay with fromSeq", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const a = (yield* client.ProjectCreate({ name: "replay-a", ensure: false })).project
           yield* client.ProjectCreate({ name: "replay-b", ensure: false })
@@ -46,7 +50,7 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const r = await Effect.runPromise(program)
     expect(r.first.seq).toBe(2)
     expect(r.first.event._tag).toBe("ProjectCreated")
@@ -60,7 +64,7 @@ describe.sequential("Events replay with fromSeq", () => {
       const dbPath = join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
-      const out = yield* withClient(bunAdapter, (client) =>
+      const out = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           yield* client.ProjectCreate({ name: "full-a", ensure: false })
           yield* client.ProjectCreate({ name: "full-b", ensure: false })
@@ -72,7 +76,7 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     const [e1, e2] = await Effect.runPromise(program)
     expect([e1.seq, e2.seq]).toEqual([1, 2])
     expect([e1.event._tag, e2.event._tag]).toEqual(["ProjectCreated", "ProjectCreated"])

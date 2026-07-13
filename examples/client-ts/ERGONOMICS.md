@@ -34,7 +34,7 @@ Every example ends with the same runtime incantation
 `audit-log.ts:62-70`):
 
 ```ts
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => { console.error(err); return runtime.dispose().finally(() => process.exit(1)) }
@@ -54,20 +54,20 @@ examples.
 
 ## 3. "Public API only" leaks two peer dependencies
 
-The examples are meant to import only `@expand/client-ts` and
-`@expand/client-ts/adapters/bun`. In practice every one also imports `effect`
-(`Effect`, `Layer`, `ManagedRuntime`, `Stream`) and, critically, `BunServices`
-from `@effect/platform-bun` (`bootstrap-projects.ts:1-2`, etc.).
+The examples are meant to import *only* `@expand/client-ts` and
+`@expand/client-ts/adapters/node`. In practice every one of them also imports
+`effect` (`Effect`, `Layer`, `ManagedRuntime`, `Stream`) and, critically,
+`NodeServices` from `@effect/platform-node` (`bootstrap-projects.ts:1-2`, etc.).
 
-That second import is not optional: `ClientLayer(adapter)` requires a
+That second import isn't optional: `ClientLayer(adapter)` requires a
 `FileSystem.FileSystem` in its environment (`client-layer.ts:9-14`), which the
-consumer satisfies with `.pipe(Layer.provide(BunServices.layer))`. A Bun
-consumer must therefore add `@effect/platform-bun` and wire its layer even
-after selecting the Bun adapter — the platform is named twice.
+consumer satisfies with `.pipe(Layer.provide(NodeServices.layer))`. So the Node consumer
+must know to add `@effect/platform-node` and wire its layer, even though they
+already selected the Node adapter — the platform is named twice.
 
-**Possible cleanup:** have `makeBunAdapter` or the Bun subpath provide the Bun
-`FileSystem` itself, so `ClientLayer(bunAdapter)` needs no external platform
-layer.
+**Possible cleanup:** have `makeNodeAdapter` or the Node subpath provide the Node
+`FileSystem` itself, so `ClientLayer(nodeAdapter)` needs no external platform
+layer — the adapter choice already implies the platform.
 
 ## 4. Data-dir isolation is entirely off-surface (a magic argv flag)
 

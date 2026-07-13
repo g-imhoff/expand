@@ -8,18 +8,16 @@
     ".": "./index.ts",
     "./project": "./project/index.ts",
     "./server": "./server/index.ts",
-    "./adapters/bun": "./adapters/bun.ts",
     "./adapters/node": "./adapters/node.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
     "build": "tsup && tsc -p tsconfig.build.json",
     "stage:publish": "node scripts/prepare-publish.mjs",
-    "pack:tgz": "bun run build && bun run stage:publish && npm pack ./dist-publish"
+    "pack:tgz": "npm run build && npm run stage:publish && npm pack ./dist-publish"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.0-beta.74",
-    "@expand/contracts": "workspace:*",
+    "@expand/contracts": "0.0.0",
     "effect": "4.0.0-beta.74",
     "ws": "^8.21.0"
   },

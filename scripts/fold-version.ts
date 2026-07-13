@@ -4,8 +4,6 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 
-// Repo root = parent of scripts/. Same import.meta.url pattern the arch tests use,
-// so it resolves correctly both under `bun run` and under vitest.
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 
 // Fold nodes PER PROJECTION. Each projection's version is a hash of exactly its
@@ -62,7 +60,7 @@ const write = (): Readonly<Record<string, string>> => {
   const versions = computeFoldHashes()
   writeFileSync(
     GENERATED_PATH,
-    `// GENERATED — do not edit by hand. Run \`bun run gen:fold-version\` after changing a fold.
+    `// GENERATED — do not edit by hand. Run \`npm run gen:fold-version\` after changing a fold.
 // FOLD_VERSIONS maps projection name → hash of that projection's fold nodes
 // (see scripts/fold-version.ts PROJECTIONS).
 // Staleness is caught by test/architecture/fold-version-lockstep.test.ts.

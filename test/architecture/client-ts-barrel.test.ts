@@ -36,8 +36,8 @@ describe("@expand/client-ts barrel-only boundary", () => {
     let code = 0
     try {
       output = execFileSync(
-        "bunx",
-        ["depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"],
+        "npm",
+        ["exec", "--", "depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
       )
     } catch (e: any) {

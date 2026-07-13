@@ -17,17 +17,21 @@ export interface ResolveBackendCommandOptions {
   /**
    * Path to the server source entry (e.g. `.../apps/server/main.ts`). When this
    * file exists and looks like a runnable script, the command becomes
-   * `[execPath, sourceEntry, ...sourceArgs]` ("source mode").
+   * `[execPath, ...runtimeArgs, sourceEntry, ...sourceArgs]` ("source mode").
    */
   readonly sourceEntry?: string | undefined
   /**
    * Runtime executable used to run {@link sourceEntry} in source mode. Defaults
-   * to `process.execPath`. Electron consumers pass an explicit JS runtime (e.g.
-   * `"bun"`) because Electron's `process.execPath` is the Electron binary, not a
-   * JS runtime — this lets them keep the source/compiled existence check instead
-   * of hard-coding an explicit fallback command.
+   * to `process.execPath`. Electron consumers pass an explicit Node executable
+   * because Electron's `process.execPath` is the Electron binary, not a JS
+   * runtime.
    */
   readonly execPath?: string | undefined
+  /**
+   * Runtime arguments inserted before {@link sourceEntry} in source mode (e.g.
+   * `["--import", "tsx"]`). Ignored when source mode does not apply.
+   */
+  readonly runtimeArgs?: ReadonlyArray<string>
   /**
    * Extra arguments appended after {@link sourceEntry} in source mode (e.g. a
    * `["server"]` subcommand). Ignored when source mode does not apply.
@@ -36,7 +40,7 @@ export interface ResolveBackendCommandOptions {
   /**
    * Command to run when there is no env override and no usable
    * {@link sourceEntry} — typically the compiled-binary invocation. Also the
-   * simplest way to supply a fully explicit default (e.g. `["bun", entry]`).
+   * simplest way to supply a fully explicit default (e.g. `["node", entry]`).
    */
   readonly binaryArgs?: ReadonlyArray<string>
 }
@@ -49,8 +53,9 @@ export interface ResolveBackendCommandOptions {
  * 1. `env.EXPAND_BACKEND_CMD` — parsed as a JSON array of strings (throws with a
  *    clear message on malformed JSON or a non-string-array).
  * 2. Source mode — if {@link ResolveBackendCommandOptions.sourceEntry} exists on
- *    disk and looks runnable, `[execPath, sourceEntry, ...sourceArgs]` (where
- *    `execPath` defaults to `process.execPath`).
+ *    disk and looks runnable,
+ *    `[execPath, ...runtimeArgs, sourceEntry, ...sourceArgs]` (where `execPath`
+ *    defaults to `process.execPath`).
  * 3. {@link ResolveBackendCommandOptions.binaryArgs} — the compiled/explicit
  *    fallback.
  *
@@ -64,9 +69,9 @@ export const resolveBackendCommand = (opts: ResolveBackendCommandOptions = {}): 
   if (override !== undefined && override !== "") {
     return parseOverride(override)
   }
-  const { sourceEntry, sourceArgs = [], binaryArgs, execPath = process.execPath } = opts
+  const { sourceEntry, sourceArgs = [], runtimeArgs = [], binaryArgs, execPath = process.execPath } = opts
   if (sourceEntry !== undefined && SOURCE_ENTRY_RE.test(sourceEntry) && existsSync(sourceEntry)) {
-    return [execPath, sourceEntry, ...sourceArgs]
+    return [execPath, ...runtimeArgs, sourceEntry, ...sourceArgs]
   }
   if (binaryArgs !== undefined) {
     return binaryArgs

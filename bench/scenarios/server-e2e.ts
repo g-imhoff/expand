@@ -6,11 +6,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Duration, Effect, Fiber, Option, Schedule, Layer } from "effect"
 import type { Scope } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import type { ExpandRpcClientApi } from "@expand/client-ts"
-import { bunAdapter } from "@expand/client-ts/adapters/bun"
+import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { deleteCheckpoint, plantCheckpoint } from "../seed"
@@ -21,6 +21,10 @@ export interface E2eRun<A> {
   readonly wallMs: number
   readonly result: A
 }
+
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 // Boot a real server on dbPath, run `use` over a connected client, then let the
 // client disconnect and await genuine I-4 shutdown (outside the timed window).
@@ -45,7 +49,7 @@ export const withServer = <A>(
       Effect.gen(function* () {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         yield* awaitEndpointUp
-        const result = yield* withClient(bunAdapter, use)
+        const result = yield* withClient(nodeAdapter, use)
         return { result, serverFiber }
       })
     )
@@ -53,7 +57,7 @@ export const withServer = <A>(
       Effect.timeoutOrElse({ duration: "30 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
     )
     return { wallMs: Duration.toMillis(elapsed), result: out.result }
-  }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
   // no cast: if the environment is not fully provided, runPromise must fail to typecheck
   return Effect.runPromise(program).finally(() => rmSync(dir, { recursive: true, force: true }))
 }

@@ -1,6 +1,6 @@
 // S1 — cold boot: no checkpoint, from-zero streamed fold of the whole log.
 import { Effect, Layer } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { EventScanChunkSize } from "@expand/server/db/event-store"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectProjectionLayer } from "@expand/server/application/projections"

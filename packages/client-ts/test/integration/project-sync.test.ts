@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Fiber, Layer, ManagedRuntime, Option, Stream, SubscriptionRef } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -11,7 +11,7 @@ import {
   type ProjectSnapshot,
   type ProjectSyncSink
 } from "@expand/contracts/project-sync"
-import { makeBunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 import { ClientLayer } from "../../client-layer"
 import { ClientSession } from "../../client-session"
 import { ProjectClient } from "../../project/client"
@@ -44,11 +44,11 @@ const endpointPid = (): number | undefined => {
 
 describe.sequential("ProjectSync integration", () => {
   it("folds a mutation from one client into another client's sink", async () => {
-    const adapter = makeBunAdapter({
-      backendCommand: [process.execPath, join(process.cwd(), "apps/server/main.ts")]
+    const adapter = makeNodeAdapter({
+      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
     })
     const layer = ClientLayer(adapter).pipe(
-      Layer.provide(BunServices.layer),
+      Layer.provide(NodeServices.layer),
       Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
     )
     const runtimeA = ManagedRuntime.make(layer)
@@ -105,11 +105,11 @@ describe.sequential("ProjectSync integration", () => {
   })
 
   it("resnapshots after ClientLayer kills and reacquires the backend", async () => {
-    const adapter = makeBunAdapter({
-      backendCommand: [process.execPath, join(process.cwd(), "apps/server/main.ts")]
+    const adapter = makeNodeAdapter({
+      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
     })
     const layer = ClientLayer(adapter).pipe(
-      Layer.provide(BunServices.layer),
+      Layer.provide(NodeServices.layer),
       Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
     )
     const runtime = ManagedRuntime.make(layer)

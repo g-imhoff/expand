@@ -1,9 +1,15 @@
 // Pins the scoped public entrypoints (2026-07-09 scoped-entrypoints design spec):
 // /project and /server are importable subpaths carrying their domain surface.
 import { describe, expect, it } from "vitest"
+import { createRequire } from "node:module"
 import * as root from "@expand/client-ts"
+import * as nodeAdapter from "@expand/client-ts/adapters/node"
 import * as project from "@expand/client-ts/project"
 import * as server from "@expand/client-ts/server"
+
+const packageJson = createRequire(import.meta.url)("../../package.json") as {
+  readonly exports: Readonly<Record<string, string>>
+}
 
 describe("scoped entrypoints", () => {
   it("@expand/client-ts/project exposes the project domain", () => {
@@ -37,5 +43,12 @@ describe("scoped entrypoints", () => {
     expect(root.readEndpoint).toBeDefined()
     expect(root.BackendUnavailable).toBeDefined()
     expect(root.SequencedEvent).toBeDefined()
+  })
+
+  it("exposes Node as the sole platform adapter", () => {
+    expect(nodeAdapter.makeNodeAdapter).toBeDefined()
+    expect(Object.keys(packageJson.exports).filter((entry) => entry.startsWith("./adapters/"))).toEqual([
+      "./adapters/node"
+    ])
   })
 })

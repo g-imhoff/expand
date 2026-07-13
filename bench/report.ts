@@ -24,7 +24,7 @@ export interface ScenarioContext {
 export const eventsPerSec = (m: Measurement): number | null =>
   m.events !== null && m.events > 0 && m.wallMs > 0 ? Math.round(m.events / (m.wallMs / 1000)) : null
 
-export const verdictOf = (m: Measurement): Verdict => verdictFor(m.key, m.wallMs, m.events, m.rssDeltaBytes, m.error, m.scale)
+const verdictOf = (m: Measurement): Verdict => verdictFor(m.key, m.wallMs, m.events, m.rssDeltaBytes, m.error, m.scale)
 
 export const hasBlocker = (measurements: ReadonlyArray<Measurement>): boolean =>
   measurements.some((m) => {
@@ -36,7 +36,7 @@ export const renderReport = (measurements: ReadonlyArray<Measurement>, chunkSize
   const machine = machineInfo()
   const header =
     `event-store bench — ${machine.cpu} (${machine.cores} cores, ${machine.totalMemGb}GB) · ` +
-    `bun ${machine.bunVersion} · ${machine.platform}/${machine.arch} · chunk ${chunkSize ?? 1000}`
+    `node ${machine.nodeVersion} · ${machine.platform}/${machine.arch} · chunk ${chunkSize ?? 1000}`
   const cols = ["scenario", "scale", "wall ms", "events/s", "ΔRSS", "verdict"] as const
   const rows = measurements.map((m) => [
     m.label,
@@ -68,7 +68,7 @@ export const toJsonReport = (measurements: ReadonlyArray<Measurement>): string =
 const machineInfo = () => ({
   cpu: cpus()[0]?.model ?? "unknown",
   cores: cpus().length,
-  bunVersion: Bun.version,
+  nodeVersion: process.version,
   platform: platform(),
   arch: arch(),
   totalMemGb: Math.round(totalmem() / 1024 / 1024 / 1024)

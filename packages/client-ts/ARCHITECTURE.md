@@ -17,30 +17,35 @@ Desktop Zustand | TUI React state | stateless CLI
                          ↑
        acquireClient and Expand RPC transport
                          ↑
-             RuntimeAdapter (Bun | Node)
+                 RuntimeAdapter (Node)
 ```
 
-`RuntimeAdapter` supplies platform-specific WebSocket and process-spawn
-behavior. `ClientSession` owns the changing connection epoch. `ProjectClient`
-and `ServerClient` are typed, session-backed facades. The optional sync
-controller converts lists and sequenced events into application-owned
-snapshots without depending on React, Zustand, Electron, or another UI runtime.
+`RuntimeAdapter` supplies Node WebSocket and process-spawn behavior.
+`ClientSession` owns the changing connection epoch. `ProjectClient` and
+`ServerClient` are typed, session-backed facades. The optional sync controller
+converts lists and sequenced events into application-owned snapshots without
+depending on React, Zustand, Electron, or another UI runtime.
 
 ## Backend discovery and acquisition
 
-`acquireClient` first finds or starts the backend. A valid endpoint descriptor
-must decode, use the current protocol version, and point at a live process. If
-there is no usable endpoint, the spawn-lock protocol elects one process to start
-the backend while other clients wait for the endpoint.
+`acquireClient` first finds or starts the backend. `readEndpoint` accepts an
+endpoint descriptor only when it decodes, uses the current protocol version,
+and names a live process. If there is no usable endpoint, the root-specific
+spawn-lock protocol elects one process to start the backend while other clients
+wait. Lock publication and removal use record, token, and inode evidence so a
+delayed owner cannot delete a replacement lock. Endpoint polling runs every 100
+milliseconds and has a 30-second startup deadline.
 
 After discovering an endpoint, acquisition builds the adapter's WebSocket
-protocol layer, creates the typed Expand RPC client, and drains `Connect()` until
-the server confirms presence. A stale endpoint is removed and acquisition is
-retried. Scope closure tears down the socket and its supervised fibers.
+protocol layer, creates the typed Expand RPC client, and drains `Connect()`
+until the server confirms presence. The presence handshake has a three-second
+deadline. A stale endpoint is removed and acquisition is retried up to three
+times. Scope closure tears down the socket and its supervised fibers.
 
-The Bun and Node adapters share the NDJSON RPC protocol but use their platform's
-socket and spawn primitives. Both are isolated behind adapter entrypoints so
-consumers do not load the other platform's dependencies.
+The Node adapter injects `ws` into Effect's WebSocket layer, uses NDJSON RPC
+serialization, and starts its required backend command with
+`child_process.spawn`. The child is unreferenced; readiness is determined by
+endpoint discovery rather than the spawn call.
 
 ## `ClientSession`
 
@@ -56,11 +61,18 @@ The public session API is:
   it.
 - `epochs`, a stream that emits each active epoch.
 
+Every raw transport attempt has independent disconnect, publication, and
+serialization state. A stale attempt cannot invalidate or prevent publication
+of a later healthy retry. Only the attempt published as the active epoch may
+clear the current client and publish `"reconnecting"`. Publication and
+disconnect are serialized so a connection that drops during acquisition is
+never exposed as current.
+
 The disconnect hook invalidates the current epoch before publishing
-`"reconnecting"`. This ordering prevents commands from observing a stale client
-after the status transition. The reconnect loop acquires a new client with
-capped exponential backoff. Scope closure clears the current epoch, publishes
-`"disconnected"`, and interrupts pending retry work.
+`"reconnecting"`. Commands started during reconnection wait for the next
+client. The reconnect loop acquires a new epoch with capped exponential
+backoff. Scope closure clears the current epoch, publishes `"disconnected"`,
+and interrupts pending retry work.
 
 ## Session-backed typed facades
 
@@ -73,9 +85,8 @@ currently exposes `health`. `ClientLayer(adapter)` provides both facades and
 their shared session; the scoped facade layers provide one facade with its own
 session when that is all a host needs.
 
-The facades do not retain project data or update application state. In
-particular, a successful mutation response is not applied optimistically by the
-SDK.
+The facades do not retain project data or update application state. A successful
+mutation response is never applied optimistically by the SDK.
 
 ## Framework-neutral project synchronization
 
@@ -90,7 +101,7 @@ Zustand dependency.
 - an events function accepting `{ fromSeq }`, and
 - sink functions for status and complete snapshots.
 
-For every `"connected"` epoch it performs:
+For every connected epoch it performs:
 
 ```text
 list()
@@ -109,16 +120,13 @@ ahead of the project fold it represents.
 Status changes interrupt the active event epoch before starting another one.
 During `"reconnecting"`, the sink retains the last snapshot. The next
 `"connected"` status performs another list and replaces both projects and
-sequence with the fresh authoritative result. It does not merge the fresh list
-with state retained from the failed epoch. Events are then replayed from the new
-list sequence.
+sequence with the fresh authoritative result before replaying from its sequence.
 
 A failed list or event stream, and a clean event-stream termination, both move
-the sink to `"reconnecting"` and start a complete list-and-events retry loop with
-capped backoff. The first successful fresh snapshot restores `"connected"` and
-re-establishes replay from its sequence. Status-stream failure is not absorbed by
-that epoch loop: it remains in the `runProjectSync` error channel so the owner of
-the synchronization fiber can observe and supervise it.
+the sink to `"reconnecting"` and start a complete list-and-events retry loop
+with capped backoff. The first successful fresh snapshot restores
+`"connected"`. Status-stream failure remains in the `runProjectSync` error
+channel so the owner of the synchronization fiber can observe it.
 
 ## Application ownership
 
@@ -127,8 +135,13 @@ the synchronization fiber can observe and supervise it.
 The Electron main process hosts `ClientSession`, `ProjectClient`, and
 `ServerClient`, then exposes the relevant RPC surface across the message-port
 boundary. The renderer builds a renderer-safe sync source and writes snapshots
-into a Zustand store. Each renderer boot creates an independent store, and
-snapshot updates set projects and sequence together.
+into a boot-scoped Zustand store. Renderer boot forks synchronization in scope,
+races its first snapshot against early fiber failure, mounts after the first
+snapshot, and then joins the sync fiber. Later status-stream failure therefore
+reaches the outer supervised boot owner, which logs the failure and renders the
+boot error. Scope teardown interrupts synchronization. Main-process port bridge
+fibers are separately supervised and interrupted on supersession, navigation,
+or close.
 
 ### TUI
 
@@ -152,11 +165,10 @@ long-lived project state container.
   API type, and project contract vocabulary.
 - `@expand/client-ts/server` exports `ServerClient`, `ServerClientLayer`, and its
   API type.
-- `@expand/client-ts/adapters/bun` and `@expand/client-ts/adapters/node` export
-  the platform seams.
+- `@expand/client-ts/adapters/node` exports the Node platform seam.
 - `@expand/contracts/project-sync` exports `runProjectSync` and its framework-
   neutral source, sink, snapshot, and status types.
 
-Acquisition, spawn-lock, transport-construction, and supervision helpers remain
+Acquisition, spawn-lock, transport construction, and supervision helpers remain
 internal. Dependency-cruiser enforces scoped client entrypoints, and package
 exports prevent deep imports from becoming compatibility surface.

@@ -4,15 +4,14 @@ import {
   Deferred,
   Effect,
   Exit,
-  FileSystem,
   Layer,
   Option,
   Schedule,
   Semaphore,
-  Scope,
   Stream,
   SubscriptionRef
 } from "effect"
+import type { FileSystem, Scope } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
 import type { RuntimeAdapter } from "./adapter"
 import { BackendUnavailable } from "./errors"

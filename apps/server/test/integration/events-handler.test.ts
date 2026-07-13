@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Fiber, Layer, Stream } from "effect"
-import { SqliteClient } from "@effect/sql-sqlite-bun"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"

@@ -1,5 +1,5 @@
 import { Cause, Deferred, Effect, Exit, Fiber, Layer, ManagedRuntime, Option, Ref, Stream, SubscriptionRef } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { appendFileSync } from "node:fs"
 import { ClientLayer, ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
@@ -63,7 +63,7 @@ export const runAuditLog = (outfile: string) => Effect.scoped(Effect.gen(functio
 if (import.meta.main) {
   const outfile = process.argv[2]
   if (!outfile || outfile.startsWith("--")) { console.error("usage: audit-log <outfile>"); process.exit(2) }
-  const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(BunServices.layer)))
+  const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
   runtime.runPromise(runAuditLog(outfile)).then(
     () => runtime.dispose(),
     (err) => {

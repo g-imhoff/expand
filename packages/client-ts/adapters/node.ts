@@ -6,10 +6,6 @@ import { spawn } from "node:child_process"
 import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable } from "../errors"
 
-// backendCommand is REQUIRED: unlike Bun, there is no safe self-re-invoking
-// default here. Under Electron process.execPath is the Electron binary, not a JS
-// runtime, so a derived default would silently spawn the wrong thing. Consumers
-// (e.g. desktop) pass an explicit command, typically via resolveBackendCommand.
 export interface NodeAdapterOptions {
   readonly backendCommand: ReadonlyArray<string> | (() => ReadonlyArray<string>)
 }
@@ -20,14 +16,20 @@ export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
       Effect.callback<void, BackendUnavailable>((resume) => {
         const [head, ...rest] = cmd
         const args = [...rest, "--data-dir", dataDir]
-        const child = spawn(head!, args, { detached: true, stdio: "ignore", env: process.env })
-        child.once("error", (e) => {
-          resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${cmd.join(" ")}: ${String(e)}` })))
-        })
-        child.once("spawn", () => {
-          child.unref()
-          resume(Effect.void)
-        })
+        const command = cmd.join(" ") || "<empty>"
+        const fail = (e: unknown) => {
+          resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${command}: ${String(e)}` })))
+        }
+        try {
+          const child = spawn(head!, args, { stdio: "ignore", env: process.env })
+          child.once("error", fail)
+          child.once("spawn", () => {
+            child.unref()
+            resume(Effect.void)
+          })
+        } catch (e) {
+          fail(e)
+        }
       })
     )
   return { protocolLayer, spawnBackend }

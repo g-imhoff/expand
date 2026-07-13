@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { ManagedRuntime, Layer } from "effect"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -19,10 +19,13 @@ afterEach(() => {
 describe("Node adapter", () => {
   it("spawns + connects + creates via ws transport", async () => {
     const adapter = makeNodeAdapter({
-      backendCommand: ["bun", join(process.cwd(), "apps/server/main.ts")]
+      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(
-      ProjectClientLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      ProjectClientLayer(adapter).pipe(
+        Layer.provide(NodeServices.layer),
+        Layer.provide(Layer.succeed(AppContext, makeAppContext(dir)))
+      )
     )
     try {
       const client = await rt.runPromise(ProjectClient)

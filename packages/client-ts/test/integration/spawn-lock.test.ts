@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { BunServices } from "@effect/platform-bun"
+import { NodeServices } from "@effect/platform-node"
 import { Effect, Fiber, Layer } from "effect"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -15,15 +15,19 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { BackendUnavailable } from "../../errors"
 import { findOrSpawnBackend } from "../../spawn"
 import { acquireSpawnLock, releaseSpawnLock } from "../../spawn-lock"
-import { bunAdapter } from "../../adapters/bun"
+import { makeNodeAdapter } from "../../adapters/node"
 
 let dir: string
+const nodeAdapter = makeNodeAdapter({
+  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+})
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "expand-client-lock-"))
@@ -209,13 +213,13 @@ describe("client spawn lock", () => {
     mkdirSync(context.paths.dataDir)
     const endpoint = liveEndpoint("success")
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: () => Effect.sync(() => writeFileSync(context.paths.endpointFile, JSON.stringify(endpoint)))
     }
 
     await Effect.runPromise(
       findOrSpawnBackend(adapter).pipe(
-        Effect.provide(BunServices.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(Layer.succeed(AppContext, context))
       )
     )
@@ -228,13 +232,13 @@ describe("client spawn lock", () => {
     const context = makeAppContext(join(dir, "error"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
     }
 
     await Effect.runPromise(
       Effect.result(findOrSpawnBackend(adapter)).pipe(
-        Effect.provide(BunServices.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(Layer.succeed(AppContext, context))
       )
     )
@@ -247,7 +251,7 @@ describe("client spawn lock", () => {
     const context = makeAppContext(join(dir, "interruption"))
     mkdirSync(context.paths.dataDir)
     const adapter = {
-      ...bunAdapter,
+      ...nodeAdapter,
       spawnBackend: () => Effect.never
     }
 
@@ -256,7 +260,7 @@ describe("client spawn lock", () => {
         Effect.gen(function* () {
           const fiber = yield* Effect.forkChild(
             findOrSpawnBackend(adapter).pipe(
-              Effect.provide(BunServices.layer),
+              Effect.provide(NodeServices.layer),
               Effect.provide(Layer.succeed(AppContext, context))
             )
           )
@@ -317,7 +321,7 @@ const runContenders = async (
     const resultPath = join(coordinationDir, `result-${index}`)
     const child = spawn(
       process.execPath,
-      [contenderPath, lockPath, readyPath, startPath, releasePath, resultPath],
+      ["--import", "tsx", contenderPath, lockPath, readyPath, startPath, releasePath, resultPath],
       { cwd: fileURLToPath(new URL("../../../../", import.meta.url)), stdio: ["ignore", "ignore", "pipe"] }
     )
     let stderr = ""
@@ -355,7 +359,7 @@ const waitUntil = async (
     if (Date.now() >= deadline) {
       throw new Error(`coordination timed out: ${processes.map(({ stderr }) => stderr()).join("\n")}`)
     }
-    await Bun.sleep(2)
+    await setTimeout(2)
   }
 }
 
