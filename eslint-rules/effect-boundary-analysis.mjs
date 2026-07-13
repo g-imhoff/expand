@@ -645,10 +645,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
         } else {
           const path = destructuredPathFor(declarator.id, variable.name)
           if (path !== undefined) {
-            const selected = sourceValueAtPath(declarator.init, path)
-            if (selected !== undefined) {
-              provenance = provenanceOfExpression(selected)
-            } else {
+            const selected = resolvedBindingValue(declarator, variable.name)
+            if (selected.status === "value") {
+              provenance = provenanceOfExpression(selected.value)
+            } else if (selected.status === "unknown") {
               provenance = provenanceOfExpression(declarator.init)
               for (const member of path) provenance = provenanceAtMember(provenance, member)
             }
@@ -735,6 +735,121 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return names
   }
 
+  const callbackArgumentStatus = (input, seen = new WeakSet()) => {
+    const node = unwrapExpression(input)
+    if (node === null || node === undefined) return "unknown"
+    if (callbackFunctionOf(node) !== undefined) return "callback"
+    if (node.type === "Identifier" || node.type === "MemberExpression") {
+      if (seen.has(node)) return "unknown"
+      seen.add(node)
+      const source = sourceValueAtPath(node, [])
+      return source === undefined || source === node
+        ? "unknown"
+        : callbackArgumentStatus(source, seen)
+    }
+    if ([
+      "ArrayExpression",
+      "ClassExpression",
+      "Literal",
+      "ObjectExpression",
+      "TemplateLiteral"
+    ].includes(node.type)) return "non-callback"
+    return "unknown"
+  }
+
+  const isCallableCheckerType = (type) => {
+    if (type === undefined) return false
+    if (type.isUnion?.() || type.isIntersection?.()) return type.types.some(isCallableCheckerType)
+    try {
+      return type.getCallSignatures().length > 0
+    } catch {
+      return false
+    }
+  }
+
+  const checkerSelectedCallbackForm = (call, forms) => {
+    if (checker === undefined || nodeMap?.get === undefined || forms.length < 2) return undefined
+    try {
+      const signature = checker.getResolvedSignature(nodeMap.get(call))
+      const declaration = signature?.getDeclaration?.()
+      const declarationFile = declaration?.getSourceFile().fileName.replaceAll("\\", "/")
+      if (declaration === undefined
+        || !/\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?effect\/dist\/Effect\.d\.[cm]?ts$/u.test(
+          declarationFile
+        )) return undefined
+      const parameters = declaration.parameters
+      const matches = forms.filter((form) => {
+        const direct = form.direct === "all"
+          ? parameters.map((_, index) => index)
+          : form.direct
+        return direct.every((index) => {
+          const parameter = parameters[index]
+          return parameter !== undefined && isCallableCheckerType(checker.getTypeAtLocation(parameter))
+        })
+      })
+      return matches.length === 1 ? matches[0] : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const callbackFormsForCall = (call, forms) => {
+    const arityCompatible = forms.filter((form) =>
+      call.arguments.length >= form.min && call.arguments.length <= form.max)
+    if (arityCompatible.length < 2) return arityCompatible
+    const selected = checkerSelectedCallbackForm(call, arityCompatible)
+    if (selected !== undefined) return [selected]
+    return arityCompatible.filter((form) => {
+      const direct = form.direct === "all"
+        ? call.arguments.map((_, index) => index)
+        : form.direct
+      if (direct.some((index) => {
+        const argument = call.arguments[index]
+        return argument !== undefined
+          && argument.type !== "SpreadElement"
+          && callbackArgumentStatus(argument) === "non-callback"
+      })) return false
+      if (form.properties.some(([index]) => {
+        const argument = call.arguments[index]
+        return !direct.includes(index)
+          && argument !== undefined
+          && argument.type !== "SpreadElement"
+          && callbackArgumentStatus(argument) === "callback"
+      })) return false
+      return !form.options.some((index) => {
+        const argument = call.arguments[index]
+        return argument !== undefined
+          && argument.type !== "SpreadElement"
+          && callbackArgumentStatus(argument) === "callback"
+      })
+    })
+  }
+
+  const callbackOwnersForForm = (call, form, fn) => {
+    const matches = []
+    const addMatch = (property) => {
+      if (!matches.includes(property)) matches.push(property)
+    }
+    const direct = form.direct === "all"
+      ? call.arguments.map((_, index) => index)
+      : form.direct
+    for (const index of direct) {
+      const argument = call.arguments[index]
+      if (argument === undefined || argument.type === "SpreadElement") continue
+      if (callbackFunctionOf(argument) === fn) addMatch(undefined)
+    }
+    for (const [index, configured] of form.properties) {
+      const argument = call.arguments[index]
+      if (argument === undefined || argument.type === "SpreadElement") continue
+      const properties = configured === "all" ? aggregatePropertyNames(argument) : configured
+      for (const property of properties) {
+        const source = sourceValueAtPath(argument, [property])
+        if (source !== undefined && callbackFunctionOf(source) === fn) addMatch(property)
+      }
+    }
+    return matches
+  }
+
   const callbackOwners = (fn) => {
     const cached = callbackOwnerCache.get(fn)
     if (cached !== undefined) return cached
@@ -749,24 +864,11 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       const method = effectMethodForCall(node)
       if (method === undefined || !effectCallbackMethods.includes(method)) continue
       const forms = effectCallbackOwnership[method] ?? []
-      for (const form of forms) {
-        if (node.arguments.length < form.min || node.arguments.length > form.max) continue
-        const direct = form.direct === "all"
-          ? node.arguments.map((_, index) => index)
-          : form.direct
-        for (const index of direct) {
-          const argument = node.arguments[index]
-          if (argument === undefined || argument.type === "SpreadElement") continue
-          if (callbackFunctionOf(argument) === fn) addOwner(node, undefined)
-        }
-        for (const [index, configured] of form.properties) {
-          const argument = node.arguments[index]
-          if (argument === undefined || argument.type === "SpreadElement") continue
-          const properties = configured === "all" ? aggregatePropertyNames(argument) : configured
-          for (const property of properties) {
-            const source = sourceValueAtPath(argument, [property])
-            if (source !== undefined && callbackFunctionOf(source) === fn) addOwner(node, property)
-          }
+      const possible = callbackFormsForCall(node, forms)
+      const matches = possible.map((form) => callbackOwnersForForm(node, form, fn))
+      for (const property of matches[0] ?? []) {
+        if (matches.every((owned) => owned.includes(property))) {
+          addOwner(node, property)
         }
       }
     }

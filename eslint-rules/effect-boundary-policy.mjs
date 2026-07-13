@@ -39,10 +39,11 @@ export const runtimeRunnerMethods = Object.freeze(["makeRunMain"])
 
 export const nodeRuntimeRunnerMethods = Object.freeze(["runMain"])
 
-const callbackForm = ({ direct = [], max, min, properties = [] }) => Object.freeze({
+const callbackForm = ({ direct = [], max, min, options = [], properties = [] }) => Object.freeze({
   direct: direct === "all" ? direct : Object.freeze(direct),
   max,
   min,
+  options: Object.freeze(options),
   properties: Object.freeze(properties.map(([index, names]) => Object.freeze([
     index,
     names === "all" ? names : Object.freeze(names)
@@ -55,8 +56,8 @@ const dataLastCallbackForms = Object.freeze([
 ])
 
 const iterableCallbackForms = Object.freeze([
-  callbackForm({ direct: [0], min: 1, max: 2 }),
-  callbackForm({ direct: [1], min: 2, max: 3 })
+  callbackForm({ direct: [0], min: 1, max: 2, options: [1] }),
+  callbackForm({ direct: [1], min: 2, max: 3, options: [2] })
 ])
 
 const matchCallbackForms = Object.freeze([

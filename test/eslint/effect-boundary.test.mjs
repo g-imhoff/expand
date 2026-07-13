@@ -127,6 +127,12 @@ const valid = [
   ].join("\n")),
   validCase([
     'import { Effect, Schema } from "effect"',
+    "const iterable = ((error: unknown) => Schema.decodeUnknownSync(Schema.String)(error)) as ((error: unknown) => string) & Iterable<number>",
+    "iterable[Symbol.iterator] = function*() { yield 1 }",
+    "Effect.forEach(iterable, (value) => Effect.succeed(value))"
+  ].join("\n")),
+  validCase([
+    'import { Effect, Schema } from "effect"',
     "const recover = (error: unknown) => Schema.decodeUnknownSync(Schema.String)(error)",
     "Effect.gen({ self: recover }, function*() { return yield* Effect.succeed(1) })"
   ].join("\n")),
@@ -810,6 +816,30 @@ const valid = [
   {
     filename: absolute("effect-boundary-valid.mjs"),
     code: [
+      'import { Effect, Schema } from "effect"',
+      "const iterable = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+      "iterable[Symbol.iterator] = function*() { yield 1 }",
+      "Effect.forEach(iterable, (value) => Effect.succeed(value))"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "const recover = (error) => Schema.decodeUnknownSync(Schema.String)(error)",
+      "const self = { recover }",
+      "Effect.catchTags(self, {})"
+    ].join("\n"),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-valid.mjs"),
+    code: [
       'import { Effect, ManagedRuntime, Runtime, Schema } from "effect"',
       'import { URL as NodeURL } from "node:url"',
       "consume(Schema.decodeUnknownEffect[key])",
@@ -999,6 +1029,29 @@ const invalid = [
     { messageId: "syncSchemaInEffect" },
     { messageId: "syncSchemaInEffect" }
   ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "Effect.forEach([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(value)))",
+    "Effect.forEach((value: unknown) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(value)), { concurrency: 1 })([input])",
+    "Effect.filter([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.Boolean)(value)))",
+    "Effect.filter((value: unknown) => Effect.succeed(Schema.encodeUnknownSync(Schema.Boolean)(value)), { concurrency: 1 })([input])",
+    "Effect.validate([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(value)))",
+    "Effect.validate((value: unknown) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(value)), { concurrency: 1 })([input])"
+  ].join("\n"), Array.from({ length: 6 }, () => ({ messageId: "syncSchemaInEffect" }))),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    'type Failure = { readonly _tag: "Failure"; readonly value: unknown }',
+    "declare const tagged: Effect.Effect<void, Failure>",
+    "Effect.catchTags({ Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) })(tagged)",
+    "Effect.catchTags(tagged, { Failure: (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error.value)) })"
+  ].join("\n"), Array.from({ length: 2 }, () => ({ messageId: "syncSchemaInEffect" }))),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    'type Failure = { readonly _tag: "Failure"; readonly value: unknown }',
+    "declare const tagged: Effect.Effect<void, Failure>",
+    "Effect.catchTags({ Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) }, (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error)))(tagged)",
+    "Effect.catchTags(tagged, { Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) }, (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error)))"
+  ].join("\n"), Array.from({ length: 4 }, () => ({ messageId: "syncSchemaInEffect" }))),
   invalidCase([
     'import { Effect } from "effect"',
     "declare const unknown: Record<string, unknown>",
@@ -1339,6 +1392,19 @@ const invalid = [
     "resource.subscribe(receive)"
   ].join("\n"), Array.from({ length: 3 }, () => ({ messageId: "platformEffect" }))),
   invalidCase([
+    "class LocalResource { close() {} start() {} subscribe() {} }",
+    "declare const objectSource: { resource?: LocalResource }",
+    "declare const arraySource: [LocalResource?]",
+    "const { resource = new LocalResource() } = objectSource",
+    "const [second = new LocalResource()] = arraySource",
+    "resource.close()",
+    "resource.start()",
+    "resource.subscribe(receive)",
+    "second.close()",
+    "second.start()",
+    "second.subscribe(receive)"
+  ].join("\n"), Array.from({ length: 6 }, () => ({ messageId: "platformEffect" }))),
+  invalidCase([
     "declare const element: HTMLElement",
     "declare const messagePort: MessagePort",
     'element.addEventListener("event", receive)',
@@ -1460,6 +1526,28 @@ const invalid = [
     { messageId: "runnerOutsideBoundary" },
     { messageId: "syncSchemaInEffect" }
   ]),
+  invalidCase([
+    'import { Effect, Schema } from "effect"',
+    "const [Fx = Effect, S = Schema]: [typeof Effect?, typeof Schema?] = []",
+    "const { Fx2 = Effect }: { Fx2?: typeof Effect } = {}",
+    "export { Fx, S, Fx2 }",
+    "declare const program: Effect.Effect<void>",
+    "Fx.runPromise(program)",
+    "Fx2.runSync(program)",
+    "Effect.sync(() => S.decodeUnknownSync(S.String)(input))"
+  ].join("\n"), [
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "runnerOutsideBoundary" },
+    { messageId: "syncSchemaInEffect" }
+  ]),
+  invalidCase([
+    'import * as EffectPackage from "effect"',
+    "const { Effect: Fx = fallback } = EffectPackage",
+    "Fx.runSync(program)"
+  ].join("\n"), [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase([
     'import { Effect } from "effect"',
     "const tuple = [Effect] as const",
@@ -1794,6 +1882,46 @@ const invalid = [
     filename: absolute("effect-boundary-invalid.mjs"),
     code: [
       'import { Effect, Schema } from "effect"',
+      "Effect.forEach([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(value)))",
+      "Effect.forEach((value) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(value)), { concurrency: 1 })([input])",
+      "Effect.filter([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.Boolean)(value)))",
+      "Effect.filter((value) => Effect.succeed(Schema.encodeUnknownSync(Schema.Boolean)(value)), { concurrency: 1 })([input])",
+      "Effect.validate([input], (value) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(value)))",
+      "Effect.validate((value) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(value)), { concurrency: 1 })([input])"
+    ].join("\n"),
+    errors: Array.from({ length: 6 }, () => ({ messageId: "syncSchemaInEffect" })),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "Effect.catchTags({ Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) })(program)",
+      "Effect.catchTags(program, { Failure: (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error.value)) })"
+    ].join("\n"),
+    errors: Array.from({ length: 2 }, () => ({ messageId: "syncSchemaInEffect" })),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "Effect.catchTags({ Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) }, (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error)))(program)",
+      "Effect.catchTags(program, { Failure: (error) => Effect.succeed(Schema.decodeUnknownSync(Schema.String)(error.value)) }, (error) => Effect.succeed(Schema.encodeUnknownSync(Schema.Unknown)(error)))"
+    ].join("\n"),
+    errors: Array.from({ length: 4 }, () => ({ messageId: "syncSchemaInEffect" })),
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
       "export const [Fx, S] = [Effect, Schema]",
       "const tuple = [Effect]",
       "const alias = tuple[0]",
@@ -1806,6 +1934,41 @@ const invalid = [
       { messageId: "runnerOutsideBoundary" },
       { messageId: "runnerOutsideBoundary" }
     ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import { Effect, Schema } from "effect"',
+      "const [Fx = Effect, S = Schema] = []",
+      "const { Fx2 = Effect } = {}",
+      "export { Fx, S, Fx2 }",
+      "Fx.runPromise(program)",
+      "Fx2.runSync(program)",
+      "Effect.sync(() => S.decodeUnknownSync(S.String)(input))"
+    ].join("\n"),
+    errors: [
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "syncSchemaInEffect" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "runnerOutsideBoundary" },
+      { messageId: "syncSchemaInEffect" }
+    ],
+    languageOptions: {
+      parserOptions: { project: false, projectService: false }
+    }
+  },
+  {
+    filename: absolute("effect-boundary-invalid.mjs"),
+    code: [
+      'import * as EffectPackage from "effect"',
+      "const { Effect: Fx = fallback } = EffectPackage",
+      "Fx.runSync(program)"
+    ].join("\n"),
+    errors: [{ messageId: "runnerOutsideBoundary" }],
     languageOptions: {
       parserOptions: { project: false, projectService: false }
     }
