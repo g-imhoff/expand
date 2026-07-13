@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { ProjectClient } from "../project/client"
 import { ServerClient } from "../server/client"
 
@@ -12,7 +12,8 @@ const projectStub = Layer.succeed(ProjectClient, {
   archive: () => Effect.die("unused"),
   restore: () => Effect.die("unused"),
   setMetadata: () => Effect.die("unused"),
-  delete: () => Effect.die("unused")
+  delete: () => Effect.die("unused"),
+  events: () => Stream.empty
 } as unknown as typeof ProjectClient["Service"])
 
 const serverStub = Layer.succeed(ServerClient, {

@@ -1,5 +1,5 @@
 import { RpcClient, RpcClientError } from "effect/unstable/rpc"
-import { Context, Data, Deferred, Effect, Layer, Stream } from "effect"
+import { Data, Deferred, Effect, Layer, Stream } from "effect"
 import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
@@ -8,11 +8,6 @@ import { deleteEndpoint } from "./discovery"
 import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
-
-/** @internal */
-export class ExpandRpcClient extends Context.Service<ExpandRpcClient, ExpandRpcClientApi>()(
-  "expand/ExpandRpcClient"
-) {}
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
@@ -66,12 +61,6 @@ export const acquireClient = (
     Effect.catchTag("StaleEndpoint", (e) => Effect.fail(new BackendUnavailable({ reason: e.reason })))
   )
 }
-
-/** @internal */
-export const ExpandRpcClientLayer = (
-  adapter: RuntimeAdapter
-): Layer.Layer<ExpandRpcClient, BackendUnavailable, FileSystem.FileSystem> =>
-  Layer.effect(ExpandRpcClient, Effect.map(acquireClient(adapter), ({ client }) => client))
 
 const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`

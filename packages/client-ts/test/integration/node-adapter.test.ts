@@ -1,11 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, ManagedRuntime, Layer, Stream, SubscriptionRef } from "effect"
+import { ManagedRuntime, Layer } from "effect"
 import { BunServices } from "@effect/platform-bun"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ProjectStore } from "../../project/store"
-import { ProjectStoreLayer } from "../../project/store"
+import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
@@ -23,24 +22,15 @@ describe("Node adapter", () => {
       backendCommand: ["bun", join(process.cwd(), "apps/server/main.ts")]
     })
     const rt = ManagedRuntime.make(
-      ProjectStoreLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+      ProjectClientLayer(adapter).pipe(Layer.provide(BunServices.layer), Layer.provide(Layer.succeed(AppContext, makeAppContext(dir))))
     )
     try {
-      const store = await rt.runPromise(ProjectStore)
-      const seen = rt.runPromise(
-        SubscriptionRef.changes(store.projects).pipe(
-          Stream.filter((ps) => ps.some((p) => p.name === "via-node")),
-          Stream.take(1),
-          Stream.runDrain,
-          Effect.timeout("5 seconds")
-        )
-      )
-      const created = await rt.runPromise(store.createProject("via-node"))
-      expect(created.name).toBe("via-node")
-      await seen
+      const client = await rt.runPromise(ProjectClient)
+      const created = await rt.runPromise(client.create({ name: "via-node", ensure: false }))
+      expect(created.project.name).toBe("via-node")
 
-      const list = await rt.runPromise(SubscriptionRef.get(store.projects))
-      expect(list.map((p) => p.name)).toContain("via-node")
+      const list = await rt.runPromise(client.list({ includeArchived: true }))
+      expect(list.projects.map((project) => project.name)).toContain("via-node")
     } finally {
       await rt.dispose()
     }

@@ -1,11 +1,12 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import type { FileSystem } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
-import { ExpandRpcClient, ExpandRpcClientLayer } from "../rpc-client"
+import { ClientSession, ClientSessionLayer } from "../client-session"
 
 // Raw strings in; the backend validates at ingestion (ProjectInvalidInput on
 // failure). The client never references the branded vocabulary.
@@ -29,6 +30,9 @@ export interface ProjectClientApi {
     { readonly projects: ReadonlyArray<Project>; readonly seq: number },
     RpcClientError.RpcClientError
   >
+  readonly events: (
+    payload?: { readonly fromSeq?: number }
+  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientApi>()(
@@ -36,21 +40,33 @@ export class ProjectClient extends Context.Service<ProjectClient, ProjectClientA
 ) {}
 
 /** @internal */
-export const ProjectClientLive: Layer.Layer<ProjectClient, never, ExpandRpcClient> = Layer.effect(
+export const ProjectClientLive: Layer.Layer<ProjectClient, never, ClientSession> = Layer.effect(
   ProjectClient,
-  Effect.map(ExpandRpcClient, (client): ProjectClientApi => ({
-    create: (payload) => client.ProjectCreate(payload),
-    rename: (payload) => client.ProjectRename(payload),
-    changeDirectory: (payload) => client.ProjectChangeDirectory(payload),
-    archive: (payload) => client.ProjectArchive(payload),
-    restore: (payload) => client.ProjectRestore(payload),
-    setMetadata: (payload) => client.ProjectSetMetadata(payload),
-    delete: (payload) => client.ProjectDelete(payload),
-    list: (payload = {}) => client.ProjectList(payload)
+  Effect.map(ClientSession, (session): ProjectClientApi => ({
+    create: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectCreate(payload)),
+    rename: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectRename(payload)),
+    changeDirectory: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectChangeDirectory(payload)),
+    archive: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectArchive(payload)),
+    restore: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectRestore(payload)),
+    setMetadata: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectSetMetadata(payload)),
+    delete: (payload) =>
+      Effect.flatMap(session.current, (client) => client.ProjectDelete(payload)),
+    list: (payload = {}) =>
+      Effect.flatMap(session.current, (client) => client.ProjectList(payload)),
+    events: (payload = {}) =>
+      Stream.unwrap(
+        Effect.map(session.current, (client) => client.Events(payload))
+      )
   }))
 )
 
 export const ProjectClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<ProjectClient, BackendUnavailable, FileSystem.FileSystem> =>
-  ProjectClientLive.pipe(Layer.provide(ExpandRpcClientLayer(adapter)))
+  ProjectClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))
