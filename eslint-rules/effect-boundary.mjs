@@ -98,7 +98,9 @@ export const effectBoundary = {
         }
 
         exit = () => {
-          if (invalid.size > 0) context.report({ node: program, messageId: "staleBoundary" })
+          for (const record of configured) {
+            if (invalid.has(record)) context.report({ node: program, messageId: "staleBoundary" })
+          }
           for (const record of relevant) {
             if (!invalid.has(record) && matches.get(record) !== 1) {
               context.report({ node: program, messageId: "staleBoundary" })

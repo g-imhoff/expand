@@ -23,6 +23,13 @@ const functionTypes = new Set([
   "FunctionDeclaration",
   "FunctionExpression"
 ])
+const checkerSignatureTypes = new Set([
+  "TSCallSignatureDeclaration",
+  "TSConstructSignatureDeclaration",
+  "TSDeclareFunction",
+  "TSFunctionType",
+  "TSMethodSignature"
+])
 const transparentExpressionTypes = new Set([
   "ChainExpression",
   "TSAsExpression",
@@ -136,28 +143,32 @@ const collectTree = (root) => {
   return { nodes, parents }
 }
 
-const classNameFor = (node, parents) => {
+const classFor = (node, parents) => {
   let current = node
   while (current !== undefined) {
     if (current.type === "ClassDeclaration" || current.type === "ClassExpression") {
-      return current.id?.name ?? "<anonymous>"
+      return current
     }
     current = parents.get(current)
   }
-  return "<anonymous>"
+  return undefined
 }
 
 const typeOwnerFor = (node, parents) => {
   let current = parents.get(node)
   while (current !== undefined) {
-    if (current.type === "TSInterfaceDeclaration") return `interface:${current.id.name}`
-    if (current.type === "TSTypeAliasDeclaration") return `type:${current.id.name}`
+    if (current.type === "TSInterfaceDeclaration") {
+      return { anchor: current, declaration: `interface:${current.id.name}` }
+    }
+    if (current.type === "TSTypeAliasDeclaration") {
+      return { anchor: current, declaration: `type:${current.id.name}` }
+    }
     if (current.type === "ClassDeclaration" || current.type === "ClassExpression") {
-      return `class:${current.id?.name ?? "<anonymous>"}`
+      return { anchor: current, declaration: `class:${current.id?.name ?? "<anonymous>"}` }
     }
     current = parents.get(current)
   }
-  return "module:<module>"
+  return { anchor: undefined, declaration: "module:<module>" }
 }
 
 const variableOwnerForProperty = (node, parents) => {
@@ -174,37 +185,87 @@ const variableOwnerForProperty = (node, parents) => {
   return "<object>"
 }
 
-const declarationFor = (node, parents) => {
+const variableAnchorForProperty = (node, parents) => {
+  let current = parents.get(node)
+  while (current !== undefined) {
+    if (current.type === "VariableDeclarator") return current
+    if (functionTypes.has(current.type) || declarationTypes.has(current.type)) break
+    current = parents.get(current)
+  }
+  return node
+}
+
+const declarationDetailsFor = (node, parents) => {
   let current = node
   while (current !== undefined) {
     const parent = parents.get(current)
     if (current.type === "MethodDefinition" || current.type === "PropertyDefinition") {
-      return `member:${classNameFor(current, parents)}.${propertyName(current.key) ?? "<computed>"}`
+      const owner = classFor(current, parents)
+      return {
+        anchor: owner ?? current,
+        declaration: `member:${owner?.id?.name ?? "<anonymous>"}.${propertyName(current.key) ?? "<computed>"}`
+      }
     }
     if (["TSCallSignatureDeclaration", "TSConstructSignatureDeclaration", "TSIndexSignature"].includes(current.type)) {
-      return `${typeOwnerFor(current, parents)}.<signature>`
+      const owner = typeOwnerFor(current, parents)
+      return { anchor: owner.anchor ?? current, declaration: `${owner.declaration}.<signature>` }
     }
     if (["TSMethodSignature", "TSPropertySignature"].includes(current.type)) {
-      return `${typeOwnerFor(current, parents)}.${propertyName(current.key) ?? "<computed>"}`
+      const owner = typeOwnerFor(current, parents)
+      return {
+        anchor: owner.anchor ?? current,
+        declaration: `${owner.declaration}.${propertyName(current.key) ?? "<computed>"}`
+      }
     }
     if (current.type === "Property" && parent?.type === "ObjectExpression") {
-      return `property:${variableOwnerForProperty(current, parents)}.${propertyName(current.key) ?? "<computed>"}`
+      return {
+        anchor: variableAnchorForProperty(current, parents),
+        declaration: `property:${variableOwnerForProperty(current, parents)}.${propertyName(current.key) ?? "<computed>"}`
+      }
     }
     if (current.type === "FunctionDeclaration" || current.type === "TSDeclareFunction") {
-      return `function:${current.id?.name ?? "<anonymous>"}`
+      return { anchor: current, declaration: `function:${current.id?.name ?? "<anonymous>"}` }
     }
     if (current.type === "FunctionExpression" && parent?.type !== "MethodDefinition") {
-      if (current.id !== null && current.id !== undefined) return `function:${current.id.name}`
+      if (current.id !== null && current.id !== undefined) {
+        return { anchor: current, declaration: `function:${current.id.name}` }
+      }
     }
-    if (current.type === "VariableDeclarator") return `variable:${patternName(current.id)}`
-    if (current.type === "ClassDeclaration") return `class:${current.id?.name ?? "<anonymous>"}`
-    if (current.type === "TSInterfaceDeclaration") return `interface:${current.id.name}`
-    if (current.type === "TSTypeAliasDeclaration") return `type:${current.id.name}`
-    if (current.type === "TSEnumDeclaration") return `enum:${current.id.name}`
-    if (current.type === "TSModuleDeclaration") return `namespace:${propertyName(current.id) ?? "<anonymous>"}`
+    if (current.type === "VariableDeclarator") {
+      return { anchor: current, declaration: `variable:${patternName(current.id)}` }
+    }
+    if (current.type === "ClassDeclaration") {
+      return { anchor: current, declaration: `class:${current.id?.name ?? "<anonymous>"}` }
+    }
+    if (current.type === "TSInterfaceDeclaration") {
+      return { anchor: current, declaration: `interface:${current.id.name}` }
+    }
+    if (current.type === "TSTypeAliasDeclaration") {
+      return { anchor: current, declaration: `type:${current.id.name}` }
+    }
+    if (current.type === "TSEnumDeclaration") {
+      return { anchor: current, declaration: `enum:${current.id.name}` }
+    }
+    if (current.type === "TSModuleDeclaration") {
+      return { anchor: current, declaration: `namespace:${propertyName(current.id) ?? "<anonymous>"}` }
+    }
     current = parent
   }
-  return "module:<module>"
+  return { anchor: undefined, declaration: "module:<module>" }
+}
+
+const declarationFor = (node, parents) => {
+  const declaration = declarationDetailsFor(node, parents)
+  if (declaration.anchor === undefined) return declaration.declaration
+  const ancestors = []
+  let current = parents.get(declaration.anchor)
+  while (current !== undefined) {
+    const ancestor = declarationDetailsFor(current, parents)
+    if (ancestor.anchor === undefined) break
+    ancestors.push(ancestor.declaration)
+    current = parents.get(ancestor.anchor)
+  }
+  return [...ancestors.reverse(), declaration.declaration].join("/")
 }
 
 const unwrapExpression = (node) => {
@@ -263,6 +324,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       if (base === "module:@effect/platform-node" && member === "NodeRuntime") return "namespace:NodeRuntime"
       if (base.startsWith("namespace:")) return `method:${base.slice("namespace:".length)}:${member}`
       if (base === "instance:ManagedRuntime") return `method:ManagedRuntimeInstance:${member}`
+      if (base === "global:globalThis") return `global:${member}`
       if (base.startsWith("global:")) return `${base}.${member}`
       if (base.startsWith("platform-import:")) return `${base}.${member}`
       return null
@@ -388,12 +450,14 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     return false
   }
 
-  const isReturnedByCallback = (node, fn) => {
-    if (fn.returnType !== undefined && contains(fn.returnType, node)) return true
-    if (fn.body.type !== "BlockStatement") return contains(fn.body, node)
+  const isDirectCallbackOutput = (node, fn) => {
+    if (fn.returnType?.typeAnnotation === node) return true
+    if (fn.body.type !== "BlockStatement") return unwrapExpression(fn.body) === node
     let current = node
     while (current !== undefined && current !== fn) {
-      if (current.type === "ReturnStatement" && current.argument !== null && contains(current.argument, node)) return true
+      if (current.type === "ReturnStatement" && current.argument !== null) {
+        return unwrapExpression(current.argument) === node
+      }
       current = parents.get(current)
     }
     return false
@@ -403,7 +467,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     let current = parents.get(node)
     while (current !== undefined) {
       if (functionTypes.has(current.type)) {
-        return isEffectCallback(current, "tryPromise") && isReturnedByCallback(node, current)
+        return isEffectCallback(current, "tryPromise") && isDirectCallbackOutput(node, current)
       }
       current = parents.get(current)
     }
@@ -534,11 +598,15 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const isEffectType = (type) => {
     if (type === undefined || checker === undefined) return false
-    if (type.isUnion?.()) return type.types.some(isEffectType)
+    if (type.isUnion?.() || type.isIntersection?.()) return type.types.some(isEffectType)
     try {
-      if (type.getProperty?.("EffectTypeId") !== undefined) return true
-      const rendered = checker.typeToString(type)
-      return /(?:^|\.)Effect</u.test(rendered) && rendered.includes("<")
+      const isEffectDeclaration = (declaration) => {
+        const declarationFile = declaration.getSourceFile().fileName.replaceAll("\\", "/")
+        return /\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?effect\//u.test(declarationFile)
+      }
+      if (type.symbol?.declarations?.some(isEffectDeclaration)) return true
+      return type.getProperties?.().some((property) =>
+        property.getName() === "~effect/Effect" && property.declarations?.some(isEffectDeclaration)) ?? false
     } catch {
       return false
     }
@@ -554,40 +622,34 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
     }
   }
 
-  const isExportedVariable = (declarator) => {
-    const declaration = parents.get(declarator)
-    const direct = parents.get(declaration)
-    if (direct?.type === "ExportNamedDeclaration" || direct?.type === "ExportDefaultDeclaration") return true
-    const variableName = patternName(declarator.id)
+  const isDirectlyExported = (declaration) => {
+    let parent = parents.get(declaration)
+    if (parent?.type === "VariableDeclaration") parent = parents.get(parent)
+    return parent?.type === "ExportNamedDeclaration" || parent?.type === "ExportDefaultDeclaration"
+  }
+
+  const isExportedBinding = (declaration, identifier) => {
+    if (isDirectlyExported(declaration)) return true
+    if (identifier?.type !== "Identifier") return false
+    const variable = variableForIdentifier(identifier)
+    if (variable === null) return false
     return nodes.some((node) => node.type === "ExportSpecifier"
-      && propertyName(node.local) === variableName
-      && parents.get(node)?.source == null)
+      && parents.get(node)?.source == null
+      && variableForIdentifier(node.local) === variable)
   }
 
-  const variableDeclaratorForFunction = (fn) => {
-    let current = fn
-    while (current !== undefined) {
-      const parent = parents.get(current)
-      if (parent?.type === "VariableDeclarator" && parent.init !== null) return current === unwrapExpression(parent.init)
-        ? parent
-        : undefined
-      if (parent !== undefined && !transparentExpressionTypes.has(parent.type)) return undefined
-      if (parent?.type === "ExportDefaultDeclaration" || parent?.type === "Program") return undefined
-      current = parent
-    }
-    return undefined
+  const isDirectEffectFunctionWrapper = (node) => {
+    const provenance = provenanceOfExpression(node)
+    if (provenance === null) return false
+    const match = provenance.match(/^(?:builder|wrapped):Effect:(.+)$/u)
+    return match !== null && effectFunctionMethods.includes(match[1])
   }
 
-  const containsEffectFunctionWrapper = (node) => nodes.some((candidate) => {
-    if (candidate.type !== "CallExpression" || !contains(node, candidate)) return false
-    const method = effectMethodForCall(candidate)
-    return method !== undefined && effectFunctionMethods.includes(method)
-  })
+  const hasExplicitPromiseType = (node) =>
+    nodes.some((candidate) => isPromiseTypeReference(candidate) && contains(node, candidate))
 
-  const hasExplicitPromiseReturn = (fn) => {
-    if (fn.returnType === undefined) return false
-    return nodes.some((node) => isPromiseTypeReference(node) && contains(fn.returnType, node))
-  }
+  const hasExplicitPromiseReturn = (fn) =>
+    fn.returnType !== undefined && hasExplicitPromiseType(fn.returnType)
 
   for (const node of nodes) declarations.add(declarationFor(node, parents))
 
@@ -700,6 +762,10 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       }
     }
 
+    if (checkerSignatureTypes.has(node.type) && !hasExplicitPromiseType(node) && returnsPromiseLike(node)) {
+      add("promiseSignature", node, "promise-like:return")
+    }
+
     if (functionTypes.has(node.type) && node.async !== true && node.body !== undefined
       && !hasExplicitPromiseReturn(node) && !isEffectCallback(node, "tryPromise")
       && returnsPromiseLike(node)) {
@@ -708,18 +774,14 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   }
 
   for (const node of nodes) {
-    if (!functionTypes.has(node.type) || node.body === undefined || !returnsEffect(node)) continue
-    if (node.type === "FunctionDeclaration") {
-      const parent = parents.get(node)
-      if (parent?.type === "ExportNamedDeclaration" || parent?.type === "ExportDefaultDeclaration") {
-        add("effectFunctionBoundary", node, `effect-function:${node.id?.name ?? "default"}`)
-      }
-      continue
+    if ((node.type === "FunctionDeclaration" || node.type === "TSDeclareFunction")
+      && isExportedBinding(node, node.id) && returnsEffect(node)) {
+      add("effectFunctionBoundary", node, `effect-function:${node.id?.name ?? "default"}`)
     }
-    const declarator = variableDeclaratorForFunction(node)
-    if (declarator === undefined || !isExportedVariable(declarator)) continue
-    if (containsEffectFunctionWrapper(declarator.init)) continue
-    add("effectFunctionBoundary", node, `effect-function:${patternName(declarator.id)}`)
+    if (node.type === "VariableDeclarator" && node.init !== null && isExportedBinding(node, node.id)
+      && returnsEffect(node.id) && !isDirectEffectFunctionWrapper(node.init)) {
+      add("effectFunctionBoundary", unwrapExpression(node.init), `effect-function:${patternName(node.id)}`)
+    }
   }
 
   candidates.sort((left, right) => {

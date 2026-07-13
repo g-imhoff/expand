@@ -23,6 +23,8 @@ const ruleTester = new RuleTester({
     }
   }
 })
+const runRuleTester = (valid, invalid) =>
+  ruleTester.run("effect-boundary", effectBoundary, { valid, invalid })
 
 const runnerBoundary = {
   file: "effect-boundary-valid.ts",
@@ -31,16 +33,45 @@ const runnerBoundary = {
   construct: "runner:Effect.runPromise",
   occurrence: 0
 }
+const scopedProcessBoundaries = ["first", "second"].map((scope) => ({
+  file: "effect-boundary-valid.ts",
+  declaration: `function:${scope}/variable:task`,
+  host: `Test ${scope} lexical scope`,
+  construct: "platform:process.env.HOME",
+  occurrence: 0
+}))
 
 const valid = [
   validCase('import { Effect } from "effect"\nexport const load = Effect.fn("load")(function*() { return yield* Effect.tryPromise(() => host()) })'),
   validCase('import { Effect as Fx } from "effect"\nconst traced = Fx.fn\nexport const load = traced("load")(function*() { return yield* Fx.succeed(1) })'),
   validCase('import * as Fx from "effect/Effect"\nconst untraced = Fx.fnUntraced\nexport const load = untraced(function*() { return yield* Fx.succeed(1) })'),
   validCase('import { Effect } from "effect"\nEffect.tryPromise(() => new Promise((resolve) => resolve(1)))'),
+  validCase('import { Effect } from "effect"\nEffect.tryPromise(() => Promise.resolve(1))'),
   validCase('import { Effect } from "effect"\nEffect.tryPromise((): Promise<string> => host())'),
   validCase("const Promise = class {}\nnew Promise()"),
+  validCase([
+    "const globalThis = {",
+    "  Promise: class {},",
+    "  fetch: () => undefined,",
+    "  process: { env: { HOME: \"home\" } }",
+    "}",
+    "new globalThis.Promise()",
+    "globalThis.fetch()",
+    "globalThis.process.env.HOME"
+  ].join("\n")),
   validCase("type PromiseLike<Value> = { readonly value: Value }\ntype Result = PromiseLike<string>"),
   validCase("export const add = (left, right) => left + right"),
+  validCase("type Effect<Value> = { readonly value: Value }\nexport const load = (): Effect<number> => ({ value: 1 })"),
+  validCase([
+    "namespace Effect { export interface X<Value> { readonly value: Value } }",
+    "export const load = (): Effect.X<number> => ({ value: 1 })"
+  ].join("\n")),
+  validCase([
+    'import { Effect } from "effect"',
+    "const load = () => 1",
+    "function build() { const load = () => Effect.succeed(1); return load }",
+    "export { load }"
+  ].join("\n")),
   validCase('import { Effect } from "effect"\nexport const values = [1].map(() => Effect.succeed(1))'),
   validCase([
     "const Effect = { runPromise: () => undefined, gen: (body) => body }",
@@ -81,6 +112,29 @@ const valid = [
   withBoundaries(
     validCase('import { Effect } from "effect"\nEffect.runPromise(program)'),
     [runnerBoundary]
+  ),
+  withBoundaries(
+    validCase([
+      'import { Effect } from "effect"',
+      "Effect.runPromise(first)",
+      "Effect.runPromise(second)"
+    ].join("\n")),
+    [runnerBoundary, { ...runnerBoundary, host: "Second test application entrypoint", occurrence: 1 }]
+  ),
+  withBoundaries(
+    validCase([
+      "function first() { const task = () => process.env.HOME; return task }",
+      "function second() { const task = () => process.env.HOME; return task }"
+    ].join("\n")),
+    scopedProcessBoundaries
+  ),
+  withBoundaries(
+    validCase([
+      "const unrelated = 1",
+      "function first() { const task = () => process.env.HOME; return task }",
+      "function second() { const task = () => process.env.HOME; return task }"
+    ].join("\n")),
+    scopedProcessBoundaries
   ),
   withBoundaries(
     validCase("interface Api { load(): Promise<string> }"),
@@ -129,11 +183,35 @@ const invalid = [
   invalidCase("async function load() {}", [{ messageId: "nativeAsync" }]),
   invalidCase("const load = async () => await host()", [{ messageId: "nativeAsync" }, { messageId: "nativeAwait" }]),
   invalidCase("new Promise(() => undefined)", [{ messageId: "nativePromise" }]),
+  invalidCase([
+    "new globalThis.Promise(() => undefined)",
+    "globalThis.fetch(url)",
+    "globalThis.process.env.HOME"
+  ].join("\n"), [
+    { messageId: "nativePromise" },
+    { messageId: "platformEffect" },
+    { messageId: "platformEffect" }
+  ]),
   invalidCase("const NativePromise = Promise\nnew NativePromise(() => undefined)", [{ messageId: "nativePromise" }]),
   invalidCase("Promise.all([host()])\nPromise.resolve(1)", [{ messageId: "nativePromise" }, { messageId: "nativePromise" }]),
+  invalidCase([
+    'import { Effect } from "effect"',
+    "Effect.tryPromise(() => ({",
+    "  pending: new Promise((resolve) => resolve(1)),",
+    "  queued: [Promise.resolve(2)]",
+    "}))"
+  ].join("\n"), [{ messageId: "nativePromise" }, { messageId: "nativePromise" }]),
   invalidCase("type Result = PromiseLike<string>", [{ messageId: "promiseSignature" }]),
   invalidCase("interface Api { load(): Promise<string> }", [{ messageId: "promiseSignature" }]),
   invalidCase("type Results<T> = { [Key in keyof T]: PromiseLike<T[Key]> }", [{ messageId: "promiseSignature" }]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
+    "interface Api { load(): AsyncValue<string> }"
+  ].join("\n"), [{ messageId: "promiseSignature", line: 2, column: 17 }]),
+  invalidCase([
+    "interface AsyncValue<Value> { then(consume: (value: Value) => unknown): unknown }",
+    "type Results<Input> = { [Key in keyof Input]: () => AsyncValue<Input[Key]> }"
+  ].join("\n"), [{ messageId: "promiseSignature", line: 2, column: 47 }]),
   invalidCase("declare const host: { then(consume: (value: string) => unknown): unknown }\nconst load = () => host", [{ messageId: "promiseSignature" }]),
   invalidCase("host().then(use)", [{ messageId: "promiseChain" }]),
   invalidCase("host().catch(recover).finally(cleanup)", [{ messageId: "promiseChain" }, { messageId: "promiseChain" }]),
@@ -170,7 +248,15 @@ const invalid = [
   invalidCase('import { ManagedRuntime as Runtime } from "effect"\nconst runtime = Runtime.make(layer)\nruntime.runPromise(program)', [{ messageId: "runnerOutsideBoundary" }]),
   invalidCase('import { Effect } from "effect"\nexport const load = () => Effect.succeed(1)', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nexport function load() { return Effect.succeed(1) }', [{ messageId: "effectFunctionBoundary" }]),
+  invalidCase('import { Effect } from "effect"\nfunction load() { return Effect.succeed(1) }\nexport { load }', [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect } from "effect"\nconst load = () => Effect.succeed(1)\nexport { load }', [{ messageId: "effectFunctionBoundary" }]),
+  invalidCase([
+    'import { Effect } from "effect"',
+    "export const load = () => {",
+    '  const wrapped = Effect.fn("wrapped")(() => Effect.succeed(1))',
+    "  return Effect.succeed(wrapped)",
+    "}"
+  ].join("\n"), [{ messageId: "effectFunctionBoundary" }]),
   invalidCase('import { Effect, Schema } from "effect"\nEffect.gen(function*() { return Schema.decodeUnknownSync(Schema.String)(input) })', [{ messageId: "syncSchemaInEffect" }]),
   invalidCase('import { Effect as Fx, Schema as S } from "effect"\nconst { decodeSync: decode } = S\nFx.sync(() => decode(S.String)(input))', [{ messageId: "syncSchemaInEffect" }]),
   withBoundaries(
@@ -189,6 +275,20 @@ const invalid = [
     invalidCase("export const value = 1", [{ messageId: "staleBoundary" }]),
     [{ ...runnerBoundary, file: "apps/**" }]
   ),
+  withBoundaries(
+    invalidCase("export const value = 1", [
+      { messageId: "staleBoundary" },
+      { messageId: "staleBoundary" }
+    ]),
+    [
+      { ...runnerBoundary, file: "effect-boundary-invalid.ts" },
+      { ...runnerBoundary, file: "effect-boundary-invalid.ts" }
+    ]
+  ),
+  withBoundaries(
+    invalidCase("export const value = 1", [{ messageId: "staleBoundary" }]),
+    [{ ...runnerBoundary, file: "test/eslint/" }]
+  ),
   invalidCase('require("node:fs")', [{ messageId: "platformEffect" }]),
   invalidCase("consume(document)\nDate()\nport.postMessage(value)", [
     { messageId: "platformEffect" },
@@ -205,4 +305,4 @@ const invalid = [
   }
 ]
 
-ruleTester.run("effect-boundary", effectBoundary, { valid, invalid })
+runRuleTester(valid, invalid)
