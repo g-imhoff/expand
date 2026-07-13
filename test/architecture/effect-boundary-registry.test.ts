@@ -1,8 +1,9 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
+import { Linter } from "eslint"
 import { Effect, FileSystem, Path, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { describe, expect } from "vitest"
+import { describe, expect, vi } from "vitest"
 import { effectHostBoundaries } from "../../eslint-rules/effect-host-boundaries.mjs"
 import { validateHostBoundaries } from "../../scripts/effect-audit"
 import { HostBoundary } from "../../scripts/effect-policy-model"
@@ -59,6 +60,17 @@ const makeFixture = Effect.fn("EffectBoundaryRegistryTest.makeFixture")(
       "{\"compilerOptions\":{\"target\":\"ESNext\",\"module\":\"NodeNext\",\"moduleResolution\":\"NodeNext\"},\"include\":[\"**/*.ts\"]}\n"
     )
     return { root, indexedFiles: ["src/host.ts"], eslintFiles: ["src/host.ts"] }
+  }
+)
+
+const makeParserFixture = Effect.fn("EffectBoundaryRegistryTest.makeParserFixture")(
+  function*(file: string, source: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "effect-boundary-parser-" })
+    yield* fs.makeDirectory(path.join(root, path.dirname(file)), { recursive: true })
+    yield* fs.writeFileString(path.join(root, file), source)
+    return { root, indexedFiles: [file], eslintFiles: [file] }
   }
 )
 
@@ -119,6 +131,15 @@ describe("Effect host boundary registry", () => {
       yield* invalidBoundary({ ...fixture, boundaries: [makeBoundary({ host: "" })] })
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("rejects a non-string boundary file without defecting", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture()
+      const boundary = makeBoundary()
+      expect(Reflect.set(boundary, "file", null)).toBe(true)
+      const error = yield* invalidBoundary({ ...fixture, boundaries: [boundary] })
+      expect(error.detail).toBe("invalid boundary record 0")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("rejects a missing indexed file once", () =>
     Effect.gen(function*() {
       const fixture = yield* makeFixture()
@@ -135,6 +156,18 @@ describe("Effect host boundary registry", () => {
         eslintFiles: ["src/host.ts", "src/host.ts", "src/host.ts"]
       })
       expect(error.detail).toContain("duplicate")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("rejects non-canonical boundary aliases before duplicate resolution", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture()
+      for (const file of ["./src/host.ts", "src/nested/../host.ts"]) {
+        const error = yield* invalidBoundary({
+          ...fixture,
+          boundaries: [makeBoundary(), makeBoundary({ file })]
+        })
+        expect(error.detail).toBe("invalid boundary record 1")
+      }
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("rejects multiple normalized index matches once", () =>
@@ -186,4 +219,42 @@ describe("Effect host boundary registry", () => {
       const error = yield* invalidBoundary({ ...fixture, boundaries: [makeBoundary()] })
       expect(error.detail).toContain("fatal parser diagnostic")
     }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("mirrors ESLint parser configuration for CJS and JavaScript JSX", () => {
+    const verify = vi.spyOn(Linter.prototype, "verify")
+    return Effect.gen(function*() {
+      const cases = [{
+        file: "src/host.cjs",
+        source: "async function load() {}\n",
+        sourceType: "commonjs"
+      }, {
+        file: "src/view.js",
+        source: "async function load() {}\nconst view = <div />\n",
+        sourceType: "module"
+      }] as const
+      for (const testCase of cases) {
+        const fixture = yield* makeParserFixture(testCase.file, testCase.source)
+        yield* validateHostBoundaries({
+          ...fixture,
+          boundaries: [makeBoundary({
+            file: testCase.file,
+            declaration: "function:load",
+            construct: "native:async"
+          })]
+        })
+      }
+      expect(verify).toHaveBeenCalledTimes(2)
+      for (const [index, testCase] of cases.entries()) {
+        expect(verify.mock.calls[index]?.[1]).toMatchObject({
+          languageOptions: {
+            parserOptions: { ecmaFeatures: { jsx: true } },
+            sourceType: testCase.sourceType
+          }
+        })
+      }
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => verify.mockRestore())),
+      Effect.provide(NodeServices.layer)
+    )
+  })
 })

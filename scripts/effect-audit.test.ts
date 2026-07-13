@@ -44,19 +44,21 @@ const LanguageOutputJson = Schema.fromJsonString(Schema.Struct({
   })
 }))
 const EslintMessage = Schema.Struct({
-  ruleId: Schema.String,
+  ruleId: Schema.NullOr(Schema.String),
   severity: Schema.Literals([1, 2]),
   message: Schema.String,
-  messageId: Schema.String,
-  line: PositiveInt,
-  column: PositiveInt,
-  endLine: PositiveInt,
-  endColumn: PositiveInt
+  messageId: Schema.optionalKey(Schema.String),
+  fatal: Schema.optionalKey(Schema.Boolean),
+  line: Schema.optionalKey(PositiveInt),
+  column: Schema.optionalKey(PositiveInt),
+  endLine: Schema.optionalKey(PositiveInt),
+  endColumn: Schema.optionalKey(PositiveInt)
 })
 const EslintOutputJson = Schema.fromJsonString(Schema.Array(Schema.Struct({
   filePath: Schema.String,
   messages: Schema.Array(EslintMessage)
 })))
+type EslintResult = Schema.Schema.Type<typeof EslintOutputJson>[number]
 const PackageJson = Schema.fromJsonString(Schema.Struct({
   scripts: Schema.Record(Schema.String, Schema.String)
 }))
@@ -109,6 +111,7 @@ interface FixtureOptions {
   readonly languageDiagnostics?: ReadonlyArray<Schema.Schema.Type<typeof LanguageDiagnostic>>
     | ((root: string) => ReadonlyArray<Schema.Schema.Type<typeof LanguageDiagnostic>>)
   readonly eslintMessages?: ReadonlyArray<Schema.Schema.Type<typeof EslintMessage>>
+  readonly extraEslintResults?: (root: string) => ReadonlyArray<EslintResult>
   readonly omitTypeScriptFile?: string
   readonly omitEslintFile?: string
   readonly responseOverrides?: Partial<CommandResponses>
@@ -136,19 +139,24 @@ const hostSource = [
   ""
 ].join("\n")
 
+const mainFile = "src/main.ts"
+const cleanJavaScriptFile = "src/clean.js"
+const typeScriptFile = /\.(?:ts|tsx|mts|cts)$/u
+
 const makeFixture = Effect.fn("EffectAuditTest.makeFixture")(
   function*(options: FixtureOptions = {}) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "effect-audit-" })
-    const mainFile = "src/main.ts"
     const indexedFiles = Array.from(new Set([
       mainFile,
+      cleanJavaScriptFile,
       ...effectHostBoundaries.map((boundary) => boundary.file)
     ])).sort()
 
     yield* fs.makeDirectory(path.join(root, "src"), { recursive: true })
     yield* fs.writeFileString(path.join(root, mainFile), "export async function load() { return 1 }\n")
+    yield* fs.writeFileString(path.join(root, cleanJavaScriptFile), "export const clean = 1\n")
     yield* fs.writeFileString(
       path.join(root, "tsconfig.effect-audit.json"),
       "{\"compilerOptions\":{\"target\":\"ESNext\",\"module\":\"NodeNext\",\"moduleResolution\":\"NodeNext\"},\"include\":[\"**/*.ts\"]}\n"
@@ -162,23 +170,26 @@ const makeFixture = Effect.fn("EffectAuditTest.makeFixture")(
     const languageDiagnostics = typeof options.languageDiagnostics === "function"
       ? options.languageDiagnostics(root)
       : options.languageDiagnostics ?? []
+    const indexedTypeScriptFiles = indexedFiles.filter((file) => typeScriptFile.test(file))
     const languageOutput = yield* Schema.encodeEffect(LanguageOutputJson)({
       diagnostics: languageDiagnostics,
       summary: {
-        filesChecked: indexedFiles.length,
-        totalFiles: indexedFiles.length,
+        filesChecked: indexedTypeScriptFiles.length,
+        totalFiles: indexedTypeScriptFiles.length,
         errors: languageDiagnostics.filter((diagnostic) => diagnostic.severity === "error").length,
         warnings: 0,
         messages: languageDiagnostics.filter((diagnostic) => diagnostic.severity === "message").length
       }
     })
-    const eslintOutput = yield* Schema.encodeEffect(EslintOutputJson)(indexedFiles
+    const eslintResults = [...indexedFiles
       .filter((file) => file !== options.omitEslintFile)
       .map((file) => ({
         filePath: path.join(root, file),
         messages: file === mainFile ? [...(options.eslintMessages ?? [])] : []
-      })))
-    const typeScriptFiles = indexedFiles
+      })),
+    ...(options.extraEslintResults?.(root) ?? [])]
+    const eslintOutput = yield* Schema.encodeEffect(EslintOutputJson)(eslintResults)
+    const typeScriptFiles = indexedTypeScriptFiles
       .filter((file) => file !== options.omitTypeScriptFile)
       .map((file) => path.join(root, file))
       .join("\n") + "\n"
@@ -188,7 +199,11 @@ const makeFixture = Effect.fn("EffectAuditTest.makeFixture")(
       .join("\0")}\0`
     const responses: CommandResponses = {
       "language-service": { exitCode: languageDiagnostics.length === 0 ? 0 : 1, stdout: languageOutput, stderr: "" },
-      eslint: { exitCode: (options.eslintMessages?.length ?? 0) === 0 ? 0 : 1, stdout: eslintOutput, stderr: "" },
+      eslint: {
+        exitCode: eslintResults.some((result) => result.messages.length > 0) ? 1 : 0,
+        stdout: eslintOutput,
+        stderr: ""
+      },
       "typescript-files": { exitCode: 0, stdout: typeScriptFiles, stderr: "" },
       "tracked-files": { exitCode: 0, stdout: trackedFiles, stderr: "" },
       "tracked-modes": { exitCode: 0, stdout: trackedModes, stderr: "" },
@@ -450,6 +465,38 @@ describe("runAudit", () => {
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("rejects malformed ESLint severities as invalid output", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture({ baseline: [], eslintMessages: [eslintMessage()] })
+      const stdout = fixture.responses.eslint.stdout.replace('"severity":2', '"severity":3')
+      expect(stdout).not.toBe(fixture.responses.eslint.stdout)
+      const responses = {
+        ...fixture.responses,
+        eslint: { ...fixture.responses.eslint, stdout }
+      }
+      const error = yield* runAudit({ root: fixture.root, mode: "check" }).pipe(
+        Effect.provide(makeRunnerLayer(responses, [])),
+        Effect.flip
+      )
+      expect(error.reason).toBe("invalid-output")
+      expect(error.detail).toContain("eslint")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("rejects an empty TypeScript file list as invalid output", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture({ baseline: [] })
+      const responses = {
+        ...fixture.responses,
+        "typescript-files": { exitCode: 0, stdout: "", stderr: "" }
+      }
+      const error = yield* runAudit({ root: fixture.root, mode: "check" }).pipe(
+        Effect.provide(makeRunnerLayer(responses, [])),
+        Effect.flip
+      )
+      expect(error.reason).toBe("invalid-output")
+      expect(error.detail).toContain("typescript-files")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("turns unaccepted exit codes into typed command failures", () =>
     Effect.gen(function*() {
       const fixture = yield* makeFixture({ baseline: [] })
@@ -492,6 +539,49 @@ describe("runAudit", () => {
         expect(error.detail).toContain("src/main.ts")
       }
     }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("fails when ESLint omits an indexed clean JavaScript source", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture({ baseline: [], omitEslintFile: cleanJavaScriptFile })
+      const error = yield* runAudit({ root: fixture.root, mode: "check" }).pipe(
+        Effect.provide(makeRunnerLayer(fixture.responses, [])),
+        Effect.flip
+      )
+      expect(error.reason).toBe("coverage-gap")
+      expect(error.detail).toContain(cleanJavaScriptFile)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("ignores unindexed ESLint fatals and findings before parsing", () =>
+    Effect.gen(function*() {
+      const fixture = yield* makeFixture({
+        baseline: [],
+        extraEslintResults: (root) => [{
+          filePath: `${root}/unindexed/missing.ts`,
+          messages: [{
+            ruleId: null,
+            severity: 2,
+            message: "Parsing failed",
+            fatal: true,
+            line: 1,
+            column: 1
+          }, {
+            ruleId: "local/effect-boundary",
+            severity: 2,
+            message: "Use Effect composition instead of a native async function.",
+            messageId: "nativeAsync",
+            line: 1,
+            column: 1,
+            endLine: 1,
+            endColumn: 6
+          }]
+        }]
+      })
+      const result = yield* runAudit({ root: fixture.root, mode: "check" }).pipe(
+        Effect.provide(makeRunnerLayer(fixture.responses, []))
+      )
+      expect(result.blocking).toEqual([])
+      expect(result.advisory).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
 })
 
 describe("AuditCommandRunnerLive", () => {
@@ -503,12 +593,14 @@ describe("AuditCommandRunnerLive", () => {
         command: "node",
         args: [
           "-e",
-          "for(let i=0;i<20000;i++){process.stdout.write('o');process.stderr.write('e')}process.stdout.write('done-out');process.stderr.write('done-err')"
+          "const fs=require('node:fs');const chunk='x'.repeat(65536);for(let i=0;i<32;i++){fs.writeSync(1,chunk);fs.writeSync(2,chunk)}fs.writeSync(1,'done-out');fs.writeSync(2,'done-err')"
         ],
         cwd: ".",
         acceptedExitCodes: [0]
       })
       expect(result.exitCode).toBe(0)
+      expect(result.stdout.length).toBe(2_097_160)
+      expect(result.stderr.length).toBe(2_097_160)
       expect(result.stdout.endsWith("done-out")).toBe(true)
       expect(result.stderr.endsWith("done-err")).toBe(true)
     }).pipe(

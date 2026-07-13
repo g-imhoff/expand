@@ -60,7 +60,7 @@ const LanguageOutputJson = Schema.fromJsonString(Schema.Struct({
 
 const EslintMessage = Schema.Struct({
   ruleId: Schema.NullOr(Schema.String),
-  severity: Schema.Int,
+  severity: Schema.Literals([1, 2]),
   message: Schema.String,
   messageId: Schema.optionalKey(Schema.String),
   fatal: Schema.optionalKey(Schema.Boolean),
@@ -189,12 +189,12 @@ const parseSource = Effect.fn("effect-audit.parseSource")(
             ecmaVersion: "latest",
             parser: tseslint.parser,
             parserOptions: {
-              ecmaFeatures: { jsx: file.endsWith("x") },
+              ecmaFeatures: { jsx: true },
               project: typed ? path.join(root, "tsconfig.effect-audit.json") : false,
               projectService: false,
               tsconfigRootDir: root
             },
-            sourceType: "module"
+            sourceType: file.endsWith(".cjs") ? "commonjs" : "module"
           }
         }, {
           allowInlineConfig: false,
@@ -364,7 +364,11 @@ export const validateHostBoundaries = Effect.fn("effect-audit.validateHostBounda
   }) {
     const path = yield* Path.Path
     for (const [index, boundary] of input.boundaries.entries()) {
+      const canonicalFile = typeof boundary.file === "string"
+        ? normalizeRepositoryPath(input.root, boundary.file, path)
+        : undefined
       if (!exactFile(boundary.file)
+        || canonicalFile !== boundary.file
         || !exactText(boundary.declaration)
         || !exactText(boundary.host)
         || !exactText(boundary.construct)
@@ -491,7 +495,11 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     const indexedTypeScript = [...indexed].filter((file) => typeScriptFile.test(file)).sort()
     const indexedSources = [...indexed].filter((file) => sourceFile.test(file)).sort()
 
-    const resolvedTypeScript = new Set((responses.get("typescript-files")?.stdout ?? "")
+    const typeScriptOutput = responses.get("typescript-files")?.stdout ?? ""
+    if (typeScriptOutput.trim().length === 0) {
+      return yield* Effect.fail(auditError("invalid-output", "typescript-files returned an empty file list"))
+    }
+    const resolvedTypeScript = new Set(typeScriptOutput
       .split(/\r?\n/u)
       .map((file) => normalizeRepositoryPath(options.root, file, path))
       .filter((file): file is string => file !== undefined && typeScriptFile.test(file)))
