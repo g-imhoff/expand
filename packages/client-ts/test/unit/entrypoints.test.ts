@@ -16,6 +16,7 @@ import type {
 } from "@expand/client-ts"
 
 const packageJson = createRequire(import.meta.url)("../../package.json") as {
+  readonly dependencies: Readonly<Record<string, string>>
   readonly exports: Readonly<Record<string, string>>
 }
 
@@ -70,6 +71,8 @@ describe("scoped entrypoints", () => {
     expect(nodeAdapter.makeNodeAdapter).toBeDefined()
     expect(nodeAdapter.nodeProcessControlLayer).toBeDefined()
     expect(nodeAdapter.ProcessServices).toBeDefined()
+    expect(packageJson.dependencies["@effect/platform-node"]).toBe("4.0.0-beta.74")
+    expect(packageJson.dependencies["@effect/platform-node-shared"]).toBe("4.0.0-beta.74")
     expect(Object.keys(packageJson.exports).filter((entry) => entry.startsWith("./adapters/"))).toEqual([
       "./adapters/node"
     ])
