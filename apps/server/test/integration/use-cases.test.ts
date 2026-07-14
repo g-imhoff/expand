@@ -26,7 +26,7 @@ const TestLayer = ProjectUseCasesLayer.pipe(
   Layer.provideMerge(Replay),
   Layer.provideMerge(EventBusLayer)
 )
-const TestLayerFs = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provide(NodeServices.layer))
+const TestLayerFs = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provideMerge(NodeServices.layer))
 
 describe("ProjectUseCases.createProject", () => {
   it("appends a durable event, broadcasts it live, and reflects it in the projection", async () => {

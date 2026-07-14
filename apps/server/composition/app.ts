@@ -1,8 +1,6 @@
-import { Effect, Exit, FileSystem, Layer, Scope } from "effect"
-import { dirname } from "node:path"
+import { Effect, Exit, FileSystem, Layer, Path, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -15,21 +13,23 @@ import { httpServerLayer } from "@expand/server/http"
 import { writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { newId } from "@expand/server/lib/ids"
+import { ProcessControl } from "@expand/contracts/process-control"
 
 export interface RunServerOptions {
   readonly dbPath: string
   readonly port?: number
 }
 
-export const runServer = (options: RunServerOptions) => {
-  const core = coreLayer(options.dbPath)
+export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
+  const dbPath = options.dbPath
   const portHint = options.port ?? 0
-  const token = newId()
+  const token = yield* newId()
+  const processControl = yield* ProcessControl
+  const pid = processControl.currentPid
+  const path = yield* Path.Path
+  const core = coreLayer(dbPath)
 
-  const transportLayer = Layer.mergeAll(
-    httpServerLayer(portHint, token).pipe(Layer.provide(core)),
-    NodeServices.layer
-  )
+  const transportLayer = httpServerLayer(portHint, token).pipe(Layer.provide(core))
 
   const program = Effect.gen(function*() {
     const tracker = yield* ConnectionTracker
@@ -45,18 +45,18 @@ export const runServer = (options: RunServerOptions) => {
     const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
     const url = `ws://127.0.0.1:${boundPort}/rpc`
 
-    yield* fs.chmod(dirname(options.dbPath), 0o700)
-    yield* fs.chmod(options.dbPath, 0o600)
-    yield* secureIfPresent(fs, `${options.dbPath}-wal`)
-    yield* secureIfPresent(fs, `${options.dbPath}-shm`)
+    yield* fs.chmod(path.dirname(dbPath), 0o700)
+    yield* fs.chmod(dbPath, 0o600)
+    yield* secureIfPresent(fs, `${dbPath}-wal`)
+    yield* secureIfPresent(fs, `${dbPath}-shm`)
 
     const endpointFile = yield* writeEndpointFile({
       url,
       token,
-      pid: process.pid,
+      pid,
       protocolVersion: PROTOCOL_VERSION
     })
-    yield* Effect.logInfo(`expand backend listening on ${url} (pid ${process.pid})`)
+    yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
     yield* tracker.awaitShutdown
     yield* Effect.logInfo("last connection closed — shutting down")
@@ -72,11 +72,11 @@ export const runServer = (options: RunServerOptions) => {
     )
   })
 
-  return program.pipe(
-    Effect.provide(Layer.mergeAll(core, NodeServices.layer)),
+  return yield* program.pipe(
+    Effect.provide(core),
     Effect.scoped
   )
-}
+})
 
 const HTTP_SHUTDOWN_GRACE = "1 second"
 
@@ -92,9 +92,7 @@ const coreLayer = (dbPath: string) => {
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
-    Layer.provide(projection),
-    Layer.provide(NodeFileSystem.layer),
-    Layer.provide(NodeServices.layer)
+    Layer.provide(projection)
   )
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
