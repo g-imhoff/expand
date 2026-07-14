@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Fiber, FileSystem, Layer, Option, Schedule, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { ProcessFileSystem, ProcessServices } from "@expand/server/node-process-control"
+import { readEndpoint, withClient } from "@expand/client-ts"
 import { connect } from "node:net"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { networkInterfaces, tmpdir } from "node:os"
@@ -21,8 +21,8 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
-import { readEndpoint } from "@expand/client-ts"
-import { withClient } from "@expand/client-ts"
+import { NodeFileSystem } from "@effect/platform-node"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 
 const nodeAdapter = makeNodeAdapter({
@@ -63,7 +63,7 @@ const testCore = (dbPath: string) => {
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
     Layer.provide(projection),
-    Layer.provide(ProcessFileSystem.layer),
+    Layer.provide(NodeFileSystem.layer),
     Layer.provide(ProcessServices.layer)
   )
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)

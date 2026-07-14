@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect"
-import { NodeFileSystem, NodeServices } from "@effect/platform-node"
+import { NodeServices } from "@effect/platform-node"
 import {
   ProcessControl,
   ProcessProbeError,
@@ -15,10 +15,6 @@ export const ProcessServices = {
   layer: Layer.mergeAll(NodeServices.layer, nodeProcessControlLayer),
   platformLayer: NodeServices.layer,
   processControlLayer: nodeProcessControlLayer
-}
-
-export const ProcessFileSystem = {
-  layer: NodeFileSystem.layer
 }
 
 const probe = Effect.fn("ServerNodeProcessControl.probe")(function*(pid: number) {

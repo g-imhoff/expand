@@ -1,5 +1,5 @@
 import { Effect, Layer } from "effect"
-import { NodeHttpServer, NodeServices } from "@effect/platform-node"
+import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { ProcessServices as NodeProcessServices } from "../adapters/node-process-control"
 
@@ -17,8 +17,4 @@ export const ProcessServices = {
     })
   ),
   alivePid: 101
-}
-
-export const HttpServerServices = {
-  layer: NodeHttpServer.layer
 }

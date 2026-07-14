@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { HttpServerServices, ProcessServices } from "../process-services"
+import { makeNodeAdapter, ProcessServices } from "../../adapters/node"
 import { createServer } from "node:http"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -11,7 +11,7 @@ import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RuntimeAdapter } from "../../adapter"
-import { makeNodeAdapter } from "../../adapters/node"
+import { NodeHttpServer } from "@effect/platform-node"
 import { ClientSession, ClientSessionLayer, type ClientSessionApi } from "../../client-session"
 import { BackendUnavailable } from "../../errors"
 
@@ -78,7 +78,7 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
       Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
       Layer.provide(RpcSerialization.layerNdjson)
     )
-    const node = HttpServerServices.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
+    const node = NodeHttpServer.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
     const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
       Layer.provide(node)
     )
