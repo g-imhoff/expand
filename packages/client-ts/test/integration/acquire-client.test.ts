@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -26,7 +26,7 @@ describe("acquireClient", () => {
       const { client, endpoint } = yield* acquireClient(nodeAdapter)
       const health = yield* client.Health()
       return { health, endpoint }
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const { health, endpoint } = await Effect.runPromise(program)
     expect(health).toBe("ok")

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Deferred, Effect, Fiber, FileSystem, Option } from "effect"
 import { TestClock } from "effect/testing"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -40,7 +40,7 @@ describe("findOrSpawnBackend", () => {
       })
     )
     const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeTestAppContext(dir))))
+      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(dir))))
     )
     expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
     expect(endpoint.pid).toBe(process.pid)
@@ -68,7 +68,7 @@ describe("findOrSpawnBackend", () => {
         [findOrSpawnBackend(adapter), findOrSpawnBackend(adapter)],
         { concurrency: "unbounded" }
       ).pipe(
-        Effect.provide(NodeServices.layer),
+        Effect.provide(ProcessServices.layer),
         Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
       )
     )
@@ -100,7 +100,7 @@ describe("findOrSpawnBackend", () => {
 
     const actual = await Effect.runPromise(
       findOrSpawnBackend(adapter).pipe(
-        Effect.provide(NodeServices.layer),
+        Effect.provide(ProcessServices.layer),
         Effect.provide(Layer.succeed(AppContext, { channel: context.channel, paths }))
       )
     )
@@ -136,7 +136,7 @@ describe("findOrSpawnBackend", () => {
           findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeTestAppContext(rightRoot))))
         ],
         { concurrency: "unbounded" }
-      ).pipe(Effect.provide(NodeServices.layer))
+      ).pipe(Effect.provide(ProcessServices.layer))
     )
 
     expect(new Set(spawnedRoots)).toEqual(new Set([leftRoot, rightRoot]))
@@ -186,7 +186,7 @@ describe("findOrSpawnBackend", () => {
       return endpoint
     }).pipe(
       Effect.provide(TestClock.layer()),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(ProcessServices.layer),
       Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
 
@@ -213,7 +213,7 @@ describe("findOrSpawnBackend", () => {
             : Effect.void)
         )
       })
-      const completed = yield* Deferred.make<Endpoint, BackendUnavailable | "pending">()
+      const completed = yield* Deferred.make<Endpoint, BackendUnavailable | ProbeFailure>()
       yield* Deferred.complete(
         completed,
         findOrSpawnBackend(adapter).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
@@ -226,7 +226,7 @@ describe("findOrSpawnBackend", () => {
       return { beforeDeadline, result }
     }).pipe(
       Effect.provide(TestClock.layer()),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(ProcessServices.layer),
       Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
 
@@ -268,7 +268,7 @@ describe("findOrSpawnBackend", () => {
       const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
       return endpoint
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
 
     const endpoint = await Effect.runPromise(program)
     expect(endpoint.url).toBe(realEndpoint.url)
@@ -286,3 +286,5 @@ const makeTestAppContext = (dataDir: string) =>
 function join(...paths: ReadonlyArray<string>): string {
   return resolve(...paths)
 }
+
+type ProbeFailure = import("@expand/contracts/process-control").ProcessProbeError | "pending"

@@ -5,6 +5,7 @@ import type { FileSystem, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { AppContext } from "@expand/contracts/app-context"
+import type { ProcessControl } from "@expand/contracts/process-control"
 import { BackendUnavailable } from "./errors"
 import { deleteEndpoint } from "./discovery"
 import { findOrSpawnBackend } from "./spawn"
@@ -18,7 +19,7 @@ export const acquireClient = (
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
-  FileSystem.FileSystem | Scope.Scope | AppContext
+  FileSystem.FileSystem | Scope.Scope | AppContext | ProcessControl
 > => {
   const once = findOrSpawnBackend(adapter).pipe(
     Effect.catchIf(
@@ -59,6 +60,11 @@ export const acquireClient = (
       while: (e) =>
         typeof e === "object" && e !== null && "_tag" in e && (e as { _tag: string })._tag === "StaleEndpoint"
     }),
+    Effect.catchTag("ProcessProbeError", (error) =>
+      Effect.fail(new BackendUnavailable({
+        reason: `process probe failed for pid ${error.pid}: ${String(error.cause)}`
+      }))
+    ),
     Effect.catchTag("StaleEndpoint", (e) => Effect.fail(new BackendUnavailable({ reason: e.reason })))
   )
 }

@@ -1,5 +1,5 @@
 import { Layer, ManagedRuntime } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "@expand/client-ts/adapters/node"
 import {
   ClientLayer,
   ClientSession,
@@ -24,7 +24,7 @@ export const defaultBackendEntry = (moduleUrl: string): string =>
 
 export const makeRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(NodeServices.layer))
+    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(ProcessServices.layer))
   )
 
 const backendCommand = Effect.suspend(() =>

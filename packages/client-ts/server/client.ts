@@ -2,6 +2,7 @@ import { Context, Effect, Layer } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { FileSystem } from "effect"
 import type { AppContext } from "@expand/contracts/app-context"
+import type { ProcessControl } from "@expand/contracts/process-control"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
 import { ClientSession, ClientSessionLayer } from "../client-session"
@@ -24,5 +25,9 @@ export const ServerClientLive: Layer.Layer<ServerClient, never, ClientSession> =
 
 export const ServerClientLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ServerClient, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
+): Layer.Layer<
+  ServerClient,
+  BackendUnavailable,
+  FileSystem.FileSystem | AppContext | ProcessControl
+> =>
   ServerClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))

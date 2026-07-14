@@ -1,6 +1,5 @@
 import { Cause, Effect, Layer, Path, Stdio } from "effect"
 import { homedir } from "node:os"
-import { ClientLayer } from "@expand/client-ts"
 import { AppContext, dataDirFromArgs } from "@expand/contracts/app-context"
 
 export const nodeAppContext = Effect.fn("ExampleNodeAppContext.make")(function*(dataDir?: string) {
@@ -21,9 +20,6 @@ export const nodeAppContextFromArgs = Effect.fn("ExampleNodeAppContext.fromArgs"
 })
 
 export const nodeAppContextLayer = Layer.effect(AppContext, nodeAppContextFromArgs())
-
-export const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
-  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))
 
 const toHostContextError = (cause: unknown): Cause.UnknownError =>
   new Cause.UnknownError(cause, "Unable to acquire AppContext host values")

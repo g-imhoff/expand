@@ -1,7 +1,7 @@
 import { Effect, Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { existsSync } from "node:fs"
-import { clientLayer } from "./node-app-context"
+import { clientLayer } from "./client-layer"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 

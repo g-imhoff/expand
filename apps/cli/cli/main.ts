@@ -1,9 +1,9 @@
 import { Command, GlobalFlag, CliOutput } from "effect/unstable/cli"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { makeNodeAdapter, ProcessServices } from "@expand/client-ts/adapters/node"
 import { Effect, Layer } from "effect"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { NodeRuntime } from "@effect/platform-node"
 import { ClientLayer, resolveBackendCommand } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
@@ -45,7 +45,7 @@ function backendCommand() {
 if (import.meta.main) {
   renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(
     Effect.provide(CliOutput.layer(jsonCliErrorFormatter)),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(ProcessServices.layer),
     NodeRuntime.runMain
   )
 }

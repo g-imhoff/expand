@@ -4,6 +4,7 @@ import type { RpcClientError } from "effect/unstable/rpc"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { AppContext } from "@expand/contracts/app-context"
+import type { ProcessControl } from "@expand/contracts/process-control"
 import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
@@ -69,5 +70,9 @@ export const ProjectClientLive: Layer.Layer<ProjectClient, never, ClientSession>
 
 export const ProjectClientLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ProjectClient, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
+): Layer.Layer<
+  ProjectClient,
+  BackendUnavailable,
+  FileSystem.FileSystem | AppContext | ProcessControl
+> =>
   ProjectClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))

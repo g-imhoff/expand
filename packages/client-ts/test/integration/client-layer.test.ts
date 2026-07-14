@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Fiber, Layer, Ref, Stream } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { AppContext } from "@expand/contracts/app-context"
 import { ProjectCreated } from "@expand/contracts/events/project"
 import type { RuntimeAdapter } from "../../adapter"
@@ -157,7 +157,7 @@ const runSharedLayerScenario = async () => {
       }
     }).pipe(
       Effect.provide(clientLayer(adapter)),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(ProcessServices.layer)
     )
   )
 }

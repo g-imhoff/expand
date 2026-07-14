@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Fiber, Layer, ManagedRuntime, Option, Stream, SubscriptionRef } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -48,7 +48,7 @@ describe.sequential("ProjectSync integration", () => {
       backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
     })
     const layer = ClientLayer(adapter).pipe(
-      Layer.provide(NodeServices.layer),
+      Layer.provide(ProcessServices.layer),
       Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
     const runtimeA = ManagedRuntime.make(layer)
@@ -109,7 +109,7 @@ describe.sequential("ProjectSync integration", () => {
       backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
     })
     const layer = ClientLayer(adapter).pipe(
-      Layer.provide(NodeServices.layer),
+      Layer.provide(ProcessServices.layer),
       Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
     )
     const runtime = ManagedRuntime.make(layer)

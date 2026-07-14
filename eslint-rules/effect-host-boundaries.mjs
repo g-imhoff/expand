@@ -1,5 +1,7 @@
 const nodeOsImport = "platform:import:" + ["node", "os"].join(":")
 const processCwd = ["platform:process", "cwd"].join(".")
+const processKill = ["platform:process", "kill"].join(".")
+const processPid = ["platform:process", "pid"].join(".")
 
 export const effectHostBoundaries = Object.freeze([
   Object.freeze({
@@ -59,6 +61,20 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "apps/server/node-process-control.ts",
+    declaration: "member:nodeProcessControlLayer.currentPid",
+    host: "Node ProcessControl host acquisition",
+    construct: processPid,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/server/node-process-control.ts",
+    declaration: "member:probe.try",
+    host: "Node ProcessControl host acquisition",
+    construct: processKill,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "apps/tui/node-app-context.ts",
     declaration: "module:<module>",
     host: "Node AppContext host acquisition",
@@ -84,6 +100,20 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/client-ts/adapters/node-process-control.ts",
+    declaration: "member:nodeProcessControlLayer.currentPid",
+    host: "Node ProcessControl host acquisition",
+    construct: processPid,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/client-ts/adapters/node-process-control.ts",
+    declaration: "member:probe.try",
+    host: "Node ProcessControl host acquisition",
+    construct: processKill,
     occurrence: 0
   }),
   Object.freeze({

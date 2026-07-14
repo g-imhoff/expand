@@ -21,7 +21,10 @@ const BACKEND_START_DEADLINE = "30 seconds"
 
 const awaitEndpoint = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const))),
-  Effect.retry(Schedule.spaced("100 millis")),
+  Effect.retry({
+    schedule: Schedule.spaced("100 millis"),
+    while: (error) => error === "pending"
+  }),
   Effect.timeoutOrElse({
     duration: BACKEND_START_DEADLINE,
     orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))

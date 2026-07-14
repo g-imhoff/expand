@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Layer, Option } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 const run = <A, E>(eff: Effect.Effect<A, E, TestContext.Services>) =>
-  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeTestAppContext(dir)))))
+  Effect.runPromise(Effect.provide(eff, Layer.mergeAll(ProcessServices.discoveryLayer, Layer.succeed(AppContext, makeTestAppContext(dir)))))
 
 const writeEndpoint = (pid: number, protocolVersion = PROTOCOL_VERSION) =>
   writeFileSync(
@@ -30,16 +30,16 @@ describe("readEndpoint", () => {
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns Some for a live pid", async () => {
-    writeEndpoint(process.pid) // self -> alive
+    writeEndpoint(ProcessServices.alivePid)
     const r = await run(readEndpoint)
     expect(Option.isSome(r)).toBe(true)
   })
   it("returns None for a dead pid (stale file)", async () => {
-    writeEndpoint(2147483647) // out-of-range pid -> ESRCH -> treated as dead
+    writeEndpoint(2147483647)
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for a protocol-version mismatch", async () => {
-    writeEndpoint(process.pid, PROTOCOL_VERSION + 1)
+    writeEndpoint(ProcessServices.alivePid, PROTOCOL_VERSION + 1)
     expect(Option.isNone(await run(readEndpoint))).toBe(true)
   })
   it("returns None for malformed JSON", async () => {
@@ -59,7 +59,7 @@ const makeTestAppContext = (dataDir: string, cwd = dataDir) =>
   )
 
 namespace TestContext {
-  export type Services = NodeServices.NodeServices | AppContext
+  export type Services = ProcessServices | AppContext
 }
 
 function join(...paths: ReadonlyArray<string>): string {

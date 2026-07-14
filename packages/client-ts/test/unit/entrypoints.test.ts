@@ -11,6 +11,7 @@ import * as server from "@expand/client-ts/server"
 import type {
   BackendCommandError,
   BackendUnavailable,
+  ProcessStatus,
   RuntimeAdapter
 } from "@expand/client-ts"
 
@@ -50,7 +51,10 @@ describe("scoped entrypoints", () => {
     expect(root.readEndpoint).toBeDefined()
     expect(root.BackendCommandError).toBeDefined()
     expect(root.BackendUnavailable).toBeDefined()
+    expect(root.ProcessControl).toBeDefined()
+    expect(root.ProcessProbeError).toBeDefined()
     expect(root.SequencedEvent).toBeDefined()
+    expectTypeOf<ProcessStatus>().toEqualTypeOf<"alive" | "dead" | "inaccessible">()
   })
 
   it("exposes Effect-native backend command and spawn contracts", () => {
@@ -64,6 +68,8 @@ describe("scoped entrypoints", () => {
 
   it("exposes Node as the sole platform adapter", () => {
     expect(nodeAdapter.makeNodeAdapter).toBeDefined()
+    expect(nodeAdapter.nodeProcessControlLayer).toBeDefined()
+    expect(nodeAdapter.ProcessServices).toBeDefined()
     expect(Object.keys(packageJson.exports).filter((entry) => entry.startsWith("./adapters/"))).toEqual([
       "./adapters/node"
     ])

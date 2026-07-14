@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 import { Duration, Effect, Fiber, Option, Schedule, Layer } from "effect"
 import type { Scope } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import type { ExpandRpcClientApi } from "@expand/client-ts"
@@ -57,7 +57,11 @@ export const withServer = <A>(
       Effect.timeoutOrElse({ duration: "30 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
     )
     return { wallMs: Duration.toMillis(elapsed), result: out.result }
-  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeBenchAppContext(dir))))
+  }).pipe(
+    Effect.scoped,
+    Effect.provide(ProcessServices.layer),
+    Effect.provide(Layer.succeed(AppContext, makeBenchAppContext(dir)))
+  )
   // no cast: if the environment is not fully provided, runPromise must fail to typecheck
   return Effect.runPromise(program).finally(() => rmSync(dir, { recursive: true, force: true }))
 }

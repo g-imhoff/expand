@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "../process-services"
 import { Effect, Fiber, Layer } from "effect"
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -219,7 +219,7 @@ describe("client spawn lock", () => {
 
     await Effect.runPromise(
       findOrSpawnBackend(adapter).pipe(
-        Effect.provide(NodeServices.layer),
+        Effect.provide(ProcessServices.layer),
         Effect.provide(Layer.succeed(AppContext, context))
       )
     )
@@ -238,7 +238,7 @@ describe("client spawn lock", () => {
 
     await Effect.runPromise(
       Effect.result(findOrSpawnBackend(adapter)).pipe(
-        Effect.provide(NodeServices.layer),
+        Effect.provide(ProcessServices.layer),
         Effect.provide(Layer.succeed(AppContext, context))
       )
     )
@@ -260,7 +260,7 @@ describe("client spawn lock", () => {
         Effect.gen(function* () {
           const fiber = yield* Effect.forkChild(
             findOrSpawnBackend(adapter).pipe(
-              Effect.provide(NodeServices.layer),
+              Effect.provide(ProcessServices.layer),
               Effect.provide(Layer.succeed(AppContext, context))
             )
           )

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Fiber, Option, Schedule, Layer } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
@@ -49,7 +49,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -84,7 +84,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
@@ -120,7 +120,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       restore: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<unknown> }
@@ -148,7 +148,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -185,7 +185,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
     const r = (await Effect.runPromise(program)) as {
       results: ReadonlyArray<{ _tag: string }>
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }

@@ -3,7 +3,7 @@ import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { Effect } from "effect"
-export { clientLayer } from "./node-app-context"
+export { clientLayer } from "./client-layer"
 
 export const adapter = makeNodeAdapter({
   backendCommand: Effect.suspend(() => {

@@ -15,6 +15,8 @@ export interface NodeAdapterOptions {
   >
 }
 
+export { nodeProcessControlLayer, ProcessServices } from "./node-process-control"
+
 export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
   const spawnBackend = (dataDir: string) =>
     Effect.flatMap(resolveCommand(opts.backendCommand), (cmd) =>

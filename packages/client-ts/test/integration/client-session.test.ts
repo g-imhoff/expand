@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
-import { NodeHttpServer, NodeServices } from "@effect/platform-node"
+import { HttpServerServices, ProcessServices } from "../process-services"
 import { createServer } from "node:http"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -78,7 +78,7 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
       Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
       Layer.provide(RpcSerialization.layerNdjson)
     )
-    const node = NodeHttpServer.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
+    const node = HttpServerServices.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
     const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
       Layer.provide(node)
     )
@@ -163,7 +163,7 @@ const openSession = async (
   const context = await Effect.runPromise(
     Layer.build(
       ClientSessionLayer(adapter).pipe(
-        Layer.provide(NodeServices.layer),
+        Layer.provide(ProcessServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
     ).pipe(Scope.provide(scope))
@@ -202,7 +202,7 @@ const runInternalAcquireRetryScenario = async () => {
       Effect.gen(function* () {
         const context = yield* Layer.build(
           ClientSessionLayer(adapter).pipe(
-            Layer.provide(NodeServices.layer),
+            Layer.provide(ProcessServices.layer),
             Layer.provide(Layer.succeed(AppContext, backend.appContext))
           )
         )
@@ -402,7 +402,7 @@ describe("ClientSession", () => {
         Effect.scoped(
           Layer.build(
             ClientSessionLayer(failingAdapter).pipe(
-              Layer.provide(NodeServices.layer),
+              Layer.provide(ProcessServices.layer),
               Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
             )
           )

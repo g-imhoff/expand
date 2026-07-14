@@ -2,7 +2,7 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
-import { clientLayer } from "./node-app-context"
+import { clientLayer } from "./client-layer"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 

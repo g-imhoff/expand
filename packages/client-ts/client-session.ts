@@ -14,6 +14,7 @@ import {
 import type { FileSystem, Scope } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
 import type { AppContext } from "@expand/contracts/app-context"
+import type { ProcessControl } from "@expand/contracts/process-control"
 import type { RuntimeAdapter } from "./adapter"
 import { BackendUnavailable } from "./errors"
 import { acquireClient, type ExpandRpcClientApi } from "./rpc-client"
@@ -33,7 +34,11 @@ export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
 export const ClientSessionLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ClientSession, BackendUnavailable, FileSystem.FileSystem | AppContext> =>
+): Layer.Layer<
+  ClientSession,
+  BackendUnavailable,
+  FileSystem.FileSystem | AppContext | ProcessControl
+> =>
   Layer.effect(ClientSession, makeSession(adapter))
 
 const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
@@ -112,7 +117,11 @@ const currentClient = <A>(
 
 const makeSession = (
   adapter: RuntimeAdapter
-): Effect.Effect<ClientSessionApi, BackendUnavailable, FileSystem.FileSystem | Scope.Scope | AppContext> =>
+): Effect.Effect<
+  ClientSessionApi,
+  BackendUnavailable,
+  FileSystem.FileSystem | Scope.Scope | AppContext | ProcessControl
+> =>
   Effect.gen(function* () {
     const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")
     const clients = yield* SubscriptionRef.make<ExpandRpcClientApi | null>(null)

@@ -1,6 +1,6 @@
 import { createContext } from "react"
 import { Layer, ManagedRuntime } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { Effect } from "effect"
@@ -24,7 +24,7 @@ export const RuntimeContext = createContext<ExpandRuntime | null>(null)
 
 export const makeProductionRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(NodeServices.layer))
+    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(ProcessServices.layer))
   )
 
 const backendCommand = Effect.suspend(() => {

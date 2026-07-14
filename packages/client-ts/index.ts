@@ -52,6 +52,12 @@ export { withClient } from "./with-client"
 
 // Platform (adapter seam — type only)
 export type { RuntimeAdapter } from "./adapter"
+export {
+  ProcessControl,
+  ProcessProbeError,
+  type ProcessControlShape,
+  type ProcessStatus
+} from "@expand/contracts/process-control"
 
 // Errors (transport-level; domain errors live on the domain subpaths)
 export { BackendCommandError, BackendUnavailable } from "./errors"
