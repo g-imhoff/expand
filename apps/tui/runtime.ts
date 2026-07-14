@@ -3,6 +3,7 @@ import { Layer, ManagedRuntime } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
+import { Effect } from "effect"
 import {
   ClientLayer,
   ClientSession,
@@ -26,7 +27,7 @@ export const makeProductionRuntime = (): ExpandRuntime =>
     clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(NodeServices.layer))
   )
 
-const backendCommand = (): ReadonlyArray<string> => {
+const backendCommand = Effect.suspend(() => {
   const sourceEntry = join(fileURLToPath(import.meta.url), "..", "..", "server", "main.ts")
   return resolveBackendCommand({
     execPath: process.execPath,
@@ -34,7 +35,7 @@ const backendCommand = (): ReadonlyArray<string> => {
     sourceEntry,
     binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
   })
-}
+})
 
 const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
   ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))

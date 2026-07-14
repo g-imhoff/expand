@@ -10,7 +10,7 @@ import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 let dir: string
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
 })
 
 beforeEach(() => {

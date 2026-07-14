@@ -45,7 +45,7 @@ const endpointPid = (): number | undefined => {
 describe.sequential("ProjectSync integration", () => {
   it("folds a mutation from one client into another client's sink", async () => {
     const adapter = makeNodeAdapter({
-      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+      backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
     })
     const layer = ClientLayer(adapter).pipe(
       Layer.provide(NodeServices.layer),
@@ -106,7 +106,7 @@ describe.sequential("ProjectSync integration", () => {
 
   it("resnapshots after ClientLayer kills and reacquires the backend", async () => {
     const adapter = makeNodeAdapter({
-      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+      backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
     })
     const layer = ClientLayer(adapter).pipe(
       Layer.provide(NodeServices.layer),

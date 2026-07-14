@@ -26,7 +26,7 @@ import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
 })
 
 let dir: string

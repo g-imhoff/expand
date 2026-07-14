@@ -1,5 +1,11 @@
 import { Data } from "effect"
 
+export class BackendCommandError extends Data.TaggedError("BackendCommandError")<{
+  readonly reason: "invalid-override" | "source-check-failed" | "not-configured"
+  readonly detail: string
+  readonly cause?: unknown
+}> {}
+
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string
 }> {}

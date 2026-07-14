@@ -3,11 +3,16 @@ import { Effect, Layer } from "effect"
 import { Socket } from "effect/unstable/socket"
 import { WebSocket as WS } from "ws"
 import { spawn } from "node:child_process"
+import type { FileSystem } from "effect"
 import type { RuntimeAdapter } from "../adapter"
-import { BackendUnavailable } from "../errors"
+import { BackendUnavailable, type BackendCommandError } from "../errors"
 
 export interface NodeAdapterOptions {
-  readonly backendCommand: ReadonlyArray<string> | (() => ReadonlyArray<string>)
+  readonly backendCommand: Effect.Effect<
+    ReadonlyArray<string>,
+    BackendCommandError,
+    FileSystem.FileSystem
+  >
 }
 
 export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
@@ -48,9 +53,10 @@ const protocolLayer = (url: string) =>
   )
 
 const resolveCommand = (
-  configured: ReadonlyArray<string> | (() => ReadonlyArray<string>)
-): Effect.Effect<ReadonlyArray<string>, BackendUnavailable> =>
-  Effect.try({
-    try: () => (typeof configured === "function" ? configured() : configured),
-    catch: (e) => new BackendUnavailable({ reason: `invalid backend command: ${String(e)}` })
-  })
+  configured: Effect.Effect<ReadonlyArray<string>, BackendCommandError, FileSystem.FileSystem>
+): Effect.Effect<ReadonlyArray<string>, BackendUnavailable, FileSystem.FileSystem> =>
+  configured.pipe(
+    Effect.mapError((error) => new BackendUnavailable({
+      reason: `invalid backend command: ${error.reason}: ${error.detail}`
+    }))
+  )

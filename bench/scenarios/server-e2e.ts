@@ -23,7 +23,7 @@ export interface E2eRun<A> {
 }
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
 })
 
 // Boot a real server on dbPath, run `use` over a connected client, then let the

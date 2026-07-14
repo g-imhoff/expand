@@ -19,7 +19,7 @@ const acquireControl = vi.hoisted(() => ({
   pause: undefined as (() => Promise<void>) | undefined
 }))
 
-const nodeAdapter = makeNodeAdapter({ backendCommand: [] })
+const nodeAdapter = makeNodeAdapter({ backendCommand: Effect.succeed([]) })
 
 vi.mock("../../rpc-client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../rpc-client")>()

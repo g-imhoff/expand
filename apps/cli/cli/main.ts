@@ -28,15 +28,17 @@ export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | Server
   )
 }
 
-export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand })))
+export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand: backendCommand() })))
 
-function backendCommand(): ReadonlyArray<string> {
-  const sourceEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts")
-  return resolveBackendCommand({
-    execPath: process.execPath,
-    runtimeArgs: ["--import", "tsx"],
-    sourceEntry,
-    binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
+function backendCommand() {
+  return Effect.suspend(() => {
+    const sourceEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts")
+    return resolveBackendCommand({
+      execPath: process.execPath,
+      runtimeArgs: ["--import", "tsx"],
+      sourceEntry,
+      binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
+    })
   })
 }
 

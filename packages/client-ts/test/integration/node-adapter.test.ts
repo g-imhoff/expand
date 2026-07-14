@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { ManagedRuntime, Layer } from "effect"
+import { Effect, Layer } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
+import { it as effectIt } from "@effect/vitest"
 import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -17,26 +18,25 @@ afterEach(() => {
 })
 
 describe("Node adapter", () => {
-  it("spawns + connects + creates via ws transport", async () => {
+  effectIt.live("spawns + connects + creates via ws transport", () => {
     const adapter = makeNodeAdapter({
-      backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+      backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
     })
-    const rt = ManagedRuntime.make(
-      ProjectClientLayer(adapter).pipe(
-        Layer.provide(NodeServices.layer),
-        Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
-      )
-    )
-    try {
-      const client = await rt.runPromise(ProjectClient)
-      const created = await rt.runPromise(client.create({ name: "via-node", ensure: false }))
+    return Effect.gen(function*() {
+      const client = yield* ProjectClient
+      const created = yield* client.create({ name: "via-node", ensure: false })
       expect(created.project.name).toBe("via-node")
 
-      const list = await rt.runPromise(client.list({ includeArchived: true }))
+      const list = yield* client.list({ includeArchived: true })
       expect(list.projects.map((project) => project.name)).toContain("via-node")
-    } finally {
-      await rt.dispose()
-    }
+    }).pipe(
+      Effect.provide(
+        ProjectClientLayer(adapter).pipe(
+          Layer.provide(NodeServices.layer),
+          Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
+        )
+      )
+    )
   })
 })
 

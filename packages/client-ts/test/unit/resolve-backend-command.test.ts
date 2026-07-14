@@ -1,86 +1,167 @@
-import { describe, expect, it } from "vitest"
-import { fileURLToPath } from "node:url"
-import { resolveBackendCommand } from "../../index"
+import { it } from "@effect/vitest"
+import { ConfigProvider, Effect, FileSystem, PlatformError } from "effect"
+import { describe, expect, expectTypeOf } from "vitest"
+import {
+  resolveBackendCommand,
+  type BackendCommandError,
+  type ResolveBackendCommandOptions
+} from "../../index"
 
-// A file that definitely exists and looks runnable: this very test module.
-const realSource = fileURLToPath(import.meta.url)
-// A path that does not exist on disk.
-const missingSource = fileURLToPath(new URL("./does-not-exist.ts", import.meta.url))
+const configLayer = (value: unknown = {}) =>
+  ConfigProvider.layer(ConfigProvider.fromUnknown(value))
+
+const fileSystemLayer = (exists: FileSystem.FileSystem["exists"]) =>
+  FileSystem.layerNoop({ exists })
 
 describe("resolveBackendCommand", () => {
-  describe("EXPAND_BACKEND_CMD override", () => {
-    it("parses a JSON string array and returns it verbatim (wins over defaults)", () => {
-      const cmd = resolveBackendCommand({
-        env: { EXPAND_BACKEND_CMD: '["my-server","--flag"]' },
-        sourceEntry: realSource,
-        binaryArgs: ["ignored"]
-      })
-      expect(cmd).toEqual(["my-server", "--flag"])
-    })
-
-    it("throws a clear error on malformed JSON (fallback)", () => {
-      expect(() => resolveBackendCommand({ env: { EXPAND_BACKEND_CMD: "not json" } })).toThrow(
-        "EXPAND_BACKEND_CMD must be a JSON array of strings"
-      )
-    })
-
-    it("throws when the JSON is not an array of strings", () => {
-      expect(() => resolveBackendCommand({ env: { EXPAND_BACKEND_CMD: '["ok", 3]' } })).toThrow(
-        "EXPAND_BACKEND_CMD must be a JSON array of strings"
-      )
-      expect(() => resolveBackendCommand({ env: { EXPAND_BACKEND_CMD: '{"cmd":"x"}' } })).toThrow(
-        "EXPAND_BACKEND_CMD must be a JSON array of strings"
-      )
-    })
-
-    it("ignores an empty override and falls through to the default", () => {
-      const cmd = resolveBackendCommand({ env: { EXPAND_BACKEND_CMD: "" }, binaryArgs: ["fallback"] })
-      expect(cmd).toEqual(["fallback"])
-    })
+  it.effect("uses a non-empty override before source and compiled commands", () => {
+    let fileSystemReads = 0
+    return resolveBackendCommand({
+      execPath: "node",
+      sourceEntry: "/source/server.ts",
+      binaryArgs: ["compiled"]
+    }).pipe(
+      Effect.provide(configLayer({ EXPAND_BACKEND_CMD: '["my-server","--flag"]' })),
+      Effect.provide(fileSystemLayer(() => Effect.sync(() => {
+        fileSystemReads += 1
+        return true
+      }))),
+      Effect.tap((command) => Effect.sync(() => {
+        expect(command).toEqual(["my-server", "--flag"])
+        expect(fileSystemReads).toBe(0)
+      }))
+    )
   })
 
-  describe("source-vs-compiled default derivation", () => {
-    it("uses source mode when the entry exists and looks runnable", () => {
-      const cmd = resolveBackendCommand({ env: {}, sourceEntry: realSource, binaryArgs: ["compiled"] })
-      expect(cmd).toEqual([process.execPath, realSource])
-    })
+  it.effect("reports malformed JSON in the typed error channel", () =>
+    resolveBackendCommand({ execPath: "node", binaryArgs: ["fallback"] }).pipe(
+      Effect.provide(configLayer({ EXPAND_BACKEND_CMD: "{" })),
+      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error._tag).toBe("BackendCommandError")
+        expect(error.reason).toBe("invalid-override")
+      }))
+    ))
 
-    it("appends sourceArgs after the source entry", () => {
-      const cmd = resolveBackendCommand({ env: {}, sourceEntry: realSource, sourceArgs: ["server"] })
-      expect(cmd).toEqual([process.execPath, realSource, "server"])
-    })
-
-    it("places Node runtime arguments before the TypeScript source entry", () => {
-      const cmd = resolveBackendCommand({
-        env: {},
-        execPath: "node",
-        runtimeArgs: ["--import", "tsx"],
-        sourceEntry: realSource,
-        sourceArgs: ["server"]
-      })
-      expect(cmd).toEqual(["node", "--import", "tsx", realSource, "server"])
-    })
-
-    it("uses an explicit execPath for the source-mode command", () => {
-      const cmd = resolveBackendCommand({ env: {}, execPath: "node", sourceEntry: realSource, sourceArgs: ["server"] })
-      expect(cmd).toEqual(["node", realSource, "server"])
-    })
-
-    it("falls back to binaryArgs when the source entry does not exist", () => {
-      const cmd = resolveBackendCommand({ env: {}, sourceEntry: missingSource, binaryArgs: ["expand-server"] })
-      expect(cmd).toEqual(["expand-server"])
-    })
-
-    it("falls back to binaryArgs when no sourceEntry is given", () => {
-      const cmd = resolveBackendCommand({ env: {}, binaryArgs: ["node", "/abs/apps/server/main.ts"] })
-      expect(cmd).toEqual(["node", "/abs/apps/server/main.ts"])
-    })
-
-    it("throws when nothing resolves a command", () => {
-      expect(() => resolveBackendCommand({ env: {} })).toThrow("no backend command configured")
-      expect(() => resolveBackendCommand({ env: {}, sourceEntry: missingSource })).toThrow(
-        "no backend command configured"
+  it.effect("reports non-string override arrays in the typed error channel", () =>
+    Effect.forEach(['["ok",3]', '{"cmd":"x"}'], (override) =>
+      resolveBackendCommand({ binaryArgs: ["fallback"] }).pipe(
+        Effect.provide(configLayer({ EXPAND_BACKEND_CMD: override })),
+        Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+        Effect.flip
       )
+    ).pipe(
+      Effect.tap((errors) => Effect.sync(() => {
+        expect(errors.map((error) => error.reason)).toEqual(["invalid-override", "invalid-override"])
+      }))
+    ))
+
+  it.effect("reports an empty override array in the typed error channel", () =>
+    resolveBackendCommand({ binaryArgs: ["fallback"] }).pipe(
+      Effect.provide(configLayer({ EXPAND_BACKEND_CMD: "[]" })),
+      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error.reason).toBe("invalid-override")
+      }))
+    ))
+
+  it.effect("ignores an empty override string", () =>
+    resolveBackendCommand({ binaryArgs: ["fallback"] }).pipe(
+      Effect.provide(configLayer({ EXPAND_BACKEND_CMD: "" })),
+      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.tap((command) => Effect.sync(() => {
+        expect(command).toEqual(["fallback"])
+      }))
+    ))
+
+  it.effect("uses source mode when the source entry exists", () =>
+    resolveBackendCommand({
+      execPath: "node",
+      runtimeArgs: ["--import", "tsx"],
+      sourceEntry: "/source/server.ts",
+      sourceArgs: ["server"],
+      binaryArgs: ["compiled"]
+    }).pipe(
+      Effect.provide(configLayer()),
+      Effect.provide(fileSystemLayer((path) => Effect.succeed(path === "/source/server.ts"))),
+      Effect.tap((command) => Effect.sync(() => {
+        expect(command).toEqual(["node", "--import", "tsx", "/source/server.ts", "server"])
+      }))
+    ))
+
+  it.effect("uses the compiled fallback when the source entry is missing", () =>
+    resolveBackendCommand({
+      execPath: "node",
+      sourceEntry: "/source/missing.ts",
+      binaryArgs: ["expand-server"]
+    }).pipe(
+      Effect.provide(configLayer()),
+      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.tap((command) => Effect.sync(() => {
+        expect(command).toEqual(["expand-server"])
+      }))
+    ))
+
+  it.effect("uses the compiled fallback without consulting the filesystem when source mode is absent", () => {
+    let fileSystemReads = 0
+    return resolveBackendCommand({ binaryArgs: ["node", "/compiled/server.js"] }).pipe(
+      Effect.provide(configLayer()),
+      Effect.provide(fileSystemLayer(() => Effect.sync(() => {
+        fileSystemReads += 1
+        return false
+      }))),
+      Effect.tap((command) => Effect.sync(() => {
+        expect(command).toEqual(["node", "/compiled/server.js"])
+        expect(fileSystemReads).toBe(0)
+      }))
+    )
+  })
+
+  it.effect("reports filesystem failures in the typed error channel", () => {
+    const cause = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "exists",
+      pathOrDescriptor: "/source/server.ts"
     })
+    return resolveBackendCommand({ execPath: "node", sourceEntry: "/source/server.ts" }).pipe(
+      Effect.provide(configLayer()),
+      Effect.provide(fileSystemLayer(() => Effect.fail(cause))),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error.reason).toBe("source-check-failed")
+        expect(error.cause).toBe(cause)
+      }))
+    )
+  })
+
+  it.effect("reports an absent command in the typed error channel", () =>
+    resolveBackendCommand({}).pipe(
+      Effect.provide(configLayer()),
+      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toMatchObject({
+          _tag: "BackendCommandError",
+          reason: "not-configured",
+          detail: "no backend command configured"
+        })
+      }))
+    ))
+
+  it("requires an explicit execPath for source-mode options", () => {
+    expectTypeOf<{ readonly sourceEntry: string }>().not.toMatchTypeOf<ResolveBackendCommandOptions>()
+    expectTypeOf<{
+      readonly sourceEntry: string
+      readonly execPath: string
+    }>().toMatchTypeOf<ResolveBackendCommandOptions>()
+  })
+
+  it("exposes the resolver's Effect contract", () => {
+    expectTypeOf(resolveBackendCommand({ binaryArgs: ["expand-server"] })).toMatchTypeOf<
+      Effect.Effect<ReadonlyArray<string>, BackendCommandError, FileSystem.FileSystem>
+    >()
   })
 })

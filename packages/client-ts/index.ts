@@ -54,7 +54,7 @@ export { withClient } from "./with-client"
 export type { RuntimeAdapter } from "./adapter"
 
 // Errors (transport-level; domain errors live on the domain subpaths)
-export { BackendUnavailable } from "./errors"
+export { BackendCommandError, BackendUnavailable } from "./errors"
 export type RpcClientError = RpcClientErrorNS.RpcClientError
 
 // Advanced / plumbing — rarely needed directly

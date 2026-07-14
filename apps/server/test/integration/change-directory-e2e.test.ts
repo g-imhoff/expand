@@ -11,7 +11,7 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
 })
 
 let dir: string
