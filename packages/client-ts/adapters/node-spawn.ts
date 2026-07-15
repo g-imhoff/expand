@@ -13,9 +13,9 @@ export const spawnResolvedBackend = Effect.fn("NodeAdapter.spawnResolvedBackend"
   const [executable, ...configuredArgs] = command
   const renderedCommand = command.join(" ") || "<empty>"
   if (executable === undefined) {
-    return yield* Effect.fail(new BackendUnavailable({
+    return yield* new BackendUnavailable({
       reason: `spawn failed: ${renderedCommand}: command is empty`
-    }))
+    })
   }
 
   const mapPlatformError = (error: unknown) => new BackendUnavailable({
