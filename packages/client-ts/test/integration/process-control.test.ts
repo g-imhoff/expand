@@ -30,6 +30,7 @@ import { acquireClient, type ExpandRpcClientApi } from "../../rpc-client"
 import { ServerClient, ServerClientLayer } from "../../server/client"
 import { findOrSpawnBackend } from "../../spawn"
 import { acquireSpawnLock, type SpawnLockLease } from "../../spawn-lock"
+import { withClient } from "../../with-client"
 import { ProcessServices } from "../process-services"
 
 describe("process control integration", () => {
@@ -161,6 +162,15 @@ describe("process control integration", () => {
         { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
         BackendUnavailable,
         FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
+      >
+    >()
+    const use = (_client: ExpandRpcClientApi): Effect.Effect<42, "use-failure", ProjectClient> =>
+      Effect.succeed(42)
+    expectTypeOf(withClient(nodeAdapter, use)).toEqualTypeOf<
+      Effect.Effect<
+        42,
+        BackendUnavailable | "use-failure",
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl | ProjectClient
       >
     >()
     expectTypeOf(ClientSessionLayer(nodeAdapter)).toEqualTypeOf<

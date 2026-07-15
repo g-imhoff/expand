@@ -14,7 +14,7 @@ import type { RuntimeAdapter } from "./adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-export const acquireClient = (
+export const acquireClient = Effect.fn("Client.acquireClient")((
   adapter: RuntimeAdapter
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
@@ -67,7 +67,7 @@ export const acquireClient = (
     ),
     Effect.catchTag("StaleEndpoint", (e) => Effect.fail(new BackendUnavailable({ reason: e.reason })))
   )
-}
+})
 
 const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`

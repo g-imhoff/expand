@@ -18,27 +18,29 @@ export interface NodeAdapterOptions {
 export { nodeProcessControlLayer, ProcessServices } from "./node-process-control"
 
 export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
-  const spawnBackend = (dataDir: string) =>
-    Effect.flatMap(resolveCommand(opts.backendCommand), (cmd) =>
-      Effect.callback<void, BackendUnavailable>((resume) => {
-        const [head, ...rest] = cmd
-        const args = [...rest, "--data-dir", dataDir]
-        const command = cmd.join(" ") || "<empty>"
-        const fail = (e: unknown) => {
-          resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${command}: ${String(e)}` })))
-        }
-        try {
-          const child = spawn(head!, args, { stdio: "ignore", env: process.env })
-          child.once("error", fail)
-          child.once("spawn", () => {
-            child.unref()
-            resume(Effect.void)
-          })
-        } catch (e) {
-          fail(e)
-        }
-      })
-    )
+  const spawnBackend = Effect.fn("NodeAdapter.spawnBackend")(function* spawnBackend(
+    dataDir: string
+  ) {
+    const cmd = yield* resolveCommand(opts.backendCommand)
+    yield* Effect.callback<void, BackendUnavailable>((resume) => {
+      const [head, ...rest] = cmd
+      const args = [...rest, "--data-dir", dataDir]
+      const command = cmd.join(" ") || "<empty>"
+      const fail = (e: unknown) => {
+        resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${command}: ${String(e)}` })))
+      }
+      try {
+        const child = spawn(head!, args, { stdio: "ignore", env: process.env })
+        child.once("error", fail)
+        child.once("spawn", () => {
+          child.unref()
+          resume(Effect.void)
+        })
+      } catch (e) {
+        fail(e)
+      }
+    })
+  })
   return { protocolLayer, spawnBackend }
 }
 
@@ -54,7 +56,7 @@ const protocolLayer = (url: string) =>
     Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(wsConstructor)))
   )
 
-const resolveCommand = (
+const resolveCommand = Effect.fn("NodeAdapter.resolveCommand")((
   configured: Effect.Effect<ReadonlyArray<string>, BackendCommandError, FileSystem.FileSystem>
 ): Effect.Effect<ReadonlyArray<string>, BackendUnavailable, FileSystem.FileSystem> =>
   configured.pipe(
@@ -62,3 +64,4 @@ const resolveCommand = (
       reason: `invalid backend command: ${error.reason}: ${error.detail}`
     }))
   )
+)
