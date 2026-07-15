@@ -104,7 +104,7 @@ Zustand dependency.
 - a status stream,
 - a list effect returning `{ projects, seq }`,
 - an events function accepting `{ fromSeq }`, and
-- sink functions for status and complete snapshots.
+- Effect-valued sink functions for status and complete snapshots.
 
 For every connected epoch it performs:
 
@@ -132,6 +132,8 @@ the sink to `"reconnecting"` and start a complete list-and-events retry loop
 with capped backoff. The first successful fresh snapshot restores
 `"connected"`. Status-stream failure remains in the `runProjectSync` error
 channel so the owner of the synchronization fiber can observe it.
+Sink failures propagate to that owner immediately and do not enter the source
+retry schedule.
 
 ## Application ownership
 

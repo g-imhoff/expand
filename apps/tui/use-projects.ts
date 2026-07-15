@@ -26,8 +26,8 @@ export const useProjects = () => {
             events: ({ fromSeq }) => client.events({ fromSeq })
           },
           {
-            snapshot: setSnapshot,
-            status: () => undefined
+            snapshot: (snapshot) => Effect.sync(() => setSnapshot(snapshot)),
+            status: () => Effect.void
           }
         )
       })

@@ -109,8 +109,8 @@ const source = {
 }
 
 yield* runProjectSync(source, {
-  status: setStatus,
-  snapshot: setSnapshot
+  status: (status) => Effect.sync(() => setStatus(status)),
+  snapshot: (snapshot) => Effect.sync(() => setSnapshot(snapshot))
 })
 ```
 
@@ -133,6 +133,8 @@ ends cleanly while the source still reports a connected session. It publishes
 and publishes `"connected"` after a fresh snapshot succeeds. A failure of the
 source status stream is owner-visible instead: it fails `runProjectSync` so the
 application supervising the synchronization fiber can surface it.
+Sink callbacks are Effects and remain part of the serial delivery path. A sink
+failure propagates to that same owner without entering the source retry loop.
 
 The applications deliberately choose different ownership models:
 

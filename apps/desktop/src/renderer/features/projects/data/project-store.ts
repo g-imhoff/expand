@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla"
+import { Effect } from "effect"
 import type {
   ProjectSnapshot,
   ProjectSyncSink,
@@ -21,6 +22,10 @@ export const makeProjectsStore = (): ProjectsStore =>
 export const makeProjectSyncSink = (
   store: ProjectsStore
 ): ProjectSyncSink => ({
-  snapshot: (snapshot) => store.setState(snapshot),
-  status: (status) => store.setState({ status })
+  snapshot: (snapshot) => Effect.sync(() => {
+    store.setState(snapshot)
+  }),
+  status: (status) => Effect.sync(() => {
+    store.setState({ status })
+  })
 })

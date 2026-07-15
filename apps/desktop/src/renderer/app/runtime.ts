@@ -38,10 +38,9 @@ export const boot = (
             events: rpc.events
           }, {
             status: sink.status,
-            snapshot: (snapshot) => {
-              sink.snapshot(snapshot)
-              resolveFirstSnapshot()
-            }
+            snapshot: (snapshot) => sink.snapshot(snapshot).pipe(
+              Effect.andThen(Effect.sync(() => resolveFirstSnapshot()))
+            )
           })
         )
         yield* Effect.raceFirst(

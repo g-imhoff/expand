@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
 import { Effect, Fiber, Layer, PubSub, Ref, Schema, Stream, SubscriptionRef } from "effect"
+import { describe, expect } from "vitest"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import { Project } from "@expand/contracts/project"
 import type { ProjectSnapshot } from "@expand/contracts/project-sync"
@@ -112,52 +113,49 @@ const mainLayer = (
 }
 
 describe("renderer project synchronization", () => {
-  it("resnapshots missed external changes after an upstream reconnect", async () => {
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
-          const authoritative = yield* Ref.make<ProjectSnapshot>({ projects: [alpha], seq: 1 })
-          const events = yield* PubSub.unbounded<SequencedEvent>()
-          const eventRequests: Array<{ readonly fromSeq: number }> = []
-          const { server, renderer } = makePortPair()
-          yield* Effect.forkScoped(
-            runRpcServer(server).pipe(
-              Effect.provide(mainLayer(status, authoritative, events, eventRequests))
-            )
+  it.live("resnapshots missed external changes after an upstream reconnect", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+        const authoritative = yield* Ref.make<ProjectSnapshot>({ projects: [alpha], seq: 1 })
+        const events = yield* PubSub.unbounded<SequencedEvent>()
+        const eventRequests: Array<{ readonly fromSeq: number }> = []
+        const { server, renderer } = makePortPair()
+        yield* Effect.forkScoped(
+          runRpcServer(server).pipe(
+            Effect.provide(mainLayer(status, authoritative, events, eventRequests))
           )
-          const client = yield* buildRendererClient(renderer)
-          const rpc = yield* ProjectRpc.pipe(
-            Effect.provide(ProjectRpcLayer),
-            Effect.provideService(RendererRpcClient, client)
-          )
-          const store = makeProjectsStore()
-          const syncFiber = yield* Effect.forkScoped(
-            runProjectSync({
-              status: rpc.status,
-              list: () => rpc.list({ includeArchived: true }),
-              events: rpc.events
-            }, makeProjectSyncSink(store))
-          )
-          yield* awaitStoreSeq(store, 1)
-          expect(store.getState()).toMatchObject({ projects: [alpha], seq: 1 })
-          yield* SubscriptionRef.set(status, "reconnecting")
-          yield* Ref.set(authoritative, { projects: [beta], seq: 5 })
-          expect(store.getState()).toMatchObject({ projects: [alpha], seq: 1 })
-          yield* SubscriptionRef.set(status, "connected")
-          yield* awaitStoreSeq(store, 5)
-          expect(store.getState()).toMatchObject({ projects: [beta], seq: 5 })
-          yield* awaitEventRequestCount(eventRequests, 2)
-          expect(eventRequests).toEqual([{ fromSeq: 1 }, { fromSeq: 5 }])
-          yield* Fiber.interrupt(syncFiber)
-          yield* PubSub.publish(events, {
-            seq: 6,
-            event: ProjectRenamed.make({ projectId: beta.id, name: "beta-late", occurredAt: "t6" })
-          })
-          yield* Effect.sleep("20 millis")
-          expect(store.getState()).toMatchObject({ projects: [beta], seq: 5 })
+        )
+        const client = yield* buildRendererClient(renderer)
+        const rpc = yield* ProjectRpc.pipe(
+          Effect.provide(ProjectRpcLayer),
+          Effect.provideService(RendererRpcClient, client)
+        )
+        const store = makeProjectsStore()
+        const syncFiber = yield* Effect.forkScoped(
+          runProjectSync({
+            status: rpc.status,
+            list: () => rpc.list({ includeArchived: true }),
+            events: rpc.events
+          }, makeProjectSyncSink(store))
+        )
+        yield* awaitStoreSeq(store, 1)
+        expect(store.getState()).toMatchObject({ projects: [alpha], seq: 1 })
+        yield* SubscriptionRef.set(status, "reconnecting")
+        yield* Ref.set(authoritative, { projects: [beta], seq: 5 })
+        expect(store.getState()).toMatchObject({ projects: [alpha], seq: 1 })
+        yield* SubscriptionRef.set(status, "connected")
+        yield* awaitStoreSeq(store, 5)
+        expect(store.getState()).toMatchObject({ projects: [beta], seq: 5 })
+        yield* awaitEventRequestCount(eventRequests, 2)
+        expect(eventRequests).toEqual([{ fromSeq: 1 }, { fromSeq: 5 }])
+        yield* Fiber.interrupt(syncFiber)
+        yield* PubSub.publish(events, {
+          seq: 6,
+          event: ProjectRenamed.make({ projectId: beta.id, name: "beta-late", occurredAt: "t6" })
         })
-      )
-    )
-  })
+        yield* Effect.sleep("20 millis")
+        expect(store.getState()).toMatchObject({ projects: [beta], seq: 5 })
+      })
+    ))
 })

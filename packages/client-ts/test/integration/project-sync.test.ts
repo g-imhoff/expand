@@ -61,8 +61,10 @@ describe.sequential("ProjectSync integration", () => {
       const sessionB = await runtimeB.runPromise(ClientSession)
       const snapshots: Array<ProjectSnapshot> = []
       const sink: ProjectSyncSink = {
-        snapshot: (snapshot) => snapshots.push(snapshot),
-        status: () => undefined
+        snapshot: (snapshot) => Effect.sync(() => {
+          snapshots.push(snapshot)
+        }),
+        status: () => Effect.void
       }
       const source = {
         status: SubscriptionRef.changes(sessionB.status),
@@ -128,8 +130,12 @@ describe.sequential("ProjectSync integration", () => {
             events: ({ fromSeq }) => client.events({ fromSeq })
           },
           {
-            snapshot: (snapshot) => snapshots.push(snapshot),
-            status: (status) => statuses.push(status)
+            snapshot: (snapshot) => Effect.sync(() => {
+              snapshots.push(snapshot)
+            }),
+            status: (status) => Effect.sync(() => {
+              statuses.push(status)
+            })
           }
         )
       )
