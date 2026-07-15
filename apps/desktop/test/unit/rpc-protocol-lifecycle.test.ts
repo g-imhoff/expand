@@ -26,8 +26,10 @@ import { buildRendererClient } from "@expand/desktop/renderer/rpc/transport"
 
 type MessageListener = (event: { data: unknown }) => void
 
-const makeMainLayer = Effect.fn("DesktopRpcLifecycleTest.makeMainLayer")(function* () {
-  const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+const makeMainLayer = Effect.fn("DesktopRpcLifecycleTest.makeMainLayer")(function* (
+  providedStatus?: SubscriptionRef.SubscriptionRef<ConnectionStatus>
+) {
+  const status = providedStatus ?? (yield* SubscriptionRef.make<ConnectionStatus>("connected"))
   const session: ClientSessionApi = {
     status,
     current: Effect.die("unused"),
@@ -41,7 +43,7 @@ const makeMainLayer = Effect.fn("DesktopRpcLifecycleTest.makeMainLayer")(functio
     restore: () => Effect.die("unused"),
     setMetadata: () => Effect.die("unused"),
     delete: () => Effect.die("unused"),
-    list: () => Effect.die("unused"),
+    list: () => Effect.succeed({ projects: [], seq: 0 }),
     events: () => Stream.die("unused")
   }
   return Layer.mergeAll(
@@ -53,7 +55,10 @@ const makeMainLayer = Effect.fn("DesktopRpcLifecycleTest.makeMainLayer")(functio
 
 const makeMainPort = (
   started: Queue.Queue<void>,
-  options?: { readonly startDefect?: Error | undefined }
+  options?: {
+    readonly postMessage?: ((message: unknown) => void) | undefined
+    readonly startDefect?: Error | undefined
+  }
 ) => {
   const attached: Array<MessageListener> = []
   const detached: Array<MessageListener> = []
@@ -62,7 +67,7 @@ const makeMainPort = (
   let starts = 0
   let closes = 0
   const port = {
-    postMessage: (_message: unknown) => {},
+    postMessage: (message: unknown) => { options?.postMessage?.(message) },
     on: (_event: "message", listener: MessageListener) => {
       attached.push(listener)
       active = listener
@@ -92,14 +97,17 @@ const makeMainPort = (
 
 const makeRendererPort = (
   started: Queue.Queue<void>,
-  options?: { readonly startDefect?: Error | undefined }
+  options?: {
+    readonly postMessage?: ((message: unknown) => void) | undefined
+    readonly startDefect?: Error | undefined
+  }
 ) => {
   let handler: MessageListener | null = null
   let owned: MessageListener | null = null
   let starts = 0
   let closes = 0
   const port = {
-    postMessage: (_message: unknown) => {},
+    postMessage: (message: unknown) => { options?.postMessage?.(message) },
     get onmessage() {
       return handler
     },
@@ -125,6 +133,71 @@ const makeRendererPort = (
 }
 
 describe("desktop RPC port protocol lifecycle", () => {
+  it.effect("Connect interrupts cleanly when the server owner stops", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const mainStarted = yield* Queue.unbounded<void>()
+        const rendererStarted = yield* Queue.unbounded<void>()
+        const mainMessages = yield* Queue.unbounded<unknown>()
+        const rendererMessages = yield* Queue.unbounded<unknown>()
+        const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+        const mainLayer = yield* makeMainLayer(status)
+        let renderer: ReturnType<typeof makeRendererPort>
+        const main = makeMainPort(mainStarted, {
+          postMessage: (message) => {
+            Queue.offerUnsafe(rendererMessages, structuredClone(message))
+          }
+        })
+        renderer = makeRendererPort(rendererStarted, {
+          postMessage: (message) => {
+            Queue.offerUnsafe(mainMessages, structuredClone(message))
+          }
+        })
+        yield* Effect.forever(
+          Queue.take(mainMessages).pipe(
+            Effect.tap((data) => Effect.sync(() => main.active()?.({ data })))
+          )
+        ).pipe(Effect.forkScoped)
+        yield* Effect.forever(
+          Queue.take(rendererMessages).pipe(
+            Effect.tap((data) => Effect.sync(() => renderer.handler()?.({ data })))
+          )
+        ).pipe(Effect.forkScoped)
+        const serverFiber = yield* runRpcServer(main.port).pipe(
+          Effect.provide(mainLayer),
+          Effect.scoped,
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Queue.take(mainStarted)
+        const rendererScope = yield* Scope.make()
+        yield* Effect.addFinalizer(() => Scope.close(rendererScope, Exit.void))
+        const client = yield* buildRendererClient(renderer.port).pipe(
+          Scope.provide(rendererScope)
+        )
+        yield* Queue.take(rendererStarted)
+        const values = yield* Queue.unbounded<boolean>()
+        const connectFiber = yield* client.Connect().pipe(
+          Stream.runForEach((value) => Queue.offer(values, value)),
+          Effect.forkChild({ startImmediately: true })
+        )
+
+        expect(yield* Queue.take(values)).toBe(true)
+        yield* SubscriptionRef.set(status, "reconnecting")
+        expect(yield* Queue.take(values)).toBe(false)
+        expect(yield* client.ProjectList({ includeArchived: true })).toEqual({ projects: [], seq: 0 })
+        yield* Fiber.interrupt(serverFiber)
+
+        const connectExit = yield* Fiber.join(connectFiber).pipe(Effect.exit)
+        const renderedCause = Exit.isFailure(connectExit)
+          ? Cause.pretty(connectExit.cause)
+          : ""
+        expect(renderedCause).not.toContain("Expected never")
+        expect(renderedCause).not.toContain("Done")
+        expect(Exit.isFailure(connectExit) && Cause.hasInterruptsOnly(connectExit.cause)).toBe(true)
+        yield* Scope.close(rendererScope, Exit.void)
+      })
+    ))
+
   it.effect("main owns one stable listener and closes it with the scope", () =>
     Effect.gen(function* () {
       const started = yield* Queue.unbounded<void>()
