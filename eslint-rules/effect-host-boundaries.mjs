@@ -5,7 +5,9 @@ const processCwd = ["platform:process", "cwd"].join(".")
 const processExecPath = ["platform:process", "execPath"].join(".")
 const processKill = ["platform:process", "kill"].join(".")
 const processPid = ["platform:process", "pid"].join(".")
+const processPlatform = ["platform:process", "platform"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
+const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 
 export const effectHostBoundaries = Object.freeze([
   Object.freeze({
@@ -41,6 +43,167 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "module:<module>",
+    host: "Electron main host adapter",
+    construct: "platform:import:electron",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "module:<module>",
+    host: "Electron main host adapter types",
+    construct: "platform:import:electron",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.isPackaged",
+    host: "Electron application state",
+    construct: "platform:electron.app.isPackaged",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.ready",
+    host: "Electron application readiness",
+    construct: "platform:electron.app.whenReady",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.appendSwitch",
+    host: "Electron command-line configuration",
+    construct: "platform:electron.app.commandLine.appendSwitch",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.disableHardwareAcceleration",
+    host: "Electron hardware acceleration configuration",
+    construct: "platform:electron.app.disableHardwareAcceleration",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.onBeforeQuit",
+    host: "Electron before-quit listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.onBeforeQuit",
+    host: "Electron before-quit listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.onWindowAllClosed",
+    host: "Electron window-all-closed listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.onWindowAllClosed",
+    host: "Electron window-all-closed listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:appHost.quit",
+    host: "Electron application shutdown",
+    construct: "platform:electron.app.quit",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:csp.onHeadersReceived",
+    host: "Electron response-header listener",
+    construct: "platform:electron.session.defaultSession.webRequest.onHeadersReceived",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:csp.onHeadersReceived",
+    host: "Electron response-header listener disposal",
+    construct: "platform:electron.session.defaultSession.webRequest.onHeadersReceived",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "variable:browserWindow",
+    host: "Electron browser-window construction",
+    construct: "platform:electron.BrowserWindow",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onClosed",
+    host: "Electron window-closed listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onClosed",
+    host: "Electron window-closed listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onNavigation",
+    host: "Electron navigation listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onNavigation",
+    host: "Electron navigation listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onWillNavigate",
+    host: "Electron will-navigate listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:createWindow.onWillNavigate",
+    host: "Electron will-navigate listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:deps.platform",
+    host: "Electron platform selection",
+    construct: processPlatform,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "member:deps.makeMessageChannel",
+    host: "Electron message-channel construction",
+    construct: "platform:electron.MessageChannelMain",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/main/index.ts",
+    declaration: "module:<module>",
+    host: "Electron application entrypoint",
+    construct: desktopNodeRuntimeRunMain,
     occurrence: 0
   }),
   Object.freeze({
@@ -139,6 +302,90 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/contract.ts",
+    declaration: "type:IpcBridgeOf",
+    host: "Electron renderer invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC host adapter",
+    construct: "platform:import:electron",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC host adapter types",
+    construct: "platform:import:electron",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "member:electronBindDeps.on",
+    host: "Electron IPC listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "member:electronBindDeps.on",
+    host: "Electron IPC listener disposal",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "variable:wrapper",
+    host: "Electron IPC invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "member:electronBindDeps.handle",
+    host: "Electron IPC invoke registration",
+    construct: "platform:electron.ipcMain.handle",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main-electron.ts",
+    declaration: "member:electronBindDeps.handle",
+    host: "Electron IPC invoke disposal",
+    construct: "platform:electron.ipcMain.removeHandler",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "member:IpcMainLike.handle",
+    host: "Electron IPC invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:invokeHandler",
+    host: "Electron IPC invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:runPromise",
+    host: "Electron IPC invoke Promise runtime",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:silentInvoke",
+    host: "Electron IPC silent invoke Promise ABI",
+    construct: "signature:Promise",
     occurrence: 0
   }),
   Object.freeze({

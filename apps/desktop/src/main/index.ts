@@ -1,109 +1,124 @@
-import { app, BrowserWindow, MessageChannelMain, session } from "electron"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import {
+  app,
+  BrowserWindow,
+  MessageChannelMain,
+  session
+} from "electron"
+import type {
+  Event,
+  HeadersReceivedResponse,
+  MessagePortMain,
+  OnHeadersReceivedListenerDetails,
+  WebContentsDidStartNavigationEventParams,
+  WebContentsWillNavigateEventParams
+} from "electron"
+import { NodePath, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
-import type { ClientSession } from "@expand/client-ts"
-import type { ProjectClient } from "@expand/client-ts/project"
-import type { ServerClient } from "@expand/client-ts/server"
-import { bindIpc } from "@expand/electron-ipc/main"
 import { electronBindDeps } from "@expand/electron-ipc/main-electron"
 import { makeRuntime } from "@expand/desktop/main/runtime"
-import { connectPort } from "@expand/desktop/main/rpc/transport"
-import { hardenWebContents } from "@expand/desktop/main/security/harden-web-contents"
-import { windowOptions } from "@expand/desktop/main/security/window-options"
-import { originRulesFor } from "@expand/desktop/main/ipc/origin-rules"
-import { wirePortLifecycle } from "@expand/desktop/main/ipc/port-lifecycle"
-import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
+import {
+  mainProgram,
+  type CspHost,
+  type DesktopAppHost,
+  type DesktopWindowHost,
+  type MainProgramDeps
+} from "@expand/desktop/main/program"
 
-const here = dirname(fileURLToPath(import.meta.url))
-
-if (!app.isPackaged && process.env["EXPAND_DEVTOOLS_CDP"] === "1") {
-  app.commandLine.appendSwitch("remote-debugging-port", "9222")
+const appHost: DesktopAppHost = {
+  isPackaged: app.isPackaged,
+  ready: Effect.tryPromise(() => app.whenReady()),
+  appendSwitch: (name, value) => app.commandLine.appendSwitch(name, value),
+  disableHardwareAcceleration: () => app.disableHardwareAcceleration(),
+  onBeforeQuit: (listener) => {
+    const wrapped = (event: Event) => listener(event)
+    app.on("before-quit", wrapped)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      app.off("before-quit", wrapped)
+    }
+  },
+  onWindowAllClosed: (listener) => {
+    app.on("window-all-closed", listener)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      app.off("window-all-closed", listener)
+    }
+  },
+  quit: () => app.quit()
 }
 
-// GPU-less remote dev over forwarded X11: SwiftShader software-GL wastes VPS CPU
-if (process.env["SSH_CONNECTION"]) {
-  app.disableHardwareAcceleration()
-}
-
-const runtime = makeRuntime()
-
-const devUrl = process.env["ELECTRON_RENDERER_URL"]
-const isAllowedNavigation = (url: string): boolean =>
-  devUrl ? url.startsWith(devUrl) : url.startsWith("file://")
-
-const CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
-
-const installCsp = () => {
-  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
-    cb({ responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [CSP] } })
-  })
-}
-
-const createWindow = () => {
-  const win = new BrowserWindow(windowOptions(join(here, "../preload/index.cjs")))
-
-  hardenWebContents({
-    onWillNavigate: (cb) => win.webContents.on("will-navigate", (e, url) => cb(e, url)),
-    setWindowOpenHandler: (handler) => win.webContents.setWindowOpenHandler(handler),
-    isAllowed: isAllowedNavigation
-  })
-
-  let currentTeardown: (() => Promise<void>) | undefined
-  const teardownPort = () => {
-    if (currentTeardown) {
-      void currentTeardown()
-      currentTeardown = undefined
+const csp: CspHost = {
+  onHeadersReceived: (listener) => {
+    const wrapped = (
+      details: OnHeadersReceivedListenerDetails,
+      callback: (response: HeadersReceivedResponse) => void
+    ) => listener(details, callback)
+    session.defaultSession.webRequest.onHeadersReceived(wrapped)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      session.defaultSession.webRequest.onHeadersReceived(null)
     }
   }
-
-  const { ipc, target } = electronBindDeps(win)
-  const bound = bindIpc<
-    typeof ExpandIpc,
-    ClientSession | ProjectClient | ServerClient,
-    Electron.MessagePortMain
-  >(
-    ExpandIpc,
-    {
-      rpcPort: () =>
-        Effect.sync(() => {
-          teardownPort() // supersede: a new request invalidates the previous port
-          const { port1, port2 } = new MessageChannelMain()
-          currentTeardown = connectPort({ port: port1, runtime })
-          return port2
-        })
-    },
-    {
-      ipc,
-      target,
-      originRules: originRulesFor(devUrl),
-      runPromise: (effect) => runtime.runPromise(effect),
-      log: (message) => console.warn(message)
-    }
-  )
-
-  wirePortLifecycle({
-    onNavigation: (cb) =>
-      win.webContents.on("did-start-navigation", (details) => cb({ isSameDocument: details.isSameDocument })),
-    onClosed: (cb) => win.on("closed", cb),
-    teardownPort,
-    unbind: bound.unbind
-  })
-
-  if (devUrl) win.loadURL(devUrl)
-  else win.loadFile(join(here, "../renderer/index.html"))
 }
 
-app.whenReady().then(() => {
-  if (!devUrl) installCsp()
-  createWindow()
-})
+const createWindow = (options: ConstructorParameters<typeof BrowserWindow>[0]): DesktopWindowHost<MessagePortMain> => {
+  const browserWindow = new BrowserWindow(options)
+  return {
+    ipc: electronBindDeps(browserWindow),
+    onClosed: (listener) => {
+      browserWindow.on("closed", listener)
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        browserWindow.off("closed", listener)
+      }
+    },
+    onNavigation: (listener) => {
+      const wrapped = (details: Event<WebContentsDidStartNavigationEventParams>) =>
+        listener({ isSameDocument: details.isSameDocument })
+      browserWindow.webContents.on("did-start-navigation", wrapped)
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        browserWindow.webContents.off("did-start-navigation", wrapped)
+      }
+    },
+    onWillNavigate: (listener) => {
+      const wrapped = (details: Event<WebContentsWillNavigateEventParams>) => listener(details, details.url)
+      browserWindow.webContents.on("will-navigate", wrapped)
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        browserWindow.webContents.off("will-navigate", wrapped)
+      }
+    },
+    setWindowOpenHandler: (handler) => browserWindow.webContents.setWindowOpenHandler(handler),
+    loadUrl: (url) => Effect.tryPromise(() => browserWindow.loadURL(url)),
+    loadFile: (path) => Effect.tryPromise(() => browserWindow.loadFile(path)),
+    isDestroyed: () => browserWindow.isDestroyed(),
+    destroy: () => browserWindow.destroy()
+  }
+}
 
-app.on("before-quit", () => {
-  void runtime.dispose()
-})
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit()
-})
+const deps: MainProgramDeps<MessagePortMain> = {
+  app: appHost,
+  platform: process.platform,
+  moduleUrl: new URL(import.meta.url),
+  createWindow,
+  makeMessageChannel: () => new MessageChannelMain(),
+  csp,
+  makeRuntime,
+  log: (message, cause) =>
+    cause === undefined ? Effect.logWarning(message) : Effect.logWarning(message, cause)
+}
+
+NodeRuntime.runMain(mainProgram(deps).pipe(Effect.provide(NodePath.layer)))
