@@ -10,10 +10,12 @@ import { supervised } from "@expand/desktop/main/lib/supervised"
 export interface MainPortLike {
   postMessage: (message: unknown) => void
   on: (event: "message", cb: (e: { data: unknown }) => void) => void
+  off?: (event: "message", cb: (e: { data: unknown }) => void) => void
   start: () => void
+  close?: () => void
 }
 
-export const runRpcServer = (
+export const runRpcServer = Effect.fn("DesktopMain.runRpcServer")((
   port: MainPortLike
 ): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | Scope.Scope> =>
   RpcServer.make(ExpandRpcs).pipe(
@@ -21,17 +23,29 @@ export const runRpcServer = (
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )
+)
 
-const makePortProtocol = (port: MainPortLike) =>
+const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPortLike) =>
   RpcServer.Protocol.make(
     Effect.fnUntraced(function* (writeRequest) {
       const serialization = yield* RpcSerialization.RpcSerialization
       const parser = serialization.makeUnsafe()
       const inbound = yield* Queue.make<string | Uint8Array>()
-      port.on("message", (e) => {
+      const disconnects = yield* Queue.make<number>()
+      yield* Effect.addFinalizer(() =>
+        Effect.all([Queue.shutdown(inbound), Queue.shutdown(disconnects)], { discard: true })
+      )
+      const listener = (e: { data: unknown }) => {
         Queue.offerUnsafe(inbound, e.data as string | Uint8Array)
-      })
-      port.start()
+      }
+      yield* Effect.acquireRelease(
+        Effect.sync(() => port.on("message", listener)),
+        () =>
+          Effect.sync(() => port.off?.("message", listener)).pipe(
+            Effect.ensuring(Effect.sync(() => port.close?.()))
+          )
+      )
+      yield* Effect.sync(() => port.start())
       yield* Stream.fromQueue(inbound).pipe(
         Stream.runForEach((data) => {
           const requests = parser.decode(data) as ReadonlyArray<RpcMessage.FromClientEncoded>
@@ -41,7 +55,7 @@ const makePortProtocol = (port: MainPortLike) =>
         Effect.forkScoped
       )
       return {
-        disconnects: yield* Queue.make<number>(),
+        disconnects,
         send: (_clientId: number, response) => {
           const encoded = parser.encode(response)
           return encoded === undefined ? Effect.void : Effect.sync(() => port.postMessage(encoded))
@@ -55,3 +69,4 @@ const makePortProtocol = (port: MainPortLike) =>
       }
     })
   )
+)
