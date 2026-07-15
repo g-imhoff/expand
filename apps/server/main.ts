@@ -1,7 +1,7 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
 import { nodeAppContextLayer } from "@expand/server/node-app-context"
-import { join } from "node:path"
+import type { LogLevel } from "effect"
 import * as AppContext from "@expand/contracts/app-context"
 import * as ServerApp from "@expand/server/composition/app"
 import * as StateRootLock from "@expand/server/state-root-lock"
@@ -18,9 +18,10 @@ function minimumLogLevel(): ServerLogLevel {
 
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
   const { paths } = yield* AppContext.AppContext
   yield* fs.makeDirectory(paths.logDir, { recursive: true })
-  return yield* Logger.formatLogFmt.pipe(Logger.toFile(join(paths.logDir, "server.log")))
+  return yield* Logger.formatLogFmt.pipe(Logger.toFile(path.join(paths.logDir, "server.log")))
 })
 
 const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe(
@@ -66,4 +67,4 @@ NodeRuntime.runMain(
   }
 )
 
-type ServerLogLevel = import("effect").LogLevel.LogLevel
+type ServerLogLevel = LogLevel.LogLevel
