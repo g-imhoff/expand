@@ -80,8 +80,9 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
 
 const HTTP_SHUTDOWN_GRACE = "1 second"
 
-const secureIfPresent = (fs: FileSystem.FileSystem, path: string) =>
+const secureIfPresent = Effect.fn("Server.secureIfPresent")((fs: FileSystem.FileSystem, path: string) =>
   Effect.flatMap(fs.exists(path), (present) => (present ? fs.chmod(path, 0o600) : Effect.void))
+)
 
 const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })

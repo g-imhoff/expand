@@ -191,8 +191,9 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       }))
     })
 
-    const listProjects = (includeArchived = false) =>
+    const listProjects = Effect.fn("ProjectUseCases.listProjects")((includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
+    )
 
     return { createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, deleteProject, listProjects } as const
   })

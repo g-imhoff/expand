@@ -64,6 +64,8 @@ const valid = [
   validCase("const fetch = () => 1\nconst window = {}\nconst document = {}\nconst localStorage = {}\nfetch('/')\nvoid window\nvoid document\nvoid localStorage"),
   validCase("export {}\nclass EventTarget { addEventListener() {} }\nconst target = new EventTarget()\ntarget.addEventListener()"),
   validCase('import { Effect } from "effect"\nitems.map(() => Effect.succeed(1))'),
+  validCase('import { Effect } from "effect"\nexport const handlers = { run: (value: number) => Effect.succeed(value) } satisfies Record<string, (value: number) => Effect.Effect<number>>'),
+  validCase('import { Layer } from "effect"\nexport const makeLayer = () => Layer.empty'),
   validCase("const parsed = new URL('./worker.js', import.meta.url)\nexport { parsed }"),
   withBoundaries({
     ...validCase('import { NodeRuntime } from "@effect/platform-node"\nNodeRuntime.runMain(program)'),

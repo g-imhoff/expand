@@ -3,7 +3,7 @@ import type { Endpoint } from "@expand/contracts/endpoint"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { AppContext } from "@expand/contracts/app-context"
 
-export const writeEndpointFile = (endpoint: Endpoint) =>
+export const writeEndpointFile = Effect.fn("EndpointFile.write")((endpoint: Endpoint) =>
   Effect.acquireRelease(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
@@ -21,3 +21,4 @@ export const writeEndpointFile = (endpoint: Endpoint) =>
         yield* fs.remove(file)
       }).pipe(Effect.ignore)
   )
+)

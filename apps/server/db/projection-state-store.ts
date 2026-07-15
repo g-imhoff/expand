@@ -61,21 +61,21 @@ export class ProjectionStateStore extends Context.Service<ProjectionStateStore, 
       ) STRICT
     `
 
-    const load = (name: string) =>
-      Effect.gen(function* () {
-        const rows = yield* sql<{ readonly state: string | null; readonly last_seq: number; readonly fold_version: string }>`
-          SELECT state, last_seq, fold_version FROM projection_state WHERE name = ${name}
-        `
-        const row = rows[0]
-        if (row === undefined || row.state === null) return null
-        return { state: row.state, lastSeq: row.last_seq, foldVersion: row.fold_version }
-      })
+    const load = Effect.fn("ProjectionStateStore.load")(function*(name: string) {
+      const rows = yield* sql<{ readonly state: string | null; readonly last_seq: number; readonly fold_version: string }>`
+        SELECT state, last_seq, fold_version FROM projection_state WHERE name = ${name}
+      `
+      const row = rows[0]
+      if (row === undefined || row.state === null) return null
+      return { state: row.state, lastSeq: row.last_seq, foldVersion: row.fold_version }
+    })
 
-    const save = (name: string, row: ProjectionStateRow) =>
+    const save = Effect.fn("ProjectionStateStore.save")((name: string, row: ProjectionStateRow) =>
       Effect.asVoid(sql`
         INSERT INTO projection_state ${sql.insert({ name, state: row.state, last_seq: row.lastSeq, fold_version: row.foldVersion })}
         ON CONFLICT (name) DO UPDATE SET state = excluded.state, last_seq = excluded.last_seq, fold_version = excluded.fold_version
       `)
+    )
 
     return { load, save } as const
   })
