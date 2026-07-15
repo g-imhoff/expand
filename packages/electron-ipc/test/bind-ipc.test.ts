@@ -235,6 +235,119 @@ describe("bindIpc registration and ownership", () => {
         expect(Exit.isFailure(yield* fiberExit(invokeFiber))).toBe(true)
       })
     ))
+
+  it.effect("makes retained callbacks inert when a later registration acquisition defects", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const retainedListeners = new Map<string, Listener>()
+        const retainedHandlers = new Map<string, InvokeHandler>()
+        const disposeCounts = new Map<string, number>()
+        let getterAccesses = 0
+        let loggerCalls = 0
+        let handlerCalls = 0
+        let posts = 0
+        const webContents = { id: 1 }
+        const mainFrame: FrameLike = {
+          get url() {
+            getterAccesses += 1
+            return "file:///app/index.html"
+          },
+          get detached() {
+            getterAccesses += 1
+            return false
+          }
+        }
+        const ipc: IpcMainLike = {
+          on: (channel, listener) => {
+            retainedListeners.set(channel, listener)
+            if (channel === "sample:rpcPort:request") throw new Error("registration failed")
+            return () => {
+              disposeCounts.set(channel, (disposeCounts.get(channel) ?? 0) + 1)
+            }
+          },
+          handle: (channel, handler) => {
+            retainedHandlers.set(channel, handler)
+            return () => {
+              disposeCounts.set(channel, (disposeCounts.get(channel) ?? 0) + 1)
+            }
+          }
+        }
+        const target: WindowTargetLike<string> = {
+          get webContents() {
+            getterAccesses += 1
+            return webContents
+          },
+          get mainFrame() {
+            getterAccesses += 1
+            return mainFrame
+          },
+          postToRenderer: () => {
+            posts += 1
+          }
+        }
+        const makeEvent = (sender: object): IpcMainEventLike => ({
+          get sender() {
+            getterAccesses += 1
+            return sender
+          },
+          get senderFrame() {
+            getterAccesses += 1
+            return mainFrame
+          }
+        })
+        const makePayload = (values: Record<string, unknown>) => {
+          const payload: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(values)) {
+            Object.defineProperty(payload, key, {
+              enumerable: true,
+              get: () => {
+                getterAccesses += 1
+                return value
+              }
+            })
+          }
+          return payload
+        }
+        const acquisition = yield* bindIpc(
+          Sample,
+          {
+            ping: () => Effect.sync(() => { handlerCalls += 1 }),
+            add: () => Effect.sync(() => {
+              handlerCalls += 1
+              return 3
+            }),
+            rpcPort: (_sender, grant) => Effect.sync(() => { handlerCalls += 1 }).pipe(
+              Effect.andThen(grant("PORT"))
+            )
+          },
+          {
+            ipc,
+            target,
+            originRules: [{ _tag: "fileProtocol" }],
+            log: () => Effect.sync(() => { loggerCalls += 1 })
+          }
+        ).pipe(Effect.scoped, Effect.exit)
+        expect(Exit.isFailure(acquisition)).toBe(true)
+        const goodEvent = makeEvent(webContents)
+        const evilEvent = makeEvent({ id: 666 })
+        retainedListeners.get("sample:ping")?.(goodEvent, makePayload({ at: 1 }))
+        retainedListeners.get("sample:ping")?.(evilEvent, makePayload({ at: 1 }))
+        retainedListeners.get("sample:rpcPort:request")?.(goodEvent, makePayload({ nonce: "n" }))
+        const invoke = retainedHandlers.get("sample:add")
+        expect(invoke).toBeDefined()
+        if (invoke === undefined) return
+        expect(yield* Effect.tryPromise(() => invoke(goodEvent, makePayload({ a: 1, b: 2 })))).toBeUndefined()
+        expect(yield* Effect.tryPromise(() => invoke(evilEvent, makePayload({ a: 1, b: 2 })))).toBeUndefined()
+        expect(getterAccesses).toBe(0)
+        expect(loggerCalls).toBe(0)
+        expect(handlerCalls).toBe(0)
+        expect(posts).toBe(0)
+        expect(disposeCounts).toEqual(new Map([
+          ["sample:ping", 1],
+          ["sample:add", 1]
+        ]))
+      })
+    ))
 })
 
 describe("bindIpc security pipelines", () => {
@@ -322,6 +435,16 @@ describe("bindIpc invoke", () => {
           _tag: "IpcDefect",
           message: "internal error"
         })
+      })
+    ))
+
+  it.effect("preserves interruption authored by the logger", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        yield* bindSample(h.fake, { log: () => Effect.interrupt })
+        const exit = yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: -1 }).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
       })
     ))
 })

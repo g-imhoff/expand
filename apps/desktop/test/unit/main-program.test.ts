@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { NodePath } from "@effect/platform-node"
-import { ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
+import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
 import { describe, expect } from "vitest"
 import type { IpcMainLike } from "@expand/electron-ipc/main"
 import { mainProgram, type CspHost, type MainProgramDeps } from "@expand/desktop/main/program"
@@ -16,6 +16,8 @@ interface HarnessOptions {
   readonly environment?: Record<string, string>
   readonly disposalDefect?: Error
   readonly blockDisposal?: boolean
+  readonly blockPortFinalizer?: boolean
+  readonly windowDisposalDefect?: Error
 }
 
 const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
@@ -33,6 +35,10 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const runtimeDisposed = yield* Deferred.make<void>()
   const releaseDisposal = yield* Deferred.make<void>()
   const contextStarted = yield* Deferred.make<void>()
+  const portFinalizationStarted = yield* Deferred.make<void>()
+  const releasePortFinalization = yield* Deferred.make<void>()
+  const portFinalizationDone = yield* Deferred.make<void>()
+  const windowFinalizationReached = yield* Deferred.make<void>()
   let beforeQuit: ((event: { preventDefault: () => void }) => void) | undefined
   let windowAllClosed: (() => void) | undefined
   let closed: (() => void) | undefined
@@ -44,6 +50,9 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   let finalQuitCalls = 0
   let quitRequests = 0
   let appListenerCount = 0
+  let portFinalizerStarts = 0
+  let portFinalizerCompletions = 0
+  let portCloseCalls = 0
   const ipcListeners = new Map<string, Parameters<IpcMainLike["on"]>[1]>()
   const ipcHandlers = new Map<string, Parameters<IpcMainLike["handle"]>[1]>()
   const frame = { url: "file:///app/index.html", detached: false }
@@ -69,9 +78,21 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     }
   }
   const runtime = {
-    contextEffect: Deferred.succeed(contextStarted, undefined).pipe(
-      Effect.andThen(Effect.never)
-    ),
+    contextEffect: options.blockPortFinalizer === true
+      ? Effect.scoped(
+          Effect.acquireRelease(
+            Deferred.succeed(contextStarted, undefined),
+            () => Effect.sync(() => { portFinalizerStarts += 1 }).pipe(
+              Effect.andThen(Deferred.succeed(portFinalizationStarted, undefined)),
+              Effect.andThen(waitFor(releasePortFinalization)),
+              Effect.tap(() => Effect.sync(() => { portFinalizerCompletions += 1 })),
+              Effect.tap(() => Deferred.succeed(portFinalizationDone, undefined))
+            )
+          ).pipe(Effect.andThen(Effect.never))
+        )
+      : Deferred.succeed(contextStarted, undefined).pipe(
+          Effect.andThen(Effect.never)
+        ),
     disposeEffect: Deferred.succeed(runtimeDisposed, undefined).pipe(
       Effect.tap(() => Effect.sync(() => append("runtime:dispose"))),
       Effect.andThen(options.blockDisposal === true ? waitFor(releaseDisposal) : Effect.void),
@@ -135,6 +156,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       return () => {
         if (navigation === listener) navigation = undefined
         append("window:off:navigation")
+        if (options.windowDisposalDefect !== undefined) throw options.windowDisposalDefect
       }
     },
     onWillNavigate: (listener: (event: { preventDefault: () => void }, url: string) => void) => {
@@ -155,7 +177,10 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       Effect.flatten,
       Effect.tap(() => Deferred.succeed(windowLoaded, undefined))
     ),
-    isDestroyed: () => destroyed,
+    isDestroyed: () => {
+      Deferred.doneUnsafe(windowFinalizationReached, Effect.void)
+      return destroyed
+    },
     destroy: () => {
       destroyed = true
       destroyCalls += 1
@@ -177,7 +202,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
         on: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
         off: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
         start: () => {},
-        close: () => {}
+        close: () => { portCloseCalls += 1 }
       })
       return { port1: endpoint(), port2: endpoint() }
     },
@@ -216,20 +241,33 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     appListenersReady,
     runtimeDisposed,
     contextStarted,
+    portFinalizationStarted,
+    portFinalizationDone,
+    windowFinalizationReached,
     succeedReady: Deferred.succeed(readyResult, Effect.void),
     failReady: (error: Error) => Deferred.succeed(readyResult, Effect.fail(error)),
     succeedLoad: Deferred.succeed(loadResult, Effect.void),
     failLoad: (error: Error) => Deferred.succeed(loadResult, Effect.fail(error)),
     releaseDisposal: Deferred.succeed(releaseDisposal, undefined),
+    releasePortFinalization: Deferred.succeed(releasePortFinalization, undefined),
     fireBeforeQuit,
     fireWindowAllClosed: () => { windowAllClosed?.() },
     fireClosed: () => {
       destroyed = true
       closed?.()
     },
+    fireRpcPortRequest: () => {
+      ipcListeners.get("expand:rpcPort:request")?.(
+        { sender: webContents, senderFrame: frame },
+        { nonce: "test" }
+      )
+    },
     destroyCalls: () => destroyCalls,
     finalQuitCalls: () => finalQuitCalls,
     quitRequests: () => quitRequests,
+    portFinalizerStarts: () => portFinalizerStarts,
+    portFinalizerCompletions: () => portFinalizerCompletions,
+    portCloseCalls: () => portCloseCalls,
     isCspInstalled: () => cspListener !== undefined,
     hasIpcListener: () => ipcListeners.size > 0,
     hasNavigationListener: () => navigation !== undefined || willNavigate !== undefined
@@ -422,6 +460,105 @@ describe("mainProgram window ownership", () => {
         expect(destroy).toBeLessThan(runtimeDispose)
         expect(runtimeDispose).toBeLessThan(appOff)
         expect(appOff).toBeLessThan(finalQuit)
+      })
+    ))
+
+  it.effect("unbinds IPC before an open broker port and later window resources finalize", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          platform: "darwin",
+          packaged: true,
+          blockPortFinalizer: true
+        })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireRpcPortRequest()
+        yield* waitFor(harness.contextStarted)
+        harness.fireClosed()
+        yield* waitFor(harness.portFinalizationStarted)
+        yield* Effect.gen(function* () {
+          expect(harness.hasIpcListener()).toBe(false)
+          expect(harness.hasNavigationListener()).toBe(true)
+          expect(harness.isCspInstalled()).toBe(true)
+          expect(yield* Deferred.isDone(harness.windowFinalizationReached)).toBe(false)
+        }).pipe(Effect.ensuring(harness.releasePortFinalization))
+        yield* waitFor(harness.portFinalizationDone)
+        yield* waitFor(harness.windowFinalizationReached)
+        expect(harness.hasNavigationListener()).toBe(false)
+        expect(harness.isCspInstalled()).toBe(false)
+        expect(harness.portFinalizerStarts()).toBe(1)
+        expect(harness.portFinalizerCompletions()).toBe(1)
+        expect(harness.portCloseCalls()).toBe(1)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("joins callback-driven window cleanup before runtime disposal and final quit", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ packaged: true, blockPortFinalizer: true })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireRpcPortRequest()
+        yield* waitFor(harness.contextStarted)
+        harness.fireClosed()
+        yield* waitFor(harness.portFinalizationStarted)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        yield* Effect.gen(function* () {
+          yield* Effect.yieldNow
+          expect(yield* Deferred.isDone(harness.runtimeDisposed)).toBe(false)
+          expect(harness.finalQuitCalls()).toBe(0)
+          expect(harness.portFinalizerStarts()).toBe(1)
+          expect(harness.portFinalizerCompletions()).toBe(0)
+        }).pipe(Effect.ensuring(harness.releasePortFinalization))
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+        expect(yield* Deferred.isDone(harness.runtimeDisposed)).toBe(true)
+        expect(harness.finalQuitCalls()).toBe(1)
+        expect(harness.portFinalizerStarts()).toBe(1)
+        expect(harness.portFinalizerCompletions()).toBe(1)
+        expect(harness.portCloseCalls()).toBe(1)
+      })
+    ))
+
+  it.effect("preserves a shared window cleanup defect through application shutdown", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          packaged: true,
+          blockPortFinalizer: true,
+          windowDisposalDefect: new Error("window cleanup failed")
+        })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireRpcPortRequest()
+        yield* waitFor(harness.contextStarted)
+        harness.fireClosed()
+        yield* waitFor(harness.portFinalizationStarted)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        yield* harness.releasePortFinalization
+        const exit = yield* fiberExit(fiber)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(String(Cause.squash(exit.cause))).toContain("window cleanup failed")
+        }
+        expect(harness.portFinalizerStarts()).toBe(1)
+        expect(harness.portFinalizerCompletions()).toBe(1)
+        expect(harness.portCloseCalls()).toBe(1)
+        expect(harness.finalQuitCalls()).toBe(1)
       })
     ))
 })

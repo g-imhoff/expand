@@ -44,7 +44,7 @@ export const openRpcPort = Effect.fn("DesktopMain.openRpcPort")(function* <
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         const previous = yield* Ref.getAndSet(broker.current, Option.none())
-        if (Option.isSome(previous)) yield* restore(Scope.close(previous.value, Exit.void))
+        if (Option.isSome(previous)) yield* Scope.close(previous.value, Exit.void)
         const childScope = yield* Scope.fork(broker.ownerScope)
         let mainPort: MainPortLike | undefined
         let rendererPort: Port | undefined
@@ -90,7 +90,8 @@ export const wirePortLifecycle = Effect.fn("DesktopMain.wirePortLifecycle")(func
   Port extends PortEndpoint,
   R
 >(deps: PortLifecycleDeps<Port, R>) {
-  const ownerScope = yield* Scope.Scope
+  const windowScope = yield* Scope.Scope
+  const ownerScope = yield* Scope.fork(windowScope)
   const current = yield* Ref.make<Option.Option<Scope.Closeable>>(Option.none())
   const semaphore = yield* Semaphore.make(1)
   const broker: RpcPortBroker<Port, R> = {

@@ -187,11 +187,13 @@ export const mainProgram = Effect.fn("DesktopMain.mainProgram")(function* <Port 
           Effect.andThen(
             Effect.gen(function* () {
               const windowScope = yield* Scope.fork(ownerScope)
+              const closeWindow = yield* Effect.cached(Scope.close(windowScope, Exit.void))
+              yield* Scope.addFinalizer(ownerScope, closeWindow)
               yield* openWindow(
                 deps,
                 runtime,
                 devUrl,
-                Scope.close(windowScope, Exit.void),
+                closeWindow,
                 (effect) => { dispatchEffect(effect) }
               ).pipe(Scope.provide(windowScope))
               yield* waitFor(shutdown)

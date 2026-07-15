@@ -137,6 +137,62 @@ describe("wirePortLifecycle", () => {
       })
     ))
 
+  it.effect("fully awaits superseded cleanup before observing interruption or releasing the permit", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const cleanupStarted = yield* Deferred.make<void>()
+        const releaseCleanup = yield* Deferred.make<void>()
+        const cleanupDone = yield* Deferred.make<void>()
+        const interrupted = yield* Deferred.make<void>()
+        const laterGranted = yield* Deferred.make<void>()
+        let connected = 0
+        const harness = yield* makeHarness((port) =>
+          Effect.gen(function* () {
+            connected += 1
+            yield* Effect.addFinalizer(() => Effect.sync(() => { port.close?.() }))
+            if (connected === 1) {
+              yield* Effect.addFinalizer(() =>
+                Deferred.succeed(cleanupStarted, undefined).pipe(
+                  Effect.andThen(waitFor(releaseCleanup)),
+                  Effect.andThen(Deferred.succeed(cleanupDone, undefined))
+                )
+              )
+            }
+          })
+        )
+        yield* harness.lifecycle.rpcPort(sender, () => Effect.void)
+        const superseding = yield* harness.lifecycle.rpcPort(sender, () => Effect.void).pipe(
+          Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* waitFor(cleanupStarted)
+        const interruption = yield* Fiber.interrupt(superseding).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
+        const later = yield* harness.lifecycle.rpcPort(
+          sender,
+          () => Deferred.succeed(laterGranted, undefined)
+        ).pipe(Effect.forkChild({ startImmediately: true }))
+        yield* Effect.yieldNow
+        expect(yield* Deferred.isDone(cleanupDone)).toBe(false)
+        expect(yield* Deferred.isDone(interrupted)).toBe(false)
+        expect(yield* Deferred.isDone(laterGranted)).toBe(false)
+        yield* Deferred.succeed(releaseCleanup, undefined)
+        yield* Fiber.join(interruption)
+        const supersedingExit = yield* Fiber.join(superseding).pipe(Effect.exit)
+        expect(Exit.isFailure(supersedingExit)).toBe(true)
+        yield* Fiber.join(later)
+        expect(yield* Deferred.isDone(cleanupDone)).toBe(true)
+        expect(yield* Deferred.isDone(interrupted)).toBe(true)
+        expect(yield* Deferred.isDone(laterGranted)).toBe(true)
+        expect(harness.channels[0]?.port1.closes()).toBe(1)
+        expect(harness.channels[0]?.port2.closes()).toBe(0)
+        yield* harness.lifecycle.close
+        expect(harness.channels[1]?.port1.closes()).toBe(1)
+        expect(harness.channels[1]?.port2.closes()).toBe(0)
+      })
+    ))
+
   it.effect("rolls back both main-owned endpoints after transfer failure and accepts a later request", () =>
     Effect.scoped(
       Effect.gen(function* () {

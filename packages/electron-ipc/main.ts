@@ -1,4 +1,4 @@
-import { Cause, Effect, FiberSet, Schema } from "effect"
+import { Cause, Effect, Exit, FiberSet, Schema } from "effect"
 import type { Scope } from "effect"
 import type {
   AnyIpcChannel,
@@ -110,7 +110,9 @@ export const bindIpc = Effect.fn("ElectronIpcMain.bindIpc")(function* bindIpc<
   const emit: Record<string, (payload: unknown) => void> = {}
   const log = (message: string, cause?: Cause.Cause<unknown>) =>
     Effect.suspend(() => config.log?.(message, cause) ?? Effect.void).pipe(
-      Effect.catchCause(() => Effect.void)
+      Effect.catchCause((loggerCause) =>
+        Cause.hasInterrupts(loggerCause) ? Effect.interrupt : Effect.void
+      )
     )
   const admit = (
     name: string,
@@ -127,10 +129,11 @@ export const bindIpc = Effect.fn("ElectronIpcMain.bindIpc")(function* bindIpc<
       ? Effect.interrupt
       : log(`[ipc] ${name}: dropped`, cause)
 
-  for (const [key, channel] of Object.entries<AnyIpcChannel>(contract.channels)) {
-    const name = wireName(contract, key as keyof C["channels"] & string)
-    const handler = (handlers as Record<string, unknown>)[key]
-    switch (channel._kind) {
+  yield* Effect.gen(function* () {
+    for (const [key, channel] of Object.entries<AnyIpcChannel>(contract.channels)) {
+      const name = wireName(contract, key as keyof C["channels"] & string)
+      const handler = (handlers as Record<string, unknown>)[key]
+      switch (channel._kind) {
       case "send": {
         const run = handler as (payload: unknown, sender: IpcSenderInfo) => Effect.Effect<void, never, R>
         const listener = (event: IpcMainEventLike, raw: unknown) => {
@@ -246,9 +249,14 @@ export const bindIpc = Effect.fn("ElectronIpcMain.bindIpc")(function* bindIpc<
         )
         break
       }
+      }
     }
-  }
-  yield* Effect.addFinalizer(() => Effect.sync(() => { unbound = true }))
+    yield* Effect.addFinalizer(() => Effect.sync(() => { unbound = true }))
+  }).pipe(
+    Effect.onExit((exit) => Exit.isFailure(exit)
+      ? Effect.sync(() => { unbound = true })
+      : Effect.void)
+  )
   return { emit: emit as IpcEmitterOf<C> }
 })
 
