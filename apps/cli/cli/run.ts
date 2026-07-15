@@ -1,10 +1,11 @@
-import { Data, Effect, Runtime } from "effect"
+import { Data, Effect, Runtime, Schema } from "effect"
 import { CliError } from "effect/unstable/cli"
 import { mapContractError, type ExpandCliError } from "@expand/cli/errors"
+import { ErrorEnvelopeFromJson } from "@expand/cli/contract/envelope"
 import { cliErrorToEnvelope } from "@expand/cli/errors/parser-errors"
 import { writeErr } from "@expand/cli/output"
 
-export const renderErrors = <A, R>(
+export const renderErrors = Effect.fn("Cli.renderErrors")(<A, R>(
   program: Effect.Effect<A, unknown, R>
 ): Effect.Effect<A | void, UsageExit | ExpandCliError, R> =>
   program.pipe(
@@ -14,14 +15,18 @@ export const renderErrors = <A, R>(
       }
       if (CliError.isCliError(e)) {
         return Effect.flatMap(
-          writeErr(JSON.stringify(cliErrorToEnvelope(e))),
-          () => Effect.fail(new UsageExit())
+          Schema.encodeEffect(ErrorEnvelopeFromJson)(cliErrorToEnvelope(e)).pipe(Effect.orDie),
+          (encoded) => Effect.flatMap(writeErr(encoded), () => Effect.fail(new UsageExit()))
         )
       }
       const cliErr = mapContractError(e)
-      return Effect.flatMap(writeErr(JSON.stringify(cliErr.toEnvelope())), () => Effect.fail(cliErr))
+      return Effect.flatMap(
+        Schema.encodeEffect(ErrorEnvelopeFromJson)(cliErr.toEnvelope()).pipe(Effect.orDie),
+        (encoded) => Effect.flatMap(writeErr(encoded), () => Effect.fail(cliErr))
+      )
     })
   )
+)
 
 class UsageExit extends Data.TaggedError("UsageExit")<{}> {
   readonly [Runtime.errorExitCode] = 2

@@ -8,9 +8,9 @@ export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
     kind: Schema.Literal("Error"),
     code: ErrorCode,
     message: Schema.String,
+    retryable: Schema.Boolean,
     input: Schema.optional(Schema.Unknown),
-    hint: Schema.optional(Schema.String),
-    retryable: Schema.Boolean
+    hint: Schema.optional(Schema.String)
   })
 ) {}
 
@@ -47,6 +47,8 @@ export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
     data: Schema.Struct({ status: Schema.String })
   })
 ) {}
+
+export const ErrorEnvelopeFromJson = Schema.fromJsonString(ErrorEnvelope)
 
 export { ENVELOPE_VERSION, ErrorCode }
 export type ErrorCode = typeof ErrorCode.Type

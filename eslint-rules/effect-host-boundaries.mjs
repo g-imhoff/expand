@@ -2,11 +2,26 @@ const nodeCryptoImport = "platform:import:" + ["node", "crypto"].join(":")
 const nodeHttpImport = "platform:import:" + ["node", "http"].join(":")
 const nodeOsImport = "platform:import:" + ["node", "os"].join(":")
 const processCwd = ["platform:process", "cwd"].join(".")
+const processExecPath = ["platform:process", "execPath"].join(".")
 const processKill = ["platform:process", "kill"].join(".")
 const processPid = ["platform:process", "pid"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 
 export const effectHostBoundaries = Object.freeze([
+  Object.freeze({
+    file: "apps/cli/cli/main.ts",
+    declaration: "member:backendCommand.binaryArgs",
+    host: "Node backend executable acquisition",
+    construct: processExecPath,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/cli/cli/main.ts",
+    declaration: "member:backendCommand.execPath",
+    host: "Node backend executable acquisition",
+    construct: processExecPath,
+    occurrence: 0
+  }),
   Object.freeze({
     file: "apps/cli/cli/main.ts",
     declaration: "module:<module>",
