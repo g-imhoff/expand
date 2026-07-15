@@ -209,6 +209,52 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       yield* releaseStateRootLock(first)
     }).pipe(Effect.provide(TestClock.layer({ warningDelay: "10 seconds" }))))
 
+  test.effect("interrupts startup scoped acquisition promptly during handoff", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const clock = yield* Clock.Clock
+      const dir = yield* makeTestDirectory()
+      const endpointFile = path.join(dir, "server.json")
+      const first = yield* acquireStateRootLock(dir)
+      const handoff = yield* Queue.unbounded<void>()
+      const trackingClock: Clock.Clock = {
+        currentTimeMillis: clock.currentTimeMillis,
+        currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+        currentTimeNanos: clock.currentTimeNanos,
+        currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+        sleep: (duration) => Queue.offer(handoff, undefined).pipe(
+          Effect.andThen(clock.sleep(duration))
+        )
+      }
+      const fiber = yield* Effect.forkChild(
+        Effect.scoped(stateRootLockForStartup(dir, endpointFile)).pipe(
+          Effect.provideService(Clock.Clock, trackingClock)
+        )
+      )
+      yield* TestClock.testClockWith((testClock) => testClock.withLive(
+        awaitSignal(Queue.take(handoff))
+      ))
+      const interrupter = yield* Effect.forkChild(Fiber.interrupt(fiber))
+      const interruptedPromptly = yield* TestClock.testClockWith((testClock) => testClock.withLive(
+        Fiber.join(interrupter).pipe(
+          Effect.as(true),
+          Effect.timeoutOrElse({
+            duration: "500 millis",
+            orElse: () => Effect.succeed(false)
+          })
+        )
+      ))
+      if (!interruptedPromptly) yield* TestClock.adjust("4 seconds")
+      yield* Fiber.join(interrupter)
+
+      expect(interruptedPromptly).toBe(true)
+      expect(yield* readOwner(first.path)).toEqual({ pid: first.pid, token: first.token })
+      expect(yield* lockArtifacts(first.path)).toEqual([])
+      expect(yield* fs.exists(endpointFile)).toBe(false)
+      yield* releaseStateRootLock(first)
+    }).pipe(Effect.provide(TestClock.layer({ warningDelay: "10 seconds" }))))
+
   test.effect("acquires when only a stale endpoint remains", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -528,6 +574,44 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
 
       const lockPath = path.join(path.resolve(dir), "backend.lock")
       expect(yield* fs.exists(lockPath)).toBe(false)
+      expect(yield* lockArtifacts(lockPath)).toEqual([])
+    }))
+
+  test.effect("interrupts regular scoped acquisition promptly before publication", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* makeTestDirectory()
+      const reached = yield* Queue.unbounded<void>()
+      const release = yield* Queue.unbounded<void>()
+      let candidatePath: string | undefined
+      const fiber = yield* Effect.forkChild(
+        Effect.scoped(stateRootLock(dir, {
+          beforePublish: (candidate) => Effect.sync(() => {
+            candidatePath = candidate
+          }).pipe(
+            Effect.andThen(Queue.offer(reached, undefined)),
+            Effect.andThen(Queue.take(release))
+          )
+        }))
+      )
+      yield* awaitSignal(Queue.take(reached))
+      const interrupter = yield* Effect.forkChild(Fiber.interrupt(fiber))
+      const interruptedPromptly = yield* Fiber.join(interrupter).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({
+          duration: "500 millis",
+          orElse: () => Effect.succeed(false)
+        })
+      )
+      yield* Queue.offer(release, undefined)
+      yield* Fiber.join(interrupter)
+
+      const lockPath = path.join(path.resolve(dir), "backend.lock")
+      expect(interruptedPromptly).toBe(true)
+      expect(candidatePath).toBeDefined()
+      expect(yield* fs.exists(lockPath)).toBe(false)
+      if (candidatePath !== undefined) expect(yield* fs.exists(candidatePath)).toBe(false)
       expect(yield* lockArtifacts(lockPath)).toEqual([])
     }))
 
@@ -1017,6 +1101,31 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       expect(result).toMatchObject({ _tag: "Success" })
       expect(yield* fs.exists(lease.path)).toBe(false)
       expect(yield* lockArtifacts(path.join(path.resolve(dir), "backend.lock"))).toEqual([])
+    }))
+
+  test.effect.each([
+    ["/backend.lock", "/"],
+    ["\\backend.lock", "\\"],
+    ["C:\\backend.lock", "C:\\"],
+    ["C:/backend.lock", "C:/"]
+  ] as const)("preserves the filesystem root for release failure at %s", ([lockPath, dataDir]) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const cause = platformFailure("PermissionDenied", "link", lockPath)
+      const error = yield* releaseStateRootLock({
+        path: lockPath,
+        pid: 100,
+        token: VALID_TOKEN
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+          ...fs,
+          link: () => Effect.fail(cause)
+        })),
+        Effect.flip
+      )
+
+      expect(error).toMatchObject({ dataDir, cause })
+      expect(error.cause).toBe(cause)
     }))
 
   test.effect("exposes direct release failure and scoped release failure as a defect", () =>

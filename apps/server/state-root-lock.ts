@@ -70,7 +70,8 @@ export const stateRootLock = Effect.fn("StateRootLock.scoped")(function*(
 > {
   return yield* Effect.acquireRelease(
     acquireStateRootLock(dataDir, options),
-    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie)
+    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie),
+    { interruptible: true }
   )
 })
 
@@ -91,7 +92,8 @@ export const stateRootLockForStartup = Effect.fn("StateRootLock.startup")(functi
     acquireStartupLease(normalizedDataDir, normalizedEndpointFile, deadline, options).pipe(
       Effect.mapError((cause) => asStateRootLockError(normalizedDataDir, cause))
     ),
-    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie)
+    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie),
+    { interruptible: true }
   )
 })
 
@@ -406,6 +408,7 @@ const asStateRootLockError = (dataDir: string, cause: unknown): StateRootLockErr
 
 const dataDirFromLockPath = (lockPath: string): string => {
   const parent = lockPath.slice(0, -LOCK_FILE.length)
+  if (parent === "/" || parent === "\\" || /^[A-Za-z]:[\\/]$/.test(parent)) return parent
   return parent.endsWith("/") || parent.endsWith("\\") ? parent.slice(0, -1) : parent
 }
 
