@@ -15,26 +15,34 @@ export const projectHandlers: Pick<
   | "ProjectDelete"
   | "ProjectList"
 > = {
-  ProjectCreate: (payload) =>
+  ProjectCreate: Effect.fn("DesktopRpc.ProjectCreate")((payload) =>
     dieOnRpcClientError(
       Effect.flatMap(ProjectClient, (client) => client.create(payload))
-    ),
-  ProjectRename: (payload) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.rename(payload))),
-  ProjectChangeDirectory: (payload) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.changeDirectory(payload))),
-  ProjectArchive: (payload) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.archive(payload))),
-  ProjectRestore: (payload) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.restore(payload))),
-  ProjectSetMetadata: (payload) =>
+    )
+  ),
+  ProjectRename: Effect.fn("DesktopRpc.ProjectRename")((payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.rename(payload)))
+  ),
+  ProjectChangeDirectory: Effect.fn("DesktopRpc.ProjectChangeDirectory")((payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.changeDirectory(payload)))
+  ),
+  ProjectArchive: Effect.fn("DesktopRpc.ProjectArchive")((payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.archive(payload)))
+  ),
+  ProjectRestore: Effect.fn("DesktopRpc.ProjectRestore")((payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.restore(payload)))
+  ),
+  ProjectSetMetadata: Effect.fn("DesktopRpc.ProjectSetMetadata")((payload) =>
     dieOnRpcClientError(
       Effect.flatMap(ProjectClient, (client) => client.setMetadata(payload))
-    ),
-  ProjectDelete: (payload) =>
-    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.delete(payload))),
-  ProjectList: (payload) =>
+    )
+  ),
+  ProjectDelete: Effect.fn("DesktopRpc.ProjectDelete")((payload) =>
+    dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.delete(payload)))
+  ),
+  ProjectList: Effect.fn("DesktopRpc.ProjectList")((payload) =>
     dieOnRpcClientError(Effect.flatMap(ProjectClient, (client) => client.list(payload)))
+  )
 }
 
 type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>
