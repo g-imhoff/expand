@@ -3,7 +3,7 @@ import type { PreloadIpcDeps } from "@expand/electron-ipc/preload"
 import { contextBridge, ipcRenderer } from "electron"
 import type { IpcRendererEvent } from "electron"
 
-export const electronPreloadDeps = (): PreloadIpcDeps => {
+export const electronPreloadDeps = (): PreloadIpcDeps<MessagePort> => {
   return {
     send: (channel, payload) => ipcRenderer.send(channel, payload),
     invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
@@ -18,15 +18,24 @@ export const electronPreloadDeps = (): PreloadIpcDeps => {
       // value captured once at setup could go stale. file:// pages have an opaque origin
       // ("null"); there the source+nonce checks on the receiving side are the load-bearing
       // guards (spec §8), and we fall back to "*".
-      const targetOrigin = window.location.origin === "null" ? "*" : window.location.origin
-      window.postMessage(message, targetOrigin, transfer)
+      const origin = window.location.origin
+      const targetOrigin = origin === "null" ? "*" : origin
+      window.postMessage(message, targetOrigin, [...transfer])
+    },
+    onContextDisposed: (dispose) => {
+      let active = true
+      const release = () => {
+        if (!active) return
+        active = false
+        window.removeEventListener("unload", onUnload)
+      }
+      const onUnload = () => {
+        if (!active) return
+        release()
+        dispose()
+      }
+      window.addEventListener("unload", onUnload)
+      return release
     }
   }
-}
-
-// Sandboxed preloads run in a DOM context, but the root tsconfig compiles packages/
-// without lib.dom — declare the narrow surface we touch.
-declare const window: {
-  readonly location: { readonly origin: string }
-  readonly postMessage: (message: unknown, targetOrigin: string, transfer?: ReadonlyArray<unknown>) => void
 }

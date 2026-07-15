@@ -1,6 +1,7 @@
 const nodeCryptoImport = "platform:import:" + ["node", "crypto"].join(":")
 const nodeHttpImport = "platform:import:" + ["node", "http"].join(":")
 const nodeOsImport = "platform:import:" + ["node", "os"].join(":")
+const cryptoRandomUUID = ["platform:crypto", "randomUUID"].join(".")
 const processCwd = ["platform:process", "cwd"].join(".")
 const processExecPath = ["platform:process", "execPath"].join(".")
 const processKill = ["platform:process", "kill"].join(".")
@@ -8,6 +9,8 @@ const processPid = ["platform:process", "pid"].join(".")
 const processPlatform = ["platform:process", "platform"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
+const windowLocation = ["platform:window", "location"].join(".")
+const windowPostMessage = ["platform:window", "postMessage"].join(".")
 
 export const effectHostBoundaries = Object.freeze([
   Object.freeze({
@@ -386,6 +389,111 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "variable:silentInvoke",
     host: "Electron IPC silent invoke Promise ABI",
     construct: "signature:Promise",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "module:<module>",
+    host: "Electron preload host adapter",
+    construct: "platform:import:electron",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "module:<module>",
+    host: "Electron preload host adapter types",
+    construct: "platform:import:electron",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.send",
+    host: "Electron renderer IPC send",
+    construct: "platform:electron.ipcRenderer.send",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.invoke",
+    host: "Electron renderer invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.invoke",
+    host: "Electron renderer IPC invoke",
+    construct: "platform:electron.ipcRenderer.invoke",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.on",
+    host: "Electron renderer IPC listener",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.on",
+    host: "Electron renderer IPC listener disposal",
+    construct: "platform:listener.removeListener",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.exposeInMainWorld",
+    host: "Electron context bridge exposure",
+    construct: "platform:electron.contextBridge.exposeInMainWorld",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "variable:origin",
+    host: "Preload main-world target origin",
+    construct: windowLocation,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.postToMainWorld",
+    host: "Preload main-world port relay",
+    construct: windowPostMessage,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "variable:release",
+    host: "Preload unload listener disposal",
+    construct: "platform:listener.removeEventListener",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload-electron.ts",
+    declaration: "member:electronPreloadDeps.onContextDisposed",
+    host: "Preload unload listener",
+    construct: "platform:listener.addEventListener",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "member:PreloadIpcDeps.invoke",
+    host: "Electron renderer invoke Promise ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeBridge",
+    host: "Electron renderer invoke bridge ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/renderer.ts",
+    declaration: "variable:makeNonce",
+    host: "Browser renderer nonce acquisition",
+    construct: cryptoRandomUUID,
     occurrence: 0
   }),
   Object.freeze({

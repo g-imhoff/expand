@@ -14,12 +14,15 @@ describe("ExpandIpc registry", () => {
     const exposed: Record<string, unknown> = {}
     const deps: PreloadIpcDeps = {
       send: () => {},
-      invoke: () => Promise.resolve(undefined),
+      invoke: () => {
+        throw new Error("not invoked")
+      },
       on: () => () => {},
       exposeInMainWorld: (key, api) => {
         exposed[key] = api
       },
-      postToMainWorld: () => {}
+      postToMainWorld: () => {},
+      onContextDisposed: () => () => {}
     }
     exposeBridge(ExpandIpc, ExpandIpc.prefix, deps)
     expect(Object.keys(exposed)).toEqual([ExpandIpc.prefix])
