@@ -1,7 +1,7 @@
 import { RpcClient } from "effect/unstable/rpc"
 import type { RpcClientError } from "effect/unstable/rpc"
 import { Data, Deferred, Effect, Layer, Stream } from "effect"
-import type { FileSystem, Scope } from "effect"
+import type { Crypto, FileSystem, Path, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { AppContext } from "@expand/contracts/app-context"
@@ -19,7 +19,7 @@ export const acquireClient = (
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
-  FileSystem.FileSystem | Scope.Scope | AppContext | ProcessControl
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > => {
   const once = findOrSpawnBackend(adapter).pipe(
     Effect.catchIf(

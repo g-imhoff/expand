@@ -61,18 +61,19 @@ The examples are meant to import *only* `@expand/client-ts` and
 `effect` (`Effect`, `Layer`, `ManagedRuntime`, `Stream`) and, critically,
 `NodeServices` from `@effect/platform-node` (`bootstrap-projects.ts:1-2`, etc.).
 
-That second import isn't optional: `ClientLayer(adapter)` requires both
-`FileSystem.FileSystem` and `AppContext`. The example-owned `clientLayer`
-helper supplies `nodeAppContextLayer` directly before each entrypoint supplies
-`NodeServices.layer`. The context layer therefore receives `Path.Path` and
-`Stdio.Stdio`, acquires home and cwd lazily, and maps `Stdio.args` through the
-pure `dataDirFromArgs` helper. The Node consumer still names the platform
+That second import isn't optional: `ClientLayer(adapter)` requires
+`FileSystem.FileSystem`, `Path.Path`, `Crypto.Crypto`, `AppContext`, and
+`ProcessControl`. The example-owned `clientLayer` helper supplies
+`nodeAppContextLayer` and the process-control layer before each entrypoint
+supplies `NodeServices.layer`. The context layer therefore receives `Path.Path`
+and `Stdio.Stdio`, acquires home and cwd lazily, and maps `Stdio.args` through
+the pure `dataDirFromArgs` helper. The Node consumer still names the platform
 separately from selecting the Node adapter while retaining explicit application
 ownership of context composition.
 
 **Possible cleanup:** have `makeNodeAdapter` or the Node subpath provide the Node
-`FileSystem` itself while preserving application ownership of `AppContext`, so
-the adapter choice does not need a second platform layer.
+platform services itself while preserving application ownership of
+`AppContext`, so the adapter choice does not need a second platform layer.
 
 ## 4. Data-dir isolation is application-owned, not an SDK option
 

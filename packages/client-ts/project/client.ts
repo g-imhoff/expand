@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Stream } from "effect"
-import type { FileSystem } from "effect"
+import type { Crypto, FileSystem, Path } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
@@ -73,6 +73,6 @@ export const ProjectClientLayer = (
 ): Layer.Layer<
   ProjectClient,
   BackendUnavailable,
-  FileSystem.FileSystem | AppContext | ProcessControl
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
   ProjectClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))

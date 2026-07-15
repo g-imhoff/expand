@@ -40,12 +40,12 @@ epoch; and `epochs` emits each newly connected epoch.
 and `ServerClient`. The facades delegate each operation through the session, so
 commands issued after a reconnect use the current epoch.
 
-Every SDK layer leaves `FileSystem`, `AppContext`, and `ProcessControl`
-unprovided. Applications own the context that selects their data root; Node
-hosts satisfy the platform and process services with `ProcessServices.layer`
-and provide an application-defined `nodeAppContextLayer` that lazily acquires
-home, cwd, and `Stdio.args`. The SDK does not read argv or install a context
-internally.
+Every SDK layer leaves `FileSystem`, `Path`, `Crypto`, `AppContext`, and
+`ProcessControl` unprovided. Applications own the context that selects their
+data root; Node hosts satisfy the platform and process services with
+`ProcessServices.layer` and provide an application-defined
+`nodeAppContextLayer` that lazily acquires home, cwd, and `Stdio.args`. The SDK
+does not read argv or install a context internally.
 
 ```ts
 import { Effect, Layer } from "effect"

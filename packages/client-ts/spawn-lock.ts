@@ -1,18 +1,16 @@
-import { Effect } from "effect"
-import { createHash, randomUUID } from "node:crypto"
 import {
-  chmodSync,
-  closeSync,
-  fsyncSync,
-  linkSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from "node:fs"
-import { dirname } from "node:path"
+  Clock,
+  Crypto,
+  Effect,
+  Encoding,
+  FileSystem,
+  Option,
+  Path,
+  PlatformError,
+  Schema
+} from "effect"
+import { ProcessControl } from "@expand/contracts/process-control"
+import { SpawnLockError } from "./errors"
 
 export interface SpawnLockLease {
   readonly path: string
@@ -22,182 +20,287 @@ export interface SpawnLockLease {
 }
 
 export interface SpawnLockOptions {
-  readonly afterClaim?: () => void
-  readonly afterObservation?: () => void
-  readonly beforePublish?: (candidatePath: string) => void
-  readonly probeProcess?: (pid: number) => void
+  readonly afterClaim?: Effect.Effect<void>
+  readonly afterObservation?: Effect.Effect<void>
+  readonly beforePublish?: (candidatePath: string) => Effect.Effect<void>
 }
 
-export const acquireSpawnLock = (
+export const acquireSpawnLock = Effect.fn("SpawnLock.acquire")(function*(
   path: string,
   options: SpawnLockOptions = {}
-): Effect.Effect<SpawnLockLease | undefined> =>
-  Effect.sync(() => {
-    try {
-      secureDirectory(path)
-      const lease = publishLease(path, options.beforePublish)
-      if (lease !== undefined) return lease
+) {
+  yield* secureDirectory(path)
+  const lease = yield* publishLease(path, options.beforePublish)
+  if (lease !== undefined) return lease
 
-      const observed = readObservedRecord(path)
-      if (observed === undefined || isProcessAlive(observed.record.pid, options.probeProcess)) return undefined
-      options.afterObservation?.()
-      if (!removeObserved(path, observed, options.afterClaim)) return undefined
-      return publishLease(path, options.beforePublish)
-    } catch {
-      return undefined
-    }
-  })
+  const observed = yield* readObservedRecord(path)
+  if (observed === undefined) return undefined
+  const processControl = yield* ProcessControl
+  const status = yield* processControl.probe(observed.record.pid).pipe(
+    Effect.mapError((cause) => spawnLockError("probe", "probe", path, cause))
+  )
+  if (status !== "dead") return undefined
+  if (options.afterObservation !== undefined) yield* options.afterObservation
+  if (!(yield* removeObserved(path, observed, options.afterClaim))) return undefined
+  return yield* publishLease(path, options.beforePublish)
+})
 
-export const releaseSpawnLock = (
+export const releaseSpawnLock = Effect.fn("SpawnLock.release")(function*(
   lease: SpawnLockLease,
   options: Pick<SpawnLockOptions, "afterClaim"> = {}
-): Effect.Effect<void> =>
-  Effect.sync(() => {
-    try {
-      removeObserved(
-        lease.path,
-        {
-          kind: "current",
-          record: { pid: lease.pid, startedAt: lease.startedAt, token: lease.token }
-        },
-        options.afterClaim
-      )
-    } catch {}
-  })
+) {
+  yield* removeObserved(
+    lease.path,
+    {
+      kind: "current",
+      record: { pid: lease.pid, startedAt: lease.startedAt, token: lease.token }
+    },
+    options.afterClaim
+  )
+})
 
-interface CurrentRecord {
-  readonly pid: number
-  readonly startedAt: number
-  readonly token: string
-}
+const PositiveSafeInteger = Schema.Int.check(Schema.isGreaterThan(0))
+const NonNegativeSafeInteger = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+const UuidV4 = Schema.String.check(Schema.isUUID(4))
 
-interface LegacyRecord {
-  readonly pid: number
-  readonly startedAt: number
-}
+const CurrentRecordSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  startedAt: NonNegativeSafeInteger,
+  token: UuidV4
+})
+const LegacyRecordSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  startedAt: NonNegativeSafeInteger
+})
+const CurrentRecordFromJson = Schema.fromJsonString(CurrentRecordSchema)
+const LegacyRecordFromJson = Schema.fromJsonString(LegacyRecordSchema)
+
+type CurrentRecord = typeof CurrentRecordSchema.Type
+type LegacyRecord = typeof LegacyRecordSchema.Type
 
 type ObservedRecord =
   | { readonly kind: "current"; readonly record: CurrentRecord }
   | { readonly kind: "legacy"; readonly record: LegacyRecord }
 
-const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const textEncoder = new TextEncoder()
+const strictParseOptions = { onExcessProperty: "error" } as const
 
-const publishLease = (
+const secureDirectory = Effect.fn("SpawnLock.secureDirectory")(function*(lockPath: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const parent = path.dirname(lockPath)
+  yield* fs.makeDirectory(parent, { recursive: true, mode: 0o700 }).pipe(
+    Effect.mapError((cause) => spawnLockError("filesystem", "makeDirectory", parent, cause))
+  )
+  yield* fs.chmod(parent, 0o700).pipe(
+    Effect.mapError((cause) => spawnLockError("filesystem", "chmod", parent, cause))
+  )
+})
+
+const publishLease = Effect.fn("SpawnLock.publishLease")(function*(
   path: string,
-  beforePublish: ((candidatePath: string) => void) | undefined
-): SpawnLockLease | undefined => {
-  const lease = { path, pid: process.pid, startedAt: Date.now(), token: randomUUID() }
-  const candidatePath = `${path}.candidate.${lease.pid}.${lease.token}`
-  try {
-    const descriptor = openSync(candidatePath, "wx", 0o600)
-    try {
-      writeFileSync(descriptor, JSON.stringify({
-        pid: lease.pid,
-        startedAt: lease.startedAt,
-        token: lease.token
-      }))
-      fsyncSync(descriptor)
-    } finally {
-      closeSync(descriptor)
-    }
-    chmodSync(candidatePath, 0o600)
-    beforePublish?.(candidatePath)
-    try {
-      linkSync(candidatePath, path)
-    } catch (error) {
-      if (isNodeError(error) && error.code === "EEXIST") return undefined
-      throw error
-    }
-    return lease
-  } finally {
-    rmSync(candidatePath, { force: true })
+  beforePublish: SpawnLockOptions["beforePublish"]
+) {
+  const fs = yield* FileSystem.FileSystem
+  const cryptoService = yield* Crypto.Crypto
+  const processControl = yield* ProcessControl
+  const token = yield* cryptoService.randomUUIDv4.pipe(
+    Effect.mapError((cause) => spawnLockError("crypto", "randomUUIDv4", path, cause))
+  )
+  const record: CurrentRecord = {
+    pid: processControl.currentPid,
+    startedAt: yield* Clock.currentTimeMillis,
+    token
   }
-}
+  const encoded = yield* Schema.encodeEffect(CurrentRecordFromJson, strictParseOptions)(record).pipe(
+    Effect.mapError((cause) => spawnLockError("schema", "encodeCurrentRecord", path, cause))
+  )
+  const lease: SpawnLockLease = { path, ...record }
+  const candidatePath = `${path}.candidate.${record.pid}.${record.token}`
 
-const removeObserved = (
+  return yield* Effect.uninterruptibleMask((restore) =>
+    Effect.acquireUseRelease(
+      Effect.succeed(candidatePath),
+      () =>
+        Effect.gen(function*() {
+          yield* Effect.scoped(
+            Effect.gen(function*() {
+              const file = yield* fs.open(candidatePath, { flag: "wx", mode: 0o600 }).pipe(
+                Effect.mapError((cause) => spawnLockError("filesystem", "open", candidatePath, cause))
+              )
+              yield* file.writeAll(textEncoder.encode(encoded)).pipe(
+                Effect.mapError((cause) => spawnLockError("filesystem", "writeAll", candidatePath, cause))
+              )
+              yield* file.sync.pipe(
+                Effect.mapError((cause) => spawnLockError("filesystem", "sync", candidatePath, cause))
+              )
+            })
+          )
+          yield* fs.chmod(candidatePath, 0o600).pipe(
+            Effect.mapError((cause) => spawnLockError("filesystem", "chmod", candidatePath, cause))
+          )
+          if (beforePublish !== undefined) yield* restore(beforePublish(candidatePath))
+          const published = yield* fs.link(candidatePath, path).pipe(
+            Effect.matchEffect({
+              onFailure: (cause) => hasSystemReason(cause, "AlreadyExists")
+                ? Effect.succeed(false)
+                : Effect.fail(spawnLockError("filesystem", "link", path, cause)),
+              onSuccess: () => Effect.succeed(true)
+            })
+          )
+          return published ? lease : undefined
+        }),
+      (candidate) => removeArtifact(candidate)
+    )
+  )
+})
+
+const readObservedRecord = Effect.fn("SpawnLock.readObservedRecord")(function*(
+  path: string
+): Effect.fn.Return<ObservedRecord | undefined, SpawnLockError, FileSystem.FileSystem> {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(path).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.succeed(undefined)
+        : Effect.fail(spawnLockError("filesystem", "readFileString", path, cause)),
+      onSuccess: (value) => Effect.succeed(value)
+    })
+  )
+  if (text === undefined) return undefined
+
+  const current = yield* Schema.decodeUnknownEffect(CurrentRecordFromJson, strictParseOptions)(text).pipe(
+    Effect.option
+  )
+  if (Option.isSome(current)) return { kind: "current", record: current.value }
+
+  const legacy = yield* Schema.decodeUnknownEffect(LegacyRecordFromJson, strictParseOptions)(text).pipe(
+    Effect.option
+  )
+  return Option.isSome(legacy) ? { kind: "legacy", record: legacy.value } : undefined
+})
+
+const removeObserved = Effect.fn("SpawnLock.removeObserved")(function*(
   path: string,
   observed: ObservedRecord,
-  afterClaim: (() => void) | undefined
-): boolean => {
-  const claimPath = `${path}.claim.${recordFingerprint(observed)}`
-  try {
-    linkSync(path, claimPath)
-  } catch (error) {
-    if (isNodeError(error) && (error.code === "EEXIST" || error.code === "ENOENT")) return false
-    throw error
-  }
+  afterClaim: SpawnLockOptions["afterClaim"]
+) {
+  const fs = yield* FileSystem.FileSystem
+  const fingerprint = yield* recordFingerprint(path, observed)
+  const claimPath = `${path}.claim.${fingerprint}`
+  return yield* Effect.uninterruptibleMask((restore) =>
+    fs.link(path, claimPath).pipe(
+      Effect.matchEffect({
+        onFailure: (cause) => hasSystemReason(cause, "AlreadyExists") || hasSystemReason(cause, "NotFound")
+          ? Effect.succeed(false)
+          : Effect.fail(spawnLockError("filesystem", "link", claimPath, cause)),
+        onSuccess: () =>
+          Effect.acquireUseRelease(
+            Effect.succeed(claimPath),
+            () =>
+              Effect.gen(function*() {
+                yield* fs.chmod(claimPath, 0o600).pipe(
+                  Effect.mapError((cause) => spawnLockError("filesystem", "chmod", claimPath, cause))
+                )
+                if (afterClaim !== undefined) yield* restore(afterClaim)
+                const claimedRecord = yield* readObservedRecord(claimPath)
+                const canonicalRecord = yield* readObservedRecord(path)
+                if (!sameObserved(claimedRecord, observed) || !sameObserved(canonicalRecord, observed)) return false
 
-  try {
-    chmodSync(claimPath, 0o600)
-    afterClaim?.()
-    const claimed = readObservedRecord(claimPath)
-    const canonical = readObservedRecord(path)
-    if (!sameObserved(claimed, observed) || !sameObserved(canonical, observed)) return false
-    const claimStat = statSync(claimPath)
-    const canonicalStat = statSync(path)
-    if (claimStat.dev !== canonicalStat.dev || claimStat.ino !== canonicalStat.ino) return false
-    try {
-      rmSync(path)
-      return true
-    } catch {
-      return false
-    }
-  } finally {
-    rmSync(claimPath, { force: true })
-  }
-}
+                const claimedInfo = yield* statIfPresent(claimPath)
+                const canonicalInfo = yield* statIfPresent(path)
+                if (claimedInfo === undefined || canonicalInfo === undefined) return false
+                if (claimedInfo.dev !== canonicalInfo.dev) return false
+                if (Option.isNone(claimedInfo.ino) || Option.isNone(canonicalInfo.ino)) return false
+                if (claimedInfo.ino.value !== canonicalInfo.ino.value) return false
+                return yield* removeCanonical(path)
+              }),
+            (claim) => removeArtifact(claim)
+          )
+      })
+    )
+  )
+})
 
-const readObservedRecord = (path: string): ObservedRecord | undefined => {
-  try {
-    const value = JSON.parse(readFileSync(path, "utf8")) as unknown
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined
-    const candidate = value as Record<string, unknown>
-    const keys = Object.keys(candidate).sort().join(",")
-    if (!validPid(candidate.pid) || !validStartedAt(candidate.startedAt)) return undefined
-    if (keys === "pid,startedAt,token" && typeof candidate.token === "string" && TOKEN_PATTERN.test(candidate.token)) {
-      return {
-        kind: "current",
-        record: { pid: candidate.pid, startedAt: candidate.startedAt, token: candidate.token }
-      }
-    }
-    if (keys === "pid,startedAt") {
-      return { kind: "legacy", record: { pid: candidate.pid, startedAt: candidate.startedAt } }
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
+const legacyFingerprint = Effect.fn("SpawnLock.legacyFingerprint")(function*(
+  path: string,
+  record: LegacyRecord
+) {
+  const cryptoService = yield* Crypto.Crypto
+  const encoded = yield* Schema.encodeEffect(LegacyRecordFromJson, strictParseOptions)(record).pipe(
+    Effect.mapError((cause) => spawnLockError("schema", "encodeLegacyRecord", path, cause))
+  )
+  const digest = yield* cryptoService.digest("SHA-256", textEncoder.encode(encoded)).pipe(
+    Effect.mapError((cause) => spawnLockError("digest", "legacyFingerprint", path, cause))
+  )
+  return `legacy-${Encoding.encodeHex(digest)}`
+})
 
-const validPid = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
+const recordFingerprint = Effect.fn("SpawnLock.recordFingerprint")(function*(
+  path: string,
+  observed: ObservedRecord
+) {
+  return observed.kind === "current"
+    ? observed.record.token
+    : yield* legacyFingerprint(path, observed.record)
+})
 
-const validStartedAt = (value: unknown): value is number =>
-  Number.isSafeInteger(value) && (value as number) >= 0
+const statIfPresent = Effect.fn("SpawnLock.statIfPresent")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.stat(path).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.succeed(undefined)
+        : Effect.fail(spawnLockError("filesystem", "stat", path, cause)),
+      onSuccess: (info) => Effect.succeed(info)
+    })
+  )
+})
 
-const isProcessAlive = (pid: number, probeProcess: ((pid: number) => void) | undefined): boolean => {
-  try {
-    ;(probeProcess ?? ((candidate) => process.kill(candidate, 0)))(pid)
-    return true
-  } catch (error) {
-    return isNodeError(error) && error.code === "EPERM"
-  }
-}
+const removeCanonical = Effect.fn("SpawnLock.removeCanonical")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.remove(path).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.succeed(false)
+        : Effect.fail(spawnLockError("filesystem", "remove", path, cause)),
+      onSuccess: () => Effect.succeed(true)
+    })
+  )
+})
+
+const removeArtifact = Effect.fn("SpawnLock.removeArtifact")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.remove(path, { force: true }).pipe(
+    Effect.catchIf(
+      (cause) => hasSystemReason(cause, "NotFound"),
+      () => Effect.void
+    ),
+    Effect.mapError((cause) => spawnLockError("filesystem", "remove", path, cause))
+  )
+})
 
 const sameObserved = (left: ObservedRecord | undefined, right: ObservedRecord): boolean => {
   if (left?.kind !== right.kind) return false
-  if (left.record.pid !== right.record.pid || left.record.startedAt !== right.record.startedAt) return false
-  return left.kind === "legacy" || left.record.token === (right as Extract<ObservedRecord, { kind: "current" }>).record.token
+  if (left.kind === "current" && right.kind === "current") {
+    return left.record.pid === right.record.pid &&
+      left.record.startedAt === right.record.startedAt &&
+      left.record.token === right.record.token
+  }
+  if (left.kind === "legacy" && right.kind === "legacy") {
+    return left.record.pid === right.record.pid && left.record.startedAt === right.record.startedAt
+  }
+  return false
 }
 
-const recordFingerprint = (observed: ObservedRecord): string =>
-  observed.kind === "current"
-    ? observed.record.token
-    : `legacy-${createHash("sha256").update(JSON.stringify(observed.record)).digest("hex")}`
+const hasSystemReason = (
+  cause: PlatformError.PlatformError,
+  reason: PlatformError.SystemErrorTag
+): boolean => cause.reason._tag === reason
 
-const secureDirectory = (path: string): void => {
-  const parent = dirname(path)
-  mkdirSync(parent, { recursive: true, mode: 0o700 })
-  chmodSync(parent, 0o700)
-}
-
-const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error
+const spawnLockError = (
+  kind: SpawnLockError["kind"],
+  operation: string,
+  path: string,
+  cause: unknown
+) => new SpawnLockError({ kind, operation, path, cause })

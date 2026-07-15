@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import {
-  Deferred,
+  Crypto,
   Effect,
   FileSystem,
   Layer,
@@ -22,13 +22,14 @@ import {
 import type { RuntimeAdapter } from "../../adapter"
 import { makeNodeAdapter } from "../../adapters/node"
 import { ClientLayer } from "../../client-layer"
-import { ClientSession } from "../../client-session"
+import { ClientSession, ClientSessionLayer } from "../../client-session"
 import { readEndpoint } from "../../discovery"
-import { BackendUnavailable } from "../../errors"
-import { ProjectClient } from "../../project/client"
+import { BackendUnavailable, type SpawnLockError } from "../../errors"
+import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { acquireClient, type ExpandRpcClientApi } from "../../rpc-client"
-import { ServerClient } from "../../server/client"
+import { ServerClient, ServerClientLayer } from "../../server/client"
 import { findOrSpawnBackend } from "../../spawn"
+import { acquireSpawnLock, type SpawnLockLease } from "../../spawn-lock"
 import { ProcessServices } from "../process-services"
 
 describe("process control integration", () => {
@@ -77,7 +78,7 @@ describe("process control integration", () => {
       const error = new ProcessProbeError({ pid: 207, cause })
       return Effect.gen(function*() {
         const probeCalled = yield* Queue.unbounded<void>()
-        const completed = yield* Deferred.make<Endpoint, BackendUnavailable | ProcessProbeError | "pending">()
+        const completed = yield* Queue.unbounded<unknown>()
         const adapter: RuntimeAdapter = {
           protocolLayer: () => Layer.empty as Layer.Layer<RpcClient.Protocol>,
           spawnBackend: () => writeEndpoint(context, 207).pipe(Effect.orDie)
@@ -90,14 +91,14 @@ describe("process control integration", () => {
             )
           ))
         )
-        yield* Deferred.complete(completed, finder).pipe(Effect.forkChild)
+        yield* finder.pipe(
+          Effect.result,
+          Effect.flatMap((result) => Queue.offer(completed, result)),
+          Effect.forkChild
+        )
         yield* Queue.take(probeCalled)
-        yield* Effect.yieldNow
-        const polled = yield* Deferred.poll(completed)
-        const result = Option.isNone(polled)
-          ? Option.none()
-          : Option.some(yield* polled.value.pipe(Effect.result))
-        expect(Option.getOrUndefined(result)).toMatchObject({
+        const result = yield* Queue.take(completed)
+        expect(result).toMatchObject({
           _tag: "Failure",
           failure: { _tag: "ProcessProbeError", pid: 207, cause }
         })
@@ -134,6 +135,13 @@ describe("process control integration", () => {
 
   it("exposes explicit host requirements and public boundary errors", () => {
     const nodeAdapter = makeNodeAdapter({ backendCommand: Effect.succeed([]) })
+    expectTypeOf(acquireSpawnLock("/state/backend.lock")).toEqualTypeOf<
+      Effect.Effect<
+        SpawnLockLease | undefined,
+        SpawnLockError,
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+      >
+    >()
     expectTypeOf(readEndpoint).toEqualTypeOf<
       Effect.Effect<
         Option.Option<Endpoint>,
@@ -141,18 +149,46 @@ describe("process control integration", () => {
         FileSystem.FileSystem | AppContext | ProcessControl
       >
     >()
+    expectTypeOf(findOrSpawnBackend(nodeAdapter)).toEqualTypeOf<
+      Effect.Effect<
+        Endpoint,
+        BackendUnavailable | ProcessProbeError | "pending",
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
+      >
+    >()
     expectTypeOf(acquireClient(nodeAdapter)).toEqualTypeOf<
       Effect.Effect<
         { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
         BackendUnavailable,
-        FileSystem.FileSystem | Scope.Scope | AppContext | ProcessControl
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
+      >
+    >()
+    expectTypeOf(ClientSessionLayer(nodeAdapter)).toEqualTypeOf<
+      Layer.Layer<
+        ClientSession,
+        BackendUnavailable,
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
       >
     >()
     expectTypeOf(ClientLayer(nodeAdapter)).toEqualTypeOf<
       Layer.Layer<
         ClientSession | ProjectClient | ServerClient,
         BackendUnavailable,
-        FileSystem.FileSystem | AppContext | ProcessControl
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
+      >
+    >()
+    expectTypeOf(ProjectClientLayer(nodeAdapter)).toEqualTypeOf<
+      Layer.Layer<
+        ProjectClient,
+        BackendUnavailable,
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
+      >
+    >()
+    expectTypeOf(ServerClientLayer(nodeAdapter)).toEqualTypeOf<
+      Layer.Layer<
+        ServerClient,
+        BackendUnavailable,
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
       >
     >()
   })

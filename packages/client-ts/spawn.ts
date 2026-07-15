@@ -1,21 +1,32 @@
 import { Effect, Option, Schedule } from "effect"
 import { AppContext } from "@expand/contracts/app-context"
 import type { RuntimeAdapter } from "./adapter"
-import { BackendUnavailable } from "./errors"
+import { BackendUnavailable, type SpawnLockError } from "./errors"
 import { readEndpoint } from "./discovery"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawn-lock"
 
-export const findOrSpawnBackend = (adapter: RuntimeAdapter) =>
-  Effect.gen(function*() {
+export const findOrSpawnBackend = Effect.fn("Spawn.findOrSpawnBackend")(function*(adapter: RuntimeAdapter) {
+  return yield* Effect.gen(function*() {
     const { paths } = yield* AppContext
     const existing = yield* readEndpoint
     if (Option.isSome(existing)) return existing.value
     const lease = yield* acquireSpawnLock(paths.spawnLockFile)
     if (lease === undefined) return yield* awaitEndpoint
-    return yield* adapter.spawnBackend(paths.dataDir).pipe(
-      Effect.andThen(awaitEndpoint),
-      Effect.ensuring(releaseSpawnLock(lease))
+    return yield* Effect.acquireUseRelease(
+      Effect.succeed(lease),
+      () => adapter.spawnBackend(paths.dataDir).pipe(Effect.andThen(awaitEndpoint)),
+      (heldLease) => releaseSpawnLock(heldLease)
     )
+  }).pipe(
+    Effect.catchTag("SpawnLockError", (error) =>
+      Effect.fail(spawnLockUnavailable(error))
+    )
+  )
+})
+
+const spawnLockUnavailable = (error: SpawnLockError): BackendUnavailable =>
+  new BackendUnavailable({
+    reason: `spawn lock ${error.operation} failed at ${error.path}: ${String(error.cause)}`
   })
 const BACKEND_START_DEADLINE = "30 seconds"
 

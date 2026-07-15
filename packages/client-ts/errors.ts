@@ -9,3 +9,10 @@ export class BackendCommandError extends Data.TaggedError("BackendCommandError")
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string
 }> {}
+
+export class SpawnLockError extends Data.TaggedError("SpawnLockError")<{
+  readonly kind: "filesystem" | "crypto" | "digest" | "schema" | "probe"
+  readonly operation: string
+  readonly path: string
+  readonly cause: unknown
+}> {}

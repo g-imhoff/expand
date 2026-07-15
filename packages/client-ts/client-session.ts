@@ -11,7 +11,7 @@ import {
   Stream,
   SubscriptionRef
 } from "effect"
-import type { FileSystem, Scope } from "effect"
+import type { Crypto, FileSystem, Path, Scope } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
@@ -37,7 +37,7 @@ export const ClientSessionLayer = (
 ): Layer.Layer<
   ClientSession,
   BackendUnavailable,
-  FileSystem.FileSystem | AppContext | ProcessControl
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
   Layer.effect(ClientSession, makeSession(adapter))
 
@@ -120,7 +120,7 @@ const makeSession = (
 ): Effect.Effect<
   ClientSessionApi,
   BackendUnavailable,
-  FileSystem.FileSystem | Scope.Scope | AppContext | ProcessControl
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > =>
   Effect.gen(function* () {
     const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")

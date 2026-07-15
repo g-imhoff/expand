@@ -1,5 +1,5 @@
 import { Layer } from "effect"
-import type { FileSystem } from "effect"
+import type { Crypto, FileSystem, Path } from "effect"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
 import type { BackendUnavailable } from "./errors"
@@ -13,7 +13,7 @@ export const ClientLayer = (
 ): Layer.Layer<
   ClientSession | ProjectClient | ServerClient,
   BackendUnavailable,
-  FileSystem.FileSystem | AppContext | ProcessControl
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
   Layer.mergeAll(ProjectClientLive, ServerClientLive).pipe(
     Layer.provideMerge(ClientSessionLayer(adapter))

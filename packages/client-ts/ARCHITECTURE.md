@@ -36,6 +36,11 @@ wait. Lock publication and removal use record, token, and inode evidence so a
 delayed owner cannot delete a replacement lock. Endpoint polling runs every 100
 milliseconds and has a 30-second startup deadline.
 
+The acquisition and session layers leave `FileSystem`, `Path`, `Crypto`,
+`AppContext`, and `ProcessControl` explicit. The Node `ProcessServices.layer`
+provides the platform and process capabilities while the application provides
+the data-root context.
+
 After discovering an endpoint, acquisition builds the adapter's WebSocket
 protocol layer, creates the typed Expand RPC client, and drains `Connect()`
 until the server confirms presence. The presence handshake has a three-second

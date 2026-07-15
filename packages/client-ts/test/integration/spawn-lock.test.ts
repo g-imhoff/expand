@@ -1,398 +1,938 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { layer as effectLayer } from "@effect/vitest"
+import { expect } from "vitest"
 import { ProcessServices } from "../process-services"
-import { Effect, Fiber, Layer } from "effect"
-import { spawn } from "node:child_process"
-import { randomUUID } from "node:crypto"
 import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from "node:fs"
-import { tmpdir } from "node:os"
-import { dirname, resolve } from "node:path"
-import { setTimeout } from "node:timers/promises"
-import { fileURLToPath } from "node:url"
+  Cause,
+  Clock,
+  Context,
+  Crypto,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Path,
+  PlatformError,
+  Queue,
+  Schedule,
+  Schema,
+  Stream
+} from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
-import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import {
+  ProcessControl,
+  ProcessProbeError,
+  type ProcessControlShape
+} from "@expand/contracts/process-control"
 import { BackendUnavailable } from "../../errors"
 import { findOrSpawnBackend } from "../../spawn"
-import { acquireSpawnLock, releaseSpawnLock } from "../../spawn-lock"
+import {
+  acquireSpawnLock,
+  releaseSpawnLock,
+  type SpawnLockLease,
+  type SpawnLockOptions
+} from "../../spawn-lock"
 import { makeNodeAdapter } from "../../adapters/node"
 
-let dir: string
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-client-lock-"))
-})
+class TestDirectory extends Context.Service<TestDirectory, string>()("expand/SpawnLockTest/Directory") {}
 
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
+const TestDirectoryLive = Layer.effect(
+  TestDirectory,
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "expand-client-lock-" }))
+  )
+)
 
-describe("client spawn lock", () => {
-  it("elects exactly one of 64 real processes for a fresh lock", async () => {
-    const lockPath = join(dir, "fresh", "server.json.lock")
-    const results = await runContenders(lockPath, 64)
+const TestLayer = TestDirectoryLive.pipe(Layer.provideMerge(ProcessServices.layer))
 
-    expect(results.filter(({ status }) => status === "acquired")).toHaveLength(1)
-    expect(existsSync(lockPath)).toBe(false)
-  }, 30_000)
+effectLayer(TestLayer, { excludeTestServices: true, timeout: "2 minutes" })("client spawn lock", (test) => {
+  test.effect("elects exactly one of 64 real processes for a fresh lock", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "fresh", "server.json.lock")
+      const results = yield* runContenders(lockPath, 64)
 
-  it("elects exactly one of 64 real processes for a valid dead current owner", async () => {
-    const lockPath = join(dir, "stale", "server.json.lock")
-    mkdirSync(join(dir, "stale"))
-    writeFileSync(lockPath, JSON.stringify({
-      pid: 2_147_483_647,
-      startedAt: Date.now() - 60_000,
-      token: randomUUID()
+      expect(results.filter(({ status }) => status === "acquired")).toHaveLength(1)
+      expect(yield* fs.exists(lockPath)).toBe(false)
+    }), 60_000)
+
+  test.effect("elects exactly one of 64 real processes for a valid dead current owner", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const cryptoService = yield* Crypto.Crypto
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "stale", "server.json.lock")
+      yield* fs.makeDirectory(path.dirname(lockPath))
+      yield* writeCurrentRecord(lockPath, {
+        pid: 2_147_483_647,
+        startedAt: (yield* Clock.currentTimeMillis) - 60_000,
+        token: yield* cryptoService.randomUUIDv4
+      })
+
+      const results = yield* runContenders(lockPath, 64)
+
+      expect(results.filter(({ status }) => status === "acquired")).toHaveLength(1)
+      expect(yield* fs.exists(lockPath)).toBe(false)
+    }), 60_000)
+
+  test.effect("never publishes an incomplete canonical record", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockServices = yield* Effect.context<
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+      >()
+      const lockPath = path.join(dir, "publication", "server.json.lock")
+      let candidatePath: string | undefined
+      let candidateRecord: CurrentRecord | undefined
+
+      const lease = yield* acquireSpawnLock(lockPath, {
+        beforePublish: (candidate) => Effect.gen(function*() {
+          candidatePath = candidate
+          expect(yield* fs.exists(lockPath)).toBe(false)
+          expect((yield* fs.stat(candidate)).mode & 0o777).toBe(0o600)
+          candidateRecord = yield* readCurrentRecord(candidate)
+        }).pipe(Effect.provide(lockServices), Effect.orDie)
+      })
+
+      expect(lease).toBeDefined()
+      expect(candidatePath).toBeDefined()
+      expect(candidateRecord).toEqual({ pid: lease?.pid, startedAt: lease?.startedAt, token: lease?.token })
+      expect(yield* readCurrentRecord(lockPath)).toEqual({
+        pid: lease?.pid,
+        startedAt: lease?.startedAt,
+        token: lease?.token
+      })
+      if (candidatePath !== undefined) expect(yield* fs.exists(candidatePath)).toBe(false)
+      if (lease !== undefined) yield* releaseSpawnLock(lease)
     }))
 
-    const results = await runContenders(lockPath, 64)
+  test.effect("does not let a delayed stale observer unlink a replacement", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const cryptoService = yield* Crypto.Crypto
+      const dir = yield* TestDirectory
+      const lockServices = yield* Effect.context<
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+      >()
+      const lockPath = path.join(dir, "delayed.lock")
+      yield* writeCurrentRecord(lockPath, {
+        pid: 2_147_483_647,
+        startedAt: (yield* Clock.currentTimeMillis) - 60_000,
+        token: yield* cryptoService.randomUUIDv4
+      })
+      let replacement: SpawnLockLease | undefined
 
-    expect(results.filter(({ status }) => status === "acquired")).toHaveLength(1)
-    expect(existsSync(lockPath)).toBe(false)
-  }, 30_000)
+      const delayed = yield* acquireSpawnLock(lockPath, {
+        afterObservation: fs.remove(lockPath).pipe(
+          Effect.andThen(acquireSpawnLock(lockPath).pipe(Effect.orDie)),
+          Effect.tap((lease) => Effect.sync(() => {
+            replacement = lease
+          })),
+          Effect.asVoid,
+          Effect.provide(lockServices),
+          Effect.orDie
+        )
+      })
 
-  it("never publishes an incomplete canonical record", async () => {
-    const lockPath = join(dir, "publication", "server.json.lock")
-    let candidatePath: string | undefined
-    let candidateRecord: unknown
-
-    const lease = await runAcquire(lockPath, {
-      beforePublish: (path) => {
-        candidatePath = path
-        expect(existsSync(lockPath)).toBe(false)
-        expect(statSync(path).mode & 0o777).toBe(0o600)
-        candidateRecord = JSON.parse(readFileSync(path, "utf8"))
-        expect(isCurrentRecord(candidateRecord)).toBe(true)
-      }
-    })
-
-    expect(lease).toBeDefined()
-    expect(candidatePath).toBeDefined()
-    expect(candidateRecord).toEqual({
-      pid: lease?.pid,
-      startedAt: lease?.startedAt,
-      token: lease?.token
-    })
-    const canonicalRecord = JSON.parse(readFileSync(lockPath, "utf8"))
-    expect(isCurrentRecord(canonicalRecord)).toBe(true)
-    expect(canonicalRecord).toEqual({
-      pid: lease?.pid,
-      startedAt: lease?.startedAt,
-      token: lease?.token
-    })
-    if (candidatePath !== undefined) expect(existsSync(candidatePath)).toBe(false)
-    if (lease !== undefined) await Effect.runPromise(releaseSpawnLock(lease))
-  })
-
-  it("does not let a delayed stale observer unlink a replacement", async () => {
-    const lockPath = join(dir, "delayed.lock")
-    writeFileSync(lockPath, JSON.stringify({
-      pid: 2_147_483_647,
-      startedAt: Date.now() - 60_000,
-      token: randomUUID()
+      expect(delayed).toBeUndefined()
+      expect(replacement).toBeDefined()
+      expect(yield* readCurrentRecord(lockPath)).toMatchObject({ token: replacement?.token })
+      if (replacement !== undefined) yield* releaseSpawnLock(replacement)
     }))
-    let replacement = undefined as Awaited<ReturnType<typeof runAcquire>>
 
-    const delayed = await runAcquire(lockPath, {
-      afterObservation: () => {
-        rmSync(lockPath)
-        replacement = Effect.runSync(acquireSpawnLock(lockPath))
-      }
-    })
+  test.effect("preserves a replacement when an old owner releases", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "release.lock")
+      const oldLease = yield* acquireSpawnLock(lockPath)
+      expect(oldLease).toBeDefined()
+      yield* fs.remove(lockPath)
+      const replacement = yield* acquireSpawnLock(lockPath)
+      expect(replacement).toBeDefined()
+      const replacementStat = yield* fs.stat(lockPath)
 
-    expect(delayed).toBeUndefined()
-    expect(replacement).toBeDefined()
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ token: replacement?.token })
-    if (replacement !== undefined) await Effect.runPromise(releaseSpawnLock(replacement))
-  })
+      if (oldLease !== undefined) yield* releaseSpawnLock(oldLease)
 
-  it("preserves a replacement when an old owner releases", async () => {
-    const lockPath = join(dir, "release.lock")
-    const oldLease = await runAcquire(lockPath)
-    expect(oldLease).toBeDefined()
-    rmSync(lockPath)
-    const replacement = await runAcquire(lockPath)
-    expect(replacement).toBeDefined()
-    const replacementStat = statSync(lockPath)
-
-    if (oldLease !== undefined) await Effect.runPromise(releaseSpawnLock(oldLease))
-
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ token: replacement?.token })
-    expect(statSync(lockPath)).toMatchObject({ dev: replacementStat.dev, ino: replacementStat.ino })
-    if (replacement !== undefined) await Effect.runPromise(releaseSpawnLock(replacement))
-  })
-
-  it("fails closed when the canonical owner is replaced during reclaim", async () => {
-    const lockPath = join(dir, "reclaim.lock")
-    writeFileSync(lockPath, JSON.stringify({
-      pid: 2_147_483_647,
-      startedAt: Date.now() - 60_000,
-      token: randomUUID()
+      expect(yield* readCurrentRecord(lockPath)).toMatchObject({ token: replacement?.token })
+      expect(yield* fs.stat(lockPath)).toMatchObject({ dev: replacementStat.dev, ino: replacementStat.ino })
+      if (replacement !== undefined) yield* releaseSpawnLock(replacement)
     }))
-    let replacement = undefined as Awaited<ReturnType<typeof runAcquire>>
 
-    const contender = await runAcquire(lockPath, {
-      afterClaim: () => {
-        rmSync(lockPath)
-        replacement = Effect.runSync(acquireSpawnLock(lockPath))
+  test.effect("fails closed when the canonical owner is replaced during reclaim", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const cryptoService = yield* Crypto.Crypto
+      const dir = yield* TestDirectory
+      const lockServices = yield* Effect.context<
+        FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+      >()
+      const lockPath = path.join(dir, "reclaim.lock")
+      yield* writeCurrentRecord(lockPath, {
+        pid: 2_147_483_647,
+        startedAt: (yield* Clock.currentTimeMillis) - 60_000,
+        token: yield* cryptoService.randomUUIDv4
+      })
+      let replacement: SpawnLockLease | undefined
+
+      const contender = yield* acquireSpawnLock(lockPath, {
+        afterClaim: fs.remove(lockPath).pipe(
+          Effect.andThen(acquireSpawnLock(lockPath).pipe(Effect.orDie)),
+          Effect.tap((lease) => Effect.sync(() => {
+            replacement = lease
+          })),
+          Effect.asVoid,
+          Effect.provide(lockServices),
+          Effect.orDie
+        )
+      })
+
+      expect(contender).toBeUndefined()
+      expect(replacement).toBeDefined()
+      const replacementStat = yield* fs.stat(lockPath)
+      expect(yield* readCurrentRecord(lockPath)).toMatchObject({ token: replacement?.token })
+      expect(yield* fs.stat(lockPath)).toMatchObject({ dev: replacementStat.dev, ino: replacementStat.ino })
+      if (replacement !== undefined) yield* releaseSpawnLock(replacement)
+    }))
+
+  test.effect("leaves malformed ownership evidence untouched", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "malformed.lock")
+      yield* fs.writeFileString(lockPath, "{")
+      const malformedStat = yield* fs.stat(lockPath)
+
+      expect(yield* acquireSpawnLock(lockPath)).toBeUndefined()
+      expect(yield* fs.readFileString(lockPath)).toBe("{")
+      expect(yield* fs.stat(lockPath)).toMatchObject({ dev: malformedStat.dev, ino: malformedStat.ino })
+    }))
+
+  test.effect("does not steal a live current owner because of age", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const cryptoService = yield* Crypto.Crypto
+      const processControl = yield* ProcessControl
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "live.lock")
+      const record = {
+        pid: processControl.currentPid,
+        startedAt: 1,
+        token: yield* cryptoService.randomUUIDv4
       }
-    })
+      yield* writeCurrentRecord(lockPath, record)
 
-    expect(contender).toBeUndefined()
-    expect(replacement).toBeDefined()
-    const replacementStat = statSync(lockPath)
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ token: replacement?.token })
-    expect(statSync(lockPath)).toMatchObject({ dev: replacementStat.dev, ino: replacementStat.ino })
-    if (replacement !== undefined) await Effect.runPromise(releaseSpawnLock(replacement))
-  })
+      expect(yield* acquireSpawnLock(lockPath)).toBeUndefined()
+      expect(yield* readCurrentRecord(lockPath)).toEqual(record)
+    }))
 
-  it("leaves malformed ownership evidence untouched", async () => {
-    const lockPath = join(dir, "malformed.lock")
-    writeFileSync(lockPath, "{")
-    const malformedStat = statSync(lockPath)
+  test.effect("treats an inaccessible process as a live owner", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const cryptoService = yield* Crypto.Crypto
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "eperm.lock")
+      const record = { pid: 424_242, startedAt: 1, token: yield* cryptoService.randomUUIDv4 }
+      yield* writeCurrentRecord(lockPath, record)
 
-    expect(await runAcquire(lockPath)).toBeUndefined()
-    expect(readFileSync(lockPath, "utf8")).toBe("{")
-    expect(statSync(lockPath)).toMatchObject({ dev: malformedStat.dev, ino: malformedStat.ino })
-  })
+      expect(yield* acquireSpawnLock(lockPath).pipe(
+        Effect.provideService(ProcessControl, processControl(() => Effect.succeed("inaccessible")))
+      )).toBeUndefined()
+      expect(yield* readCurrentRecord(lockPath)).toEqual(record)
+    }))
 
-  it("does not steal a live current owner because of age", async () => {
-    const lockPath = join(dir, "live.lock")
-    const record = { pid: process.pid, startedAt: 1, token: randomUUID() }
-    writeFileSync(lockPath, JSON.stringify(record))
+  test.effect("recovers a dead tokenless legacy owner", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "legacy-dead.lock")
+      yield* fs.writeFileString(lockPath, legacyRecordText(2_147_483_647, 1))
 
-    expect(await runAcquire(lockPath)).toBeUndefined()
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual(record)
-  })
+      const lease = yield* acquireSpawnLock(lockPath)
 
-  it("treats EPERM from PID probing as a live owner", async () => {
-    const lockPath = join(dir, "eperm.lock")
-    const record = { pid: 424_242, startedAt: 1, token: randomUUID() }
-    writeFileSync(lockPath, JSON.stringify(record))
+      expect(lease).toBeDefined()
+      expect(yield* readCurrentRecord(lockPath)).toMatchObject({ token: lease?.token })
+      if (lease !== undefined) yield* releaseSpawnLock(lease)
+    }))
 
-    expect(await runAcquire(lockPath, {
-      probeProcess: () => {
-        throw Object.assign(new Error("denied"), { code: "EPERM" })
+  test.effect("does not steal a live tokenless legacy owner", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "legacy-live.lock")
+      const record = { pid: processControl.currentPid, startedAt: 1 }
+      const encoded = yield* Schema.encodeEffect(LegacyRecordFromJson)(record)
+      yield* fs.writeFileString(lockPath, encoded)
+
+      expect(yield* acquireSpawnLock(lockPath)).toBeUndefined()
+      expect(yield* readLegacyRecord(lockPath)).toEqual(record)
+    }))
+
+  test.effect("cleans its lease after success", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const dir = yield* TestDirectory
+      const context = makeTestAppContext(path.join(dir, "success"), path)
+      yield* fs.makeDirectory(context.paths.dataDir)
+      const encoded = yield* Schema.encodeEffect(EndpointFromJson)(liveEndpoint("success", processControl.currentPid))
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => fs.writeFileString(context.paths.endpointFile, encoded).pipe(Effect.orDie)
       }
-    })).toBeUndefined()
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual(record)
-  })
 
-  it("recovers a dead tokenless legacy owner", async () => {
-    const lockPath = join(dir, "legacy-dead.lock")
-    writeFileSync(lockPath, JSON.stringify({ pid: 2_147_483_647, startedAt: 1 }))
+      yield* findOrSpawnBackend(adapter).pipe(Effect.provideService(AppContext, context))
 
-    const lease = await runAcquire(lockPath)
+      expect(yield* fs.exists(context.paths.spawnLockFile)).toBe(false)
+      expect(yield* lockArtifactsEffect(context.paths.spawnLockFile)).toEqual([])
+    }))
 
-    expect(lease).toBeDefined()
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toMatchObject({ token: lease?.token })
-    if (lease !== undefined) await Effect.runPromise(releaseSpawnLock(lease))
-  })
+  test.effect("cleans its lease after a spawn error", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const context = makeTestAppContext(path.join(dir, "error"), path)
+      yield* fs.makeDirectory(context.paths.dataDir)
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
+      }
 
-  it("does not steal a live tokenless legacy owner", async () => {
-    const lockPath = join(dir, "legacy-live.lock")
-    const record = { pid: process.pid, startedAt: 1 }
-    writeFileSync(lockPath, JSON.stringify(record))
-
-    expect(await runAcquire(lockPath)).toBeUndefined()
-    expect(JSON.parse(readFileSync(lockPath, "utf8"))).toEqual(record)
-  })
-
-  it("cleans its lease after success", async () => {
-    const context = makeTestAppContext(join(dir, "success"))
-    mkdirSync(context.paths.dataDir)
-    const endpoint = liveEndpoint("success")
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: () => Effect.sync(() => writeFileSync(context.paths.endpointFile, JSON.stringify(endpoint)))
-    }
-
-    await Effect.runPromise(
-      findOrSpawnBackend(adapter).pipe(
-        Effect.provide(ProcessServices.layer),
-        Effect.provide(Layer.succeed(AppContext, context))
+      yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(AppContext, context),
+        Effect.result
       )
-    )
 
-    expect(existsSync(context.paths.spawnLockFile)).toBe(false)
-    expect(lockArtifacts(context.paths.spawnLockFile)).toEqual([])
-  })
+      expect(yield* fs.exists(context.paths.spawnLockFile)).toBe(false)
+      expect(yield* lockArtifactsEffect(context.paths.spawnLockFile)).toEqual([])
+    }))
 
-  it("cleans its lease after a spawn error", async () => {
-    const context = makeTestAppContext(join(dir, "error"))
-    mkdirSync(context.paths.dataDir)
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
-    }
-
-    await Effect.runPromise(
-      Effect.result(findOrSpawnBackend(adapter)).pipe(
-        Effect.provide(ProcessServices.layer),
-        Effect.provide(Layer.succeed(AppContext, context))
+  test.effect("cleans its lease after interruption", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const context = makeTestAppContext(path.join(dir, "interruption"), path)
+      yield* fs.makeDirectory(context.paths.dataDir)
+      const spawning = yield* Queue.unbounded<void>()
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Queue.offer(spawning, undefined).pipe(Effect.andThen(Effect.never))
+      }
+      const fiber = yield* Effect.forkChild(
+        findOrSpawnBackend(adapter).pipe(Effect.provideService(AppContext, context))
       )
-    )
+      yield* Queue.take(spawning)
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(fiber)
 
-    expect(existsSync(context.paths.spawnLockFile)).toBe(false)
-    expect(lockArtifacts(context.paths.spawnLockFile)).toEqual([])
-  })
+      expect(yield* fs.exists(context.paths.spawnLockFile)).toBe(false)
+      expect(yield* lockArtifactsEffect(context.paths.spawnLockFile)).toEqual([])
+    }))
 
-  it("cleans its lease after interruption", async () => {
-    const context = makeTestAppContext(join(dir, "interruption"))
-    mkdirSync(context.paths.dataDir)
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: () => Effect.never
-    }
+  test.effect("keeps different lock paths independent and secures their directories", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const leftPath = path.join(dir, "left", "server.json.lock")
+      const rightPath = path.join(dir, "right", "server.json.lock")
+      const [left, right] = yield* Effect.all([acquireSpawnLock(leftPath), acquireSpawnLock(rightPath)], {
+        concurrency: "unbounded"
+      })
 
-    await Effect.runPromise(
-      Effect.scoped(
-        Effect.gen(function* () {
-          const fiber = yield* Effect.forkChild(
-            findOrSpawnBackend(adapter).pipe(
-              Effect.provide(ProcessServices.layer),
-              Effect.provide(Layer.succeed(AppContext, context))
-            )
-          )
-          yield* Effect.promise(() => waitUntil(() => existsSync(context.paths.spawnLockFile)))
-          yield* Fiber.interrupt(fiber)
+      expect(left).toBeDefined()
+      expect(right).toBeDefined()
+      expect((yield* fs.stat(path.join(dir, "left"))).mode & 0o777).toBe(0o700)
+      expect((yield* fs.stat(leftPath)).mode & 0o777).toBe(0o600)
+      expect((yield* fs.stat(path.join(dir, "right"))).mode & 0o777).toBe(0o700)
+      expect((yield* fs.stat(rightPath)).mode & 0o777).toBe(0o600)
+      if (left !== undefined) yield* releaseSpawnLock(left)
+      if (right !== undefined) yield* releaseSpawnLock(right)
+    }))
+
+  test.effect("reports a directory creation failure instead of pretending contention", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "directory-failure", "server.json.lock")
+      const parent = path.dirname(lockPath)
+      const cause = platformFailure("PermissionDenied", "makeDirectory", parent)
+      const result = yield* acquireSpawnLock(lockPath).pipe(
+        Effect.provide(FileSystem.layerNoop({
+          makeDirectory: () => Effect.fail(cause)
+        })),
+        Effect.result
+      )
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "filesystem",
+          operation: "makeDirectory",
+          path: parent,
+          cause
+        }
+      })
+    }))
+
+  test.effect.each([
+    ["link", "link"],
+    ["readFileString", "readFileString"]
+  ] as const)("reports an unexpected %s failure", ([method, operation]) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, `${method}-failure.lock`)
+      const cause = platformFailure("PermissionDenied", method, lockPath)
+      if (method === "readFileString") {
+        yield* fs.writeFileString(lockPath, currentRecordText(100, 1, VALID_TOKEN))
+      }
+      const result = yield* acquireWithFileSystem(lockPath, (fileSystem) => method === "link"
+        ? { link: () => Effect.fail(cause) }
+        : { readFileString: () => Effect.fail(cause), link: fileSystem.link }).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "filesystem",
+          operation,
+          path: lockPath,
+          cause
+        }
+      })
+    }))
+
+  test.effect("reports a candidate cleanup failure", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "remove-failure.lock")
+      const cause = platformFailure("PermissionDenied", "remove", lockPath)
+      const result = yield* acquireWithFileSystem(lockPath, (fs) => ({
+        remove: (artifact, options) => artifact.includes(".candidate.")
+          ? Effect.fail(cause)
+          : fs.remove(artifact, options)
+      })).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "filesystem",
+          operation: "remove",
+          path: expect.stringContaining(".candidate."),
+          cause
+        }
+      })
+    }))
+
+  test.effect("reports a UUID failure", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "uuid-failure.lock")
+      const cause = platformFailure("Unknown", "randomUUIDv4", lockPath)
+      const result = yield* acquireWithCrypto(lockPath, (crypto) => Crypto.Crypto.of({
+        ...crypto,
+        randomUUIDv4: Effect.fail(cause)
+      })).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "crypto",
+          operation: "randomUUIDv4",
+          path: lockPath,
+          cause
+        }
+      })
+    }))
+
+  test.effect("reports a legacy fingerprint digest failure", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "digest-failure.lock")
+      const cause = platformFailure("Unknown", "digest", lockPath)
+      yield* fs.writeFileString(lockPath, legacyRecordText(424_242, 1))
+      const result = yield* acquireWithCrypto(
+        lockPath,
+        (crypto) => Crypto.Crypto.of({ ...crypto, digest: () => Effect.fail(cause) }),
+        {},
+        processControl(() => Effect.succeed("dead"))
+      ).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "digest",
+          operation: "legacyFingerprint",
+          path: lockPath,
+          cause
+        }
+      })
+    }))
+
+  test.effect("reports an invalid injected pid as an internal schema failure", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "schema-failure.lock")
+      const result = yield* acquireEffect(
+        lockPath,
+        {},
+        processControl(() => Effect.succeed("alive"), 0)
+      ).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "schema",
+          operation: "encodeCurrentRecord",
+          path: lockPath,
+          cause: expect.anything()
+        }
+      })
+    }))
+
+  test.effect("reports an unexpected process probe failure", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "probe-failure.lock")
+      const cause = { reason: "unexpected process failure" }
+      const probeError = new ProcessProbeError({ pid: 424_242, cause })
+      yield* fs.writeFileString(lockPath, currentRecordText(424_242, 1, VALID_TOKEN))
+      const result = yield* acquireEffect(
+        lockPath,
+        {},
+        processControl(() => Effect.fail(probeError))
+      ).pipe(Effect.result)
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "SpawnLockError",
+          kind: "probe",
+          operation: "probe",
+          path: lockPath,
+          cause: probeError
+        }
+      })
+    }))
+
+  test.effect("runs Effect hooks lazily", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const freshPath = path.join(dir, "lazy-publish.lock")
+      let publications = 0
+      const fresh = acquireEffect(freshPath, {
+        beforePublish: () => Effect.sync(() => {
+          publications += 1
         })
+      })
+      expect(publications).toBe(0)
+      const freshLease = yield* fresh
+      expect(publications).toBe(1)
+
+      const stalePath = path.join(dir, "lazy-reclaim.lock")
+      yield* fs.writeFileString(stalePath, currentRecordText(424_242, 1, VALID_TOKEN))
+      let observations = 0
+      let claims = 0
+      const stale = acquireEffect(stalePath, {
+        afterObservation: Effect.sync(() => {
+          observations += 1
+        }),
+        afterClaim: Effect.sync(() => {
+          claims += 1
+        })
+      }, processControl(() => Effect.succeed("dead")))
+      expect(observations).toBe(0)
+      expect(claims).toBe(0)
+      const staleLease = yield* stale
+      expect(observations).toBe(1)
+      expect(claims).toBe(1)
+
+      if (freshLease !== undefined) yield* releaseSpawnLock(freshLease)
+      if (staleLease !== undefined) yield* releaseSpawnLock(staleLease)
+    }))
+
+  test.effect.each([
+    ["beforePublish", (defect: unknown): SpawnLockOptions => ({ beforePublish: () => Effect.die(defect) })],
+    ["afterObservation", (defect: unknown): SpawnLockOptions => ({ afterObservation: Effect.die(defect) })],
+    ["afterClaim", (defect: unknown): SpawnLockOptions => ({ afterClaim: Effect.die(defect) })]
+  ] as const)("keeps a %s hook defect in the surrounding Effect", ([name, options]) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, `${name}-defect.lock`)
+      if (name !== "beforePublish") {
+        yield* fs.writeFileString(lockPath, currentRecordText(424_242, 1, VALID_TOKEN))
+      }
+      const defect = { name, reason: "hook defect" }
+      const exit = yield* Effect.exit(
+        acquireEffect(lockPath, options(defect), processControl(() => Effect.succeed("dead")))
       )
-    )
+      const artifacts = yield* lockArtifactsEffect(lockPath)
 
-    expect(existsSync(context.paths.spawnLockFile)).toBe(false)
-    expect(lockArtifacts(context.paths.spawnLockFile)).toEqual([])
-  })
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect(artifacts).toEqual([])
+    }))
 
-  it("keeps different lock paths independent and secures their directories", async () => {
-    const leftPath = join(dir, "left", "server.json.lock")
-    const rightPath = join(dir, "right", "server.json.lock")
-    const [left, right] = await Promise.all([runAcquire(leftPath), runAcquire(rightPath)])
+  test.effect("removes its candidate when interrupted before publication", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "interrupted-publication.lock")
+      const fiber = yield* Effect.forkChild(
+        acquireEffect(lockPath, { beforePublish: () => Effect.never })
+      )
+      yield* waitForArtifact(lockPath, ".candidate.")
+      yield* Fiber.interrupt(fiber)
 
-    expect(left).toBeDefined()
-    expect(right).toBeDefined()
-    expect(statSync(join(dir, "left")).mode & 0o777).toBe(0o700)
-    expect(statSync(leftPath).mode & 0o777).toBe(0o600)
-    expect(statSync(join(dir, "right")).mode & 0o777).toBe(0o700)
-    expect(statSync(rightPath).mode & 0o777).toBe(0o600)
-    if (left !== undefined) await Effect.runPromise(releaseSpawnLock(left))
-    if (right !== undefined) await Effect.runPromise(releaseSpawnLock(right))
-  })
+      expect(yield* fs.exists(lockPath)).toBe(false)
+      expect(yield* lockArtifactsEffect(lockPath)).toEqual([])
+    }))
+
+  test.effect("removes its claim when interrupted after claiming", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, "interrupted-claim.lock")
+      const original = currentRecordText(424_242, 1, VALID_TOKEN)
+      yield* fs.writeFileString(lockPath, original)
+      const fiber = yield* Effect.forkChild(
+        acquireEffect(
+          lockPath,
+          { afterClaim: Effect.never },
+          processControl(() => Effect.succeed("dead"))
+        )
+      )
+      yield* waitForArtifact(lockPath, ".claim.")
+      yield* Fiber.interrupt(fiber)
+
+      expect(yield* fs.readFileString(lockPath)).toBe(original)
+      expect(yield* lockArtifactsEffect(lockPath)).toEqual([])
+    }))
+
+  test.effect.each([
+    ["current-extra", `{"pid":1,"startedAt":1,"token":"${VALID_TOKEN}","extra":true}`],
+    ["legacy-extra", "{\"pid\":1,\"startedAt\":1,\"extra\":true}"],
+    ["zero-pid", `{"pid":0,"startedAt":1,"token":"${VALID_TOKEN}"}`],
+    ["fractional-pid", `{"pid":1.5,"startedAt":1,"token":"${VALID_TOKEN}"}`],
+    ["negative-time", `{"pid":1,"startedAt":-1,"token":"${VALID_TOKEN}"}`],
+    ["fractional-time", `{"pid":1,"startedAt":1.5,"token":"${VALID_TOKEN}"}`],
+    ["invalid-token", "{\"pid\":1,\"startedAt\":1,\"token\":\"not-a-uuid\"}"]
+  ] as const)("leaves invalid ownership evidence untouched", ([name, text]) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* TestDirectory
+      const lockPath = path.join(dir, `invalid-${name}.lock`)
+      yield* fs.writeFileString(lockPath, text)
+      const originalStat = yield* fs.stat(lockPath)
+
+      expect(yield* acquireSpawnLock(lockPath)).toBeUndefined()
+      expect(yield* fs.readFileString(lockPath)).toBe(text)
+      expect(yield* fs.stat(lockPath)).toMatchObject({ dev: originalStat.dev, ino: originalStat.ino })
+    }))
+
+  test.effect("maps a held-lease cleanup failure through BackendUnavailable", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const dir = yield* TestDirectory
+      const context = makeTestAppContext(path.join(dir, "cleanup-map"), path)
+      yield* fs.makeDirectory(context.paths.dataDir, { recursive: true })
+      const endpoint = liveEndpoint("cleanup-map", processControl.currentPid)
+      const encoded = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
+      const cause = platformFailure("PermissionDenied", "remove", context.paths.spawnLockFile)
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => fs.writeFileString(context.paths.endpointFile, encoded).pipe(Effect.orDie)
+      }
+      const overridden = FileSystem.FileSystem.of({
+        ...fs,
+        remove: (artifact, options) => artifact === context.paths.spawnLockFile
+          ? Effect.fail(cause)
+          : fs.remove(artifact, options)
+      })
+      const result = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, overridden),
+        Effect.provideService(AppContext, context),
+        Effect.result
+      )
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: {
+          _tag: "BackendUnavailable",
+          reason: expect.stringContaining("spawn lock remove failed")
+        }
+      })
+    }))
 })
 
-interface ContenderResult {
-  readonly status: "acquired" | "contended"
-  readonly pid?: number
-  readonly token?: string
-}
+const PositiveSafeInteger = Schema.Int.check(Schema.isGreaterThan(0))
+const NonNegativeSafeInteger = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
+const UuidV4 = Schema.String.check(Schema.isUUID(4))
 
-interface AcquireOptions {
-  readonly afterClaim?: () => void
-  readonly afterObservation?: () => void
-  readonly beforePublish?: (candidatePath: string) => void
-  readonly probeProcess?: (pid: number) => void
-}
+const CurrentRecordSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  startedAt: NonNegativeSafeInteger,
+  token: UuidV4
+})
+const LegacyRecordSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  startedAt: NonNegativeSafeInteger
+})
+const ContenderResultSchema = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("contended") }),
+  Schema.Struct({
+    status: Schema.Literal("acquired"),
+    pid: PositiveSafeInteger,
+    token: UuidV4
+  })
+])
+const CurrentRecordFromJson = Schema.fromJsonString(CurrentRecordSchema)
+const LegacyRecordFromJson = Schema.fromJsonString(LegacyRecordSchema)
+const ContenderResultFromJson = Schema.fromJsonString(ContenderResultSchema)
 
-const contenderPath = fileURLToPath(new URL("../fixtures/spawn-lock-contender.ts", import.meta.url))
+type CurrentRecord = typeof CurrentRecordSchema.Type
+type ContenderResult = typeof ContenderResultSchema.Type
 
-const runAcquire = (lockPath: string, options: AcquireOptions = {}) =>
-  Effect.runPromise(acquireSpawnLock(lockPath, options))
+const strictParseOptions = { onExcessProperty: "error" } as const
 
-const runContenders = async (
+const acquireEffect = Effect.fn("SpawnLockTest.acquire")(function*(
+  lockPath: string,
+  options: SpawnLockOptions = {},
+  service?: ProcessControlShape
+) {
+  const effect = acquireSpawnLock(lockPath, options)
+  return service === undefined
+    ? yield* effect
+    : yield* effect.pipe(Effect.provideService(ProcessControl, service))
+})
+
+const acquireWithFileSystem = Effect.fn("SpawnLockTest.acquireWithFileSystem")(function*(
+  lockPath: string,
+  override: (fs: FileSystem.FileSystem) => Partial<FileSystem.FileSystem>,
+  options: SpawnLockOptions = {},
+  service?: ProcessControlShape
+) {
+  const fs = yield* FileSystem.FileSystem
+  const effect = acquireSpawnLock(lockPath, options).pipe(
+    Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+      ...fs,
+      ...override(fs)
+    }))
+  )
+  return service === undefined
+    ? yield* effect
+    : yield* effect.pipe(Effect.provideService(ProcessControl, service))
+})
+
+const acquireWithCrypto = Effect.fn("SpawnLockTest.acquireWithCrypto")(function*(
+  lockPath: string,
+  override: (crypto: Crypto.Crypto) => Crypto.Crypto,
+  options: SpawnLockOptions = {},
+  service?: ProcessControlShape
+) {
+  const cryptoService = yield* Crypto.Crypto
+  const effect = acquireSpawnLock(lockPath, options).pipe(
+    Effect.provideService(Crypto.Crypto, override(cryptoService))
+  )
+  return service === undefined
+    ? yield* effect
+    : yield* effect.pipe(Effect.provideService(ProcessControl, service))
+})
+
+const processControl = (
+  probe: ProcessControlShape["probe"],
+  currentPid = 100
+): ProcessControlShape => ({ currentPid, probe })
+
+const platformFailure = (
+  tag: PlatformError.SystemErrorTag,
+  method: string,
+  path: string
+) => PlatformError.systemError({
+  _tag: tag,
+  module: "FileSystem",
+  method,
+  pathOrDescriptor: path
+})
+
+const VALID_TOKEN = "00000000-0000-4000-8000-000000000000"
+
+const currentRecordText = (pid: number, startedAt: number, token: string) =>
+  `{"pid":${pid},"startedAt":${startedAt},"token":"${token}"}`
+
+const legacyRecordText = (pid: number, startedAt: number) =>
+  `{"pid":${pid},"startedAt":${startedAt}}`
+
+const writeCurrentRecord = Effect.fn("SpawnLockTest.writeCurrentRecord")(function*(
+  path: string,
+  record: CurrentRecord
+) {
+  const fs = yield* FileSystem.FileSystem
+  const encoded = yield* Schema.encodeEffect(CurrentRecordFromJson, strictParseOptions)(record)
+  yield* fs.writeFileString(path, encoded)
+})
+
+const readCurrentRecord = Effect.fn("SpawnLockTest.readCurrentRecord")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(path)
+  return yield* Schema.decodeUnknownEffect(CurrentRecordFromJson, strictParseOptions)(text)
+})
+
+const readLegacyRecord = Effect.fn("SpawnLockTest.readLegacyRecord")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(path)
+  return yield* Schema.decodeUnknownEffect(LegacyRecordFromJson, strictParseOptions)(text)
+})
+
+const lockArtifactsEffect = Effect.fn("SpawnLockTest.lockArtifacts")(function*(lockPath: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const parent = path.dirname(lockPath)
+  const prefix = lockPath.slice(parent.length + 1)
+  const entries = yield* fs.readDirectory(parent)
+  return entries.filter((entry) => entry.startsWith(`${prefix}.`))
+})
+
+const waitForArtifact = Effect.fn("SpawnLockTest.waitForArtifact")(function*(
+  lockPath: string,
+  marker: string
+) {
+  yield* lockArtifactsEffect(lockPath).pipe(
+    Effect.filterOrFail(
+      (artifacts) => artifacts.some((artifact) => artifact.includes(marker)),
+      () => "pending" as const
+    ),
+    Effect.retry(Schedule.spaced("2 millis")),
+    Effect.timeoutOrElse({
+      duration: "5 seconds",
+      orElse: () => Effect.fail(`timed out waiting for ${marker}` as const)
+    }),
+    Effect.asVoid
+  )
+})
+
+const runContenders = Effect.fn("SpawnLockTest.runContenders")(function*(
   lockPath: string,
   count: number
-): Promise<ReadonlyArray<ContenderResult>> => {
-  const coordinationDir = join(dir, `coordination-${randomUUID()}`)
-  const startPath = join(coordinationDir, "start")
-  const releasePath = join(coordinationDir, "release")
-  mkdirSync(coordinationDir)
-  const processes = Array.from({ length: count }, (_, index) => {
-    const readyPath = join(coordinationDir, `ready-${index}`)
-    const resultPath = join(coordinationDir, `result-${index}`)
-    const child = spawn(
-      process.execPath,
-      ["--import", "tsx", contenderPath, lockPath, readyPath, startPath, releasePath, resultPath],
-      { cwd: fileURLToPath(new URL("../../../../", import.meta.url)), stdio: ["ignore", "ignore", "pipe"] }
-    )
-    let stderr = ""
-    child.stderr.setEncoding("utf8")
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const cryptoService = yield* Crypto.Crypto
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const dir = yield* TestDirectory
+  const root = path.resolve(".")
+  const contenderPath = path.join(root, "packages/client-ts/test/fixtures/spawn-lock-contender.ts")
+  const coordinationDir = path.join(dir, `coordination-${yield* cryptoService.randomUUIDv4}`)
+  const startPath = path.join(coordinationDir, "start")
+  const releasePath = path.join(coordinationDir, "release")
+  yield* fs.makeDirectory(coordinationDir)
+
+  return yield* Effect.acquireUseRelease(
+    Effect.forEach(Array.from({ length: count }, (_, index) => index), (index) =>
+      Effect.gen(function*() {
+        const readyPath = path.join(coordinationDir, `ready-${index}`)
+        const resultPath = path.join(coordinationDir, `result-${index}`)
+        const handle = yield* spawner.spawn(ChildProcess.make(
+          "node",
+          ["--import", "tsx", contenderPath, lockPath, readyPath, startPath, releasePath, resultPath],
+          {
+            cwd: root,
+            detached: false,
+            stdin: "ignore",
+            stdout: "ignore",
+            stderr: "pipe"
+          }
+        ))
+        const stderr = yield* handle.stderr.pipe(
+          Stream.decodeText(),
+          Stream.mkString,
+          Effect.forkScoped
+        )
+        return { readyPath, resultPath, handle, stderr }
+      })),
+    (processes) => Effect.gen(function*() {
+      yield* waitForAllPaths(processes.map(({ readyPath }) => readyPath))
+      yield* fs.writeFileString(startPath, "start")
+      yield* waitForAllPaths(processes.map(({ resultPath }) => resultPath))
+      return yield* Effect.forEach(processes, ({ resultPath }) =>
+        fs.readFileString(resultPath).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(ContenderResultFromJson, strictParseOptions))
+        ))
+    }),
+    (processes) => Effect.gen(function*() {
+      yield* fs.writeFileString(startPath, "start")
+      yield* fs.writeFileString(releasePath, "release")
+      const exits = yield* Effect.forEach(processes, ({ handle, stderr }) =>
+        Effect.all([handle.exitCode, Fiber.join(stderr)]), { concurrency: "unbounded" })
+      yield* Effect.forEach(exits, ([exitCode, stderr]) => Number(exitCode) === 0
+        ? Effect.void
+        : Effect.fail(`spawn-lock contender failed with ${String(exitCode)}: ${stderr}`))
     })
-    const exit = new Promise<void>((resolve, reject) => {
-      child.once("error", reject)
-      child.once("exit", (code, signal) => {
-        if (code === 0) resolve()
-        else reject(new Error(`spawn-lock contender failed: ${String(code)} ${String(signal)} ${stderr}`))
-      })
-    })
-    return { readyPath, resultPath, exit, stderr: () => stderr }
-  })
+  )
+})
 
-  try {
-    await waitUntil(() => processes.every(({ readyPath }) => existsSync(readyPath)), processes)
-    writeFileSync(startPath, "start")
-    await waitUntil(() => processes.every(({ resultPath }) => existsSync(resultPath)), processes)
-    return processes.map(({ resultPath }) => JSON.parse(readFileSync(resultPath, "utf8")) as ContenderResult)
-  } finally {
-    writeFileSync(releasePath, "release")
-    await Promise.all(processes.map(({ exit }) => exit))
-  }
-}
+const waitForAllPaths = Effect.fn("SpawnLockTest.waitForAllPaths")(function*(paths: ReadonlyArray<string>) {
+  const fs = yield* FileSystem.FileSystem
+  yield* Effect.forEach(paths, (path) => fs.exists(path), { concurrency: "unbounded" }).pipe(
+    Effect.filterOrFail((exists) => exists.every(Boolean), () => "pending" as const),
+    Effect.retry(Schedule.spaced("2 millis")),
+    Effect.timeoutOrElse({
+      duration: "45 seconds",
+      orElse: () => Effect.fail("coordination timed out" as const)
+    }),
+    Effect.asVoid
+  )
+})
 
-const waitUntil = async (
-  predicate: () => boolean,
-  processes: ReadonlyArray<{ readonly stderr: () => string }> = []
-): Promise<void> => {
-  const deadline = Date.now() + 10_000
-  while (!predicate()) {
-    if (Date.now() >= deadline) {
-      throw new Error(`coordination timed out: ${processes.map(({ stderr }) => stderr()).join("\n")}`)
-    }
-    await setTimeout(2)
-  }
-}
-
-const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
-
-const isCurrentRecord = (value: unknown): boolean => {
-  if (typeof value !== "object" || value === null) return false
-  const candidate = value as Record<string, unknown>
-  return Object.keys(candidate).sort().join(",") === "pid,startedAt,token" &&
-    Number.isSafeInteger(candidate.pid) && (candidate.pid as number) > 0 &&
-    Number.isSafeInteger(candidate.startedAt) && (candidate.startedAt as number) >= 0 &&
-    typeof candidate.token === "string" && TOKEN_PATTERN.test(candidate.token)
-}
-
-const liveEndpoint = (token: string) => ({
+const liveEndpoint = (token: string, pid: number) => ({
   url: "ws://127.0.0.1:51991/rpc",
   token,
-  pid: process.pid,
+  pid,
   protocolVersion: PROTOCOL_VERSION
 })
 
-const lockArtifacts = (lockPath: string): ReadonlyArray<string> => {
-  const parent = dirname(lockPath)
-  const prefix = lockPath.slice(parent.length + 1)
-  return readdirSync(parent).filter((entry) => entry.startsWith(`${prefix}.`))
-}
-
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
-  )
-
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}
+const makeTestAppContext = (dataDir: string, path: Path.Path) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })
