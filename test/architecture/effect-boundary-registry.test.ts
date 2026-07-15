@@ -5,7 +5,7 @@ import { ChildProcess } from "effect/unstable/process"
 import { describe, expect } from "vitest"
 import { effectHostBoundaries } from "../../eslint-rules/effect-host-boundaries.mjs"
 import { type HostBoundary } from "../../scripts/effect-policy-model"
-import { validateHostBoundaries } from "../../scripts/effect-audit"
+import { isRegisteredNodeBuiltinDiagnostic, validateHostBoundaries } from "../../scripts/effect-audit"
 
 const EslintResult = Schema.Struct({ filePath: Schema.String })
 const EslintJson = Schema.fromJsonString(Schema.Array(EslintResult))
@@ -32,6 +32,29 @@ const boundary = (overrides: Partial<HostBoundary> = {}): HostBoundary => ({
   occurrence: 0,
   ...overrides
 }) as HostBoundary
+
+const platformProcessExit = ["platform:process", "exit"].join(".")
+
+type NodeBuiltinDiagnosticMatcherOptions = Parameters<typeof isRegisteredNodeBuiltinDiagnostic>[0]
+
+const nodeHttpBoundary = {
+  file: "apps/server/http.ts",
+  declaration: "module:<module>",
+  construct: ["platform:import:node", "http"].join(":"),
+  occurrence: 0
+} as const
+
+const nodeHttpOccurrence = (
+  overrides: Partial<NodeBuiltinDiagnosticMatcherOptions["occurrences"][number]["identity"]> = {},
+  range: ReadonlyArray<number> = [10, 50]
+) => ({
+  identity: { ...nodeHttpBoundary, ...overrides },
+  node: { type: "ImportDeclaration", range }
+})
+
+const nodeBuiltinDiagnostic = (
+  overrides: Partial<NodeBuiltinDiagnosticMatcherOptions["diagnostic"]> = {}
+) => ({ name: "nodeBuiltinImport", start: 25, length: 11, ...overrides })
 
 const withRegistryFixture = Effect.fn("EffectBoundaryRegistryTest.withFixture")(
   function* <A>(
@@ -73,6 +96,34 @@ const expectInvalid = (boundaries: ReadonlyArray<HostBoundary>) =>
     }))
 
 describe("Effect host-boundary registry", () => {
+  it("admits the exact registered Node builtin import occurrence", () => {
+    expect(isRegisteredNodeBuiltinDiagnostic({
+      file: nodeHttpBoundary.file,
+      diagnostic: nodeBuiltinDiagnostic(),
+      occurrences: [nodeHttpOccurrence()],
+      boundaries: [nodeHttpBoundary]
+    })).toBe(true)
+  })
+
+  it.each([
+    ["unregistered file", { file: "src/http.ts" }],
+    ["wrong declaration", { occurrences: [nodeHttpOccurrence({ declaration: "variable:server" })] }],
+    ["wrong construct", { occurrences: [nodeHttpOccurrence({ construct: ["platform:import:node", "fs"].join(":") })] }],
+    ["wrong occurrence", { occurrences: [nodeHttpOccurrence({ occurrence: 1 })] }],
+    ["ambiguous occurrence", { occurrences: [nodeHttpOccurrence(), nodeHttpOccurrence()] }],
+    ["non-containing range", { diagnostic: nodeBuiltinDiagnostic({ start: 55 }) }],
+    ["missing diagnostic length", { diagnostic: nodeBuiltinDiagnostic({ length: undefined }) }],
+    ["different diagnostic name", { diagnostic: nodeBuiltinDiagnostic({ name: "processEnv" }) }]
+  ])("keeps %s blocking", (_name, overrides) => {
+    expect(isRegisteredNodeBuiltinDiagnostic({
+      file: nodeHttpBoundary.file,
+      diagnostic: nodeBuiltinDiagnostic(),
+      occurrences: [nodeHttpOccurrence()],
+      boundaries: [nodeHttpBoundary],
+      ...overrides
+    })).toBe(false)
+  })
+
   it.effect("accepts one exact tracked and consumed boundary", () =>
     fixture([boundary()], (input) => validateHostBoundaries(input)))
 
@@ -110,6 +161,9 @@ describe("Effect host-boundary registry", () => {
 
   it.effect("rejects unconsumed occurrence identities", () =>
     expectInvalid([boundary({ occurrence: 1 })]))
+
+  it.effect("rejects a stale process exit boundary after the source call is removed", () =>
+    expectInvalid([boundary({ construct: platformProcessExit })]))
 
   it.effect("rejects boundaries without an ESLint consumer", () =>
     fixture([boundary()], (input) =>

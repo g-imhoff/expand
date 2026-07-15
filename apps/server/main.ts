@@ -1,20 +1,11 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
 import { nodeAppContextLayer } from "@expand/server/node-app-context"
-import type { LogLevel } from "effect"
+import { minimumLogLevel } from "@expand/server/server-config"
 import * as AppContext from "@expand/contracts/app-context"
 import * as ServerApp from "@expand/server/composition/app"
 import * as StateRootLock from "@expand/server/state-root-lock"
 import * as NodeProcessControl from "@expand/server/node-process-control"
-
-const LOG_LEVELS: ReadonlyArray<ServerLogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
-
-function minimumLogLevel(): ServerLogLevel {
-  const raw = process.env.EXPAND_LOG_LEVEL
-  return raw !== undefined && (LOG_LEVELS as ReadonlyArray<string>).includes(raw)
-    ? (raw as ServerLogLevel)
-    : "Info"
-}
 
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -50,11 +41,8 @@ process.umask(0o077)
 
 NodeRuntime.runMain(
   program.pipe(
-    Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
+    Effect.provideServiceEffect(References.MinimumLogLevel, minimumLogLevel),
     Effect.provide(nodeAppContextLayer),
-    Effect.tap(() => {
-      return Effect.sync(() => process.exit(0))
-    }),
     Effect.provide(
       NodeProcessControl.ProcessServices.layer satisfies Layer.Layer<
         NodeServices.NodeServices | import("@expand/contracts/process-control").ProcessControl
@@ -66,5 +54,3 @@ NodeRuntime.runMain(
       onExit(Exit.isSuccess(exit) || (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) ? 0 : 1)
   }
 )
-
-type ServerLogLevel = LogLevel.LogLevel

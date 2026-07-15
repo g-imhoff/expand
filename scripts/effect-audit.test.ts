@@ -1939,13 +1939,48 @@ const appContextBoundaryFiles = [
   "examples/client-ts/node-app-context.ts"
 ] as const
 
-const allBoundaryFiles = [...boundaryFiles, ...appContextBoundaryFiles]
+const stage3BoundaryFiles = [
+  "apps/server/http.ts",
+  "apps/server/node-process-control.ts",
+  "packages/client-ts/adapters/node-process-control.ts"
+] as const
+
+const allBoundaryFiles = [...boundaryFiles, ...appContextBoundaryFiles, ...stage3BoundaryFiles]
 
 const nodeOs = ["node", "os"].join(":")
+const nodeCrypto = ["node", "crypto"].join(":")
+const nodeHttp = ["node", "http"].join(":")
 const hostProcessCwd = ["process", "cwd"].join(".")
+const hostProcessKill = ["process", "kill"].join(".")
+const hostProcessPid = ["process", "pid"].join(".")
+const hostProcessUmask = ["process", "umask"].join(".")
+const nodeRuntimeRunMain = ["NodeRuntime", "runMain"].join(".")
 const platformProcessCwd = ["platform:process", "cwd"].join(".")
 const asyncKeyword = ["as", "ync"].join("")
 const nativeAsync = ["native:as", "ync"].join("")
+
+const serverHttpBoundarySource = `import { timingSafeEqual } from "${nodeCrypto}"
+import { createServer } from "${nodeHttp}"
+void timingSafeEqual
+void createServer
+`
+
+const serverMainBoundarySource = `import { NodeRuntime } from "@effect/platform-node"
+declare const program: never
+${hostProcessUmask}(0o077)
+${nodeRuntimeRunMain}(program)
+`
+
+const processControlBoundarySource = `export const nodeProcessControlLayer = { currentPid: ${hostProcessPid} }
+export const probe = { try: () => ${hostProcessKill}(0, 0) }
+`
+
+const boundarySources = new Map<string, string>([
+  ["apps/server/http.ts", serverHttpBoundarySource],
+  ["apps/server/main.ts", serverMainBoundarySource],
+  ["apps/server/node-process-control.ts", processControlBoundarySource],
+  ["packages/client-ts/adapters/node-process-control.ts", processControlBoundarySource]
+])
 
 const appContextBoundarySource = `import { Effect } from "effect"
 import { homedir } from "${nodeOs}"
@@ -1965,6 +2000,9 @@ const withAppContextAuditFixture = <A>(
     const path = yield* Path.Path
     for (const file of appContextBoundaryFiles) {
       yield* fs.writeFileString(path.join(input.root, file), appContextBoundarySource)
+    }
+    for (const [file, source] of boundarySources) {
+      yield* fs.writeFileString(path.join(input.root, file), source)
     }
     return yield* use(input)
   }))
@@ -2018,5 +2056,37 @@ describe("Effect platform host-boundary classification", () => {
           detail: expect.stringContaining("lacks an exact permanent boundary")
         })
       }))
+  })
+})
+
+describe("registered Effect language diagnostic command", () => {
+  it.effect("admits only the registered Node HTTP language diagnostic", () => {
+    const start = serverHttpBoundarySource.indexOf(`"${nodeHttp}"`)
+    const registered = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
+    const unregisteredSource = `import { createServer } from "${nodeHttp}"\n`
+    const unregisteredStart = unregisteredSource.indexOf(`"${nodeHttp}"`)
+    const unregistered = `{"diagnostics":[{"file":"src/sample.ts","start":${unregisteredStart},"length":${nodeHttp.length + 2},"line":1,"column":${unregisteredStart + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
+
+    return fixture({ baseline: [], languageService: registered }, ({ root }) =>
+      runAudit({ root, mode: "check" }).pipe(Effect.asVoid)
+    ).pipe(Effect.andThen(
+      fixture({
+        baseline: [],
+        source: unregisteredSource,
+        languageService: unregistered
+      }, ({ root }) =>
+        Effect.gen(function*() {
+          const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+          expect(error).toMatchObject({
+            reason: "new-findings",
+            findings: [{
+              engine: "effect-language-service",
+              file: "src/sample.ts",
+              rule: "nodeBuiltinImport"
+            }]
+          })
+        })
+      )
+    ))
   })
 })

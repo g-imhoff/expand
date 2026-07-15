@@ -511,6 +511,52 @@ const occurrenceRange = (occurrence: { readonly node: unknown }) => {
   return start === undefined || end === undefined ? undefined : { start, end }
 }
 
+export const isRegisteredNodeBuiltinDiagnostic = (options: {
+  readonly file: string
+  readonly diagnostic: {
+    readonly name: string
+    readonly start: number
+    readonly length?: number | undefined
+  }
+  readonly occurrences: ReadonlyArray<{
+    readonly identity: {
+      readonly file: string
+      readonly declaration: string
+      readonly construct: string
+      readonly occurrence: number
+    }
+    readonly node: unknown
+  }>
+  readonly boundaries: ReadonlyArray<{
+    readonly file: string
+    readonly declaration: string
+    readonly construct: string
+    readonly occurrence: number
+  }>
+}): boolean => {
+  if (options.diagnostic.name !== "nodeBuiltinImport") return false
+  const length = options.diagnostic.length
+  if (length === undefined || length <= 0) return false
+  const end = options.diagnostic.start + length
+  if (!Number.isSafeInteger(end)) return false
+  const occurrences = options.occurrences.filter((occurrence) => {
+    const range = occurrenceRange(occurrence)
+    return occurrence.identity.file === options.file
+      && occurrence.identity.construct.startsWith("platform:import:node:")
+      && range !== undefined
+      && range.start <= options.diagnostic.start
+      && range.end >= end
+  })
+  if (occurrences.length !== 1) return false
+  const identity = occurrences[0]!.identity
+  return options.boundaries.filter((boundary) =>
+    boundary.file === identity.file
+    && boundary.declaration === identity.declaration
+    && boundary.construct === identity.construct
+    && boundary.occurrence === identity.occurrence
+  ).length === 1
+}
+
 const collectGrepCandidates = Effect.fn("effect-audit.collect-grep-candidates")(
   function* (options: {
     readonly root: string
@@ -990,11 +1036,17 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     const sources = new Map<string, ParsedSource>()
     for (const file of sourceFiles) sources.set(file, yield* parseSource(options.root, file, "invalid-output"))
 
-    const languageFindings = relevantLanguage.map(({ diagnostic, file }) => {
+    const languageFindings = relevantLanguage.flatMap(({ diagnostic, file }) => {
       const parsed = sources.get(file)!
+      if (isRegisteredNodeBuiltinDiagnostic({
+        file,
+        diagnostic,
+        occurrences: parsed.analysis.occurrences,
+        boundaries: effectHostBoundaries
+      })) return []
       const identity = parsed.analysis.identityAtOffset(diagnostic.start, `diagnostic:${diagnostic.name}`)
       const excerpt = lineExcerpt(parsed.source, diagnostic.line)
-      return new AuditFinding({
+      return [new AuditFinding({
         engine: "effect-language-service",
         file,
         rule: diagnostic.name,
@@ -1004,7 +1056,7 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         severity: diagnostic.severity,
         line: diagnostic.line,
         ...(excerpt === undefined ? {} : { excerpt })
-      })
+      })]
     })
     const eslintFindings = relevantEslint.map(({ file, message }) => {
       const parsed = sources.get(file)!
