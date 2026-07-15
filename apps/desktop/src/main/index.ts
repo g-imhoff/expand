@@ -69,39 +69,40 @@ const csp: CspHost = {
 
 const createWindow = (options: ConstructorParameters<typeof BrowserWindow>[0]): DesktopWindowHost<MessagePortMain> => {
   const browserWindow = new BrowserWindow(options)
+  const webContents = browserWindow.webContents
   return {
-    ipc: electronBindDeps(browserWindow),
+    ipc: electronBindDeps({ webContents }),
     onClosed: (listener) => {
       browserWindow.on("closed", listener)
       let disposed = false
       return () => {
         if (disposed) return
         disposed = true
-        browserWindow.off("closed", listener)
+        if (!browserWindow.isDestroyed()) browserWindow.off("closed", listener)
       }
     },
     onNavigation: (listener) => {
       const wrapped = (details: Event<WebContentsDidStartNavigationEventParams>) =>
         listener({ isSameDocument: details.isSameDocument })
-      browserWindow.webContents.on("did-start-navigation", wrapped)
+      webContents.on("did-start-navigation", wrapped)
       let disposed = false
       return () => {
         if (disposed) return
         disposed = true
-        browserWindow.webContents.off("did-start-navigation", wrapped)
+        if (!webContents.isDestroyed()) webContents.off("did-start-navigation", wrapped)
       }
     },
     onWillNavigate: (listener) => {
       const wrapped = (details: Event<WebContentsWillNavigateEventParams>) => listener(details, details.url)
-      browserWindow.webContents.on("will-navigate", wrapped)
+      webContents.on("will-navigate", wrapped)
       let disposed = false
       return () => {
         if (disposed) return
         disposed = true
-        browserWindow.webContents.off("will-navigate", wrapped)
+        if (!webContents.isDestroyed()) webContents.off("will-navigate", wrapped)
       }
     },
-    setWindowOpenHandler: (handler) => browserWindow.webContents.setWindowOpenHandler(handler),
+    setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
     loadUrl: (url) => Effect.tryPromise(() => browserWindow.loadURL(url)),
     loadFile: (path) => Effect.tryPromise(() => browserWindow.loadFile(path)),
     isDestroyed: () => browserWindow.isDestroyed(),
