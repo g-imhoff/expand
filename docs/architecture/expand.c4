@@ -47,6 +47,7 @@ model {
 
       discovery = component 'Backend discovery' {
         description 'Finds or spawns the backend via the selected state root endpoint.'
+        technology 'Effect FileSystem · Effect ChildProcess'
       }
 
       ui    -> state     'reads + dispatches'
@@ -70,6 +71,7 @@ model {
 
       cliDiscovery = component 'Backend discovery' {
         description 'Finds or spawns the selected state root backend under its ownership-safe derived spawn lock.'
+        technology 'Effect FileSystem · Effect ChildProcess'
       }
 
       cliEntry -> cliRpcClient 'dispatches'

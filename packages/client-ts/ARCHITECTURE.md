@@ -48,9 +48,12 @@ deadline. A stale endpoint is removed and acquisition is retried up to three
 times. Scope closure tears down the socket and its supervised fibers.
 
 The Node adapter injects `ws` into Effect's WebSocket layer, uses NDJSON RPC
-serialization, and starts its required backend command with
-`child_process.spawn`. The child is unreferenced; readiness is determined by
-endpoint discovery rather than the spawn call.
+serialization, and starts its required backend command with Effect
+`ChildProcess`. It provides the narrow Node child-process spawner and Node path
+service internally while leaving `FileSystem` caller-owned. Process creation
+and unref run in the same scope with the child kept in the guardian's process
+group; the scope closes after unref succeeds. The spawn effect reports operating
+system acceptance, while endpoint discovery remains responsible for readiness.
 
 ## `ClientSession`
 

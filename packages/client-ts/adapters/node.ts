@@ -1,11 +1,12 @@
+import { NodeChildProcessSpawner, NodePath } from "@effect/platform-node"
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
 import { Effect, Layer } from "effect"
 import { Socket } from "effect/unstable/socket"
 import { WebSocket as WS } from "ws"
-import { spawn } from "node:child_process"
 import type { FileSystem } from "effect"
 import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable, type BackendCommandError } from "../errors"
+import { spawnResolvedBackend } from "./node-spawn"
 
 export interface NodeAdapterOptions {
   readonly backendCommand: Effect.Effect<
@@ -22,27 +23,17 @@ export const makeNodeAdapter = (opts: NodeAdapterOptions): RuntimeAdapter => {
     dataDir: string
   ) {
     const cmd = yield* resolveCommand(opts.backendCommand)
-    yield* Effect.callback<void, BackendUnavailable>((resume) => {
-      const [head, ...rest] = cmd
-      const args = [...rest, "--data-dir", dataDir]
-      const command = cmd.join(" ") || "<empty>"
-      const fail = (e: unknown) => {
-        resume(Effect.fail(new BackendUnavailable({ reason: `spawn failed: ${command}: ${String(e)}` })))
-      }
-      try {
-        const child = spawn(head!, args, { stdio: "ignore", env: process.env })
-        child.once("error", fail)
-        child.once("spawn", () => {
-          child.unref()
-          resume(Effect.void)
-        })
-      } catch (e) {
-        fail(e)
-      }
-    })
+    yield* spawnResolvedBackend(cmd, dataDir).pipe(
+      Effect.scoped,
+      Effect.provide(nodeChildProcessSpawnerLayer)
+    )
   })
   return { protocolLayer, spawnBackend }
 }
+
+const nodeChildProcessSpawnerLayer = NodeChildProcessSpawner.layer.pipe(
+  Layer.provide(NodePath.layer)
+)
 
 const wsConstructor = Layer.succeed(
   Socket.WebSocketConstructor,

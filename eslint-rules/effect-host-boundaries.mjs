@@ -141,6 +141,20 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "packages/client-ts/adapters/node.ts",
+    declaration: "module:<module>",
+    host: "Node WebSocket adapter",
+    construct: "platform:import:ws",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/client-ts/adapters/node.ts",
+    declaration: "variable:wsConstructor",
+    host: "Node WebSocket adapter",
+    construct: "platform:ws.WebSocket",
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "scripts/effect-audit.ts",
     declaration: "module:<module>",
     host: "Node audit entrypoint",
