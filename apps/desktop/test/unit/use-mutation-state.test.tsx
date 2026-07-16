@@ -2,7 +2,7 @@
 import { type ReactNode } from "react"
 import { act, renderHook } from "@testing-library/react"
 import { it } from "@effect/vitest"
-import { Cause, Deferred, Effect, Exit, Fiber } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect"
 import { describe, expect, vi } from "vitest"
 import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
@@ -114,6 +114,66 @@ describe("useRunMutation", () => {
         expect(Exit.isFailure(ownerExit)).toBe(true)
         if (Exit.isFailure(ownerExit)) expect(Cause.squash(ownerExit.cause)).toBe(defect)
         unmount()
+      })
+    ))
+
+  it.effect("supervises a post-unmount defect without publishing a typed error", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const defect = new Error("post-unmount mutation defect")
+        const owner = yield* makeRendererRunner()
+        const started = yield* Deferred.make<void>()
+        const cancelRequested = yield* Deferred.make<void>()
+        const releaseDefect = yield* Deferred.make<void>()
+        const callbackCompleted = yield* Deferred.make<void>()
+        const ownerFailure = yield* Effect.forkChild(Effect.exit(owner.failure))
+        const runner: RendererRunner = {
+          start: (effect, onExit) => {
+            owner.runner.start(effect, (exit) => {
+              try {
+                onExit(exit)
+              } finally {
+                Deferred.doneUnsafe(callbackCompleted, Effect.void)
+              }
+            })
+            return () => { Deferred.doneUnsafe(cancelRequested, Effect.void) }
+          }
+        }
+        const wrapper = ({ children }: { readonly children: ReactNode }) => (
+          <RendererRunnerProvider value={runner}>{children}</RendererRunnerProvider>
+        )
+        const onError = vi.fn()
+        const { result, unmount } = renderHook(
+          () => useRunMutation((_: void) =>
+            Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(waitForDeferred(releaseDefect)),
+              Effect.andThen(Effect.die(defect))
+            )),
+          { wrapper }
+        )
+
+        act(() => result.current.mutate(undefined, { onError }))
+        yield* waitForDeferred(started)
+        unmount()
+        yield* waitForDeferred(cancelRequested)
+        expect(Option.isNone(yield* Deferred.poll(callbackCompleted))).toBe(true)
+        yield* Deferred.succeed(releaseDefect, undefined)
+        yield* waitForDeferred(callbackCompleted)
+
+        yield* Effect.yieldNow
+        const ownerFiberExit = ownerFailure.pollUnsafe()
+        expect(ownerFiberExit).toBeDefined()
+        if (ownerFiberExit !== undefined) {
+          expect(Exit.isSuccess(ownerFiberExit)).toBe(true)
+          if (Exit.isSuccess(ownerFiberExit)) {
+            expect(Exit.isFailure(ownerFiberExit.value)).toBe(true)
+            if (Exit.isFailure(ownerFiberExit.value)) {
+              expect(Cause.squash(ownerFiberExit.value.cause)).toBe(defect)
+            }
+          }
+        }
+        expect(onError).not.toHaveBeenCalled()
+        expect(result.current.error).toBeUndefined()
       })
     ))
 

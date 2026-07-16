@@ -110,6 +110,7 @@ const useOwnedMutation = <I, A, E>(
     let exited = false
     const cancel = runner.start(runRef.current(input), (exit) => {
       exited = true
+      if (Exit.isFailure(exit) && Cause.hasDies(exit.cause)) throw Cause.squash(exit.cause)
       if (!mountedRef.current || invocationRef.current !== invocation) return
       activeCancelRef.current = undefined
       setIsPending(false)
@@ -117,7 +118,6 @@ const useOwnedMutation = <I, A, E>(
         options?.onSuccess?.(exit.value)
         return
       }
-      if (Cause.hasDies(exit.cause)) throw Cause.squash(exit.cause)
       const failure = Cause.findErrorOption(exit.cause)
       if (Option.isNone(failure)) return
       setError(failure.value)
