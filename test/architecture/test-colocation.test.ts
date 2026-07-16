@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, FileSystem, Path } from "effect"
+import { describe, expect } from "vitest"
 import { configDefaults } from "vitest/config"
-import { readdirSync, statSync } from "node:fs"
-import { join } from "node:path"
 import vitestConfig, {
   normalTestProject,
   processHeavyTestInclude,
@@ -9,24 +10,26 @@ import vitestConfig, {
   testInclude
 } from "../../vitest.config"
 
-const repoRoot = new URL("../..", import.meta.url).pathname
-
-const walk = (dir: string): ReadonlyArray<string> => {
-  const entries = readdirSync(dir)
-  return entries.flatMap((entry) => {
-    const full = join(dir, entry)
+const walk = Effect.fn("TestColocation.walk")(function*(dir: string, root: string): Effect.fn.Return<ReadonlyArray<string>, unknown, FileSystem.FileSystem | Path.Path> {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const files: Array<string> = []
+  for (const entry of yield* fs.readDirectory(dir)) {
+    const full = path.join(dir, entry)
     if (
       entry === "node_modules" ||
       entry === "dist" ||
       entry === "out" ||
-      (entry === ".worktrees" && dir === repoRoot)
-    )
-      return []
-    return statSync(full).isDirectory() ? walk(full) : [full]
-  })
-}
+      (entry === ".worktrees" && dir === root)
+    ) continue
+    const info = yield* fs.stat(full)
+    if (info.type === "Directory") files.push(...yield* walk(full, root))
+    else files.push(full)
+  }
+  return files
+})
 
-const isTestFile = (p: string): boolean => p.endsWith(".test.ts") || p.endsWith(".test.tsx")
+const isTestFile = (file: string): boolean => file.endsWith(".test.ts") || file.endsWith(".test.tsx")
 
 describe("test colocation", () => {
   it("collects every approved direct script test extension", () => {
@@ -77,27 +80,34 @@ describe("test colocation", () => {
     ])
   })
 
-  it("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () => {
-    const all = walk(repoRoot).filter(isTestFile).map((p) => p.slice(repoRoot.length))
-    const misplaced = all.filter((rel) => {
-      if (rel.startsWith("test/architecture/")) return false
-      const ok =
-        /^apps\/[^/]+\/test\//.test(rel) ||
-        /^packages\/[^/]+\/test\//.test(rel) ||
-        /^examples\/[^/]+\/test\//.test(rel) ||
-        /^scripts\/[^/]+\.test\.tsx?$/.test(rel)
-      return !ok
-    })
-    expect(misplaced).toEqual([])
-  })
+  it.live("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const root = path.resolve(".")
+      const all = (yield* walk(root, root)).filter(isTestFile).map((file) => path.relative(root, file))
+      const misplaced = all.filter((relative) => {
+        const rel = relative.split(path.sep).join("/")
+        if (rel.startsWith("test/architecture/") || rel.startsWith("test/support/")) return false
+        const ok =
+          /^apps\/[^/]+\/test\//.test(rel) ||
+          /^packages\/[^/]+\/test\//.test(rel) ||
+          /^examples\/[^/]+\/test\//.test(rel) ||
+          /^scripts\/[^/]+\.test\.tsx?$/.test(rel)
+        return !ok
+      })
+      expect(misplaced).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("the legacy root test buckets no longer exist", () => {
-    const all = walk(repoRoot)
-      .map((p) => p.slice(repoRoot.length))
-      .filter((rel) => isTestFile(rel) || rel.endsWith(".snap"))
-    const legacy = all.filter((rel) =>
-      /^test\/(application|integration|unit|cli|contracts|client|desktop|tui)\//.test(rel)
-    )
-    expect(legacy).toEqual([])
-  })
+  it.live("the legacy root test buckets no longer exist", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const root = path.resolve(".")
+      const all = (yield* walk(root, root))
+        .map((file) => path.relative(root, file).split(path.sep).join("/"))
+        .filter((relative) => isTestFile(relative) || relative.endsWith(".snap"))
+      const legacy = all.filter((rel) =>
+        /^test\/(application|integration|unit|cli|contracts|client|desktop|tui)\//.test(rel)
+      )
+      expect(legacy).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

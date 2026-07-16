@@ -7,11 +7,6 @@ export interface RendererRunner {
   ) => RendererCancel
 }
 
-export interface RendererRunnerOwner {
-  readonly runner: RendererRunner
-  readonly failure: Effect.Effect<never>
-}
-
 export type RendererCancel = () => void
 
 export const makeRendererRunner = Effect.fn("DesktopRenderer.makeRendererRunner")(function* () {
@@ -66,4 +61,9 @@ export const startRendererRoot = <A, E>(
     cancelled = true
     fiber.interruptUnsafe()
   }
+}
+
+interface RendererRunnerOwner {
+  readonly runner: RendererRunner
+  readonly failure: Effect.Effect<never>
 }

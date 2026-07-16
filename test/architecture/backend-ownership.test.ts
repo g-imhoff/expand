@@ -1,8 +1,7 @@
-import { existsSync, readFileSync } from "node:fs"
-import { describe, expect, it } from "vitest"
-
-// Fitness test for PR review #11: all backend code is owned by apps/server.
-// apps/cli keeps ONLY its CLI presentation tree (apps/cli/cli/**).
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, FileSystem } from "effect"
+import { describe, expect } from "vitest"
 
 const SERVER_FILES = [
   "apps/server/composition/app.ts",
@@ -31,24 +30,28 @@ const CLI_FORBIDDEN_DIRS = [
 ] as const
 
 describe("backend ownership (#11)", () => {
-  it("hosts every backend module under apps/server", () => {
-    for (const file of SERVER_FILES) {
-      expect(existsSync(file), `expected ${file} to exist`).toBe(true)
-    }
-  })
+  it.live("hosts every backend module under apps/server", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      for (const file of SERVER_FILES) {
+        expect(yield* fs.exists(file), `expected ${file} to exist`).toBe(true)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("leaves apps/cli with no backend directories — only the CLI presentation tree", () => {
-    for (const dir of CLI_FORBIDDEN_DIRS) {
-      expect(existsSync(dir), `expected ${dir} to be gone from apps/cli`).toBe(false)
-    }
-    // The CLI presentation tree stays put.
-    expect(existsSync("apps/cli/cli/main.ts")).toBe(true)
-  })
+  it.live("leaves apps/cli with no backend directories — only the CLI presentation tree", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      for (const dir of CLI_FORBIDDEN_DIRS) {
+        expect(yield* fs.exists(dir), `expected ${dir} to be gone from apps/cli`).toBe(false)
+      }
+      expect(yield* fs.exists("apps/cli/cli/main.ts")).toBe(true)
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("defines backend ownership per state root", () => {
-    const model = readFileSync("docs/architecture/expand.c4", "utf8")
-
-    expect(model).toContain("One live backend per selected state root")
-    expect(model).toContain("backend.lock")
-  })
+  it.live("defines backend ownership per state root", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const model = yield* fs.readFileString("docs/architecture/expand.c4")
+      expect(model).toContain("One live backend per selected state root")
+      expect(model).toContain("backend.lock")
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

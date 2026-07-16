@@ -33,59 +33,6 @@ export interface WiredPortLifecycle<Port extends PortEndpoint, R> {
   readonly close: Effect.Effect<void, never, R>
 }
 
-export const openRpcPort = Effect.fn("DesktopMain.openRpcPort")(function* <
-  Port extends PortEndpoint,
-  R
->(
-  broker: RpcPortBroker<Port, R>,
-  grant: (port: Port) => Effect.Effect<void>
-) {
-  return yield* broker.semaphore.withPermit(
-    Effect.uninterruptibleMask((restore) =>
-      Effect.gen(function* () {
-        const previous = yield* Ref.getAndSet(broker.current, Option.none())
-        if (Option.isSome(previous)) yield* Scope.close(previous.value, Exit.void)
-        const childScope = yield* Scope.fork(broker.ownerScope)
-        let mainPort: MainPortLike | undefined
-        let rendererPort: Port | undefined
-        let transferred = false
-        const transaction = Effect.gen(function* () {
-          const channel = yield* Effect.sync(broker.makeMessageChannel)
-          mainPort = ownMainPort(channel.port1)
-          rendererPort = channel.port2
-          yield* Ref.set(broker.current, Option.some(childScope))
-          yield* broker.connectPort(mainPort).pipe(Scope.provide(childScope))
-          yield* grant(rendererPort).pipe(
-            Effect.tap(() => Effect.sync(() => { transferred = true })),
-            Effect.uninterruptible
-          )
-        })
-        const transactionExit = yield* restore(transaction).pipe(Effect.exit)
-        if (Exit.isSuccess(transactionExit)) return
-        yield* Ref.set(broker.current, Option.none())
-        yield* Scope.close(childScope, transactionExit)
-        yield* Effect.sync(() => {
-          mainPort?.close?.()
-          if (!transferred) rendererPort?.close()
-        })
-        return yield* Effect.failCause(transactionExit.cause)
-      })
-    )
-  )
-})
-
-export const closeRpcPort = Effect.fn("DesktopMain.closeRpcPort")(function* <
-  Port extends PortEndpoint,
-  R
->(broker: RpcPortBroker<Port, R>) {
-  return yield* broker.semaphore.withPermit(
-    Effect.gen(function* () {
-      const current = yield* Ref.getAndSet(broker.current, Option.none())
-      if (Option.isSome(current)) yield* Scope.close(current.value, Exit.void)
-    })
-  )
-})
-
 export const wirePortLifecycle = Effect.fn("DesktopMain.wirePortLifecycle")(function* <
   Port extends PortEndpoint,
   R
@@ -126,6 +73,59 @@ export const wirePortLifecycle = Effect.fn("DesktopMain.wirePortLifecycle")(func
     close
   }
   return lifecycle
+})
+
+const openRpcPort = Effect.fn("DesktopMain.openRpcPort")(function* <
+  Port extends PortEndpoint,
+  R
+>(
+  broker: RpcPortBroker<Port, R>,
+  grant: (port: Port) => Effect.Effect<void>
+) {
+  return yield* broker.semaphore.withPermit(
+    Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const previous = yield* Ref.getAndSet(broker.current, Option.none())
+        if (Option.isSome(previous)) yield* Scope.close(previous.value, Exit.void)
+        const childScope = yield* Scope.fork(broker.ownerScope)
+        let mainPort: MainPortLike | undefined
+        let rendererPort: Port | undefined
+        let transferred = false
+        const transaction = Effect.gen(function* () {
+          const channel = yield* Effect.sync(broker.makeMessageChannel)
+          mainPort = ownMainPort(channel.port1)
+          rendererPort = channel.port2
+          yield* Ref.set(broker.current, Option.some(childScope))
+          yield* broker.connectPort(mainPort).pipe(Scope.provide(childScope))
+          yield* grant(rendererPort).pipe(
+            Effect.tap(() => Effect.sync(() => { transferred = true })),
+            Effect.uninterruptible
+          )
+        })
+        const transactionExit = yield* restore(transaction).pipe(Effect.exit)
+        if (Exit.isSuccess(transactionExit)) return
+        yield* Ref.set(broker.current, Option.none())
+        yield* Scope.close(childScope, transactionExit)
+        yield* Effect.sync(() => {
+          mainPort?.close?.()
+          if (!transferred) rendererPort?.close()
+        })
+        return yield* Effect.failCause(transactionExit.cause)
+      })
+    )
+  )
+})
+
+const closeRpcPort = Effect.fn("DesktopMain.closeRpcPort")(function* <
+  Port extends PortEndpoint,
+  R
+>(broker: RpcPortBroker<Port, R>) {
+  return yield* broker.semaphore.withPermit(
+    Effect.gen(function* () {
+      const current = yield* Ref.getAndSet(broker.current, Option.none())
+      if (Option.isSome(current)) yield* Scope.close(current.value, Exit.void)
+    })
+  )
 })
 
 const ownMainPort = (port: PortEndpoint): MainPortLike => {

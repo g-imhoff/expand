@@ -18,7 +18,10 @@
 
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts"],
+      "entry": [
+        "scripts/*.ts",
+        "apps/server/test/fixtures/state-root-lock-contender.ts"
+      ],
       "project": [
         "apps/cli/**/*.{ts,tsx}",
         "apps/server/**/*.{ts,tsx}",
@@ -27,6 +30,10 @@
         "scripts/**/*.ts",
         "bench/**/*.ts"
       ]
+    },
+    "packages/client-ts": {
+      "entry": ["test/fixtures/spawn-lock-contender.ts"],
+      "ignoreDependencies": ["@effect/platform-node-shared"]
     },
     "apps/desktop": {
       "entry": [

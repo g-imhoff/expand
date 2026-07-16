@@ -6,6 +6,7 @@ export const testInclude = [
   "packages/**/test/**/*.test.ts",
   "packages/**/test/**/*.test.tsx",
   "test/architecture/**/*.test.ts",
+  "test/support/**/*.test.ts",
   "scripts/**/*.test.ts",
   "scripts/**/*.test.tsx",
   "test/eslint/**/*.test.mjs",

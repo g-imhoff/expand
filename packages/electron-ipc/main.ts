@@ -48,10 +48,6 @@ export interface BindIpcConfig<R, Port = unknown> {
   readonly log?: (message: string, cause: Cause.Cause<unknown> | undefined) => Effect.Effect<void, never, R>
 }
 
-export interface BoundIpc<C extends IpcContract> {
-  readonly emit: IpcEmitterOf<C>
-}
-
 export type OriginRule =
   | { readonly _tag: "exactOrigin"; readonly origin: string }
   | { readonly _tag: "fileProtocol" }
@@ -266,3 +262,7 @@ const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
   schema as unknown as Schema.Codec<unknown, unknown>
 
 const PortRequest = Schema.Struct({ nonce: Schema.String })
+
+interface BoundIpc<C extends IpcContract> {
+  readonly emit: IpcEmitterOf<C>
+}

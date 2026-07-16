@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, FileSystem, Path } from "effect"
+import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
-const root = join(import.meta.dirname, "..", "..")
 const exempt = new Set([
   "package-lock.json",
   "docs/architecture/package-lock.json",
@@ -22,17 +22,28 @@ describe("Node-only repository policy", () => {
     expect(containsBunReference(source)).toBe(false)
   })
 
-  it("has no Bun version, lock, or adapter files", () => {
-    for (const path of [".bun-version", "bun.lock", "docs/architecture/bun.lock", "packages/client-ts/adapters/bun.ts"]) {
-      expect(existsSync(join(root, path)), path).toBe(false)
-    }
-  })
+  it.live("has no Bun version, lock, or adapter files", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = path.resolve(".")
+      for (const file of [".bun-version", "bun.lock", "docs/architecture/bun.lock", "packages/client-ts/adapters/bun.ts"]) {
+        expect(yield* fs.exists(path.join(root, file)), file).toBe(false)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("contains no tracked first-party Bun runtime or command references", () => {
-    const files = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0").filter(Boolean)
-    const offenders = files
-      .filter((path) => !path.startsWith("docs/superpowers/") && !exempt.has(path))
-      .filter((path) => containsBunReference(readFileSync(join(root, path), "utf8")))
-    expect(offenders).toEqual([])
-  })
+  it.live("contains no tracked first-party Bun runtime or command references", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = path.resolve(".")
+      const report = yield* runCommand("git", ["ls-files", "-z"], { cwd: root })
+      expect(report.exitCode, report.stderr).toBe(0)
+      const offenders: Array<string> = []
+      for (const file of report.stdout.split("\0").filter(Boolean)) {
+        if (file.startsWith("docs/superpowers/") || exempt.has(file)) continue
+        if (containsBunReference(yield* fs.readFileString(path.join(root, file)))) offenders.push(file)
+      }
+      expect(offenders).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

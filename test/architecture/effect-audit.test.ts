@@ -292,7 +292,7 @@ const paragraphs = (source: string): ReadonlyArray<string> =>
 const approvedHumanCommand = String.raw`rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}' -g '!.git/**' -g '!**/node_modules/**' -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' "\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\s*\\(|new\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|performance\\.now|Math\\.random|crypto\\.randomUUID|JSON\\.(?:parse|stringify)|process\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\.)|\\bnode:[^'\"[:space:]]+|\\b[A-Za-z_$][A-Za-z0-9_$]*\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\b"`
 
 describe("Effect grep architecture", () => {
-  it.effect("keeps the approved human grep command unchanged", () =>
+  it.live("keeps the approved human grep command unchanged", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -304,7 +304,7 @@ describe("Effect grep architecture", () => {
       expect(packageJson.scripts["effect:grep"]).toBe(approvedHumanCommand)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("resolves every indexed grep submatch to exactly one inventory record in both directions", () =>
+  it.live("resolves every indexed grep submatch to exactly one inventory record in both directions", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -326,7 +326,7 @@ describe("Effect grep architecture", () => {
       Effect.provide(NodeServices.layer)
     ), 120_000)
 
-  it.effect("derives the exact launcher registry independently from Git modes and source bytes", () =>
+  it.live("derives the exact launcher registry independently from Git modes and source bytes", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -379,7 +379,7 @@ describe("Effect grep architecture", () => {
 })
 
 describe("Effect-only enforcement policy", () => {
-  it.effect("keeps the pre-commit hook at the exact reviewed byte string", () =>
+  it.live("keeps the pre-commit hook at the exact reviewed byte string", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -388,7 +388,7 @@ describe("Effect-only enforcement policy", () => {
       expect(yield* fs.readFileString(path.join(root, ".githooks/pre-commit"))).toBe(expectedPreCommit)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("rejects metadata that can disable the CI audit step", () =>
+  it.live("rejects metadata that can disable the CI audit step", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -416,7 +416,7 @@ describe("Effect-only enforcement policy", () => {
       expect(results.map((result) => result._tag)).toEqual(["Failure", "Failure"])
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("runs the complete CI job command sequences with the audit in its exact position", () =>
+  it.live("runs the complete CI job command sequences with the audit in its exact position", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -452,7 +452,7 @@ describe("Effect-only enforcement policy", () => {
       })
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("keeps the exact ordered architecture ownership pairs", () =>
+  it.live("keeps the exact ordered architecture ownership pairs", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -466,7 +466,7 @@ describe("Effect-only enforcement policy", () => {
       expect(records).toEqual(expectedCodeOwners)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("publishes the approved invariant and cumulative completion contract", () =>
+  it.live("publishes the approved invariant and cumulative completion contract", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path

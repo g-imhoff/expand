@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema, Stream } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
 const StringMap = Schema.Record(Schema.String, Schema.String)
 const PackageJson = Schema.fromJsonString(Schema.Struct({
@@ -30,22 +30,6 @@ const readJson = Effect.fn("EffectAuditTest.readJson")(
   }
 )
 
-const runText = Effect.fn("EffectAuditTest.runText")(
-  (command: string, args: ReadonlyArray<string>) =>
-    Effect.scoped(Effect.gen(function*() {
-      const handle = yield* ChildProcess.make(command, args)
-      const [stdout, stderr, exitCode] = yield* Effect.all([
-        handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
-        handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
-        handle.exitCode
-      ], { concurrency: "unbounded" })
-      if (exitCode !== 0) {
-        return yield* Effect.fail({ command, args, exitCode, stderr } as const)
-      }
-      return stdout
-    }))
-)
-
 const isTypeScriptFile = (file: string) =>
   file.endsWith(".ts") || file.endsWith(".tsx") || file.endsWith(".mts") || file.endsWith(".cts")
 
@@ -61,14 +45,15 @@ const normalizedRepositoryFiles = Effect.fn("EffectAuditTest.normalizedRepositor
 
 const trackedTypeScriptFiles = Effect.fn("EffectAuditTest.trackedTypeScriptFiles")(
   function*() {
-    const output = yield* runText("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-    return yield* normalizedRepositoryFiles(output.split("\0").filter(isTypeScriptFile))
+    const report = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+    expect(report.exitCode, report.stderr).toBe(0)
+    return yield* normalizedRepositoryFiles(report.stdout.split("\0").filter(isTypeScriptFile))
   }
 )()
 
 const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
   function*() {
-    const output = yield* runText("npm", [
+    const report = yield* runCommand("npm", [
       "exec",
       "--",
       "tsc",
@@ -76,9 +61,10 @@ const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
       "-p",
       "tsconfig.effect-audit.json"
     ])
+    expect(report.exitCode, report.stderr).toBe(0)
     const path = yield* Path.Path
     const root = path.resolve(".")
-    const files = output.split(/\r?\n/).filter((file) => {
+    const files = report.stdout.split(/\r?\n/).filter((file) => {
       if (!isTypeScriptFile(file)) return false
       const relative = path.relative(root, path.resolve(file))
       return relative !== ".." &&
@@ -150,7 +136,7 @@ const expectedAuditExcludes = [
 ]
 
 describe("Effect language service diagnostics", () => {
-  it.effect("pins the official packages, scripts, plugin, and audit project", () =>
+  it.live("pins the official packages, scripts, plugin, and audit project", () =>
     Effect.gen(function*() {
       const packageJson = yield* readJson("package.json", PackageJson)
       const rootConfig = yield* readJson("tsconfig.json", RootConfigJson)
@@ -175,7 +161,7 @@ describe("Effect language service diagnostics", () => {
       expect(desktopConfig.extends).toBe("../../tsconfig.json")
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("covers every tracked TypeScript source with the Effect audit project", () =>
+  it.live("covers every tracked TypeScript source with the Effect audit project", () =>
     Effect.gen(function*() {
       const tracked = yield* trackedTypeScriptFiles
       const resolved = yield* resolvedAuditFiles

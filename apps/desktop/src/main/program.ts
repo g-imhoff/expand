@@ -75,7 +75,9 @@ export interface MainProgramDeps<Port extends PortEndpoint = PortEndpoint> {
   readonly log: (message: string, cause: Cause.Cause<unknown> | undefined) => Effect.Effect<void>
 }
 
-export const installCsp = Effect.fn("DesktopMain.installCsp")(function* (csp: CspHost) {
+export const mainProgram = Effect.fn("DesktopMain.mainProgram")(mainProgramEffect)
+
+const installCsp = Effect.fn("DesktopMain.installCsp")(function* (csp: CspHost) {
   const listener = (
     details: { readonly responseHeaders?: Record<string, Array<string>> },
     callback: (response: { readonly responseHeaders: Record<string, string | Array<string>> }) => void
@@ -93,7 +95,7 @@ export const installCsp = Effect.fn("DesktopMain.installCsp")(function* (csp: Cs
   )
 })
 
-export const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends PortEndpoint>(
+const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends PortEndpoint>(
   deps: MainProgramDeps<Port>,
   runtime: DesktopRuntime,
   devUrl: string | undefined,
@@ -138,9 +140,7 @@ export const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port ex
   else yield* browserWindow.loadUrl(devUrl)
 })
 
-export const mainProgram = Effect.fn("DesktopMain.mainProgram")(function* <Port extends PortEndpoint>(
-  deps: MainProgramDeps<Port>
-) {
+function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Port>) {
   let authorized = false
   const lifecycle = Effect.gen(function* () {
     const devtools = yield* Config.option(Config.string("EXPAND_DEVTOOLS_CDP"))
@@ -212,7 +212,7 @@ export const mainProgram = Effect.fn("DesktopMain.mainProgram")(function* <Port 
       })
     )
   )
-})
+}
 
 const waitFor = Deferred.await
 
