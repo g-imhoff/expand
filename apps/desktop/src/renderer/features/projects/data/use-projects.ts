@@ -117,6 +117,7 @@ const useOwnedMutation = <I, A, E>(
         options?.onSuccess?.(exit.value)
         return
       }
+      if (Cause.hasDies(exit.cause)) throw Cause.squash(exit.cause)
       const failure = Cause.findErrorOption(exit.cause)
       if (Option.isNone(failure)) return
       setError(failure.value)

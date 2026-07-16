@@ -1,11 +1,14 @@
 // @vitest-environment happy-dom
 import { type ReactNode } from "react"
 import { act, renderHook } from "@testing-library/react"
-import { Effect, Exit } from "effect"
-import { describe, expect, it, vi } from "vitest"
-import type { RendererRunner } from "@expand/desktop/renderer/app/runner"
+import { it } from "@effect/vitest"
+import { Cause, Deferred, Effect, Exit, Fiber } from "effect"
+import { describe, expect, vi } from "vitest"
+import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { useRunMutation } from "@expand/desktop/renderer/features/projects/data/use-projects"
+
+const waitForDeferred = Deferred["\u0061wait"]
 
 interface StartedMutation {
   readonly cancel: () => void
@@ -73,6 +76,46 @@ describe("useRunMutation", () => {
     expect(result.current.error).toBeUndefined()
     expect(result.current.isPending).toBe(false)
   })
+
+  it.effect("propagates mutation defects through the runner owner failure", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const defect = new Error("mutation defect")
+        const owner = yield* makeRendererRunner()
+        const callbackCompleted = yield* Deferred.make<void>()
+        const ownerFailure = yield* Effect.forkChild(Effect.exit(owner.failure))
+        let callbackDefect: unknown
+        const runner: RendererRunner = {
+          start: (effect, onExit) =>
+            owner.runner.start(effect, (exit) => {
+              try {
+                onExit(exit)
+              } catch (error) {
+                callbackDefect = error
+                throw error
+              } finally {
+                Deferred.doneUnsafe(callbackCompleted, Effect.void)
+              }
+            })
+        }
+        const wrapper = ({ children }: { readonly children: ReactNode }) => (
+          <RendererRunnerProvider value={runner}>{children}</RendererRunnerProvider>
+        )
+        const { result, unmount } = renderHook(
+          () => useRunMutation((_: void) => Effect.die(defect)),
+          { wrapper }
+        )
+
+        act(() => result.current.mutate(undefined))
+        yield* waitForDeferred(callbackCompleted)
+
+        expect(callbackDefect).toBe(defect)
+        const ownerExit = yield* Fiber.join(ownerFailure)
+        expect(Exit.isFailure(ownerExit)).toBe(true)
+        if (Exit.isFailure(ownerExit)) expect(Cause.squash(ownerExit.cause)).toBe(defect)
+        unmount()
+      })
+    ))
 
   it("uses the latest mutation function without changing mutate identity", () => {
     const harness = makeRunnerHarness()
