@@ -195,23 +195,17 @@ export const makeRuntimeHarness = (
           )
         )
   ) as ExpandRuntime
+  const unmounts = new Set<() => void>()
   let synchronizationForked = false
   let synchronizationInterrupted = false
   const runtime = new Proxy(managedRuntime, {
     get: (target, property) => {
       if (property !== "runFork") return Reflect.get(target, property)
       return ((effect: Parameters<ExpandRuntime["runFork"]>[0]) => {
+        if (synchronizationForked) synchronizationInterrupted = true
         synchronizationForked = true
         const fiber = target.runFork(effect)
-        return new Proxy(fiber, {
-          get: (fiberTarget, fiberProperty) => {
-            if (fiberProperty !== "interruptUnsafe") return Reflect.get(fiberTarget, fiberProperty)
-            return (...args: Parameters<typeof fiber.interruptUnsafe>) => {
-              synchronizationInterrupted = true
-              return fiber.interruptUnsafe(...args)
-            }
-          }
-        })
+        return fiber
       })
     }
   }) as ExpandRuntime
@@ -233,7 +227,11 @@ export const makeRuntimeHarness = (
       await new Promise((resolve) => setTimeout(resolve, 10))
       return synchronizationForked && synchronizationInterrupted
     },
-    dispose: () => managedRuntime.dispose()
+    trackUnmount: (unmount: () => void) => { unmounts.add(unmount) },
+    dispose: () => {
+      for (const unmount of [...unmounts]) unmount()
+      return managedRuntime.dispose()
+    }
   }
 }
 
@@ -242,7 +240,18 @@ export type RuntimeHarness = ReturnType<typeof makeRuntimeHarness>
 export const renderWithRuntime = (
   node: ReactElement,
   harness: RuntimeHarness
-) => render(createElement(RuntimeContext.Provider, { value: harness.runtime }, node))
+) => {
+  const rendered = render(createElement(RuntimeContext.Provider, { value: harness.runtime }, node))
+  const inkUnmount = rendered.unmount
+  let unmounted = false
+  const unmount = () => {
+    if (unmounted) return
+    unmounted = true
+    inkUnmount()
+  }
+  harness.trackUnmount(unmount)
+  return { ...rendered, unmount }
+}
 
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`

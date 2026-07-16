@@ -1,6 +1,8 @@
 const nodeCryptoImport = "platform:import:" + ["node", "crypto"].join(":")
 const nodeHttpImport = "platform:import:" + ["node", "http"].join(":")
 const nodeOsImport = "platform:import:" + ["node", "os"].join(":")
+const nodePathImport = "platform:import:" + ["node", "path"].join(":")
+const nodeUrlImport = "platform:import:" + ["node", "url"].join(":")
 const cryptoRandomUUID = ["platform:crypto", "randomUUID"].join(".")
 const processCwd = ["platform:process", "cwd"].join(".")
 const processExecPath = ["platform:process", "execPath"].join(".")
@@ -271,6 +273,20 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "apps/desktop/src/renderer/features/command/model/use-command-palette-hotkey.ts",
+    declaration: "variable:useCommandPaletteHotkey",
+    host: "Renderer command-palette keyboard listener",
+    construct: listenerAddEventListener,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/features/command/model/use-command-palette-hotkey.ts",
+    declaration: "variable:useCommandPaletteHotkey",
+    host: "Renderer command-palette keyboard listener disposal",
+    construct: listenerRemoveEventListener,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "apps/server/http.ts",
     declaration: "module:<module>",
     host: "Node HTTP adapter",
@@ -324,6 +340,41 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:probe.try",
     host: "Node ProcessControl host acquisition",
     construct: processKill,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/tui/main.tsx",
+    declaration: "module:<module>",
+    host: "Node application entrypoint",
+    construct: desktopNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/tui/runtime.ts",
+    declaration: "member:backendCommand.binaryArgs",
+    host: "Node backend executable acquisition",
+    construct: processExecPath,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/tui/runtime.ts",
+    declaration: "member:backendCommand.execPath",
+    host: "Node backend executable acquisition",
+    construct: processExecPath,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/tui/runtime.ts",
+    declaration: "module:<module>",
+    host: "Node backend executable path adapter",
+    construct: nodePathImport,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/tui/runtime.ts",
+    declaration: "module:<module>",
+    host: "Node backend executable URL adapter",
+    construct: nodeUrlImport,
     occurrence: 0
   }),
   Object.freeze({
