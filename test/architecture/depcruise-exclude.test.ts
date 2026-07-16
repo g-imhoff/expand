@@ -17,13 +17,16 @@ import { it } from "@effect/vitest"
 import { Effect } from "effect"
 import { describe, expect } from "vitest"
 
-const loadPatterns = Effect.sync(() => {
-  const load = createRequire(import.meta.url)
-  const config = load("../../.dependency-cruiser.cjs") as {
-    options: { exclude: { path: string | ReadonlyArray<string> } }
-  }
-  const raw = config.options.exclude.path
-  return (typeof raw === "string" ? [raw] : raw).map((pattern) => new RegExp(pattern))
+const loadPatterns = Effect.try({
+  try: () => {
+    const load = createRequire(import.meta.url)
+    const config = load("../../.dependency-cruiser.cjs") as {
+      options: { exclude: { path: string | ReadonlyArray<string> } }
+    }
+    const raw = config.options.exclude.path
+    return (typeof raw === "string" ? [raw] : raw).map((pattern) => new RegExp(pattern))
+  },
+  catch: (cause) => cause
 })
 
 const MUST_STAY_CRUISED = [

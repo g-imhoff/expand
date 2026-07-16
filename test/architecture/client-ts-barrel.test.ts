@@ -14,15 +14,18 @@ import { Effect } from "effect"
 import { describe, expect } from "vitest"
 import { runCommand } from "../support/effect-process"
 
-const loadConfig = Effect.sync(() => {
-  const load = createRequire(import.meta.url)
-  return load("../../.dependency-cruiser.cjs") as {
-    forbidden: ReadonlyArray<{
-      name: string
-      from: { path?: string; pathNot?: string }
-      to: { path?: string; pathNot?: string }
-    }>
-  }
+const loadConfig = Effect.try({
+  try: () => {
+    const load = createRequire(import.meta.url)
+    return load("../../.dependency-cruiser.cjs") as {
+      forbidden: ReadonlyArray<{
+        name: string
+        from: { path?: string; pathNot?: string }
+        to: { path?: string; pathNot?: string }
+      }>
+    }
+  },
+  catch: (cause) => cause
 })
 
 describe("@expand/client-ts barrel-only boundary", () => {
