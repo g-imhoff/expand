@@ -46,6 +46,7 @@ describe("renderer runner", () => {
         const siblingInterrupted = yield* Deferred.make<void>()
         const siblingExit = yield* Deferred.make<Exit.Exit<never>>()
         const failed = yield* Deferred.make<Exit.Exit<never, "expected">>()
+        let calls = 0
         const cancelSibling = owner.runner.start(
           Deferred.succeed(siblingStarted, undefined).pipe(
             Effect.andThen(Effect.never),
@@ -54,9 +55,14 @@ describe("renderer runner", () => {
           exitCallback(siblingExit)
         )
         const ownerFailure = yield* Effect.forkChild(owner.failure)
-        owner.runner.start(Effect.fail<"expected">("expected"), exitCallback(failed))
+        owner.runner.start(Effect.fail<"expected">("expected"), (exit) => {
+          calls += 1
+          exitCallback(failed)(exit)
+        })
         yield* waitForDeferred(siblingStarted)
         expect(yield* waitForDeferred(failed)).toEqual(Exit.fail("expected"))
+        yield* Effect.yieldNow
+        expect(calls).toBe(1)
         expect(Option.isNone(yield* Deferred.poll(siblingInterrupted))).toBe(true)
         expect(ownerFailure.pollUnsafe()).toBeUndefined()
         cancelSibling()
@@ -72,10 +78,16 @@ describe("renderer runner", () => {
         const owner = yield* makeRendererRunner()
         const delivered = yield* Deferred.make<Exit.Exit<never>>()
         const ownerFailure = yield* Effect.forkChild(owner.failure)
-        owner.runner.start(Effect.die(defect), exitCallback(delivered))
+        let calls = 0
+        owner.runner.start(Effect.die(defect), (exit) => {
+          calls += 1
+          exitCallback(delivered)(exit)
+        })
         const exit = yield* waitForDeferred(delivered)
+        yield* Effect.yieldNow
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(defect)
+        expect(calls).toBe(1)
         expect(ownerFailure.pollUnsafe()).toBeUndefined()
         yield* Fiber.interrupt(ownerFailure)
       })
@@ -116,32 +128,68 @@ describe("renderer runner", () => {
       const owner = yield* makeRendererRunner().pipe(Scope.provide(scope))
       const firstStarted = yield* Deferred.make<void>()
       const secondStarted = yield* Deferred.make<void>()
+      const firstFinalizing = yield* Deferred.make<void>()
+      const secondFinalizing = yield* Deferred.make<void>()
+      const releaseFirst = yield* Deferred.make<void>()
+      const releaseSecond = yield* Deferred.make<void>()
       const firstClosed = yield* Deferred.make<void>()
       const secondClosed = yield* Deferred.make<void>()
       const firstExit = yield* Deferred.make<Exit.Exit<never>>()
       const secondExit = yield* Deferred.make<Exit.Exit<never>>()
+      let firstCalls = 0
+      let secondCalls = 0
       owner.runner.start(
         Deferred.succeed(firstStarted, undefined).pipe(
           Effect.andThen(Effect.never),
-          Effect.ensuring(Deferred.succeed(firstClosed, undefined))
+          Effect.ensuring(
+            Deferred.succeed(firstFinalizing, undefined).pipe(
+              Effect.andThen(waitForDeferred(releaseFirst)),
+              Effect.andThen(Deferred.succeed(firstClosed, undefined))
+            )
+          )
         ),
-        exitCallback(firstExit)
+        (exit) => {
+          firstCalls += 1
+          exitCallback(firstExit)(exit)
+        }
       )
       owner.runner.start(
         Deferred.succeed(secondStarted, undefined).pipe(
           Effect.andThen(Effect.never),
-          Effect.ensuring(Deferred.succeed(secondClosed, undefined))
+          Effect.ensuring(
+            Deferred.succeed(secondFinalizing, undefined).pipe(
+              Effect.andThen(waitForDeferred(releaseSecond)),
+              Effect.andThen(Deferred.succeed(secondClosed, undefined))
+            )
+          )
         ),
-        exitCallback(secondExit)
+        (exit) => {
+          secondCalls += 1
+          exitCallback(secondExit)(exit)
+        }
       )
       yield* Effect.all([waitForDeferred(firstStarted), waitForDeferred(secondStarted)])
-      yield* Scope.close(scope, Exit.void)
+      const closeFiber = yield* Effect.forkChild(Scope.close(scope, Exit.void))
       yield* Effect.all([
-        waitForDeferred(firstClosed),
-        waitForDeferred(secondClosed),
-        waitForDeferred(firstExit),
-        waitForDeferred(secondExit)
+        waitForDeferred(firstFinalizing),
+        waitForDeferred(secondFinalizing)
       ])
+      expect(closeFiber.pollUnsafe()).toBeUndefined()
+      expect(Option.isNone(yield* Deferred.poll(firstClosed))).toBe(true)
+      expect(Option.isNone(yield* Deferred.poll(secondClosed))).toBe(true)
+      expect(Option.isNone(yield* Deferred.poll(firstExit))).toBe(true)
+      expect(Option.isNone(yield* Deferred.poll(secondExit))).toBe(true)
+      yield* Effect.all([
+        Deferred.succeed(releaseFirst, undefined),
+        Deferred.succeed(releaseSecond, undefined)
+      ])
+      yield* Fiber.join(closeFiber)
+      expect(Option.isSome(yield* Deferred.poll(firstClosed))).toBe(true)
+      expect(Option.isSome(yield* Deferred.poll(secondClosed))).toBe(true)
+      expect(Option.isSome(yield* Deferred.poll(firstExit))).toBe(true)
+      expect(Option.isSome(yield* Deferred.poll(secondExit))).toBe(true)
+      expect(firstCalls).toBe(1)
+      expect(secondCalls).toBe(1)
     }))
 
   it.effect("reports interruption cleanup defects to the callback and owner failure wait", () =>

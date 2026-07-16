@@ -49,7 +49,7 @@ export const ownRendererRoot = <E,>({
     }
     if (rendered) {
       rendered = false
-      attempt(root.unmount, errors)
+      attempt(() => root.unmount(), errors)
     }
     if (interruptRoot !== undefined) {
       const interrupt = interruptRoot
@@ -83,7 +83,7 @@ export const ownRendererRoot = <E,>({
     }
     if (rendered) {
       rendered = false
-      attempt(root.unmount, errors)
+      attempt(() => root.unmount(), errors)
     }
     if (interruptRoot !== undefined) {
       const interrupt = interruptRoot

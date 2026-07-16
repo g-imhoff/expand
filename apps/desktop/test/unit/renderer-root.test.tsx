@@ -53,6 +53,22 @@ interface RootHarnessOptions {
   readonly failDuringRelease?: boolean
 }
 
+class ReceiverSensitiveRoot {
+  mounted = false
+
+  constructor(readonly events: Array<string>) {}
+
+  render(_node: React.ReactNode): void {
+    this.mounted = true
+    this.events.push("render")
+  }
+
+  unmount(): void {
+    this.mounted = false
+    this.events.push("unmount")
+  }
+}
+
 const makeRootHarness = (options: RootHarnessOptions = {}) => {
   const events = options.events ?? []
   const renders: Array<React.ReactNode> = []
@@ -154,6 +170,46 @@ describe("renderer runner context", () => {
 })
 
 describe("renderer root ownership", () => {
+  it.effect("invokes receiver-sensitive unmount before root interruption", () =>
+    Effect.sync(() => {
+      const events: Array<string> = []
+      const root = new ReceiverSensitiveRoot(events)
+      const dispose = ownRendererRoot({
+        root,
+        initial: <p>Connecting…</p>,
+        start: () => () => events.push("interrupt"),
+        onDispose: () => () => events.push("release"),
+        renderFailure: () => null
+      })
+      expect(root.mounted).toBe(true)
+      expect(dispose).not.toThrow()
+      expect(root.mounted).toBe(false)
+      expect(events).toEqual(["render", "release", "unmount", "interrupt"])
+    }))
+
+  it.effect("invokes receiver-sensitive unmount during startup rollback", () =>
+    Effect.sync(() => {
+      const events: Array<string> = []
+      const root = new ReceiverSensitiveRoot(events)
+      const startError = new Error("start failed")
+      const thrown = captureThrow(() => ownRendererRoot({
+        root,
+        initial: <p>Connecting…</p>,
+        start: () => {
+          events.push("start")
+          throw startError
+        },
+        onDispose: () => {
+          events.push("register")
+          return () => events.push("release")
+        },
+        renderFailure: () => null
+      }))
+      expect(thrown).toBe(startError)
+      expect(root.mounted).toBe(false)
+      expect(events).toEqual(["render", "register", "start", "release", "unmount"])
+    }))
+
   it.effect("renders one active non-interruption failure and ignores interruption", () =>
     Effect.sync(() => {
       const harness = makeRootHarness()
