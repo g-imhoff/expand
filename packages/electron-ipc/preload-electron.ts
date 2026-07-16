@@ -24,15 +24,28 @@ export const electronPreloadDeps = (): PreloadIpcDeps<MessagePort> => {
     },
     onContextDisposed: (dispose) => {
       let active = true
+      let unloadHandled = false
       const release = () => {
         if (!active) return
         active = false
         window.removeEventListener("unload", onUnload)
       }
       const onUnload = () => {
-        if (!active) return
-        release()
-        dispose()
+        if (!active || unloadHandled) return
+        unloadHandled = true
+        const causes: Array<unknown> = []
+        try {
+          dispose()
+        } catch (cause) {
+          causes.push(cause)
+        }
+        try {
+          release()
+        } catch (cause) {
+          causes.push(cause)
+        }
+        if (causes.length === 1) throw causes[0]
+        if (causes.length > 1) throw new AggregateError(causes, "preload context disposal failed")
       }
       window.addEventListener("unload", onUnload)
       return release

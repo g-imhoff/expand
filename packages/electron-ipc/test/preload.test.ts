@@ -25,6 +25,7 @@ type Listener = (event: PreloadIpcEvent, payload: unknown) => void
 interface FakeOptions {
   readonly onThrowAt?: number
   readonly lifetimeError?: Error
+  readonly disposeDuringLifetimeRegistration?: boolean
   readonly exposeError?: Error
   readonly releaseErrors?: Readonly<Record<string, Error>>
   readonly lifetimeReleaseError?: Error
@@ -112,12 +113,14 @@ const makeFakeDeps = Effect.fn("ElectronIpcPreloadTest.makeDeps")(function* (
       if (options.lifetimeError !== undefined) throw options.lifetimeError
       activeContextDisposer = dispose
       retainedContextDisposer = dispose
-      return () => {
+      const release = () => {
         lifetimeReleases += 1
         if (activeContextDisposer === dispose) activeContextDisposer = undefined
         events.push("context:off")
         if (options.lifetimeReleaseError !== undefined) throw options.lifetimeReleaseError
       }
+      if (options.disposeDuringLifetimeRegistration === true) dispose()
+      return release
     }
   } as PreloadIpcDeps
   return {
@@ -297,6 +300,52 @@ describe("preload bridge ownership", () => {
       recorded.disposeRetainedContext()
       dispose()
       expect(recorded.releaseCount(relay!)).toBe(1)
+      expect(recorded.lifetimeReleases()).toBe(1)
+    }))
+
+  it.effect("does not expose or retain ownership after synchronous context disposal", () =>
+    Effect.gen(function* () {
+      const { deps, recorded } = yield* makeFakeDeps({
+        disposeDuringLifetimeRegistration: true
+      })
+      const dispose = exposeBridge(MultiPort, "multi", deps)
+      const firstRelay = recorded.retainedListeners.get("multi:firstPort:grant")?.[0]
+      const secondRelay = recorded.retainedListeners.get("multi:secondPort:grant")?.[0]
+      expect(recorded.exposed.multi).toBeUndefined()
+      expect(recorded.events).not.toContain("expose:multi")
+      expect(recorded.releaseCount(firstRelay!)).toBe(1)
+      expect(recorded.releaseCount(secondRelay!)).toBe(1)
+      expect(recorded.lifetimeReleases()).toBe(1)
+      recorded.fireRetained("multi:firstPort:grant", { ports: [{}] }, { nonce: "late-first" })
+      recorded.fireRetained("multi:secondPort:grant", { ports: [{}] }, { nonce: "late-second" })
+      recorded.disposeRetainedContext()
+      dispose()
+      dispose()
+      expect(recorded.mainWorldPosts).toEqual([])
+      expect(recorded.releaseCount(firstRelay!)).toBe(1)
+      expect(recorded.releaseCount(secondRelay!)).toBe(1)
+      expect(recorded.lifetimeReleases()).toBe(1)
+    }))
+
+  it.effect("propagates synchronous lifetime release failure after static cleanup", () =>
+    Effect.gen(function* () {
+      const lifetimeCause = new Error("synchronous lifetime release failed")
+      const { deps, recorded } = yield* makeFakeDeps({
+        disposeDuringLifetimeRegistration: true,
+        lifetimeReleaseError: lifetimeCause
+      })
+      expect(captureThrow(() => exposeBridge(MultiPort, "multi", deps))).toBe(lifetimeCause)
+      const firstRelay = recorded.retainedListeners.get("multi:firstPort:grant")?.[0]
+      const secondRelay = recorded.retainedListeners.get("multi:secondPort:grant")?.[0]
+      expect(recorded.events).not.toContain("expose:multi")
+      expect(recorded.releaseCount(firstRelay!)).toBe(1)
+      expect(recorded.releaseCount(secondRelay!)).toBe(1)
+      expect(recorded.lifetimeReleases()).toBe(1)
+      recorded.fireRetained("multi:firstPort:grant", { ports: [{}] }, { nonce: "late" })
+      recorded.disposeRetainedContext()
+      expect(recorded.mainWorldPosts).toEqual([])
+      expect(recorded.releaseCount(firstRelay!)).toBe(1)
+      expect(recorded.releaseCount(secondRelay!)).toBe(1)
       expect(recorded.lifetimeReleases()).toBe(1)
     }))
 

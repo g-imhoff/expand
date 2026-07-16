@@ -129,7 +129,12 @@ export const exposeBridge = <C extends IpcContract, Port = unknown>(
         }
       }
     }
-    own(() => {}, deps.onContextDisposed(disposeBridge))
+    const releaseContext = deps.onContextDisposed(disposeBridge)
+    if (disposed) {
+      releaseContext()
+      return disposeBridge
+    }
+    own(() => {}, releaseContext)
     deps.exposeInMainWorld(apiKey, api)
     return disposeBridge
   } catch (cause) {
