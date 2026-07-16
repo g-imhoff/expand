@@ -14,25 +14,30 @@ import { Effect } from "effect"
 import { describe, expect } from "vitest"
 import { runCommand } from "../support/effect-process"
 
-const load = createRequire(import.meta.url)
-const config = load("../../.dependency-cruiser.cjs") as {
-  forbidden: ReadonlyArray<{
-    name: string
-    from: { path?: string; pathNot?: string }
-    to: { path?: string; pathNot?: string }
-  }>
-}
+const loadConfig = Effect.sync(() => {
+  const load = createRequire(import.meta.url)
+  return load("../../.dependency-cruiser.cjs") as {
+    forbidden: ReadonlyArray<{
+      name: string
+      from: { path?: string; pathNot?: string }
+      to: { path?: string; pathNot?: string }
+    }>
+  }
+})
 
 describe("@expand/client-ts barrel-only boundary", () => {
-  it("defines the client-ts-barrel-only forbidden rule", () => {
-    const rule = config.forbidden.find((r) => r.name === "client-ts-barrel-only")
-    expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
-    expect(rule!.from.pathNot).toBe("^packages/client-ts/")
-    expect(rule!.to.path).toBe("^packages/client-ts/")
-    expect(rule!.to.pathNot).toBe(
-      "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
-    )
-  })
+  it.live("defines the client-ts-barrel-only forbidden rule", () =>
+    loadConfig.pipe(
+      Effect.tap((config) => Effect.sync(() => {
+        const rule = config.forbidden.find((r) => r.name === "client-ts-barrel-only")
+        expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
+        expect(rule!.from.pathNot).toBe("^packages/client-ts/")
+        expect(rule!.to.path).toBe("^packages/client-ts/")
+        expect(rule!.to.pathNot).toBe(
+          "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
+        )
+      }))
+    ))
 
   it.live("no external module deep-imports client-ts internals", () =>
     runCommand("npm", ["exec", "--", "depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"]).pipe(
