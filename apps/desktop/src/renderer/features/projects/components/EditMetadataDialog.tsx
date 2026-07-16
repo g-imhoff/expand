@@ -13,20 +13,24 @@ export interface EditMetadataDialogProps {
   readonly open: boolean
   readonly project: Project
   readonly onOpenChange: (next: boolean) => void
-  readonly onSubmit: (patch: { description: string | null; tags: ReadonlyArray<string> }) => Promise<unknown>
+  readonly onSubmit: (
+    patch: { description: string | null; tags: ReadonlyArray<string> },
+    options: EditMetadataSubmissionOptions
+  ) => void
 }
 
 export const EditMetadataDialog = ({ open, project, onOpenChange, onSubmit }: EditMetadataDialogProps) => {
   const [description, setDescription] = useState(project.description ?? "")
   const [tagsRaw, setTagsRaw] = useState(() => project.tags.join(", "))
   const [error, setError] = useState<string | null>(null)
-  const save = async () => {
-    try {
-      await onSubmit({ description: description.trim() === "" ? null : description, tags: parseTags(tagsRaw) })
-      onOpenChange(false)
-    } catch (cause) {
-      setError(describeError(cause))
-    }
+  const save = () => {
+    onSubmit(
+      { description: description.trim() === "" ? null : description, tags: parseTags(tagsRaw) },
+      {
+        onSuccess: () => onOpenChange(false),
+        onError: (cause) => setError(describeError(cause))
+      }
+    )
   }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,3 +67,8 @@ const describeError = (cause: unknown): string => {
 
 const parseTags = (raw: string): ReadonlyArray<string> =>
   [...new Set(raw.split(",").map((t) => t.trim()).filter((t) => t.length > 0))]
+
+interface EditMetadataSubmissionOptions {
+  readonly onSuccess: () => void
+  readonly onError: (error: unknown) => void
+}

@@ -1,41 +1,22 @@
-import { useCallback, useRef, useState } from "react"
-import { Effect } from "effect"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Cause, Effect, Exit, Option } from "effect"
 import type { Project } from "@expand/contracts/project"
+import type { RendererCancel, RendererRunner } from "@expand/desktop/renderer/app/runner"
+import { useRendererRunner } from "@expand/desktop/renderer/app/runner-context"
 import { useProjectRpc, useProjectSelector } from "@expand/desktop/renderer/features/projects/data/project-context"
 
-export interface MutationState<I, A> {
-  readonly mutate: (input: I, options?: MutationOptions<A>) => void
-  readonly mutateAsync: (input: I) => Promise<A>
-  readonly error: unknown
+export interface MutationState<I, A, E> {
+  readonly mutate: (input: I, options?: MutationOptions<A, E>) => void
+  readonly error: E | undefined
   readonly isPending: boolean
   readonly reset: () => void
 }
 
-export const useRunMutation = <I, A>(run: (input: I) => Promise<A>): MutationState<I, A> => {
-  const [error, setError] = useState<unknown>(undefined)
-  const [isPending, setIsPending] = useState(false)
-  const runRef = useRef(run)
-  runRef.current = run
-
-  const mutateAsync = useCallback((input: I): Promise<A> => {
-    setIsPending(true)
-    setError(undefined)
-    return runRef.current(input).then(
-      (result) => { setIsPending(false); return result },
-      (cause: unknown) => { setIsPending(false); setError(cause); throw cause }
-    )
-  }, [])
-
-  const mutate = useCallback((input: I, options?: MutationOptions<A>) => {
-    mutateAsync(input).then(
-      (result) => options?.onSuccess?.(result),
-      (cause: unknown) => options?.onError?.(cause)
-    )
-  }, [mutateAsync])
-
-  const reset = useCallback(() => { setError(undefined); setIsPending(false) }, [])
-
-  return { mutate, mutateAsync, error, isPending, reset }
+export const useRunMutation = <I, A, E>(
+  run: (input: I) => Effect.Effect<A, E>
+): MutationState<I, A, E> => {
+  const runner = useRendererRunner()
+  return useOwnedMutation(runner, run)
 }
 
 export const useProjects = (): { data: ReadonlyArray<Project>; error: unknown } => ({
@@ -50,52 +31,103 @@ export const useAllProjects = (): { data: ReadonlyArray<Project> } => ({
 export const useCreateProject = () => {
   const rpc = useProjectRpc()
   return useRunMutation((name: string) =>
-    Effect.runPromise(
-      rpc.create({ name, ensure: true }).pipe(
-        Effect.catchTag("ProjectAlreadyExists", (error) => Effect.die(error)),
-        Effect.map((result) => result.project)
-      )
+    rpc.create({ name, ensure: true }).pipe(
+      Effect.map((result) => result.project)
     ))
 }
 
 export const useRenameProject = () => {
   const rpc = useProjectRpc()
-  return useRunMutation((args: { id: string; name: string }) => Effect.runPromise(rpc.rename(args)))
+  return useRunMutation((args: { id: string; name: string }) => rpc.rename(args))
 }
 
 export const useChangeDirectory = () => {
   const rpc = useProjectRpc()
-  return useRunMutation((args: { id: string; directory: string }) => Effect.runPromise(rpc.changeDirectory(args)))
+  return useRunMutation((args: { id: string; directory: string }) => rpc.changeDirectory(args))
 }
 
 export const useArchiveProject = () => {
   const rpc = useProjectRpc()
-  return useRunMutation((id: string) => Effect.runPromise(rpc.archive({ id })))
+  return useRunMutation((id: string) => rpc.archive({ id }))
 }
 
 export const useRestoreProject = () => {
   const rpc = useProjectRpc()
-  return useRunMutation((id: string) => Effect.runPromise(rpc.restore({ id })))
+  return useRunMutation((id: string) => rpc.restore({ id }))
 }
 
 export const useSetMetadata = () => {
   const rpc = useProjectRpc()
   return useRunMutation((args: { id: string; description?: string | null; tags?: ReadonlyArray<string> }) =>
-    Effect.runPromise(
-      rpc.setMetadata({
-        id: args.id,
-        ...(args.description !== undefined ? { description: args.description } : {}),
-        ...(args.tags !== undefined ? { tags: args.tags } : {})
-      })
-    ))
+    rpc.setMetadata({
+      id: args.id,
+      ...(args.description !== undefined ? { description: args.description } : {}),
+      ...(args.tags !== undefined ? { tags: args.tags } : {})
+    }))
 }
 
 export const useDeleteProject = () => {
   const rpc = useProjectRpc()
-  return useRunMutation((id: string) => Effect.runPromise(rpc.delete({ id })))
+  return useRunMutation((id: string) => rpc.delete({ id }))
 }
 
-interface MutationOptions<A> {
+interface MutationOptions<A, E> {
   readonly onSuccess?: (result: A) => void
-  readonly onError?: (error: unknown) => void
+  readonly onError?: (error: E) => void
+}
+
+const useOwnedMutation = <I, A, E>(
+  runner: RendererRunner,
+  run: (input: I) => Effect.Effect<A, E>
+): MutationState<I, A, E> => {
+  const [error, setError] = useState<E | undefined>(undefined)
+  const [isPending, setIsPending] = useState(false)
+  const activeCancelRef = useRef<RendererCancel | undefined>(undefined)
+  const invocationRef = useRef(0)
+  const mountedRef = useRef(false)
+  const runRef = useRef(run)
+  runRef.current = run
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      invocationRef.current += 1
+      const cancel = activeCancelRef.current
+      activeCancelRef.current = undefined
+      cancel?.()
+    }
+  }, [runner])
+
+  const mutate = useCallback((input: I, options?: MutationOptions<A, E>) => {
+    const invocation = invocationRef.current + 1
+    invocationRef.current = invocation
+    const previousCancel = activeCancelRef.current
+    activeCancelRef.current = undefined
+    previousCancel?.()
+    setIsPending(true)
+    setError(undefined)
+    let exited = false
+    const cancel = runner.start(runRef.current(input), (exit) => {
+      exited = true
+      if (!mountedRef.current || invocationRef.current !== invocation) return
+      activeCancelRef.current = undefined
+      setIsPending(false)
+      if (Exit.isSuccess(exit)) {
+        options?.onSuccess?.(exit.value)
+        return
+      }
+      const failure = Cause.findErrorOption(exit.cause)
+      if (Option.isNone(failure)) return
+      setError(failure.value)
+      options?.onError?.(failure.value)
+    })
+    if (!exited && mountedRef.current && invocationRef.current === invocation) {
+      activeCancelRef.current = cancel
+    }
+  }, [runner])
+
+  const reset = useCallback(() => { setError(undefined); setIsPending(false) }, [])
+
+  return { mutate, error, isPending, reset }
 }

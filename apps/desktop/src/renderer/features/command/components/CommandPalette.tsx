@@ -1,4 +1,5 @@
 import { Fragment, useState } from "react"
+import { Effect } from "effect"
 import { PlusIcon } from "lucide-react"
 import { useNavigate } from "@tanstack/react-router"
 import type { Project } from "@expand/contracts/project"
@@ -10,7 +11,7 @@ import {
   CommandItem,
   CommandList
 } from "@expand/desktop/renderer/components/ui/command"
-import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useSetMetadata } from "@expand/desktop/renderer/features/projects/data/use-projects"
+import { useAllProjects, useArchiveProject, useCreateProject, useRenameProject, useRestoreProject, useRunMutation, useSetMetadata } from "@expand/desktop/renderer/features/projects/data/use-projects"
 import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
 import { EditMetadataDialog } from "@expand/desktop/renderer/features/projects/components/EditMetadataDialog"
 import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
@@ -27,27 +28,36 @@ export const CommandPalette = () => {
   const archiveProject = useArchiveProject()
   const restoreProject = useRestoreProject()
   const setMetadata = useSetMetadata()
+  const navigateToProject = useRunMutation((projectId: string) =>
+    Effect.tryPromise(() => navigate({ to: "/p/$projectId", params: { projectId } })).pipe(
+      Effect.mapError((error) => error.cause)
+    ))
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [editing, setEditing] = useState<Project | null>(null)
   const [query, setQuery] = useState("")
   const [error, setError] = useState<string | null>(null)
   const trimmed = query.trim()
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     if (trimmed === "") return
-    try {
-      await createProject.mutateAsync(trimmed)
-      setError(null)
-      setQuery("")
-      setOpen(false)
-    } catch (cause) {
-      setError(`Could not create “${trimmed}”: ${cause instanceof Error ? cause.message : String(cause)}`)
-    }
+    const name = trimmed
+    createProject.mutate(name, {
+      onSuccess: () => {
+        setError(null)
+        setQuery("")
+        setOpen(false)
+      },
+      onError: (cause) =>
+        setError(`Could not create “${name}”: ${cause instanceof Error ? cause.message : String(cause)}`)
+    })
   }
 
   const openProject = (projectId: string) => {
-    setOpen(false)
-    void navigate({ to: "/p/$projectId", params: { projectId } })
+    navigateToProject.mutate(projectId, {
+      onSuccess: () => setOpen(false),
+      onError: (cause) =>
+        setError(`Could not open project: ${cause instanceof Error ? cause.message : String(cause)}`)
+    })
   }
 
   const onOpenChange = (next: boolean) => {
@@ -124,7 +134,7 @@ export const CommandPalette = () => {
         open
         project={editing}
         onOpenChange={(o) => { if (!o) setEditing(null) }}
-        onSubmit={(patch) => setMetadata.mutateAsync({ id: editing.id, ...patch })}
+        onSubmit={(patch, options) => setMetadata.mutate({ id: editing.id, ...patch }, options)}
       />
     )}
     </>

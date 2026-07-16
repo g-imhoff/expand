@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
-import { render, renderHook, screen } from "@testing-library/react"
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react"
 import { it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Effect, Exit, Schema } from "effect"
 import { flushSync } from "react-dom"
 import { describe, expect } from "vitest"
 import { Project } from "@expand/contracts/project"
+import { ProjectAlreadyExists } from "@expand/contracts/rpc"
+import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer/app/runner"
+import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { ProjectContextProvider, useProjectSelector } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import { useCreateProject } from "@expand/desktop/renderer/features/projects/data/use-projects"
@@ -22,6 +25,16 @@ const alpha = Schema.decodeUnknownSync(Project)({
 })
 
 const rpc = {} as ProjectRpcApi
+
+const runner: RendererRunner = {
+  start: <A, E,>(
+    _effect: Effect.Effect<A, E>,
+    onExit: (exit: Exit.Exit<A, E>) => void
+  ) => {
+    onExit(Exit.succeed(alpha as A))
+    return () => {}
+  }
+}
 
 const ProjectNames = () => (
   <>{useProjectSelector((state) => state.projects).map((project) => project.name).join(", ")}</>
@@ -46,18 +59,44 @@ describe("ProjectContextProvider", () => {
       const store = makeProjectsStore()
       let payload: { readonly name: string; readonly ensure: boolean } | undefined
       const mutationRpc = {
-        create: (input: { readonly name: string; readonly ensure: boolean }) =>
-          Effect.sync(() => {
-            payload = input
-            return { created: true, project: alpha }
-          })
+        create: (input: { readonly name: string; readonly ensure: boolean }) => {
+          payload = input
+          return Effect.succeed({ created: true, project: alpha })
+        }
       } as unknown as ProjectRpcApi
       const wrapper = ({ children }: { children: React.ReactNode }) => (
-        <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
+        <RendererRunnerProvider value={runner}>
+          <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
+        </RendererRunnerProvider>
       )
       const { result } = renderHook(useCreateProject, { wrapper })
-      yield* Effect.promise(() => result.current.mutateAsync("alpha"))
+      yield* Effect.sync(() => result.current.mutate("alpha"))
       expect(payload).toEqual({ name: "alpha", ensure: true })
       expect(store.getState().projects).toEqual([])
+    }))
+
+  it.live("publishes duplicate-create failures as typed mutation errors", () =>
+    Effect.gen(function* () {
+      const store = makeProjectsStore()
+      const duplicate = new ProjectAlreadyExists({ name: "alpha" })
+      const mutationRpc = {
+        create: () => Effect.fail(duplicate)
+      } as unknown as ProjectRpcApi
+      const ownedRunner: RendererRunner = { start: startRendererRoot }
+      const wrapper = ({ children }: { children: React.ReactNode }) => (
+        <RendererRunnerProvider value={ownedRunner}>
+          <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
+        </RendererRunnerProvider>
+      )
+      const { result } = renderHook(useCreateProject, { wrapper })
+      let callbackError: unknown
+
+      yield* Effect.sync(() => act(() => {
+        result.current.mutate("alpha", { onError: (error) => { callbackError = error } })
+      }))
+      yield* Effect.tryPromise(() => waitFor(() => {
+        expect(result.current.error).toBe(duplicate)
+        expect(callbackError).toBe(duplicate)
+      }))
     }))
 })
