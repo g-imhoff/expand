@@ -9,6 +9,11 @@ const processPid = ["platform:process", "pid"].join(".")
 const processPlatform = ["platform:process", "platform"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
+const documentGetElementById = ["platform:document", "getElementById"].join(".")
+const effectRunFork = ["runner:Effect", "runFork"].join(".")
+const listenerAddEventListener = ["platform:listener", "addEventListener"].join(".")
+const listenerRemoveEventListener = ["platform:listener", "removeEventListener"].join(".")
+const windowExpand = ["platform:window", "expand"].join(".")
 const windowLocation = ["platform:window", "location"].join(".")
 const windowPostMessage = ["platform:window", "postMessage"].join(".")
 
@@ -221,6 +226,48 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/app/runner.ts",
+    declaration: "variable:fiber",
+    host: "Renderer root Effect launcher",
+    construct: effectRunFork,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/main.tsx",
+    declaration: "variable:root",
+    host: "Renderer React root host adapter",
+    construct: documentGetElementById,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/main.tsx",
+    declaration: "variable:getBridge",
+    host: "Renderer preload bridge host adapter",
+    construct: windowExpand,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/main.tsx",
+    declaration: "variable:retry",
+    host: "Renderer reload host adapter",
+    construct: windowLocation,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/main.tsx",
+    declaration: "variable:onDispose",
+    host: "Renderer unload listener",
+    construct: listenerAddEventListener,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/src/renderer/main.tsx",
+    declaration: "variable:release",
+    host: "Renderer unload listener disposal",
+    construct: listenerRemoveEventListener,
     occurrence: 0
   }),
   Object.freeze({

@@ -1,7 +1,7 @@
-import { Effect, Fiber } from "effect"
-import type { Cause } from "effect"
+import { Deferred, Effect, Fiber, Ref } from "effect"
+import type { Cause, Scope } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
-import { runProjectSync } from "@expand/contracts/project-sync"
+import { runProjectSync, type ProjectSyncSink } from "@expand/contracts/project-sync"
 import { makeIpcClient, type IpcTransportError, type MakeIpcClientOptions } from "@expand/electron-ipc/renderer"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import type { ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
@@ -9,50 +9,109 @@ import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer
 import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
 import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
 import { buildRendererClient, RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
+import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 
-export const acquireRpcPort = (options: MakeIpcClientOptions): Effect.Effect<MessagePort, IpcTransportError> =>
+export interface RendererBootResources {
+  readonly value: ProjectContextValue
+  readonly sink: ProjectSyncSink
+}
+
+export interface RendererBootDependencies {
+  readonly acquireResources: (
+    options: MakeIpcClientOptions
+  ) => Effect.Effect<
+    RendererBootResources,
+    IpcTransportError | RpcClientError.RpcClientError,
+    Scope.Scope
+  >
+  readonly synchronize: (
+    value: ProjectContextValue,
+    sink: ProjectSyncSink
+  ) => Effect.Effect<never, RpcClientError.RpcClientError>
+}
+
+export const acquireRpcPort = Effect.fn("DesktopRenderer.acquireRpcPort")((
+  options: MakeIpcClientOptions
+): Effect.Effect<MessagePort, IpcTransportError> =>
   makeIpcClient(ExpandIpc, options).rpcPort
+)
 
-export const boot = (
-  mount: (value: ProjectContextValue) => void
-): Effect.Effect<never, Cause.TimeoutError | IpcTransportError | RpcClientError.RpcClientError> =>
-  Effect.gen(function* () {
-    const initialized = yield* Effect.timeout(
-      Effect.gen(function* () {
-        const messagePort = yield* acquireRpcPort({ bridge: () => window.expand, win: window })
+export const boot = Effect.fn("DesktopRenderer.boot")(
+  function* (
+    options: MakeIpcClientOptions,
+    mount: (value: ProjectContextValue, runner: RendererRunner) => void,
+    dependencies?: RendererBootDependencies
+  ): Effect.fn.Return<
+    never,
+    Cause.TimeoutError | IpcTransportError | RpcClientError.RpcClientError,
+    Scope.Scope
+  > {
+    const selected = dependencies ?? {
+      acquireResources: Effect.fn("DesktopRenderer.acquireResources")(function* (
+        acquireOptions: MakeIpcClientOptions
+      ): Effect.fn.Return<RendererBootResources, IpcTransportError, Scope.Scope> {
+        const messagePort = yield* acquireRpcPort(acquireOptions)
         const client = yield* buildRendererClient(makeRendererPort(messagePort))
         const rpc = yield* ProjectRpc.pipe(
           Effect.provide(ProjectRpcLayer),
           Effect.provideService(RendererRpcClient, client)
         )
         const store = makeProjectsStore()
-        const sink = makeProjectSyncSink(store)
-        let resolveFirstSnapshot = () => {}
-        const firstSnapshot = new Promise<void>((resolve) => {
-          resolveFirstSnapshot = resolve
-        })
-        const syncFiber = yield* Effect.forkScoped(
-          runProjectSync({
-            status: rpc.status,
-            list: () => rpc.list({ includeArchived: true }),
-            events: rpc.events
-          }, {
-            status: sink.status,
-            snapshot: (snapshot) => sink.snapshot(snapshot).pipe(
-              Effect.andThen(Effect.sync(() => resolveFirstSnapshot()))
-            )
-          })
-        )
-        yield* Effect.raceFirst(
-          Effect.promise(() => firstSnapshot),
-          Fiber.join(syncFiber)
-        )
-        return { value: { store, rpc }, syncFiber }
+        return {
+          value: { store, rpc },
+          sink: makeProjectSyncSink(store)
+        }
       }),
-      BOOT_TIMEOUT
+      synchronize: Effect.fn("DesktopRenderer.synchronize")((
+        value: ProjectContextValue,
+        sink: ProjectSyncSink
+      ): Effect.Effect<never, RpcClientError.RpcClientError> =>
+        runProjectSync({
+          status: value.rpc.status,
+          list: () => value.rpc.list({ includeArchived: true }),
+          events: value.rpc.events
+        }, sink)
+      )
+    }
+    const initialized = yield* Effect.gen(function* () {
+      const resources = yield* selected.acquireResources(options)
+      const firstSnapshot = yield* Deferred.make<void>()
+      const active = yield* Ref.make(true)
+      const sink: ProjectSyncSink = {
+        snapshot: Effect.fn("DesktopRenderer.syncSnapshot")((snapshot) =>
+          Ref.get(active).pipe(
+            Effect.flatMap((isActive) =>
+              isActive
+                ? resources.sink.snapshot(snapshot).pipe(
+                  Effect.andThen(Deferred.succeed(firstSnapshot, undefined)),
+                  Effect.asVoid
+                )
+                : Effect.void
+            )
+          )),
+        status: Effect.fn("DesktopRenderer.syncStatus")((status) =>
+          Ref.get(active).pipe(
+            Effect.flatMap((isActive) => isActive ? resources.sink.status(status) : Effect.void)
+          ))
+      }
+      const syncFiber = yield* Effect.forkScoped(
+        selected.synchronize(resources.value, sink)
+      )
+      yield* Effect.addFinalizer(() => Ref.set(active, false))
+      yield* Effect.raceFirst(
+        waitForDeferred(firstSnapshot),
+        Fiber.join(syncFiber)
+      )
+      return { resources, syncFiber }
+    }).pipe(Effect.timeout("10 seconds"))
+    const owner = yield* makeRendererRunner()
+    yield* Effect.sync(() => mount(initialized.resources.value, owner.runner))
+    return yield* Effect.raceFirst(
+      Fiber.join(initialized.syncFiber),
+      owner.failure
     )
-    yield* Effect.sync(() => mount(initialized.value))
-    return yield* Fiber.join(initialized.syncFiber)
-  }).pipe(Effect.scoped)
+  },
+  Effect.scoped
+)
 
-const BOOT_TIMEOUT = "10 seconds"
+const waitForDeferred = Deferred["\u0061wait"]
