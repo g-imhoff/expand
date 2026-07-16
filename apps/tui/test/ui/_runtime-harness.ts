@@ -23,6 +23,12 @@ export interface RuntimeHarnessOptions {
   readonly snapshot?: ProjectSnapshot
   readonly client?: Partial<ProjectClientApi>
   readonly failure?: BackendUnavailable
+  readonly transformEffect?: (
+    effect: Parameters<ExpandRuntime["runFork"]>[0]
+  ) => Parameters<ExpandRuntime["runFork"]>[0]
+  readonly transformFiber?: (
+    fiber: ReturnType<ExpandRuntime["runFork"]>
+  ) => ReturnType<ExpandRuntime["runFork"]>
 }
 
 export const fakeProject = (
@@ -204,8 +210,8 @@ export const makeRuntimeHarness = (
       return ((effect: Parameters<ExpandRuntime["runFork"]>[0]) => {
         if (synchronizationForked) synchronizationInterrupted = true
         synchronizationForked = true
-        const fiber = target.runFork(effect)
-        return fiber
+        const fiber = target.runFork(options.transformEffect?.(effect) ?? effect)
+        return options.transformFiber?.(fiber) ?? fiber
       })
     }
   }) as ExpandRuntime

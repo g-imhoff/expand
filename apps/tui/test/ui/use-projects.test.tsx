@@ -1,9 +1,10 @@
 import { describe, expect, vi } from "vitest"
 import { it as effectIt } from "@effect/vitest"
 import { render as renderInk } from "ink-testing-library"
-import { Cause, Deferred, Effect, Exit } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Logger, Stream } from "effect"
 import { BackendUnavailable } from "@expand/client-ts"
 import { ProjectRenamed } from "@expand/contracts/events/project"
+import { runProjectSync } from "@expand/contracts/project-sync"
 import { makeEffectRunner } from "@expand/tui/effect-runner"
 import { tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
 import { useProjects } from "@expand/tui/use-projects"
@@ -142,10 +143,100 @@ effectIt.effect("owns overlapping mutations until React unmount interrupts each 
   }))
 
 describe("TUI Effect runner", () => {
+  effectIt.effect("logs a cancelled target defect without delivering it to React", () =>
+    Effect.gen(function* () {
+      const finalized = yield* Deferred.make<void>()
+      const entries: Array<string> = []
+      const logger = Logger.make((options) => {
+        const messages = Array.isArray(options.message) ? options.message : [options.message]
+        entries.push(messages.map(String).join(" "))
+      })
+      const harness = makeRuntimeHarness({
+        transformEffect: (effect) => effect.pipe(Effect.provide(Logger.layer([logger])))
+      })
+      const onExit = vi.fn()
+      const runner = makeEffectRunner(harness.runtime)
+
+      runner.start(
+        Effect.never.pipe(
+          Effect.ensuring(
+            Deferred.succeed(finalized, undefined).pipe(
+              Effect.andThen(Effect.die("finalizer defect"))
+            )
+          )
+        ),
+        onExit
+      )
+      runner.dispose()
+
+      yield* waitForDeferred(finalized)
+      yield* Effect.tryPromise(() =>
+        vi.waitFor(() => expect(entries.some((entry) => entry.includes("cancelled effect died"))).toBe(true))
+      )
+      expect(onExit).not.toHaveBeenCalled()
+      yield* harness.runtime.disposeEffect
+    }))
+
+  effectIt.effect("observes ProjectSync failure and suppresses failure delivery after disposal", () =>
+    Effect.gen(function* () {
+      const failure = new Error("sync failed")
+      const release = yield* Deferred.make<void>()
+      const harness = makeRuntimeHarness()
+      const onExit = vi.fn()
+      const runner = makeEffectRunner(harness.runtime)
+      const sink = { snapshot: () => Effect.void, status: () => Effect.void }
+
+      runner.start(
+        runProjectSync(
+          { status: Stream.fail(failure), list: () => Effect.die("unused"), events: () => Stream.die("unused") },
+          sink
+        ),
+        onExit
+      )
+      yield* Effect.tryPromise(() => vi.waitFor(() => expect(onExit).toHaveBeenCalledTimes(1)))
+      const exit = onExit.mock.calls[0]?.[0]
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(failure)
+
+      onExit.mockClear()
+      runner.start(
+        runProjectSync(
+          {
+            status: Stream.fromEffect(
+              waitForDeferred(release).pipe(Effect.andThen(Effect.fail(failure)))
+            ),
+            list: () => Effect.die("unused"),
+            events: () => Stream.die("unused")
+          },
+          sink
+        ),
+        onExit
+      )
+      runner.dispose()
+      yield* Deferred.succeed(release, undefined)
+      yield* Effect.yieldNow
+      expect(onExit).not.toHaveBeenCalled()
+      yield* harness.runtime.disposeEffect
+    }))
+
   effectIt.effect("interrupts through the runtime and suppresses late callbacks after disposal", () =>
     Effect.gen(function* () {
       const interrupted = yield* Deferred.make<void>()
-      const harness = makeRuntimeHarness()
+      const observed: Array<boolean> = []
+      const harness = makeRuntimeHarness({
+        transformFiber: (fiber) => {
+          const index = observed.push(false) - 1
+          return new Proxy(fiber, {
+            get: (fiberTarget, fiberProperty) => {
+              if (fiberProperty !== "addObserver") return Reflect.get(fiberTarget, fiberProperty)
+              return (observer: Parameters<typeof fiber.addObserver>[0]) => {
+                observed[index] = true
+                return fiber.addObserver(observer)
+              }
+            }
+          })
+        }
+      })
       const onExit = vi.fn()
       const runner = makeEffectRunner(harness.runtime)
 
@@ -156,6 +247,8 @@ describe("TUI Effect runner", () => {
       runner.dispose()
 
       yield* waitForDeferred(interrupted)
+      yield* Effect.yieldNow
+      expect(observed).toEqual([true, true])
       expect(onExit).not.toHaveBeenCalled()
       yield* harness.runtime.disposeEffect
     }))
@@ -164,22 +257,32 @@ describe("TUI Effect runner", () => {
 describe("tuiProgram", () => {
   effectIt.effect("waits for Ink exit and tears down Ink and the runtime exactly once", () =>
     Effect.gen(function* () {
+      const exitRelease = yield* Deferred.make<void>()
       const events: Array<string> = []
       let unmount: ReturnType<typeof vi.spyOn> | undefined
       const runtime = {
         disposeEffect: Effect.sync(() => { events.push("runtime:dispose") })
       } as unknown as ExpandRuntime
-      yield* tuiProgram({
+      const program = yield* Effect.forkChild(tuiProgram({
         makeRuntime: () => runtime,
         render: () => {
           events.push("ink:render")
           const ink = Object.assign(renderInk(<></>), {
-            waitUntilExit: vi.fn().mockResolvedValue(undefined)
+            waitUntilExit: vi.fn().mockReturnValue(
+              vi.waitFor(() => expect(exitRelease.effect).toBeDefined())
+            )
           })
           unmount = vi.spyOn(ink, "unmount")
           return ink
         }
-      })
+      }))
+
+      yield* Effect.yieldNow
+      expect(events).toEqual(["ink:render"])
+      expect(unmount).not.toHaveBeenCalled()
+
+      yield* Deferred.succeed(exitRelease, undefined)
+      yield* Fiber.join(program)
 
       expect(events).toEqual(["ink:render", "runtime:dispose"])
       expect(unmount).toHaveBeenCalledTimes(1)

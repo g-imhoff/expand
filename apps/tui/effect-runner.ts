@@ -22,24 +22,38 @@ export const makeEffectRunner = (
   const cancellations = new Set<() => void>()
   const { runFork } = runtime
   const fork = <A, E>(effect: Effect.Effect<A, E, TuiRequirements>) => runFork(effect)
+  const observe = <A, E>(
+    effect: Effect.Effect<A, E, TuiRequirements>,
+    onExit: (exit: Exit.Exit<A, E | ExpandRuntimeError>) => void
+  ) => {
+    const fiber = fork(effect)
+    fiber.addObserver(onExit)
+    return fiber
+  }
 
   const start: TuiEffectRunner["start"] = (effect, onExit) => {
     if (!active) return () => {}
-    const fiber = fork(effect)
     let cancelled = false
     let completed = false
-    const cancel = () => {
+    let cancel = () => {}
+    const fiber = observe(
+      Effect.onExit(effect, (exit) =>
+        cancelled && Exit.isFailure(exit) && Cause.hasDies(exit.cause)
+          ? Effect.logError("[TUI] cancelled effect died", exit.cause)
+          : Effect.void
+      ),
+      (exit) => {
+        completed = true
+        cancellations.delete(cancel)
+        if (active && !cancelled) onExit(exit)
+      }
+    )
+    cancel = () => {
       if (cancelled) return
       cancelled = true
       cancellations.delete(cancel)
-      removeObserver()
-      fork(Fiber.interrupt(fiber))
+      observe(Fiber.interrupt(fiber), () => {})
     }
-    const removeObserver = fiber.addObserver((exit) => {
-      completed = true
-      cancellations.delete(cancel)
-      if (active && !cancelled) onExit(exit)
-    })
     if (!completed) cancellations.add(cancel)
     return cancel
   }
