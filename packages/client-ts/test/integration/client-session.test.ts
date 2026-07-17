@@ -1,6 +1,6 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, PlatformError, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { describe, expect } from "vitest"
@@ -35,6 +35,8 @@ interface ScriptedBackend {
   readonly retryStarted: Effect.Effect<void>
   readonly retryInterrupted: Effect.Effect<void>
   readonly disconnectHook: Effect.Effect<void>
+  readonly hasCurrentServer: () => boolean
+  readonly setServerCloseDefect: (defect: unknown) => void
 }
 
 const makeHandlers = () =>
@@ -65,28 +67,36 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
   let currentServer: { readonly scope: Scope.Closeable; readonly clock: Clock.Clock } | undefined
   let reconnects = 0
   let blockSpawn = false
+  let serverCloseDefect: unknown | undefined
   let currentDisconnectHook: Effect.Effect<void> = Effect.die("connection hook not installed")
 
   const closeCurrent = Effect.uninterruptible(Effect.gen(function*() {
     const server = currentServer
-    yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(
+    currentServer = undefined
+    const endpointRemoval = yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(
       Effect.mapError((cause) => new BackendUnavailable({
         reason: `failed to remove scripted endpoint: ${String(cause)}`
-      }))
+      })),
+      Effect.exit
     )
-    if (server !== undefined) {
-      yield* Scope.close(server.scope, Exit.void).pipe(
-        Effect.provideService(Clock.Clock, server.clock),
-        Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
-          ? Effect.void
-          : Effect.failCause(cause))
-      )
+    const serverClosure = server === undefined
+      ? Exit.void
+      : yield* Scope.close(server.scope, Exit.void).pipe(
+          Effect.provideService(Clock.Clock, server.clock),
+          Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
+            ? Effect.void
+            : Effect.failCause(cause)),
+          Effect.exit
+        )
+    if (Exit.isFailure(endpointRemoval) && Exit.isFailure(serverClosure)) {
+      return yield* Effect.failCause(Cause.combine(endpointRemoval.cause, serverClosure.cause))
     }
-    currentServer = undefined
+    if (Exit.isFailure(endpointRemoval)) return yield* Effect.failCause(endpointRemoval.cause)
+    if (Exit.isFailure(serverClosure)) return yield* Effect.failCause(serverClosure.cause)
   }))
 
   yield* Effect.addFinalizer(() => closeCurrent.pipe(
-    Effect.catchTag("BackendUnavailable", (error) => Effect.logError(error))
+    Effect.catchTag("BackendUnavailable", (error) => Effect.die(error))
   ))
 
   const startServer = Effect.gen(function*() {
@@ -108,6 +118,9 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
       Layer.provide(node)
     )
     const serverScope = yield* Scope.fork(serverOwnerScope)
+    yield* Scope.addFinalizer(serverScope, Effect.suspend(() => serverCloseDefect === undefined
+      ? Effect.void
+      : Effect.die(serverCloseDefect)))
     yield* Effect.gen(function*() {
       const transport = yield* Layer.build(serverLayer).pipe(Scope.provide(serverScope))
       const address = yield* HttpServer.HttpServer.pipe(
@@ -166,7 +179,11 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
     reconnectCount: () => reconnects,
     retryStarted: Deferred.await(retryStarted),
     retryInterrupted: Deferred.await(retryInterrupted),
-    disconnectHook: Effect.suspend(() => currentDisconnectHook)
+    disconnectHook: Effect.suspend(() => currentDisconnectHook),
+    hasCurrentServer: () => currentServer !== undefined,
+    setServerCloseDefect: (defect: unknown) => {
+      serverCloseDefect = defect
+    }
   }
 })
 
@@ -307,6 +324,55 @@ const runOneShotAcquirePauseScenario = () =>
     )
   }))
 
+const makeEndpointRemovalFailingFileSystem = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  let failurePending = true
+  const failure = PlatformError.systemError({
+    _tag: "PermissionDenied",
+    module: "FileSystem",
+    method: "remove",
+    pathOrDescriptor: "scripted endpoint"
+  })
+  return FileSystem.FileSystem.of({
+    ...fs,
+    remove: (target, options) => failurePending
+      ? Effect.sync(() => {
+          failurePending = false
+        }).pipe(Effect.andThen(Effect.fail(failure)))
+      : fs.remove(target, options)
+  })
+})
+
+const runDirectCleanupFailureScenario = Effect.gen(function*() {
+  const failingFs = yield* makeEndpointRemovalFailingFileSystem
+  const closeDefect = new Error("scripted server close defect")
+  let backend: ScriptedBackend | undefined
+  let disconnectExit: Exit.Exit<void, BackendUnavailable> | undefined
+  const ownerExit = yield* Effect.scoped(Effect.gen(function*() {
+    backend = yield* makeScriptedBackend()
+    backend.setServerCloseDefect(closeDefect)
+    disconnectExit = yield* backend.disconnect.pipe(Effect.exit)
+  })).pipe(
+    Effect.provideService(FileSystem.FileSystem, failingFs),
+    Effect.exit
+  )
+  if (backend === undefined || disconnectExit === undefined) return yield* Effect.die("cleanup scenario did not start")
+  return { backend, closeDefect, disconnectExit, ownerExit }
+})
+
+const runFinalizerCleanupFailureScenario = Effect.gen(function*() {
+  const failingFs = yield* makeEndpointRemovalFailingFileSystem
+  let backend: ScriptedBackend | undefined
+  const ownerExit = yield* Effect.scoped(Effect.gen(function*() {
+    backend = yield* makeScriptedBackend()
+  })).pipe(
+    Effect.provideService(FileSystem.FileSystem, failingFs),
+    Effect.exit
+  )
+  if (backend === undefined) return yield* Effect.die("finalizer scenario did not start")
+  return { backend, ownerExit }
+})
+
 const runInternalAcquireRetryScenario = () =>
   Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
@@ -440,6 +506,37 @@ describe("ClientSession", () => {
   it.live("consumes an acquisition pause only once", () =>
     runOneShotAcquirePauseScenario().pipe(
       Effect.tap((completed) => Effect.sync(() => expect(completed).toBe(true))),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
+
+  it.live("closes and clears the server while preserving direct cleanup failures", () =>
+    runDirectCleanupFailureScenario.pipe(
+      Effect.tap(({ backend, closeDefect, disconnectExit, ownerExit }) => Effect.sync(() => {
+        expect(Exit.isFailure(disconnectExit)).toBe(true)
+        if (Exit.isFailure(disconnectExit)) {
+          expect(Cause.hasFails(disconnectExit.cause)).toBe(true)
+          expect(Cause.hasDies(disconnectExit.cause)).toBe(true)
+          const defect = Cause.findDefect(disconnectExit.cause)
+          expect(Result.isSuccess(defect)).toBe(true)
+          if (Result.isSuccess(defect)) expect(defect.success).toBe(closeDefect)
+        }
+        expect(Exit.isSuccess(ownerExit)).toBe(true)
+        expect(backend.hasCurrentServer()).toBe(false)
+      })),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
+
+  it.live("preserves endpoint cleanup failures as scope-finalizer defects", () =>
+    runFinalizerCleanupFailureScenario.pipe(
+      Effect.tap(({ backend, ownerExit }) => Effect.sync(() => {
+        expect(Exit.isFailure(ownerExit)).toBe(true)
+        if (Exit.isFailure(ownerExit)) {
+          expect(Cause.hasFails(ownerExit.cause)).toBe(false)
+          expect(Cause.hasDies(ownerExit.cause)).toBe(true)
+          expect(Cause.squash(ownerExit.cause)).toBeInstanceOf(BackendUnavailable)
+        }
+        expect(backend.hasCurrentServer()).toBe(false)
+      })),
       Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
     ))
 
