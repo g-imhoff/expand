@@ -36,6 +36,7 @@ interface ScriptedBackend {
   readonly retryInterrupted: Effect.Effect<void>
   readonly disconnectHook: Effect.Effect<void>
   readonly hasCurrentServer: () => boolean
+  readonly setEndpointRemovalFailure: (error: BackendUnavailable) => void
   readonly setServerCloseDefect: (defect: unknown) => void
 }
 
@@ -67,6 +68,7 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
   let currentServer: { readonly scope: Scope.Closeable; readonly clock: Clock.Clock } | undefined
   let reconnects = 0
   let blockSpawn = false
+  let endpointRemovalFailure: BackendUnavailable | undefined
   let serverCloseDefect: unknown | undefined
   let currentDisconnectHook: Effect.Effect<void> = Effect.die("connection hook not installed")
 
@@ -74,7 +76,7 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
     const server = currentServer
     currentServer = undefined
     const endpointRemoval = yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(
-      Effect.mapError((cause) => new BackendUnavailable({
+      Effect.mapError((cause) => endpointRemovalFailure ?? new BackendUnavailable({
         reason: `failed to remove scripted endpoint: ${String(cause)}`
       })),
       Effect.exit
@@ -96,7 +98,11 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
   }))
 
   yield* Effect.addFinalizer(() => closeCurrent.pipe(
-    Effect.catchTag("BackendUnavailable", (error) => Effect.die(error))
+    Effect.catchCause((cause) => Effect.failCause(Cause.fromReasons<never>(
+      cause.reasons.map((reason) => Cause.isFailReason(reason)
+        ? Cause.makeDieReason(reason.error)
+        : reason)
+    )))
   ))
 
   const startServer = Effect.gen(function*() {
@@ -181,6 +187,9 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
     retryInterrupted: Deferred.await(retryInterrupted),
     disconnectHook: Effect.suspend(() => currentDisconnectHook),
     hasCurrentServer: () => currentServer !== undefined,
+    setEndpointRemovalFailure: (error: BackendUnavailable) => {
+      endpointRemovalFailure = error
+    },
     setServerCloseDefect: (defect: unknown) => {
       serverCloseDefect = defect
     }
@@ -362,15 +371,19 @@ const runDirectCleanupFailureScenario = Effect.gen(function*() {
 
 const runFinalizerCleanupFailureScenario = Effect.gen(function*() {
   const failingFs = yield* makeEndpointRemovalFailingFileSystem
+  const endpointRemovalFailure = new BackendUnavailable({ reason: "scripted endpoint removal failure" })
+  const closeDefect = new Error("scripted finalizer server close defect")
   let backend: ScriptedBackend | undefined
   const ownerExit = yield* Effect.scoped(Effect.gen(function*() {
     backend = yield* makeScriptedBackend()
+    backend.setEndpointRemovalFailure(endpointRemovalFailure)
+    backend.setServerCloseDefect(closeDefect)
   })).pipe(
     Effect.provideService(FileSystem.FileSystem, failingFs),
     Effect.exit
   )
   if (backend === undefined) return yield* Effect.die("finalizer scenario did not start")
-  return { backend, ownerExit }
+  return { backend, closeDefect, endpointRemovalFailure, ownerExit }
 })
 
 const runInternalAcquireRetryScenario = () =>
@@ -528,12 +541,14 @@ describe("ClientSession", () => {
 
   it.live("preserves endpoint cleanup failures as scope-finalizer defects", () =>
     runFinalizerCleanupFailureScenario.pipe(
-      Effect.tap(({ backend, ownerExit }) => Effect.sync(() => {
+      Effect.tap(({ backend, closeDefect, endpointRemovalFailure, ownerExit }) => Effect.sync(() => {
         expect(Exit.isFailure(ownerExit)).toBe(true)
         if (Exit.isFailure(ownerExit)) {
-          expect(Cause.hasFails(ownerExit.cause)).toBe(false)
-          expect(Cause.hasDies(ownerExit.cause)).toBe(true)
-          expect(Cause.squash(ownerExit.cause)).toBeInstanceOf(BackendUnavailable)
+          const failReasons = ownerExit.cause.reasons.filter(Cause.isFailReason)
+          const dieReasons = ownerExit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect)
+          expect(failReasons).toEqual([])
+          expect(dieReasons).toContain(endpointRemovalFailure)
+          expect(dieReasons).toContain(closeDefect)
         }
         expect(backend.hasCurrentServer()).toBe(false)
       })),
