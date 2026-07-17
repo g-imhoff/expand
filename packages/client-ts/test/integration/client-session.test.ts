@@ -1,6 +1,6 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { describe, expect } from "vitest"
@@ -18,12 +18,18 @@ const acquireControl: { pause: Effect.Effect<void> | undefined } = {
   pause: undefined
 }
 
+const awaitAcquirePause = Effect.sync(() => {
+  const pause = acquireControl.pause
+  acquireControl.pause = undefined
+  return pause
+}).pipe(Effect.flatMap((pause) => pause ?? Effect.void))
+
 const nodeAdapter = makeNodeAdapter({ backendCommand: Effect.succeed([]) })
 
 interface ScriptedBackend {
   readonly adapter: RuntimeAdapter
   readonly appContext: ReturnType<typeof AppContext.make>
-  readonly disconnect: Effect.Effect<void>
+  readonly disconnect: Effect.Effect<void, BackendUnavailable>
   readonly blockNextSpawn: () => void
   readonly reconnectCount: () => number
   readonly retryStarted: Effect.Effect<void>
@@ -52,6 +58,8 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
   const processControl = yield* ProcessControl
   const dir = yield* makeTempDirectoryScoped("expand-client-session-")
   const appContext = makeTestAppContext(dir, path)
+  const parentScope = yield* Scope.Scope
+  const serverOwnerScope = yield* Scope.fork(parentScope)
   const retryStarted = yield* Deferred.make<void>()
   const retryInterrupted = yield* Deferred.make<void>()
   let currentServer: { readonly scope: Scope.Closeable; readonly clock: Clock.Clock } | undefined
@@ -59,19 +67,27 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
   let blockSpawn = false
   let currentDisconnectHook: Effect.Effect<void> = Effect.die("connection hook not installed")
 
-  const closeCurrent = Effect.gen(function*() {
+  const closeCurrent = Effect.uninterruptible(Effect.gen(function*() {
     const server = currentServer
-    currentServer = undefined
-    yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(Effect.orDie)
+    yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(
+      Effect.mapError((cause) => new BackendUnavailable({
+        reason: `failed to remove scripted endpoint: ${String(cause)}`
+      }))
+    )
     if (server !== undefined) {
       yield* Scope.close(server.scope, Exit.void).pipe(
         Effect.provideService(Clock.Clock, server.clock),
-        Effect.exit
+        Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
+          ? Effect.void
+          : Effect.failCause(cause))
       )
     }
-  })
+    currentServer = undefined
+  }))
 
-  yield* Effect.addFinalizer(() => closeCurrent)
+  yield* Effect.addFinalizer(() => closeCurrent.pipe(
+    Effect.catchTag("BackendUnavailable", (error) => Effect.logError(error))
+  ))
 
   const startServer = Effect.gen(function*() {
     const rpc = RpcServer.layer(ExpandRpcs).pipe(
@@ -91,21 +107,27 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
     const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
       Layer.provide(node)
     )
-    const serverScope = yield* Scope.make()
-    const transport = yield* Layer.build(serverLayer).pipe(Scope.provide(serverScope))
-    const address = yield* HttpServer.HttpServer.pipe(
-      Effect.map((server) => server.address),
-      Effect.provide(transport)
+    const serverScope = yield* Scope.fork(serverOwnerScope)
+    yield* Effect.gen(function*() {
+      const transport = yield* Layer.build(serverLayer).pipe(Scope.provide(serverScope))
+      const address = yield* HttpServer.HttpServer.pipe(
+        Effect.map((server) => server.address),
+        Effect.provide(transport)
+      )
+      const port = address._tag === "TcpAddress" ? address.port : 0
+      const endpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+        url: `ws://127.0.0.1:${port}/rpc`,
+        token: "client-session-test",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      })
+      yield* fs.writeFileString(appContext.paths.endpointFile, endpoint)
+      currentServer = { scope: serverScope, clock: serverClock }
+    }).pipe(
+      Effect.onExit((exit) => Exit.isFailure(exit)
+        ? Scope.close(serverScope, exit).pipe(Effect.provideService(Clock.Clock, serverClock))
+        : Effect.void)
     )
-    const port = address._tag === "TcpAddress" ? address.port : 0
-    currentServer = { scope: serverScope, clock: serverClock }
-    const endpoint = yield* Schema.encodeEffect(EndpointFromJson)({
-      url: `ws://127.0.0.1:${port}/rpc`,
-      token: "client-session-test",
-      pid: processControl.currentPid,
-      protocolVersion: PROTOCOL_VERSION
-    })
-    yield* fs.writeFileString(appContext.paths.endpointFile, endpoint)
   })
 
   const adapter: RuntimeAdapter = {
@@ -115,7 +137,7 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
           Effect.tap((hooks) => Effect.sync(() => {
             currentDisconnectHook = hooks.onDisconnect
           })),
-          Effect.andThen(acquireControl.pause ?? Effect.void)
+          Effect.andThen(awaitAcquirePause)
         ))
       ) as Layer.Layer<RpcClient.Protocol>,
     spawnBackend: () => Effect.sync(() => ++reconnects).pipe(
@@ -124,7 +146,11 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
             Effect.andThen(Effect.never),
             Effect.onInterrupt(() => Deferred.succeed(retryInterrupted, undefined))
           )
-        : startServer.pipe(Effect.orDie))
+        : startServer.pipe(
+            Effect.mapError((cause) => new BackendUnavailable({
+              reason: `failed to start scripted backend: ${String(cause)}`
+            }))
+          ))
     )
   }
 
@@ -148,15 +174,20 @@ const openSession = Effect.fn("ClientSessionTest.openSession")(function*(
   backend: ScriptedBackend,
   adapter: RuntimeAdapter = backend.adapter
 ) {
-  const scope = yield* Scope.make()
-  const context = yield* Layer.build(
-    ClientSessionLayer(adapter).pipe(
-      Layer.provide(ProcessServices.layer),
-      Layer.provide(Layer.succeed(AppContext, backend.appContext))
-    )
-  ).pipe(Scope.provide(scope))
-  const session = yield* ClientSession.pipe(Effect.provide(context))
-  return { session, scope }
+  const parentScope = yield* Scope.Scope
+  const scope = yield* Scope.fork(parentScope)
+  return yield* Effect.gen(function*() {
+    const context = yield* Layer.build(
+      ClientSessionLayer(adapter).pipe(
+        Layer.provide(ProcessServices.layer),
+        Layer.provide(Layer.succeed(AppContext, backend.appContext))
+      )
+    ).pipe(Scope.provide(scope))
+    const session = yield* ClientSession.pipe(Effect.provide(context))
+    return { session, scope }
+  }).pipe(
+    Effect.onExit((exit) => Exit.isFailure(exit) ? Scope.close(scope, exit) : Effect.void)
+  )
 })
 
 let reconnectCount = (): number => 0
@@ -232,6 +263,50 @@ const runAcquireDisconnectRaceScenario = () =>
     )
   }))
 
+const runInterruptedAcquireScopeScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    const sessionAcquired = yield* Queue.unbounded<void>()
+    const acquireScopeClosed = yield* Queue.unbounded<void>()
+    const observedAdapter: RuntimeAdapter = {
+      protocolLayer: (url) => backend.adapter.protocolLayer(url).pipe(
+        Layer.tap(() => Effect.addFinalizer(() => Queue.offer(acquireScopeClosed, undefined)))
+      ),
+      spawnBackend: backend.adapter.spawnBackend
+    }
+    const owner = yield* Effect.scoped(Effect.gen(function*() {
+      yield* openSession(backend, observedAdapter)
+      yield* Queue.offer(sessionAcquired, undefined)
+      return yield* Effect.never
+    })).pipe(Effect.forkChild)
+    yield* Queue.take(sessionAcquired)
+    yield* Fiber.interrupt(owner)
+    return yield* Queue.take(acquireScopeClosed).pipe(
+      Effect.as(true),
+      Effect.timeoutOrElse({ duration: "1 second", orElse: () => Effect.succeed(false) })
+    )
+  }))
+
+const runOneShotAcquirePauseScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const acquirePaused = yield* Queue.unbounded<void>()
+    const acquireReleased = yield* Queue.unbounded<void>()
+    acquireControl.pause = Queue.offer(acquirePaused, undefined).pipe(
+      Effect.andThen(Queue.take(acquireReleased))
+    )
+    yield* Effect.addFinalizer(() => Effect.sync(() => {
+      acquireControl.pause = undefined
+    }).pipe(Effect.andThen(Queue.offer(acquireReleased, undefined))))
+    const first = yield* awaitAcquirePause.pipe(Effect.forkChild)
+    yield* Queue.take(acquirePaused)
+    yield* Queue.offer(acquireReleased, undefined)
+    yield* Fiber.join(first)
+    return yield* awaitAcquirePause.pipe(
+      Effect.as(true),
+      Effect.timeoutOrElse({ duration: "1 second", orElse: () => Effect.succeed(false) })
+    )
+  }))
+
 const runInternalAcquireRetryScenario = () =>
   Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
@@ -251,7 +326,11 @@ const runInternalAcquireRetryScenario = () =>
         attemptedUrls.push(url)
         return backend.adapter.protocolLayer(url)
       },
-      spawnBackend: () => fs.writeFileString(endpointFile, healthyEndpoint).pipe(Effect.orDie)
+      spawnBackend: () => fs.writeFileString(endpointFile, healthyEndpoint).pipe(
+        Effect.mapError((cause) => new BackendUnavailable({
+          reason: `failed to restore scripted endpoint: ${String(cause)}`
+        }))
+      )
     }
     const context = yield* Layer.build(
       ClientSessionLayer(adapter).pipe(
@@ -349,6 +428,18 @@ describe("ClientSession", () => {
   it.live("does not publish an epoch that disconnects after acquisition", () =>
     runAcquireDisconnectRaceScenario().pipe(
       Effect.tap((result) => Effect.sync(() => expect(result).toBe("retrying"))),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
+
+  it.live("closes an owned acquisition scope when acquisition is interrupted", () =>
+    runInterruptedAcquireScopeScenario().pipe(
+      Effect.tap((closed) => Effect.sync(() => expect(closed).toBe(true))),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
+
+  it.live("consumes an acquisition pause only once", () =>
+    runOneShotAcquirePauseScenario().pipe(
+      Effect.tap((completed) => Effect.sync(() => expect(completed).toBe(true))),
       Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
     ))
 

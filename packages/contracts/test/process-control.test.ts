@@ -32,6 +32,9 @@ describe("ProcessControl", () => {
     })
   })
 
+  it.effect.fails("surfaces failed Effects through the Effect Vitest boundary", () =>
+    Effect.fail("expected Effect failure"))
+
   it.effect("has no ambient ProcessControl service", () =>
     Effect.serviceOption(ProcessControl).pipe(
       Effect.map((service) => expect(Option.isNone(service)).toBe(true))
