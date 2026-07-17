@@ -1,45 +1,29 @@
-import { describe, expect, it, vi } from "vitest"
-import { Deferred, Effect, Exit, Fiber, Layer, Result, Scope, Stream, SubscriptionRef } from "effect"
+import { NodeHttpServer, NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { describe, expect } from "vitest"
+import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { makeNodeAdapter, ProcessServices } from "../../adapters/node"
-import { createServer } from "node:http"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { resolve } from "node:path"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
-import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { ProcessControl } from "@expand/contracts/process-control"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RuntimeAdapter } from "../../adapter"
-import { NodeHttpServer } from "@effect/platform-node"
 import { ClientSession, ClientSessionLayer, type ClientSessionApi } from "../../client-session"
 import { BackendUnavailable } from "../../errors"
 
-const acquireControl = vi.hoisted(() => ({
-  pause: undefined as (() => Promise<void>) | undefined
-}))
+const acquireControl: { pause: Effect.Effect<void> | undefined } = {
+  pause: undefined
+}
 
 const nodeAdapter = makeNodeAdapter({ backendCommand: Effect.succeed([]) })
-
-vi.mock("../../rpc-client", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../rpc-client")>()
-  const { Effect } = await import("effect")
-  return {
-    ...actual,
-    acquireClient: (adapter: Parameters<typeof actual.acquireClient>[0]) =>
-      actual.acquireClient(adapter).pipe(
-        Effect.tap(() =>
-          Effect.promise(() => acquireControl.pause?.() ?? Promise.resolve())
-        )
-      )
-  }
-})
 
 interface ScriptedBackend {
   readonly adapter: RuntimeAdapter
   readonly appContext: ReturnType<typeof AppContext.make>
   readonly disconnect: Effect.Effect<void>
-  readonly dispose: Effect.Effect<void>
   readonly blockNextSpawn: () => void
   readonly reconnectCount: () => number
   readonly retryStarted: Effect.Effect<void>
@@ -62,23 +46,48 @@ const makeHandlers = () =>
     Events: () => Stream.never
   })
 
-const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
-  const dir = mkdtempSync(join(tmpdir(), "expand-client-session-"))
-  const appContext = makeTestAppContext(dir)
-  const retryStarted = Deferred.makeUnsafe<void>()
-  const retryInterrupted = Deferred.makeUnsafe<void>()
-  let currentScope: Scope.Closeable | undefined
+const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const processControl = yield* ProcessControl
+  const dir = yield* makeTempDirectoryScoped("expand-client-session-")
+  const appContext = makeTestAppContext(dir, path)
+  const retryStarted = yield* Deferred.make<void>()
+  const retryInterrupted = yield* Deferred.make<void>()
+  let currentServer: { readonly scope: Scope.Closeable; readonly clock: Clock.Clock } | undefined
   let reconnects = 0
   let blockSpawn = false
   let currentDisconnectHook: Effect.Effect<void> = Effect.die("connection hook not installed")
 
-  const startServer = Effect.gen(function* () {
+  const closeCurrent = Effect.gen(function*() {
+    const server = currentServer
+    currentServer = undefined
+    yield* fs.remove(appContext.paths.endpointFile, { force: true }).pipe(Effect.orDie)
+    if (server !== undefined) {
+      yield* Scope.close(server.scope, Exit.void).pipe(
+        Effect.provideService(Clock.Clock, server.clock),
+        Effect.exit
+      )
+    }
+  })
+
+  yield* Effect.addFinalizer(() => closeCurrent)
+
+  const startServer = Effect.gen(function*() {
     const rpc = RpcServer.layer(ExpandRpcs).pipe(
       Layer.provide(makeHandlers()),
       Layer.provide(RpcServer.layerProtocolWebsocket({ path: "/rpc" })),
       Layer.provide(RpcSerialization.layerNdjson)
     )
-    const node = NodeHttpServer.layer(createServer, { port: 0, gracefulShutdownTimeout: "500 millis" })
+    const clock = yield* Clock.Clock
+    const serverClock = Clock.Clock.of({
+      currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+      currentTimeMillis: clock.currentTimeMillis,
+      currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+      currentTimeNanos: clock.currentTimeNanos,
+      sleep: (duration) => clock.sleep(Duration.min(duration, Duration.millis(500)))
+    })
+    const node = NodeHttpServer.layerTest
     const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
       Layer.provide(node)
     )
@@ -89,62 +98,42 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
       Effect.provide(transport)
     )
     const port = address._tag === "TcpAddress" ? address.port : 0
-    currentScope = serverScope
-    yield* Effect.sync(() =>
-      writeFileSync(
-        appContext.paths.endpointFile,
-        JSON.stringify({
-          url: `ws://127.0.0.1:${port}/rpc`,
-          token: "client-session-test",
-          pid: process.pid,
-          protocolVersion: PROTOCOL_VERSION
-        })
-      )
-    )
-  })
-
-  const closeCurrent = Effect.gen(function* () {
-    const scope = currentScope
-    currentScope = undefined
-    yield* Effect.sync(() => rmSync(appContext.paths.endpointFile, { force: true }))
-    if (scope !== undefined) yield* Scope.close(scope, Exit.void).pipe(Effect.exit)
+    currentServer = { scope: serverScope, clock: serverClock }
+    const endpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+      url: `ws://127.0.0.1:${port}/rpc`,
+      token: "client-session-test",
+      pid: processControl.currentPid,
+      protocolVersion: PROTOCOL_VERSION
+    })
+    yield* fs.writeFileString(appContext.paths.endpointFile, endpoint)
   })
 
   const adapter: RuntimeAdapter = {
     protocolLayer: (url) =>
       nodeAdapter.protocolLayer(url).pipe(
-        Layer.tap(() =>
-          RpcClient.ConnectionHooks.pipe(
-            Effect.tap((hooks) =>
-              Effect.sync(() => {
-                currentDisconnectHook = hooks.onDisconnect
-              })
-            )
-          )
-        )
+        Layer.tap(() => RpcClient.ConnectionHooks.pipe(
+          Effect.tap((hooks) => Effect.sync(() => {
+            currentDisconnectHook = hooks.onDisconnect
+          })),
+          Effect.andThen(acquireControl.pause ?? Effect.void)
+        ))
       ) as Layer.Layer<RpcClient.Protocol>,
-    spawnBackend: () =>
-      Effect.sync(() => ++reconnects).pipe(
-        Effect.flatMap(() =>
-          blockSpawn
-            ? Deferred.succeed(retryStarted, undefined).pipe(
-                Effect.andThen(Effect.never),
-                Effect.onInterrupt(() => Deferred.succeed(retryInterrupted, undefined))
-              )
-            : startServer.pipe(Effect.orDie)
-        )
-      )
+    spawnBackend: () => Effect.sync(() => ++reconnects).pipe(
+      Effect.flatMap(() => blockSpawn
+        ? Deferred.succeed(retryStarted, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.onInterrupt(() => Deferred.succeed(retryInterrupted, undefined))
+          )
+        : startServer.pipe(Effect.orDie))
+    )
   }
 
-  await Effect.runPromise(startServer)
+  yield* startServer
 
   return {
     adapter,
     appContext,
     disconnect: closeCurrent,
-    dispose: closeCurrent.pipe(
-      Effect.ensuring(Effect.sync(() => rmSync(dir, { recursive: true, force: true })))
-    ),
     blockNextSpawn: () => {
       blockSpawn = true
     },
@@ -153,317 +142,245 @@ const makeScriptedBackend = async (): Promise<ScriptedBackend> => {
     retryInterrupted: Deferred.await(retryInterrupted),
     disconnectHook: Effect.suspend(() => currentDisconnectHook)
   }
-}
+})
 
-const openSession = async (
+const openSession = Effect.fn("ClientSessionTest.openSession")(function*(
   backend: ScriptedBackend,
   adapter: RuntimeAdapter = backend.adapter
-): Promise<{ readonly session: ClientSessionApi; readonly scope: Scope.Closeable }> => {
-  const scope = await Effect.runPromise(Scope.make())
-  const context = await Effect.runPromise(
-    Layer.build(
+) {
+  const scope = yield* Scope.make()
+  const context = yield* Layer.build(
+    ClientSessionLayer(adapter).pipe(
+      Layer.provide(ProcessServices.layer),
+      Layer.provide(Layer.succeed(AppContext, backend.appContext))
+    )
+  ).pipe(Scope.provide(scope))
+  const session = yield* ClientSession.pipe(Effect.provide(context))
+  return { session, scope }
+})
+
+let reconnectCount = (): number => 0
+
+const runReconnectScenario = <A>(observe: (session: ClientSessionApi) => Effect.Effect<A>) =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    const { session, scope } = yield* openSession(backend)
+    reconnectCount = backend.reconnectCount
+    yield* Effect.addFinalizer(() => Effect.sync(() => {
+      reconnectCount = () => 0
+    }).pipe(Effect.andThen(Scope.close(scope, Exit.void))))
+    const observer = yield* Effect.forkChild(observe(session))
+    yield* Effect.yieldNow
+    yield* backend.disconnect
+    return yield* Fiber.join(observer)
+  }))
+
+const runDisconnectOrderingScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    const { session, scope } = yield* openSession(backend)
+    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+    const probe = yield* SubscriptionRef.changes(session.status).pipe(
+      Stream.filter((status) => status === "reconnecting"),
+      Stream.take(1),
+      Stream.runDrain,
+      Effect.andThen(session.current.pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({ duration: "100 millis", orElse: () => Effect.succeed(false) })
+      )),
+      Effect.forkChild
+    )
+    yield* Effect.yieldNow
+    yield* backend.disconnect
+    return { currentResolvedWhileReconnecting: yield* Fiber.join(probe) }
+  }))
+
+const runAcquireDisconnectRaceScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    const { session, scope } = yield* openSession(backend)
+    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+    const acquirePaused = yield* Queue.unbounded<void>()
+    const acquireReleased = yield* Queue.unbounded<void>()
+    acquireControl.pause = Queue.offer(acquirePaused, undefined).pipe(
+      Effect.andThen(Queue.take(acquireReleased))
+    )
+    yield* Effect.addFinalizer(() => Effect.sync(() => {
+      acquireControl.pause = undefined
+    }).pipe(Effect.andThen(Queue.offer(acquireReleased, undefined))))
+    yield* backend.disconnect
+    yield* Queue.take(acquirePaused)
+    backend.blockNextSpawn()
+    const publication = yield* SubscriptionRef.changes(session.status).pipe(
+      Stream.filter((status) => status === "connected"),
+      Stream.take(1),
+      Stream.runDrain,
+      Effect.as("published" as const),
+      Effect.forkChild
+    )
+    yield* backend.disconnectHook
+    yield* backend.disconnect
+    yield* Queue.offer(acquireReleased, undefined)
+    return yield* Effect.race(
+      Fiber.join(publication),
+      backend.retryStarted.pipe(Effect.as("retrying" as const))
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: "5 seconds",
+        orElse: () => Effect.fail(new Error("session neither published nor retried"))
+      })
+    )
+  }))
+
+const runInternalAcquireRetryScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const backend = yield* makeScriptedBackend()
+    const endpointFile = backend.appContext.paths.endpointFile
+    const healthyEndpoint = yield* fs.readFileString(endpointFile)
+    const attemptedUrls: Array<string> = []
+    const staleEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+      url: "ws://127.0.0.1:9/rpc",
+      token: "stale",
+      pid: (yield* ProcessControl).currentPid,
+      protocolVersion: PROTOCOL_VERSION
+    })
+    yield* fs.writeFileString(endpointFile, staleEndpoint)
+    const adapter: RuntimeAdapter = {
+      protocolLayer: (url) => {
+        attemptedUrls.push(url)
+        return backend.adapter.protocolLayer(url)
+      },
+      spawnBackend: () => fs.writeFileString(endpointFile, healthyEndpoint).pipe(Effect.orDie)
+    }
+    const context = yield* Layer.build(
       ClientSessionLayer(adapter).pipe(
         Layer.provide(ProcessServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
-    ).pipe(Scope.provide(scope))
-  )
-  const session = await Effect.runPromise(ClientSession.pipe(Effect.provide(context)))
-  return { session, scope }
-}
-
-const runInternalAcquireRetryScenario = async () => {
-  const backend = await makeScriptedBackend()
-  const endpointFile = backend.appContext.paths.endpointFile
-  const healthyEndpoint = readFileSync(endpointFile, "utf8")
-  const attemptedUrls: Array<string> = []
-  writeFileSync(
-    endpointFile,
-    JSON.stringify({
-      url: "ws://127.0.0.1:9/rpc",
-      token: "stale",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    })
-  )
-  const adapter: RuntimeAdapter = {
-    protocolLayer: (url) => {
-      attemptedUrls.push(url)
-      return backend.adapter.protocolLayer(url)
-    },
-    spawnBackend: () =>
-      Effect.sync(() => {
-        writeFileSync(endpointFile, healthyEndpoint)
-      })
-  }
-
-  try {
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const context = yield* Layer.build(
-          ClientSessionLayer(adapter).pipe(
-            Layer.provide(ProcessServices.layer),
-            Layer.provide(Layer.succeed(AppContext, backend.appContext))
-          )
-        )
-        const session = yield* ClientSession.pipe(Effect.provide(context))
-        const client = yield* session.current
-        return {
-          attemptedUrls,
-          health: yield* client.Health(),
-          status: yield* SubscriptionRef.get(session.status)
-        }
-      }).pipe(Effect.scoped)
     )
-  } finally {
-    await Effect.runPromise(backend.dispose)
-  }
-}
+    const session = yield* ClientSession.pipe(Effect.provide(context))
+    const client = yield* session.current
+    return {
+      attemptedUrls,
+      health: yield* client.Health(),
+      status: yield* SubscriptionRef.get(session.status)
+    }
+  }))
 
-const closeSession = (scope: Scope.Closeable): Promise<void> =>
-  Effect.runPromise(Scope.close(scope, Exit.void))
-
-let reconnectCount = (): number => 0
-
-const runReconnectScenario = async <A>(
-  observe: (session: ClientSessionApi) => Effect.Effect<A>
-): Promise<A> => {
-  const backend = await makeScriptedBackend()
-  const { session, scope } = await openSession(backend)
-  reconnectCount = backend.reconnectCount
-  try {
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const observer = yield* Effect.forkChild(observe(session))
-        yield* Effect.yieldNow
-        yield* backend.disconnect
-        return yield* Fiber.join(observer)
-      })
+const runCurrentWaitScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    const { session, scope } = yield* openSession(backend)
+    yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
+    const first = yield* session.current
+    const reconnecting = yield* SubscriptionRef.changes(session.status).pipe(
+      Stream.filter((status) => status === "reconnecting"),
+      Stream.take(1),
+      Stream.runDrain,
+      Effect.forkChild
     )
-  } finally {
-    reconnectCount = () => 0
-    await closeSession(scope)
-    await Effect.runPromise(backend.dispose)
-  }
-}
-
-const runDisconnectOrderingScenario = async (): Promise<{
-  readonly currentResolvedWhileReconnecting: boolean
-}> => {
-  const backend = await makeScriptedBackend()
-  const { session, scope } = await openSession(backend)
-  try {
-    const probe = Effect.runFork(
-      SubscriptionRef.changes(session.status).pipe(
-        Stream.filter((status) => status === "reconnecting"),
-        Stream.take(1),
-        Stream.runDrain,
-        Effect.andThen(
-          session.current.pipe(
-            Effect.as(true),
-            Effect.timeoutOrElse({
-              duration: "100 millis",
-              orElse: () => Effect.succeed(false)
-            })
-          )
-        )
-      )
-    )
-    await Effect.runPromise(Effect.yieldNow)
-    await Effect.runPromise(backend.disconnect)
-    return { currentResolvedWhileReconnecting: await Effect.runPromise(Fiber.join(probe)) }
-  } finally {
-    await closeSession(scope)
-    await Effect.runPromise(backend.dispose)
-  }
-}
-
-const runAcquireDisconnectRaceScenario = async (): Promise<"published" | "retrying"> => {
-  const backend = await makeScriptedBackend()
-  const { session, scope } = await openSession(backend)
-  let resumeAcquire = (): void => {}
-  let acquisitionReached = (): void => {}
-  const acquirePaused = new Promise<void>((resolve) => {
-    acquisitionReached = resolve
-  })
-  const acquireReleased = new Promise<void>((resolve) => {
-    resumeAcquire = resolve
-  })
-  acquireControl.pause = () => {
-    acquireControl.pause = undefined
-    acquisitionReached()
-    return acquireReleased
-  }
-
-  try {
-    await Effect.runPromise(backend.disconnect)
-    await acquirePaused
-    backend.blockNextSpawn()
-    const publication = Effect.runFork(
-      SubscriptionRef.changes(session.status).pipe(
-        Stream.filter((status) => status === "connected"),
-        Stream.take(1),
-        Stream.runDrain,
-        Effect.as("published" as const)
-      )
-    )
-    await Effect.runPromise(backend.disconnectHook)
-    await Effect.runPromise(backend.disconnect)
-    resumeAcquire()
-    return await Effect.runPromise(
-      Effect.race(
-        Fiber.join(publication),
-        backend.retryStarted.pipe(Effect.as("retrying" as const))
-      ).pipe(
-        Effect.timeoutOrElse({
-          duration: "5 seconds",
-          orElse: () => Effect.fail(new Error("session neither published nor retried"))
-        })
-      )
-    )
-  } finally {
-    acquireControl.pause = undefined
-    resumeAcquire()
-    await closeSession(scope)
-    await Effect.runPromise(backend.dispose)
-  }
-}
-
-const runCurrentWaitScenario = async () => {
-  const backend = await makeScriptedBackend()
-  const { session, scope } = await openSession(backend)
-  try {
-    const first = await Effect.runPromise(session.current)
-    const reconnecting = Effect.runFork(
-      SubscriptionRef.changes(session.status).pipe(
-        Stream.filter((status) => status === "reconnecting"),
-        Stream.take(1),
-        Stream.runDrain
-      )
-    )
-    await Effect.runPromise(Effect.yieldNow)
-    await Effect.runPromise(backend.disconnect)
-    await Effect.runPromise(Fiber.join(reconnecting))
-    const second = await Effect.runPromise(session.current)
-    const health = await Effect.runPromise(second.Health())
+    yield* Effect.yieldNow
+    yield* backend.disconnect
+    yield* Fiber.join(reconnecting)
+    const second = yield* session.current
+    const health = yield* second.Health()
     return { first, second, health }
-  } finally {
-    await closeSession(scope)
-    await Effect.runPromise(backend.dispose)
-  }
-}
+  }))
 
-const runScopeClosureScenario = async (): Promise<{
-  readonly status: string
-  readonly retryFiberInterrupted: boolean
-}> => {
-  const backend = await makeScriptedBackend()
-  backend.blockNextSpawn()
-  const { session, scope } = await openSession(backend)
-  let closed = false
-  try {
-    await Effect.runPromise(backend.disconnect)
-    await Effect.runPromise(
-      backend.retryStarted.pipe(
-        Effect.timeoutOrElse({
-          duration: "5 seconds",
-          orElse: () => Effect.fail(new Error("retry did not start"))
-        })
-      )
+const runScopeClosureScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const backend = yield* makeScriptedBackend()
+    backend.blockNextSpawn()
+    const { session, scope } = yield* openSession(backend)
+    yield* backend.disconnect
+    yield* backend.retryStarted.pipe(
+      Effect.timeoutOrElse({
+        duration: "5 seconds",
+        orElse: () => Effect.fail(new Error("retry did not start"))
+      })
     )
-    await closeSession(scope)
-    closed = true
-    const status = await Effect.runPromise(SubscriptionRef.get(session.status))
-    const retryFiberInterrupted = await Effect.runPromise(
-      backend.retryInterrupted.pipe(
-        Effect.as(true),
-        Effect.timeoutOrElse({
-          duration: "1 second",
-          orElse: () => Effect.succeed(false)
-        })
-      )
+    yield* Scope.close(scope, Exit.void)
+    const status = yield* SubscriptionRef.get(session.status)
+    const retryFiberInterrupted = yield* backend.retryInterrupted.pipe(
+      Effect.as(true),
+      Effect.timeoutOrElse({ duration: "1 second", orElse: () => Effect.succeed(false) })
     )
     return { status, retryFiberInterrupted }
-  } finally {
-    if (!closed) await closeSession(scope)
-    await Effect.runPromise(backend.dispose)
-  }
-}
+  }))
 
 describe("ClientSession", () => {
-  it("fails the layer with BackendUnavailable when first acquisition fails", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "expand-client-session-failure-"))
-    const failingAdapter: RuntimeAdapter = {
-      protocolLayer: nodeAdapter.protocolLayer,
-      spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
-    }
-    try {
-      const result = await Effect.runPromise(
-        Effect.scoped(
-          Layer.build(
-            ClientSessionLayer(failingAdapter).pipe(
-              Layer.provide(ProcessServices.layer),
-              Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
-            )
-          )
-        ).pipe(Effect.result)
-      )
+  it.live("fails the layer with BackendUnavailable when first acquisition fails", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTempDirectoryScoped("expand-client-session-failure-")
+      const failingAdapter: RuntimeAdapter = {
+        protocolLayer: nodeAdapter.protocolLayer,
+        spawnBackend: () => Effect.fail(new BackendUnavailable({ reason: "expected" }))
+      }
+      const result = yield* Layer.build(
+        ClientSessionLayer(failingAdapter).pipe(
+          Layer.provide(ProcessServices.layer),
+          Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir, path)))
+        )
+      ).pipe(Effect.result)
       expect(Result.isFailure(result)).toBe(true)
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)))
 
-  it("publishes connected, reconnecting, connected across reacquisition", async () => {
-    const observed = await runReconnectScenario((session) =>
-      SubscriptionRef.changes(session.status).pipe(
-        Stream.takeUntil((status) => status === "connected" && reconnectCount() === 1),
-        Stream.runCollect
-      )
-    )
-    expect(Array.from(observed)).toEqual(["connected", "reconnecting", "connected"])
-  })
+  it.live("publishes connected, reconnecting, connected across reacquisition", () =>
+    runReconnectScenario((session) => SubscriptionRef.changes(session.status).pipe(
+      Stream.takeUntil((status) => status === "connected" && reconnectCount() === 1),
+      Stream.runCollect
+    )).pipe(
+      Effect.tap((observed) => Effect.sync(() =>
+        expect(Array.from(observed)).toEqual(["connected", "reconnecting", "connected"])
+      )),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
 
-  it("invalidates the stale epoch before publishing reconnecting", async () => {
-    const result = await runDisconnectOrderingScenario()
-    expect(result.currentResolvedWhileReconnecting).toBe(false)
-  })
+  it.live("invalidates the stale epoch before publishing reconnecting", () =>
+    runDisconnectOrderingScenario().pipe(
+      Effect.tap((result) => Effect.sync(() =>
+        expect(result.currentResolvedWhileReconnecting).toBe(false)
+      )),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
 
-  it("does not publish an epoch that disconnects after acquisition", async () => {
-    expect(await runAcquireDisconnectRaceScenario()).toBe("retrying")
-  })
+  it.live("does not publish an epoch that disconnects after acquisition", () =>
+    runAcquireDisconnectRaceScenario().pipe(
+      Effect.tap((result) => Effect.sync(() => expect(result).toBe("retrying"))),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
 
-  it(
-    "publishes a healthy internal acquire retry after a stale transport disconnects",
-    async () => {
-      const result = await runInternalAcquireRetryScenario()
-      expect(result.attemptedUrls).toHaveLength(2)
-      expect(result.attemptedUrls[0]).toContain("127.0.0.1:9")
-      expect(result.health).toBe("ok")
-      expect(result.status).toBe("connected")
-    },
-    10000
-  )
+  it.live("publishes a healthy internal acquire retry after a stale transport disconnects", () =>
+    runInternalAcquireRetryScenario().pipe(
+      Effect.tap((result) => Effect.sync(() => {
+        expect(result.attemptedUrls).toHaveLength(2)
+        expect(result.attemptedUrls[0]).toContain("127.0.0.1:9")
+        expect(result.health).toBe("ok")
+        expect(result.status).toBe("connected")
+      })),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ), 10_000)
 
-  it("current waits for and returns the next epoch", async () => {
-    const result = await runCurrentWaitScenario()
-    expect(result.second).not.toBe(result.first)
-    expect(result.health).toBe("ok")
-  })
+  it.live("current waits for and returns the next epoch", () =>
+    runCurrentWaitScenario().pipe(
+      Effect.tap((result) => Effect.sync(() => {
+        expect(result.second).not.toBe(result.first)
+        expect(result.health).toBe("ok")
+      })),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
 
-  it("scope closure publishes disconnected and interrupts retry", async () => {
-    const result = await runScopeClosureScenario()
-    expect(result.status).toBe("disconnected")
-    expect(result.retryFiberInterrupted).toBe(true)
-  })
+  it.live("scope closure publishes disconnected and interrupts retry", () =>
+    runScopeClosureScenario().pipe(
+      Effect.tap((result) => Effect.sync(() => {
+        expect(result.status).toBe("disconnected")
+        expect(result.retryFiberInterrupted).toBe(true)
+      })),
+      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+    ))
 })
 
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
-  )
-
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}
+const makeTestAppContext = (dataDir: string, path: Path.Path) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

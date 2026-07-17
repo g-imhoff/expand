@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Fiber, Logger } from "effect"
 import { supervised } from "../../supervise"
 
@@ -9,23 +10,21 @@ const captureLogger = (entries: Array<string>) =>
   })
 
 describe("supervised", () => {
-  it("logs an error when a forked supervised effect fails", async () => {
+  it.effect("logs an error when a forked supervised effect fails", () => {
     const entries: Array<string> = []
-    const program = Effect.gen(function* () {
+    return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(supervised("supervise-test", Effect.fail("boom")))
-      yield* Fiber.await(fiber)
+      yield* Fiber.join(fiber).pipe(Effect.exit)
+      expect(entries.some((line) => line.includes("[supervise-test] background fiber died"))).toBe(true)
     }).pipe(Effect.provide(Logger.layer([captureLogger(entries)])))
-    await Effect.runPromise(program)
-    expect(entries.some((line) => line.includes("[supervise-test] background fiber died"))).toBe(true)
   })
 
-  it("does not log when a forked supervised effect is interrupted", async () => {
+  it.effect("does not log when a forked supervised effect is interrupted", () => {
     const entries: Array<string> = []
-    const program = Effect.gen(function* () {
+    return Effect.gen(function* () {
       const fiber = yield* Effect.forkChild(supervised("supervise-test", Effect.never))
       yield* Fiber.interrupt(fiber)
+      expect(entries).toHaveLength(0)
     }).pipe(Effect.provide(Logger.layer([captureLogger(entries)])))
-    await Effect.runPromise(program)
-    expect(entries).toHaveLength(0)
   })
 })

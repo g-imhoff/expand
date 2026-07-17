@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Deferred, Effect, Fiber, PubSub, Queue, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Option, PubSub, Queue, Schema, Stream } from "effect"
 import { describe, expect, expectTypeOf } from "vitest"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ProjectRenamed } from "@expand/contracts/events/project"
@@ -12,7 +12,7 @@ import {
   type ProjectSyncStatus
 } from "@expand/contracts/project-sync"
 
-const alpha = Schema.decodeUnknownSync(Project)({
+const alpha = Option.getOrThrow(Schema.decodeUnknownOption(Project)({
   id: "00000000-0000-4000-8000-000000000001",
   name: "alpha",
   directory: null,
@@ -21,9 +21,9 @@ const alpha = Schema.decodeUnknownSync(Project)({
   archived: false,
   createdAt: "t1",
   updatedAt: "t1"
-})
+}))
 
-const beta = Schema.decodeUnknownSync(Project)({
+const beta = Option.getOrThrow(Schema.decodeUnknownOption(Project)({
   id: "00000000-0000-4000-8000-000000000002",
   name: "beta",
   directory: null,
@@ -32,7 +32,7 @@ const beta = Schema.decodeUnknownSync(Project)({
   archived: false,
   createdAt: "t5",
   updatedAt: "t5"
-})
+}))
 
 const renamed = (seq: number, project: Project, name: string): SequencedEvent => ({
   seq,

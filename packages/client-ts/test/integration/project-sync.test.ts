@@ -1,10 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { Effect, Fiber, Layer, ManagedRuntime, Option, Stream, SubscriptionRef } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Duration, Effect, Fiber, FileSystem, Layer, Option, Path, Schedule, Schema, Stream, SubscriptionRef } from "effect"
+import { catch as catchEffect } from "effect/Effect"
+import { describe, expect } from "vitest"
+import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { runCommand } from "../../../../test/support/effect-process"
 import { ProcessServices } from "../process-services"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { resolve } from "node:path"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { Project } from "@expand/contracts/project"
 import {
   runProjectSync,
@@ -16,49 +19,57 @@ import { ClientLayer } from "../../client-layer"
 import { ClientSession } from "../../client-session"
 import { ProjectClient } from "../../project/client"
 
-let dir: string
+const waitUntil = (predicate: () => boolean, timeout: Duration.Input) =>
+  Effect.sync(predicate).pipe(
+    Effect.filterOrFail(Boolean, () => "pending" as const),
+    Effect.retry(Schedule.spaced("10 millis")),
+    Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.fail("timed out" as const) }),
+    Effect.asVoid
+  )
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-project-sync-"))
+const endpointPid = Effect.fn("ProjectSyncIntegration.endpointPid")(function*(directory: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const endpoint = path.join(directory, "server.json")
+  if (!(yield* fs.exists(endpoint))) return undefined
+  return yield* fs.readFileString(endpoint).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(EndpointFromJson)),
+    Effect.map((value) => value.pid),
+    catchEffect(() => Effect.succeed(undefined))
+  )
 })
 
-afterEach(() => {
-  const pid = endpointPid()
-  if (pid !== undefined) {
-    try {
-      process.kill(pid, "SIGTERM")
-    } catch {}
-  }
-  rmSync(dir, { recursive: true, force: true })
+const stopEndpoint = Effect.fn("ProjectSyncIntegration.stopEndpoint")(function*(directory: string) {
+  const pid = yield* endpointPid(directory)
+  if (pid !== undefined) yield* runCommand("kill", ["-TERM", String(pid)]).pipe(Effect.exit)
 })
 
-const endpointPid = (): number | undefined => {
-  const endpoint = join(dir, "server.json")
-  if (!existsSync(endpoint)) return undefined
-  try {
-    return (JSON.parse(readFileSync(endpoint, "utf8")) as { readonly pid?: number }).pid
-  } catch {
-    return undefined
-  }
-}
+const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(directory: string) {
+  const path = yield* Path.Path
+  const adapter = makeNodeAdapter({
+    backendCommand: Effect.succeed(["node", "--import", "tsx", path.resolve("apps/server/main.ts")])
+  })
+  return ClientLayer(adapter).pipe(
+    Layer.provide(ProcessServices.layer),
+    Layer.provide(Layer.succeed(AppContext, makeAppContext(path, {
+      homeDir: directory,
+      cwd: directory,
+      dataDir: directory
+    })))
+  )
+})
 
 describe.sequential("ProjectSync integration", () => {
-  it("folds a mutation from one client into another client's sink", async () => {
-    const adapter = makeNodeAdapter({
-      backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
-    })
-    const layer = ClientLayer(adapter).pipe(
-      Layer.provide(ProcessServices.layer),
-      Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
-    )
-    const runtimeA = ManagedRuntime.make(layer)
-    const runtimeB = ManagedRuntime.make(layer)
-    let syncFiber: Fiber.Fiber<never, unknown> | undefined
-
-    try {
-      const clientA = await runtimeA.runPromise(ProjectClient)
-      const clientB = await runtimeB.runPromise(ProjectClient)
-      const sessionB = await runtimeB.runPromise(ClientSession)
+  it.live("folds a mutation from one client into another client's sink", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const dir = yield* makeTempDirectoryScoped("expand-project-sync-")
+      yield* Effect.addFinalizer(() => stopEndpoint(dir).pipe(Effect.orDie))
+      const layer = yield* makeLayer(dir)
+      const contextA = yield* Layer.build(layer)
+      const contextB = yield* Layer.build(layer)
+      const clientA = yield* ProjectClient.pipe(Effect.provide(contextA))
+      const clientB = yield* ProjectClient.pipe(Effect.provide(contextB))
+      const sessionB = yield* ClientSession.pipe(Effect.provide(contextB))
       const snapshots: Array<ProjectSnapshot> = []
       const sink: ProjectSyncSink = {
         snapshot: (snapshot) => Effect.sync(() => {
@@ -71,113 +82,78 @@ describe.sequential("ProjectSync integration", () => {
         list: () => clientB.list({ includeArchived: true }),
         events: ({ fromSeq }: { readonly fromSeq: number }) => clientB.events({ fromSeq })
       }
-
-      syncFiber = runtimeB.runFork(runProjectSync(source, sink))
-      await vi.waitFor(() => expect(snapshots.length).toBeGreaterThan(0), { timeout: 10_000 })
+      const syncFiber = yield* runProjectSync(source, sink).pipe(Effect.forkScoped)
+      yield* waitUntil(() => snapshots.length > 0, "10 seconds")
       const baseline = snapshots.at(-1)!
-      const nextEvent = runtimeA.runFork(
-        clientA.events({ fromSeq: baseline.seq }).pipe(
-          Stream.runHead,
-          Effect.map(Option.getOrThrow)
-        )
+      const nextEvent = yield* clientA.events({ fromSeq: baseline.seq }).pipe(
+        Stream.runHead,
+        Effect.map(Option.getOrThrow),
+        Effect.forkScoped
       )
-      const created = await runtimeA.runPromise(
-        clientA.create({ name: "sync-integration", ensure: false })
-      )
-      const sequenced = await Effect.runPromise(Fiber.join(nextEvent))
-
-      await vi.waitFor(
-        () => expect(snapshots.some((snapshot) => snapshot.seq === sequenced.seq)).toBe(true),
-        { timeout: 10_000 }
+      const created = yield* clientA.create({ name: "sync-integration", ensure: false })
+      const sequenced = yield* Fiber.join(nextEvent)
+      yield* waitUntil(
+        () => snapshots.some((snapshot) => snapshot.seq === sequenced.seq),
+        "10 seconds"
       )
       const reached = snapshots.find((snapshot) => snapshot.seq === sequenced.seq)!
-
       expect(reached).toEqual({
         projects: Project.foldList(baseline.projects, sequenced.event),
         seq: sequenced.seq
       })
       expect(reached.projects).toContainEqual(created.project)
-    } finally {
-      if (syncFiber !== undefined) {
-        await Effect.runPromise(Fiber.interrupt(syncFiber))
-      }
-      await runtimeB.dispose()
-      await runtimeA.dispose()
-    }
-  })
+      yield* Fiber.interrupt(syncFiber)
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 30_000)
 
-  it("resnapshots after ClientLayer kills and reacquires the backend", async () => {
-    const adapter = makeNodeAdapter({
-      backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
-    })
-    const layer = ClientLayer(adapter).pipe(
-      Layer.provide(ProcessServices.layer),
-      Layer.provide(Layer.succeed(AppContext, makeTestAppContext(dir)))
-    )
-    const runtime = ManagedRuntime.make(layer)
-    let syncFiber: Fiber.Fiber<never, unknown> | undefined
-
-    try {
-      const client = await runtime.runPromise(ProjectClient)
-      const session = await runtime.runPromise(ClientSession)
+  it.live("resnapshots after ClientLayer kills and reacquires the backend", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const dir = yield* makeTempDirectoryScoped("expand-project-sync-")
+      yield* Effect.addFinalizer(() => stopEndpoint(dir).pipe(Effect.orDie))
+      const layer = yield* makeLayer(dir)
+      const context = yield* Layer.build(layer)
+      const client = yield* ProjectClient.pipe(Effect.provide(context))
+      const session = yield* ClientSession.pipe(Effect.provide(context))
       const snapshots: Array<ProjectSnapshot> = []
       const statuses: Array<string> = []
-      syncFiber = runtime.runFork(
-        runProjectSync(
-          {
-            status: SubscriptionRef.changes(session.status),
-            list: () => client.list({ includeArchived: true }),
-            events: ({ fromSeq }) => client.events({ fromSeq })
-          },
-          {
-            snapshot: (snapshot) => Effect.sync(() => {
-              snapshots.push(snapshot)
-            }),
-            status: (status) => Effect.sync(() => {
-              statuses.push(status)
-            })
-          }
-        )
+      const syncFiber = yield* runProjectSync(
+        {
+          status: SubscriptionRef.changes(session.status),
+          list: () => client.list({ includeArchived: true }),
+          events: ({ fromSeq }) => client.events({ fromSeq })
+        },
+        {
+          snapshot: (snapshot) => Effect.sync(() => {
+            snapshots.push(snapshot)
+          }),
+          status: (status) => Effect.sync(() => {
+            statuses.push(status)
+          })
+        }
+      ).pipe(Effect.forkScoped)
+      yield* waitUntil(() => snapshots.length > 0, "10 seconds")
+      const before = yield* client.create({ name: "before-backend-kill", ensure: false })
+      yield* waitUntil(
+        () => snapshots.at(-1)?.projects.some((project) => project.id === before.project.id) === true,
+        "10 seconds"
       )
-      await vi.waitFor(() => expect(snapshots.length).toBeGreaterThan(0), { timeout: 10_000 })
-      const before = await runtime.runPromise(
-        client.create({ name: "before-backend-kill", ensure: false })
-      )
-      await vi.waitFor(
-        () => expect(snapshots.at(-1)?.projects).toContainEqual(before.project),
-        { timeout: 10_000 }
-      )
-      const firstPid = endpointPid()
+      const firstPid = yield* endpointPid(dir)
       expect(firstPid).toBeTypeOf("number")
-      process.kill(firstPid!, "SIGTERM")
-      await vi.waitFor(() => expect(statuses).toContain("reconnecting"), { timeout: 10_000 })
-      await vi.waitFor(() => expect(endpointPid()).not.toBe(firstPid), { timeout: 20_000 })
-      const after = await runtime.runPromise(
-        client.create({ name: "after-backend-kill", ensure: false })
+      if (firstPid !== undefined) yield* runCommand("kill", ["-TERM", String(firstPid)])
+      yield* waitUntil(() => statuses.includes("reconnecting"), "10 seconds")
+      yield* endpointPid(dir).pipe(
+        Effect.filterOrFail((pid) => pid !== undefined && pid !== firstPid, () => "pending" as const),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("20 seconds")
       )
-      await vi.waitFor(
-        () => expect(snapshots.at(-1)?.projects).toContainEqual(after.project),
-        { timeout: 10_000 }
+      const after = yield* client.create({ name: "after-backend-kill", ensure: false })
+      yield* waitUntil(
+        () => snapshots.at(-1)?.projects.some((project) => project.id === after.project.id) === true,
+        "10 seconds"
       )
       expect(statuses.filter((status) => status === "connected")).toHaveLength(2)
       expect(snapshots.at(-1)?.projects).toEqual(
         expect.arrayContaining([before.project, after.project])
       )
-    } finally {
-      if (syncFiber !== undefined) {
-        await Effect.runPromise(Fiber.interrupt(syncFiber))
-      }
-      await runtime.dispose()
-    }
-  }, 60_000)
+      yield* Fiber.interrupt(syncFiber)
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 60_000)
 })
-
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
-  )
-
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}

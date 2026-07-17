@@ -1,11 +1,10 @@
 import { it } from "@effect/vitest"
 import { Effect, FileSystem } from "effect"
-import { tmpdir } from "node:os"
 import { describe, expect } from "vitest"
 import { makeNodeAdapter } from "../../adapters/node"
 import { resolveBackendCommand, type BackendCommandError } from "../../index"
 
-const dir = tmpdir()
+const dir = "/tmp"
 const missingExecutable = "/definitely/missing/expand-server-xyz"
 
 const provideFileSystem = <A, E>(effect: Effect.Effect<A, E, FileSystem.FileSystem>) =>

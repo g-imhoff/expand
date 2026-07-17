@@ -1,3 +1,4 @@
+import { NodeRuntime } from "@effect/platform-node"
 import { Effect, FileSystem, Schedule, Schema, Stdio } from "effect"
 import { acquireSpawnLock, releaseSpawnLock } from "../../spawn-lock"
 import { ProcessServices } from "../../adapters/node-process-control"
@@ -20,7 +21,7 @@ const waitForFile = Effect.fn("SpawnLockTest.waitForFile")(function*(path: strin
   )
 })
 
-const lease = await Effect.runPromise(
+NodeRuntime.runMain(
   Effect.gen(function*() {
     const stdio = yield* Stdio.Stdio
     const [lockPath, readyPath, startPath, releasePath, resultPath] = yield* stdio.args
@@ -48,11 +49,8 @@ const lease = await Effect.runPromise(
       yield* waitForFile(releasePath)
       yield* releaseSpawnLock(acquired)
     }
-    return acquired
   }).pipe(
     Effect.provide(ProcessServices.layer),
     Effect.orDie
   )
 )
-
-void lease

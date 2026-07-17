@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { Effect } from "effect"
+import { describe, expect } from "vitest"
 import React from "react"
 import { Text } from "ink"
 import { render } from "ink-testing-library"
@@ -10,29 +12,35 @@ const Probe = ({ log }: { log: Array<{ keyName: KeyName; input: string }> }) => 
   return <Text>probe</Text>
 }
 
-const tick = () => new Promise((r) => setTimeout(r, 20))
+const renderScoped = <A extends React.ReactElement>(element: A) =>
+  Effect.acquireRelease(
+    Effect.sync(() => render(element)),
+    (instance) => Effect.sync(() => instance.unmount())
+  )
 
 describe("useKeyRouter", () => {
-  it("delivers normalized key names for printable and special keys", async () => {
-    const log: Array<{ keyName: KeyName; input: string }> = []
-    const { stdin } = render(<Probe log={log} />)
-    await tick()
-    stdin.write("a")
-    await tick()
-    stdin.write("\x1b") // escape
-    await tick()
-    stdin.write("\r") // return
-    await tick()
-    expect(log.map((e) => e.keyName)).toEqual(["a", "escape", "return"])
-    expect(log[0]?.input).toBe("a")
-  })
+  it.live("delivers normalized key names for printable and special keys", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const log: Array<{ keyName: KeyName; input: string }> = []
+      const { stdin } = yield* renderScoped(<Probe log={log} />)
+      yield* Effect.sleep("20 millis")
+      stdin.write("a")
+      yield* Effect.sleep("20 millis")
+      stdin.write("\x1b")
+      yield* Effect.sleep("20 millis")
+      stdin.write("\r")
+      yield* Effect.sleep("20 millis")
+      expect(log.map((event) => event.keyName)).toEqual(["a", "escape", "return"])
+      expect(log[0]?.input).toBe("a")
+    })))
 
-  it("delivers paste as a single multi-char input", async () => {
-    const log: Array<{ keyName: KeyName; input: string }> = []
-    const { stdin } = render(<Probe log={log} />)
-    await tick()
-    stdin.write("data")
-    await tick()
-    expect(log).toEqual([{ keyName: "data", input: "data" }])
-  })
+  it.live("delivers paste as a single multi-char input", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const log: Array<{ keyName: KeyName; input: string }> = []
+      const { stdin } = yield* renderScoped(<Probe log={log} />)
+      yield* Effect.sleep("20 millis")
+      stdin.write("data")
+      yield* Effect.sleep("20 millis")
+      expect(log).toEqual([{ keyName: "data", input: "data" }])
+    })))
 })

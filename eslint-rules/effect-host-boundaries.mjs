@@ -11,6 +11,7 @@ const processPid = ["platform:process", "pid"].join(".")
 const processPlatform = ["platform:process", "platform"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
+const testFixtureNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const documentGetElementById = ["platform:document", "getElementById"].join(".")
 const effectRunFork = ["runner:Effect", "runFork"].join(".")
 const listenerAddEventListener = ["platform:listener", "addEventListener"].join(".")
@@ -620,6 +621,13 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "variable:wsConstructor",
     host: "Node WebSocket adapter",
     construct: "platform:ws.WebSocket",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/client-ts/test/fixtures/spawn-lock-contender.ts",
+    declaration: "module:<module>",
+    host: "Test fixture entrypoint",
+    construct: testFixtureNodeRuntimeRunMain,
     occurrence: 0
   }),
   Object.freeze({
