@@ -238,16 +238,19 @@ export const makeRuntimeHarness = Effect.fn("TuiTest.makeRuntimeHarness")(functi
     }
   }) as ExpandRuntime
 
-  const awaitCall = (method: keyof ProjectClientApi): Effect.Effect<unknown> =>
+  const takeCall = (method: keyof ProjectClientApi): Effect.Effect<unknown> =>
     Queue.take(callQueue).pipe(
-      Effect.flatMap((call) => call.method === method ? Effect.succeed(call.payload) : awaitCall(method))
+      Effect.flatMap((call) => call.method === method ? Effect.succeed(call.payload) : takeCall(method))
     )
-  const awaitSnapshot = (predicate: (snapshot: ProjectSnapshot) => boolean): Effect.Effect<ProjectSnapshot> =>
+  const awaitCall = (method: keyof ProjectClientApi) => boundedWait(takeCall(method))
+  const takeSnapshot = (predicate: (snapshot: ProjectSnapshot) => boolean): Effect.Effect<ProjectSnapshot> =>
     Effect.suspend(() => predicate(authoritative)
       ? Effect.succeed(authoritative)
       : Queue.take(snapshotQueue).pipe(
-          Effect.flatMap((snapshot) => predicate(snapshot) ? Effect.succeed(snapshot) : awaitSnapshot(predicate))
+          Effect.flatMap((snapshot) => predicate(snapshot) ? Effect.succeed(snapshot) : takeSnapshot(predicate))
         ))
+  const awaitSnapshot = (predicate: (snapshot: ProjectSnapshot) => boolean) =>
+    boundedWait(takeSnapshot(predicate))
 
   return {
     runtime,
@@ -337,16 +340,22 @@ const LifecycleProbe = ({ mounted, unmounted }: {
 const renderObserved = Effect.fn("TuiTest.renderObserved")(function* (node: ReactElement) {
   const mounted = yield* Deferred.make<void>()
   const unmounted = yield* Deferred.make<void>()
-  const frames = yield* Queue.unbounded<string>()
+  const frames = yield* Queue.unbounded<{ readonly epoch: number; readonly frame: string }>()
   const rendered = render(createElement(
     Fragment,
     null,
     node,
     createElement(LifecycleProbe, { mounted, unmounted })
   ))
+  let frameEpoch = rendered.lastFrame() === undefined ? 0 : 1
+  let latestFrame = rendered.lastFrame()
   const push = rendered.stdout.frames.push.bind(rendered.stdout.frames)
   rendered.stdout.frames.push = (...written: Array<string>) => {
-    for (const frame of written) Queue.offerUnsafe(frames, frame)
+    for (const frame of written) {
+      frameEpoch += 1
+      latestFrame = frame
+      Queue.offerUnsafe(frames, { epoch: frameEpoch, frame })
+    }
     return push(...written)
   }
   let released = false
@@ -355,27 +364,46 @@ const renderObserved = Effect.fn("TuiTest.renderObserved")(function* (node: Reac
     released = true
     rendered.unmount()
   }
-  const awaitFrame = (predicate: string | ((frame: string) => boolean)): Effect.Effect<string> => {
-    const matches = typeof predicate === "string"
-      ? (frame: string) => frame.includes(predicate)
-      : predicate
-    return Effect.suspend(() => {
-      const current = rendered.lastFrame()
-      return current !== undefined && matches(current)
-        ? Effect.yieldNow.pipe(Effect.as(current))
-        : Queue.take(frames).pipe(
-            Effect.flatMap((frame) => matches(frame)
-              ? Effect.yieldNow.pipe(Effect.as(frame))
-              : awaitFrame(matches))
-          )
+  type FramePredicate = string | ((frame: string) => boolean)
+  const matcher = (predicate: FramePredicate) => typeof predicate === "string"
+    ? (frame: string) => frame.includes(predicate)
+    : predicate
+  const takeFrame = (
+    matches: (frame: string) => boolean,
+    afterEpoch?: number
+  ): Effect.Effect<string> => Effect.suspend(() => {
+    const current = afterEpoch === undefined ? rendered.lastFrame() : latestFrame
+    if (
+      current !== undefined &&
+      (afterEpoch === undefined || frameEpoch > afterEpoch) &&
+      matches(current)
+    ) return Effect.yieldNow.pipe(Effect.as(current))
+    return Queue.take(frames).pipe(
+      Effect.flatMap(({ epoch, frame }) =>
+        (afterEpoch === undefined || epoch > afterEpoch) && matches(frame)
+          ? Effect.yieldNow.pipe(Effect.as(frame))
+          : takeFrame(matches, afterEpoch))
+    )
+  })
+  const awaitFrame = (predicate: FramePredicate) => boundedWait(takeFrame(matcher(predicate)))
+  const captureFrameEpoch = Effect.sync(() => frameEpoch)
+  const awaitFrameAfter = (epoch: number, predicate: FramePredicate) =>
+    boundedWait(takeFrame(matcher(predicate), epoch))
+  const writeAndAwaitFrame = (input: string, predicate: FramePredicate) =>
+    Effect.suspend(() => {
+      const epoch = frameEpoch
+      rendered.stdin.write(input)
+      return awaitFrameAfter(epoch, predicate)
     })
-  }
   return {
     ...rendered,
     unmount,
     mounted: waitForDeferred(mounted),
     unmounted: waitForDeferred(unmounted),
+    captureFrameEpoch,
     awaitFrame,
+    awaitFrameAfter,
+    writeAndAwaitFrame,
     inputListeners: () => rendered.stdin.listenerCount("readable")
   }
 })
@@ -383,4 +411,8 @@ const renderObserved = Effect.fn("TuiTest.renderObserved")(function* (node: Reac
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
 
-const waitForDeferred = Deferred.await
+const boundedWait = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.timeout("2 seconds"))
+
+const waitForDeferred = <A>(deferred: Deferred.Deferred<A>) =>
+  boundedWait(Deferred.await(deferred))

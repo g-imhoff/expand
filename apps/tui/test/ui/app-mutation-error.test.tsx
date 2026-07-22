@@ -14,10 +14,8 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
   Effect.gen(function* () {
     yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
-    view.stdin.write("\t")
-    yield* view.awaitFrame("return create")
-    view.stdin.write("\t")
-    yield* view.awaitFrame("r rename")
+    yield* view.writeAndAwaitFrame("\t", "return create")
+    yield* view.writeAndAwaitFrame("\t", "r rename")
     yield* view.awaitFrame(atRest) // round-trip preserved at-rest state
   })
 
@@ -33,20 +31,22 @@ describe("App mutation error line", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("r")
-      yield* view.awaitFrame("rename ▸") // rename overlay open
+      yield* view.writeAndAwaitFrame("r", "rename ▸") // rename overlay open
+      let epoch = yield* view.captureFrameEpoch
       view.stdin.write("\r")
       yield* harness.observed.call("rename")
-      yield* view.awaitFrame('name conflict: "alpha" already exists')
-      view.stdin.write("n") // focus create before typing
-      yield* view.awaitFrame("return create") // create focused (re-rendered)
-      view.stdin.write("zen")
-      yield* view.awaitFrame("zen") // draft typed
+      yield* view.awaitFrameAfter(epoch, 'name conflict: "alpha" already exists')
+      yield* view.writeAndAwaitFrame(
+        "n", // focus create before typing
+        "return create" // create focused (re-rendered)
+      )
+      yield* view.writeAndAwaitFrame("zen", "zen") // draft typed
+      epoch = yield* view.captureFrameEpoch
       view.stdin.write("\r")
       yield* harness.observed.call("create")
       // The successful create clears the error; wait for the new project to land
       // (positive), then assert the conflict line is gone.
-      yield* view.awaitFrame("• zen")
+      yield* view.awaitFrameAfter(epoch, "• zen")
       expect(view.lastFrame()).not.toContain("name conflict")
       expect(view.lastFrame()).toContain("zen")
     })))
@@ -57,14 +57,16 @@ describe("App mutation error line", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "no projects yet")
-      view.stdin.write("n") // focus create before typing
-      yield* view.awaitFrame("return create") // create focused (re-rendered)
+      yield* view.writeAndAwaitFrame(
+        "n", // focus create before typing
+        "return create" // create focused (re-rendered)
+      )
       // "INVALID NAME!!!" contains uppercase + spaces — fails string regex
-      view.stdin.write("INVALID NAME!!!")
-      yield* view.awaitFrame("INVALID NAME!!!") // draft typed
+      yield* view.writeAndAwaitFrame("INVALID NAME!!!", "INVALID NAME!!!") // draft typed
+      const epoch = yield* view.captureFrameEpoch
       view.stdin.write("\r")
       yield* harness.observed.call("create")
-      yield* view.awaitFrame("invalid name")
+      yield* view.awaitFrameAfter(epoch, "invalid name")
       expect(view.lastFrame()).toContain("must match")
     })))
 })

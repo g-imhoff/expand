@@ -13,10 +13,8 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
   Effect.gen(function* () {
     yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
-    view.stdin.write("\t")
-    yield* view.awaitFrame("return create")
-    view.stdin.write("\t")
-    yield* view.awaitFrame("r rename")
+    yield* view.writeAndAwaitFrame("\t", "return create")
+    yield* view.writeAndAwaitFrame("\t", "r rename")
     yield* view.awaitFrame(atRest) // round-trip preserved selection
   })
 
@@ -29,8 +27,7 @@ describe("App delete keybinding", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("x")
-      yield* view.awaitFrame("delete") // confirm prompt open
+      yield* view.writeAndAwaitFrame("x", "delete") // confirm prompt open
       expect(view.lastFrame()).toContain("alpha")
       view.stdin.write("y")
       yield* harness.observed.call("delete")
@@ -45,12 +42,10 @@ describe("App delete keybinding", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("x")
-      yield* view.awaitFrame("delete") // confirm prompt open
-      view.stdin.write("\x1b") // escape cancels
+      yield* view.writeAndAwaitFrame("x", "delete") // confirm prompt open
       // Cancel completing is observable as the confirm prompt closing — the list
       // hint returns. Once back at rest, assert the project is still there.
-      yield* view.awaitFrame("r rename")
+      yield* view.writeAndAwaitFrame("\x1b", "r rename") // escape cancels
       const remaining = harness.authoritative.get().projects
       expect(remaining).toHaveLength(1)
     })))

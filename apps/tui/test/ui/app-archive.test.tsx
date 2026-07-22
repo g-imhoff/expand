@@ -15,10 +15,8 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
   Effect.gen(function* () {
     yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
-    view.stdin.write("\t")
-    yield* view.awaitFrame("return create")
-    view.stdin.write("\t")
-    yield* view.awaitFrame("r rename")
+    yield* view.writeAndAwaitFrame("\t", "return create")
+    yield* view.writeAndAwaitFrame("\t", "r rename")
     yield* view.awaitFrame(atRest) // round-trip preserved selection
   })
 
@@ -31,9 +29,11 @@ describe("App archive keybinding", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha") // selected + reconciled
+      const epoch = yield* view.captureFrameEpoch
       view.stdin.write("a")
       yield* harness.observed.call("archive")
-      yield* view.awaitFrame("[archived]")
+      const frame = yield* view.awaitFrameAfter(epoch, "r rename")
+      expect(frame).toContain("[archived]")
     })))
 
   it.effect("shows a project that is ALREADY archived at startup and restores it with 'a'", () =>
@@ -45,10 +45,11 @@ describe("App archive keybinding", () => {
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
       expect(view.lastFrame()).toContain("[archived]")
+      const epoch = yield* view.captureFrameEpoch
       view.stdin.write("a") // restore
       yield* harness.observed.call("restore")
       yield* harness.observed.snapshot((snapshot) => snapshot.projects[0]?.archived === false)
-      yield* view.awaitFrame((frame) => !frame.includes("[archived]"))
+      yield* view.awaitFrameAfter(epoch, (frame) => !frame.includes("[archived]"))
       yield* view.awaitFrame("▸ alpha") // re-rendered after restore
       expect(view.lastFrame()).not.toContain("[archived]")
     })))

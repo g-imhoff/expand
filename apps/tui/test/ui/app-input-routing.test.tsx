@@ -32,10 +32,14 @@ const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntim
     // calls setUi({...ui, focus}); if it ran before reconcile set the selection it
     // would spread a selectedId=null state and clobber the selection.
     yield* view.awaitFrame(atRest)
-    view.stdin.write("\t")    // list → nudge to create
-    yield* view.awaitFrame("return create")       // create hint = routed
-    view.stdin.write("\t") // create → nudge to list
-    yield* view.awaitFrame("r rename")             // back at rest
+    yield* view.writeAndAwaitFrame(
+      "\t",    // list → nudge to create
+      "return create"       // create hint = routed
+    )
+    yield* view.writeAndAwaitFrame(
+      "\t", // create → nudge to list
+      "r rename"             // back at rest
+    )
     // Confirm the round-trip preserved the at-rest seeded state.
     yield* view.awaitFrame(atRest)
   })
@@ -49,17 +53,22 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("n")          // focus create (list is focused by default)
-      yield* view.awaitFrame("return create") // create field focused (re-rendered)
-      view.stdin.write("data")       // contains d (dir), a (archive!), t, a
-      yield* view.awaitFrame("data")          // draft visible — step processed
+      yield* view.writeAndAwaitFrame(
+        "n",          // focus create (list is focused by default)
+        "return create" // create field focused (re-rendered)
+      )
+      yield* view.writeAndAwaitFrame(
+        "data",       // contains d (dir), a (archive!), t, a
+        "data"          // draft visible — step processed
+      )
       expect(view.lastFrame()).not.toContain("[archived]")  // 'a' did NOT archive
       expect(view.lastFrame()).not.toContain("directory ▸") // 'd' did NOT open dir overlay
+      const epoch = yield* view.captureFrameEpoch
       view.stdin.write("\r")         // submit
       yield* harness.observed.call("create")
       yield* harness.observed.snapshot((snapshot) => snapshot.projects.length === 2)
       expect(harness.authoritative.get().projects).toHaveLength(2)               // project created
-      yield* view.awaitFrame("• data")
+      yield* view.awaitFrameAfter(epoch, "• data")
       expect(view.lastFrame()).toContain("data")
       const projects = harness.authoritative.get().projects
       expect(projects.every((project) => project.archived === false)).toBe(true)
@@ -73,14 +82,14 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("n")
-      yield* view.awaitFrame("return create") // create field focused (re-rendered)
-      view.stdin.write("xy")
-      yield* view.awaitFrame("xy")            // both chars typed
-      view.stdin.write("\x7f") // backspace (DEL)
+      yield* view.writeAndAwaitFrame("n", "return create") // create field focused (re-rendered)
+      yield* view.writeAndAwaitFrame("xy", "xy")            // both chars typed
       // After the edit settles to "x" (draft no longer shows "xy"), the negative
       // — no delete overlay — can be asserted at a settled state.
-      yield* view.awaitFrame((frame) => frame.includes("new project ▸ x") && !frame.includes("xy"))
+      yield* view.writeAndAwaitFrame(
+        "\x7f", // backspace (DEL)
+        (frame) => frame.includes("new project ▸ x") && !frame.includes("xy")
+      )
       expect(view.lastFrame()).toContain("new project ▸ x") // draft edited to "x"
       expect(view.lastFrame()).not.toContain("delete “")
     })))
@@ -93,8 +102,11 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("j") // select beta
-      yield* view.awaitFrame("▸ beta") // selection moved to beta
+      yield* view.writeAndAwaitFrame(
+        "j", // select beta
+        "▸ beta" // selection moved to beta
+      )
+      const epoch = yield* view.captureFrameEpoch
       view.stdin.write("a") // archive SELECTED (beta), not projects[0]
       yield* harness.observed.call("archive")
       yield* harness.observed.snapshot(
@@ -102,7 +114,7 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       )
       const projects = harness.authoritative.get().projects
       expect(projects.find((project) => project.name === "alpha")?.archived).toBe(false)
-      yield* view.awaitFrame("[archived]")
+      yield* view.awaitFrameAfter(epoch, "[archived]")
     })))
 
   it.effect("metadata overlay: description + tags with tab switch (C8 parity)", () =>
@@ -113,15 +125,11 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("m")
-      yield* view.awaitFrame("description ▸") // metadata overlay open
-      view.stdin.write("hello")
-      yield* view.awaitFrame("hello")         // description draft visible
-      view.stdin.write("\t") // switch to tags
+      yield* view.writeAndAwaitFrame("m", "description ▸") // metadata overlay open
+      yield* view.writeAndAwaitFrame("hello", "hello")         // description draft visible
       // tags field becomes focused; type into it once the switch settled.
-      yield* view.awaitFrame("tags (a, b) ▸")
-      view.stdin.write("api, db")
-      yield* view.awaitFrame("api, db")       // tags draft visible
+      yield* view.writeAndAwaitFrame("\t", "tags (a, b) ▸") // switch to tags
+      yield* view.writeAndAwaitFrame("api, db", "api, db")       // tags draft visible
       view.stdin.write("\r") // submit both
       yield* harness.observed.call("setMetadata")
       yield* harness.observed.snapshot((snapshot) =>
@@ -138,14 +146,11 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const view = yield* renderWithRuntimeScoped(<App />, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
-      view.stdin.write("m")
-      yield* view.awaitFrame("description ▸") // metadata overlay open
-      view.stdin.write("oops")
-      yield* view.awaitFrame("oops")          // draft typed
-      view.stdin.write("\x1b") // escape
+      yield* view.writeAndAwaitFrame("m", "description ▸") // metadata overlay open
+      yield* view.writeAndAwaitFrame("oops", "oops")          // draft typed
       // The overlay closing is observable as the create field returning; once the
       // create field is back, the metadata overlay is provably gone.
-      yield* view.awaitFrame("new project ▸")
+      yield* view.writeAndAwaitFrame("\x1b", "new project ▸") // escape
       expect(view.lastFrame()).not.toContain("description ▸")
       const projects = harness.authoritative.get().projects
       expect(projects[0]?.description).toBeNull()
@@ -160,10 +165,9 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha")
       expect(view.lastFrame()).toContain("r rename")   // list context
-      view.stdin.write("x")
       // Wait for the confirm context to be active; once "y confirm" shows, the
       // list hint must be gone, so the negative is asserted at a settled state.
-      yield* view.awaitFrame("y confirm")  // confirm context
+      yield* view.writeAndAwaitFrame("x", "y confirm")  // confirm context
       expect(view.lastFrame()).not.toContain("r rename")
     })))
 })

@@ -20,7 +20,10 @@ import {
 
 const alpha = fakeProject(1, "alpha")
 const beta = fakeProject(2, "beta")
-const waitForDeferred = Deferred.await
+const boundedWait = <A, E, R,>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(Effect.timeout("2 seconds"))
+const waitForDeferred = <A,>(deferred: Deferred.Deferred<A>) =>
+  boundedWait(Deferred.await(deferred))
 
 const renderHookWithRuntime = Effect.fn("TuiTest.renderHookWithRuntime")(function* (harness: RuntimeHarness) {
   let observed: ReturnType<typeof useProjects> | undefined
@@ -38,16 +41,18 @@ const renderHookWithRuntime = Effect.fn("TuiTest.renderHookWithRuntime")(functio
     if (!observed) throw new Error("hook was not observed")
     return observed
   }
-  const awaitResult = (
+  const takeResult = (
     predicate: (value: ReturnType<typeof useProjects>) => boolean
   ): Effect.Effect<ReturnType<typeof useProjects>> => Effect.suspend(() => {
     const current = result()
     return predicate(current)
       ? Effect.succeed(current)
       : Queue.take(updates).pipe(
-          Effect.flatMap((value) => predicate(value) ? Effect.succeed(value) : awaitResult(predicate))
+          Effect.flatMap((value) => predicate(value) ? Effect.succeed(value) : takeResult(predicate))
         )
   })
+  const awaitResult = (predicate: (value: ReturnType<typeof useProjects>) => boolean) =>
+    boundedWait(takeResult(predicate))
   return {
     ...rendered,
     result,
