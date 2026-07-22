@@ -1,20 +1,23 @@
 import { it } from "@effect/vitest"
-import { Cause, Effect, Exit, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Stream } from "effect"
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, vi } from "vitest"
 import { BootError } from "@expand/desktop/renderer/app/BootError"
 import { ownRendererRoot } from "@expand/desktop/renderer/app/root"
+import { acquireRpcPort } from "@expand/desktop/renderer/app/runtime"
 import {
   RendererRunnerProvider,
   useRendererRunner
 } from "@expand/desktop/renderer/app/runner-context"
-import type { RendererRunner } from "@expand/desktop/renderer/app/runner"
+import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 import {
   ProjectContextProvider,
   useProjectRpc
 } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import type { ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
+
+const waitForDeferred = Deferred.await
 
 const runner: RendererRunner = {
   start: () => () => {}
@@ -40,6 +43,29 @@ const captureThrow = (operation: () => unknown): unknown => {
     return error
   }
   throw new Error("operation did not throw")
+}
+
+class LifecycleMessagePort implements MessagePort {
+  onmessage: ((this: MessagePort, ev: MessageEvent) => unknown) | null = null
+  onmessageerror: ((this: MessagePort, ev: MessageEvent) => unknown) | null = null
+  closes = 0
+  closed = false
+
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    this.closes += 1
+  }
+
+  emit(data: unknown): void {
+    if (!this.closed) this.onmessage?.call(this, { data } as MessageEvent)
+  }
+
+  postMessage(_message: unknown, _transferOrOptions?: Transferable[] | StructuredSerializeOptions): void {}
+  start(): void {}
+  addEventListener(): void {}
+  removeEventListener(): void {}
+  dispatchEvent(): boolean { return true }
 }
 
 interface RootHarnessOptions {
@@ -170,6 +196,137 @@ describe("renderer runner context", () => {
 })
 
 describe("renderer root ownership", () => {
+  it.effect("releases the active renderer runtime, listeners, root, and MessagePort after failure", () =>
+    Effect.gen(function* () {
+      const listenerRegistered = yield* Deferred.make<void>()
+      const portRequested = yield* Deferred.make<void>()
+      const portAcquired = yield* Deferred.make<void>()
+      const runtimeInterrupted = yield* Deferred.make<void>()
+      const messageListeners = new Set<(event: {
+        readonly data: unknown
+        readonly source: unknown
+        readonly ports: ReadonlyArray<MessagePort>
+      }) => void>()
+      const retainedMessageListeners: Array<(event: {
+        readonly data: unknown
+        readonly source: unknown
+        readonly ports: ReadonlyArray<MessagePort>
+      }) => void> = []
+      let messageAdds = 0
+      let messageRemoves = 0
+      const win = {
+        addEventListener: (_type: "message", listener: (event: never) => void) => {
+          messageAdds += 1
+          messageListeners.add(listener as (event: {
+            readonly data: unknown
+            readonly source: unknown
+            readonly ports: ReadonlyArray<MessagePort>
+          }) => void)
+          retainedMessageListeners.push(listener as (event: {
+            readonly data: unknown
+            readonly source: unknown
+            readonly ports: ReadonlyArray<MessagePort>
+          }) => void)
+          Deferred.doneUnsafe(listenerRegistered, Effect.void)
+        },
+        removeEventListener: (_type: "message", listener: (event: never) => void) => {
+          messageRemoves += 1
+          messageListeners.delete(listener as (event: {
+            readonly data: unknown
+            readonly source: unknown
+            readonly ports: ReadonlyArray<MessagePort>
+          }) => void)
+        }
+      }
+      let requestedNonce = ""
+      const bridge = {
+        rpcPort: (nonce: string) => {
+          requestedNonce = nonce
+          Deferred.doneUnsafe(portRequested, Effect.void)
+        }
+      }
+      const port = new LifecycleMessagePort()
+      let portMessages = 0
+      let rootRenders = 0
+      let rootUnmounts = 0
+      let unloadAdds = 0
+      let unloadRemoves = 0
+      let activeUnload: (() => void) | undefined
+      let retainedUnload: (() => void) | undefined
+      const root = {
+        render: () => { rootRenders += 1 },
+        unmount: () => { rootUnmounts += 1 }
+      }
+      const rootEffect = Effect.scoped(Effect.acquireRelease(
+        acquireRpcPort({ bridge: () => bridge, win }),
+        (owned) => Effect.sync(() => owned.close())
+      ).pipe(
+        Effect.tap((owned) => Effect.sync(() => {
+          owned.onmessage = () => { portMessages += 1 }
+          Deferred.doneUnsafe(portAcquired, Effect.void)
+        })),
+        Effect.andThen(Effect.never)
+      )).pipe(
+        Effect.onInterrupt(() => Deferred.succeed(runtimeInterrupted, undefined))
+      )
+      const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function* () {
+        yield* Effect.acquireRelease(
+          Effect.sync(() => ownRendererRoot({
+            root,
+            initial: <p>Connecting…</p>,
+            start: (onExit) => startRendererRoot(rootEffect, onExit),
+            onDispose: (dispose) => {
+              unloadAdds += 1
+              activeUnload = dispose
+              retainedUnload = dispose
+              return () => {
+                unloadRemoves += 1
+                activeUnload = undefined
+              }
+            },
+            renderFailure: () => null
+          })),
+          (dispose) => Effect.sync(dispose)
+        )
+        yield* Effect.all([waitForDeferred(listenerRegistered), waitForDeferred(portRequested)])
+        for (const listener of messageListeners) {
+          listener({
+            data: { _tag: "IpcPortGrant", channel: "expand:rpcPort", nonce: requestedNonce },
+            source: win,
+            ports: [port]
+          })
+        }
+        yield* waitForDeferred(portAcquired)
+        port.emit("active")
+        expect(portMessages).toBe(1)
+        return yield* Effect.fail("expected renderer assertion failure")
+      })))
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      yield* waitForDeferred(runtimeInterrupted)
+      expect(rootRenders).toBe(1)
+      expect(rootUnmounts).toBe(1)
+      expect(messageAdds).toBe(1)
+      expect(messageRemoves).toBe(1)
+      expect(unloadAdds).toBe(1)
+      expect(unloadRemoves).toBe(1)
+      expect(port.closes).toBe(1)
+      expect(activeUnload).toBeUndefined()
+      port.emit("retained")
+      retainedUnload?.()
+      for (const listener of retainedMessageListeners) {
+        listener({
+          data: { _tag: "IpcPortGrant", channel: "expand:rpcPort", nonce: "retained" },
+          source: win,
+          ports: [new LifecycleMessagePort()]
+        })
+      }
+      yield* Effect.yieldNow
+      expect(portMessages).toBe(1)
+      expect(rootUnmounts).toBe(1)
+      expect(port.closes).toBe(1)
+    }))
+
   it.effect("invokes receiver-sensitive unmount before root interruption", () =>
     Effect.sync(() => {
       const events: Array<string> = []

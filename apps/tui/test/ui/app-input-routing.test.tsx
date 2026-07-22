@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect, vi } from "vitest"
+import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
@@ -10,9 +10,6 @@ const seed = (n: number, name: string) => fakeProject(n, name)
 // its stdin listener and flushes renders on async ticks whose timing varies under
 // load, so fixed delays are flaky. vi.waitFor re-runs the assertion until it
 // settles.
-const WAIT = { timeout: 2000, interval: 10 } as const
-const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
 // ink's input hook wires input in TWO separate effects: one enables raw mode
 // (which attaches stdin's "readable" listener) and a LATER one subscribes the
 // key handler to ink's internal "input" emitter. Between them there is a window
@@ -25,27 +22,23 @@ const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
 // context, so it converges (even with a stale-closure double-write: two Tabs
 // from a list-focused state both resolve to FocusCreate, never past it) and
 // leaves the App back in its clean at-rest list focus.
-type Stdin = { write: (s: string) => void }
-const has = (lastFrame: () => string | undefined, text: string) =>
-  (lastFrame() ?? "").includes(text)
 // `atRest` is a frame substring that proves the App finished loading its SEEDED
 // projects and reconciled (e.g. the selection marker "▸ alpha"). The projects
 // arrive on a background fiber, so the very first render is always empty — the
 // caller must hand us the post-load signal so we don't warm up prematurely.
-const ensureInputLive = (
-  stdin: Stdin, lastFrame: () => string | undefined, atRest: string
-) => Effect.gen(function* () {
-  yield* waitForFrame(lastFrame, atRest)
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "r rename")) stdin.write("\t")
-    expect(lastFrame()).toContain("return create")
-  }, WAIT))
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "return create")) stdin.write("\t")
-    expect(lastFrame()).toContain("r rename")
-  }, WAIT))
-  yield* waitForFrame(lastFrame, atRest)
-})
+const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
+  Effect.gen(function* () {
+    // Wait for the seeded, reconciled state. The warm-up below writes Tab, which
+    // calls setUi({...ui, focus}); if it ran before reconcile set the selection it
+    // would spread a selectedId=null state and clobber the selection.
+    yield* view.awaitFrame(atRest)
+    view.stdin.write("\t")    // list → nudge to create
+    yield* view.awaitFrame("return create")       // create hint = routed
+    view.stdin.write("\t") // create → nudge to list
+    yield* view.awaitFrame("r rename")             // back at rest
+    // Confirm the round-trip preserved the at-rest seeded state.
+    yield* view.awaitFrame(atRest)
+  })
 
 describe("App input routing (C1 regression, end-to-end)", () => {
   it.effect("typing a command-lettered name into the create field mutates nothing", () =>
@@ -53,21 +46,21 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("n")
-      yield* waitForFrame(lastFrame, "return create")
-      stdin.write("data")
-      yield* waitForFrame(lastFrame, "data")
-      expect(lastFrame()).not.toContain("[archived]")
-      expect(lastFrame()).not.toContain("directory ▸")
-      stdin.write("\r")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        const projects = harness.authoritative.get().projects
-        expect(projects).toHaveLength(2)
-      }, WAIT))
-      yield* waitForFrame(lastFrame, "• data")
-      expect(lastFrame()).toContain("data")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("n")          // focus create (list is focused by default)
+      yield* view.awaitFrame("return create") // create field focused (re-rendered)
+      view.stdin.write("data")       // contains d (dir), a (archive!), t, a
+      yield* view.awaitFrame("data")          // draft visible — step processed
+      expect(view.lastFrame()).not.toContain("[archived]")  // 'a' did NOT archive
+      expect(view.lastFrame()).not.toContain("directory ▸") // 'd' did NOT open dir overlay
+      view.stdin.write("\r")         // submit
+      yield* harness.observed.call("create")
+      yield* harness.observed.snapshot((snapshot) => snapshot.projects.length === 2)
+      expect(harness.authoritative.get().projects).toHaveLength(2)               // project created
+      yield* view.awaitFrame("• data")
+      expect(view.lastFrame()).toContain("data")
       const projects = harness.authoritative.get().projects
       expect(projects.every((project) => project.archived === false)).toBe(true)
     })))
@@ -77,18 +70,19 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("n")
-      yield* waitForFrame(lastFrame, "return create")
-      stdin.write("xy")
-      yield* waitForFrame(lastFrame, "xy")
-      stdin.write("\x7f")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        expect(lastFrame()).toContain("new project ▸ x")
-        expect(lastFrame()).not.toContain("xy")
-      }, WAIT))
-      expect(lastFrame()).not.toContain("delete “")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("n")
+      yield* view.awaitFrame("return create") // create field focused (re-rendered)
+      view.stdin.write("xy")
+      yield* view.awaitFrame("xy")            // both chars typed
+      view.stdin.write("\x7f") // backspace (DEL)
+      // After the edit settles to "x" (draft no longer shows "xy"), the negative
+      // — no delete overlay — can be asserted at a settled state.
+      yield* view.awaitFrame((frame) => frame.includes("new project ▸ x") && !frame.includes("xy"))
+      expect(view.lastFrame()).toContain("new project ▸ x") // draft edited to "x"
+      expect(view.lastFrame()).not.toContain("delete “")
     })))
 
   it.effect("j/k navigate a real selection and commands act on it", () =>
@@ -96,18 +90,19 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha"), seed(2, "beta")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("j")
-      yield* waitForFrame(lastFrame, "▸ beta")
-      stdin.write("a")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        const projects = harness.authoritative.get().projects
-        expect(projects.find((project) => project.name === "beta")?.archived).toBe(true)
-      }, WAIT))
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("j") // select beta
+      yield* view.awaitFrame("▸ beta") // selection moved to beta
+      view.stdin.write("a") // archive SELECTED (beta), not projects[0]
+      yield* harness.observed.call("archive")
+      yield* harness.observed.snapshot(
+        (snapshot) => snapshot.projects.find((project) => project.name === "beta")?.archived === true
+      )
       const projects = harness.authoritative.get().projects
       expect(projects.find((project) => project.name === "alpha")?.archived).toBe(false)
-      yield* waitForFrame(lastFrame, "[archived]")
+      yield* view.awaitFrame("[archived]")
     })))
 
   it.effect("metadata overlay: description + tags with tab switch (C8 parity)", () =>
@@ -115,22 +110,24 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("m")
-      yield* waitForFrame(lastFrame, "description ▸")
-      stdin.write("hello")
-      yield* waitForFrame(lastFrame, "hello")
-      stdin.write("\t")
-      yield* waitForFrame(lastFrame, "tags (a, b) ▸")
-      stdin.write("api, db")
-      yield* waitForFrame(lastFrame, "api, db")
-      stdin.write("\r")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        const projects = harness.authoritative.get().projects
-        expect(projects[0]?.description).toBe("hello")
-        expect(projects[0]?.tags).toEqual(["api", "db"])
-      }, WAIT))
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("m")
+      yield* view.awaitFrame("description ▸") // metadata overlay open
+      view.stdin.write("hello")
+      yield* view.awaitFrame("hello")         // description draft visible
+      view.stdin.write("\t") // switch to tags
+      // tags field becomes focused; type into it once the switch settled.
+      yield* view.awaitFrame("tags (a, b) ▸")
+      view.stdin.write("api, db")
+      yield* view.awaitFrame("api, db")       // tags draft visible
+      view.stdin.write("\r") // submit both
+      yield* harness.observed.call("setMetadata")
+      yield* harness.observed.snapshot((snapshot) =>
+        snapshot.projects[0]?.description === "hello" &&
+        snapshot.projects[0]?.tags.join("\0") === "api\0db"
+      )
     })))
 
   it.effect("escape cancels metadata with zero mutations (C8: cancel exists now)", () =>
@@ -138,15 +135,18 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("m")
-      yield* waitForFrame(lastFrame, "description ▸")
-      stdin.write("oops")
-      yield* waitForFrame(lastFrame, "oops")
-      stdin.write("\x1b")
-      yield* waitForFrame(lastFrame, "new project ▸")
-      expect(lastFrame()).not.toContain("description ▸")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("m")
+      yield* view.awaitFrame("description ▸") // metadata overlay open
+      view.stdin.write("oops")
+      yield* view.awaitFrame("oops")          // draft typed
+      view.stdin.write("\x1b") // escape
+      // The overlay closing is observable as the create field returning; once the
+      // create field is back, the metadata overlay is provably gone.
+      yield* view.awaitFrame("new project ▸")
+      expect(view.lastFrame()).not.toContain("description ▸")
       const projects = harness.authoritative.get().projects
       expect(projects[0]?.description).toBeNull()
     })))
@@ -156,11 +156,14 @@ describe("App input routing (C1 regression, end-to-end)", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [seed(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      expect(lastFrame()).toContain("r rename")
-      stdin.write("x")
-      yield* waitForFrame(lastFrame, "y confirm")
-      expect(lastFrame()).not.toContain("r rename")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      expect(view.lastFrame()).toContain("r rename")   // list context
+      view.stdin.write("x")
+      // Wait for the confirm context to be active; once "y confirm" shows, the
+      // list hint must be gone, so the negative is asserted at a settled state.
+      yield* view.awaitFrame("y confirm")  // confirm context
+      expect(view.lastFrame()).not.toContain("r rename")
     })))
 })

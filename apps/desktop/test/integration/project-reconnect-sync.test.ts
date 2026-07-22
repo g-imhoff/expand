@@ -79,7 +79,7 @@ const awaitStoreSeq = (store: ProjectsStore, seq: number) =>
         })),
         (unsubscribe) => Effect.sync(unsubscribe)
       )
-      yield* Deferred["\u0061wait"](reached)
+      yield* Deferred.await(reached)
     }).pipe(Effect.scoped)
   })
 

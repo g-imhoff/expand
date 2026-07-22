@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect, vi } from "vitest"
+import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { ProjectNameConflict } from "@expand/contracts/rpc"
@@ -11,25 +11,15 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 // nobody and lost — and that window outlasts any fixed delay under load, which
 // is the flake. So poll for observable outcomes, and warm the pipeline up with
 // Tab (a focus toggle that never types text) before the first real keypress.
-const WAIT = { timeout: 2000, interval: 10 } as const
-const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
-const has = (lastFrame: () => string | undefined, text: string) =>
-  (lastFrame() ?? "").includes(text)
-const ensureInputLive = (
-  stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => Effect.gen(function* () {
-  yield* waitForFrame(lastFrame, atRest)
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "r rename")) stdin.write("\t")
-    expect(lastFrame()).toContain("return create")
-  }, WAIT))
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "return create")) stdin.write("\t")
-    expect(lastFrame()).toContain("r rename")
-  }, WAIT))
-  yield* waitForFrame(lastFrame, atRest)
-})
+const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
+  Effect.gen(function* () {
+    yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
+    view.stdin.write("\t")
+    yield* view.awaitFrame("return create")
+    view.stdin.write("\t")
+    yield* view.awaitFrame("r rename")
+    yield* view.awaitFrame(atRest) // round-trip preserved at-rest state
+  })
 
 describe("App mutation error line", () => {
   it.effect("renders a failed rename and clears it on the next successful mutation", () =>
@@ -40,33 +30,41 @@ describe("App mutation error line", () => {
           rename: ({ name }) => Effect.fail(new ProjectNameConflict({ name }))
         }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("r")
-      yield* waitForFrame(lastFrame, "rename ▸")
-      stdin.write("\r")
-      yield* waitForFrame(lastFrame, 'name conflict: "alpha" already exists')
-      stdin.write("n")
-      yield* waitForFrame(lastFrame, "return create")
-      stdin.write("zen")
-      yield* waitForFrame(lastFrame, "zen")
-      stdin.write("\r")
-      yield* waitForFrame(lastFrame, "• zen")
-      expect(lastFrame()).not.toContain("name conflict")
-      expect(lastFrame()).toContain("zen")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("r")
+      yield* view.awaitFrame("rename ▸") // rename overlay open
+      view.stdin.write("\r")
+      yield* harness.observed.call("rename")
+      yield* view.awaitFrame('name conflict: "alpha" already exists')
+      view.stdin.write("n") // focus create before typing
+      yield* view.awaitFrame("return create") // create focused (re-rendered)
+      view.stdin.write("zen")
+      yield* view.awaitFrame("zen") // draft typed
+      view.stdin.write("\r")
+      yield* harness.observed.call("create")
+      // The successful create clears the error; wait for the new project to land
+      // (positive), then assert the conflict line is gone.
+      yield* view.awaitFrame("• zen")
+      expect(view.lastFrame()).not.toContain("name conflict")
+      expect(view.lastFrame()).toContain("zen")
     })))
 
   it.effect("shows 'invalid input' when an invalid project name is submitted", () =>
     Effect.scoped(Effect.gen(function* () {
       const harness = yield* makeRuntimeHarnessScoped()
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "no projects yet")
-      stdin.write("n")
-      yield* waitForFrame(lastFrame, "return create")
-      stdin.write("INVALID NAME!!!")
-      yield* waitForFrame(lastFrame, "INVALID NAME!!!")
-      stdin.write("\r")
-      yield* waitForFrame(lastFrame, "invalid name")
-      expect(lastFrame()).toContain("must match")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "no projects yet")
+      view.stdin.write("n") // focus create before typing
+      yield* view.awaitFrame("return create") // create focused (re-rendered)
+      // "INVALID NAME!!!" contains uppercase + spaces — fails string regex
+      view.stdin.write("INVALID NAME!!!")
+      yield* view.awaitFrame("INVALID NAME!!!") // draft typed
+      view.stdin.write("\r")
+      yield* harness.observed.call("create")
+      yield* view.awaitFrame("invalid name")
+      expect(view.lastFrame()).toContain("must match")
     })))
 })

@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect, vi } from "vitest"
+import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
@@ -12,25 +12,15 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 // window outlasts any fixed delay — the flake. So poll for observable outcomes,
 // and warm the pipeline up with Tab (a focus toggle that never types text) until
 // a key provably routes, before the first real keypress.
-const WAIT = { timeout: 2000, interval: 10 } as const
-const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
-const has = (lastFrame: () => string | undefined, text: string) =>
-  (lastFrame() ?? "").includes(text)
-const ensureInputLive = (
-  stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => Effect.gen(function* () {
-  yield* waitForFrame(lastFrame, atRest)
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "r rename")) stdin.write("\t")
-    expect(lastFrame()).toContain("return create")
-  }, WAIT))
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "return create")) stdin.write("\t")
-    expect(lastFrame()).toContain("r rename")
-  }, WAIT))
-  yield* waitForFrame(lastFrame, atRest)
-})
+const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
+  Effect.gen(function* () {
+    yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
+    view.stdin.write("\t")
+    yield* view.awaitFrame("return create")
+    view.stdin.write("\t")
+    yield* view.awaitFrame("r rename")
+    yield* view.awaitFrame(atRest) // round-trip preserved selection
+  })
 
 describe("App archive keybinding", () => {
   it.effect("pressing 'a' archives the selected project", () =>
@@ -38,10 +28,12 @@ describe("App archive keybinding", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("a")
-      yield* waitForFrame(lastFrame, "[archived]")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha") // selected + reconciled
+      view.stdin.write("a")
+      yield* harness.observed.call("archive")
+      yield* view.awaitFrame("[archived]")
     })))
 
   it.effect("shows a project that is ALREADY archived at startup and restores it with 'a'", () =>
@@ -49,16 +41,15 @@ describe("App archive keybinding", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [fakeProject(1, "alpha", { archived: true })], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      expect(lastFrame()).toContain("[archived]")
-      stdin.write("a")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        const projects = harness.authoritative.get().projects
-        expect(projects[0]?.archived).toBe(false)
-      }, WAIT))
-      yield* Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).not.toContain("[archived]"), WAIT))
-      yield* waitForFrame(lastFrame, "▸ alpha")
-      expect(lastFrame()).not.toContain("[archived]")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      expect(view.lastFrame()).toContain("[archived]")
+      view.stdin.write("a") // restore
+      yield* harness.observed.call("restore")
+      yield* harness.observed.snapshot((snapshot) => snapshot.projects[0]?.archived === false)
+      yield* view.awaitFrame((frame) => !frame.includes("[archived]"))
+      yield* view.awaitFrame("▸ alpha") // re-rendered after restore
+      expect(view.lastFrame()).not.toContain("[archived]")
     })))
 })

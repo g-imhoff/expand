@@ -8,7 +8,7 @@ import { makeRendererRunner, type RendererRunner } from "@expand/desktop/rendere
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { useRunMutation } from "@expand/desktop/renderer/features/projects/data/use-projects"
 
-const waitForDeferred = Deferred["\u0061wait"]
+const waitForDeferred = Deferred.await
 
 const ownHook = <Result, Props>(acquire: () => RenderHookResult<Result, Props>) =>
   Effect.acquireRelease(

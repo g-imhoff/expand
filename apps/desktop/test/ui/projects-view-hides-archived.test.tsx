@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import { act } from "@testing-library/react"
 import { it as effectIt } from "@effect/vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Scope } from "effect"
 import { describe, expect, vi } from "vitest"
 import type { Project } from "@expand/contracts/project"
 import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer/app/runner"
@@ -42,6 +42,27 @@ describe("ProjectsView — default index view hides archived", () => {
       expect(list.textContent).not.toContain("archived-project")
       expect(getByText(/Projects \(1\)/)).toBeTruthy()
     })))
+
+  effectIt.effect("does not release the desktop UI root again after explicit unmount", () =>
+    Effect.gen(function* () {
+      let cleanupCount = 0
+      const scope = yield* Scope.make()
+      const Probe = () => {
+        useEffect(() => () => { cleanupCount += 1 }, [])
+        return null
+      }
+      const rendered = yield* renderWithProjectContextScoped(
+        <Probe />,
+        makeFakeProjectContext([])
+      ).pipe(Scope.provide(scope))
+      const unmount = vi.spyOn(rendered, "unmount")
+
+      rendered.unmount()
+      yield* Scope.close(scope, Exit.void)
+
+      expect(unmount).toHaveBeenCalledTimes(1)
+      expect(cleanupCount).toBe(1)
+    }))
 
   effectIt.effect("releases the desktop UI root after an assertion effect fails", () =>
     Effect.gen(function* () {

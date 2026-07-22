@@ -1,10 +1,13 @@
+import { useEffect } from "react"
 import { describe, expect, vi } from "vitest"
 import { it as effectIt } from "@effect/vitest"
-import { render as renderInk } from "ink-testing-library"
-import { Cause, Deferred, Effect, Exit, Fiber, Logger, Stream } from "effect"
+import { render as renderInk, Text } from "ink"
+import { render as renderTesting } from "ink-testing-library"
+import { Cause, Deferred, Effect, Exit, Fiber, Logger, Queue, Scope, Stream } from "effect"
 import { BackendUnavailable } from "@expand/client-ts"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import { runProjectSync } from "@expand/contracts/project-sync"
+import { App } from "@expand/tui/components/app"
 import { makeEffectRunner } from "@expand/tui/effect-runner"
 import { tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
 import { useProjects } from "@expand/tui/use-projects"
@@ -17,59 +20,93 @@ import {
 
 const alpha = fakeProject(1, "alpha")
 const beta = fakeProject(2, "beta")
-const waitForDeferred = Deferred["\u0061wait"]
+const waitForDeferred = Deferred.await
 
-const renderHookWithRuntime = (harness: RuntimeHarness) => {
+const renderHookWithRuntime = Effect.fn("TuiTest.renderHookWithRuntime")(function* (harness: RuntimeHarness) {
   let observed: ReturnType<typeof useProjects> | undefined
+  const updates = yield* Queue.unbounded<ReturnType<typeof useProjects>>()
   const Probe = () => {
-    observed = useProjects()
+    const value = useProjects()
+    observed = value
+    useEffect(() => {
+      Queue.offerUnsafe(updates, value)
+    }, [value.snapshot, value.error])
     return null
   }
-  return renderWithRuntimeScoped(<Probe />, harness).pipe(Effect.map((rendered) => {
+  const rendered = yield* renderWithRuntimeScoped(<Probe />, harness)
   const result = () => {
     if (!observed) throw new Error("hook was not observed")
     return observed
   }
+  const awaitResult = (
+    predicate: (value: ReturnType<typeof useProjects>) => boolean
+  ): Effect.Effect<ReturnType<typeof useProjects>> => Effect.suspend(() => {
+    const current = result()
+    return predicate(current)
+      ? Effect.succeed(current)
+      : Queue.take(updates).pipe(
+          Effect.flatMap((value) => predicate(value) ? Effect.succeed(value) : awaitResult(predicate))
+        )
+  })
   return {
     ...rendered,
     result,
     projects: () => result().projects.map((project) => project.name),
     snapshot: () => result().snapshot,
+    awaitResult,
     waitForProjects: (names: ReadonlyArray<string>) =>
-      vi.waitFor(() => expect(result().projects.map((project) => project.name)).toEqual(names))
+      awaitResult((value) => value.projects.map((project) => project.name).join("\0") === names.join("\0"))
   }
-  }))
-}
+})
 
 describe("useProjects", () => {
   effectIt.effect("releases the Ink root and runtime after an assertion effect fails", () =>
     Effect.gen(function* () {
       let retainedWrite: ((value: string) => void) | undefined
+      let retainedPublish: RuntimeHarness["events"]["publish"] | undefined
       let frame: (() => string | undefined) | undefined
+      let inputListeners: (() => number) | undefined
       let harness: RuntimeHarness | undefined
       const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function* () {
-        harness = yield* makeRuntimeHarnessScoped()
-        const rendered = yield* renderWithRuntimeScoped(<>0</>, harness)
+        harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
+        retainedPublish = harness.events.publish
+        const rendered = yield* renderWithRuntimeScoped(<App />, harness)
         frame = rendered.lastFrame
         retainedWrite = rendered.stdin.write
-        yield* Effect.tryPromise(() => vi.waitFor(() => expect(frame?.()).toContain("0")))
+        inputListeners = rendered.inputListeners
+        yield* rendered.mounted
+        yield* rendered.awaitFrame("▸ alpha")
+        yield* harness.observed.synchronizationStarted
+        expect(rendered.inputListeners()).toBeGreaterThan(0)
         return yield* Effect.fail("expected assertion failure")
       })))
 
-      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit) && !Cause.pretty(exit.cause).includes("expected assertion failure")) {
+        throw new Error(Cause.pretty(exit.cause))
+      }
       expect(harness?.lifecycle.inkUnmounts).toBe(1)
       expect(harness?.lifecycle.runtimeDisposals).toBe(1)
+      expect(inputListeners?.()).toBe(0)
+      yield* harness!.observed.synchronizationInterrupted
       const releasedFrame = frame?.()
       retainedWrite?.("x")
+      if (retainedPublish !== undefined) {
+        yield* retainedPublish(ProjectRenamed.make({
+          projectId: alpha.id,
+          name: "released",
+          occurredAt: "t2"
+        }))
+      }
       yield* Effect.yieldNow
       expect(frame?.()).toBe(releasedFrame)
+      expect(harness?.authoritative.get().projects[0]?.name).toBe("released")
     }))
 
   effectIt.effect("publishes the initial synchronized snapshot", () =>
     Effect.scoped(Effect.gen(function* () {
       const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
       const view = yield* renderHookWithRuntime(harness)
-      yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
+      yield* view.waitForProjects(["alpha"])
       expect(view.snapshot()).toEqual({ projects: [alpha], seq: 1 })
     })))
 
@@ -77,13 +114,13 @@ describe("useProjects", () => {
     Effect.scoped(Effect.gen(function* () {
       const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
       const view = yield* renderHookWithRuntime(harness)
-      yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
+      yield* view.waitForProjects(["alpha"])
       yield* harness.events.publish(ProjectRenamed.make({
         projectId: alpha.id,
         name: "alpha-live",
         occurredAt: "t2"
       }))
-      yield* Effect.tryPromise(() => view.waitForProjects(["alpha-live"]))
+      yield* view.waitForProjects(["alpha-live"])
       expect(view.snapshot().seq).toBe(2)
     })))
 
@@ -91,22 +128,31 @@ describe("useProjects", () => {
     Effect.scoped(Effect.gen(function* () {
       const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
       const view = yield* renderHookWithRuntime(harness)
-      yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
+      yield* view.waitForProjects(["alpha"])
       yield* harness.status.set("reconnecting")
       harness.authoritative.set({ projects: [beta], seq: 5 })
       expect(view.projects()).toEqual(["alpha"])
       yield* harness.status.set("connected")
-      yield* Effect.tryPromise(() => view.waitForProjects(["beta"]))
+      yield* view.waitForProjects(["beta"])
       expect(view.snapshot().seq).toBe(5)
     })))
 
   effectIt.effect("interrupts synchronization on unmount", () =>
-    Effect.scoped(Effect.gen(function* () {
-      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
-      const view = yield* renderHookWithRuntime(harness)
+    Effect.gen(function* () {
+      const scope = yield* Scope.make()
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } }).pipe(
+        Scope.provide(scope)
+      )
+      const view = yield* renderHookWithRuntime(harness).pipe(Scope.provide(scope))
+      yield* harness.observed.synchronizationStarted
       view.unmount()
-      expect(yield* harness.syncInterrupted).toBe(true)
-    })))
+      yield* harness.observed.synchronizationInterrupted
+      yield* view.unmounted
+      expect(harness.lifecycle.inkUnmounts).toBe(1)
+      yield* Scope.close(scope, Exit.void)
+      expect(harness.lifecycle.inkUnmounts).toBe(1)
+      expect(harness.lifecycle.runtimeDisposals).toBe(1)
+    }))
 
   effectIt.effect("surfaces an initial runtime build failure", () =>
     Effect.scoped(Effect.gen(function* () {
@@ -114,9 +160,7 @@ describe("useProjects", () => {
         failure: new BackendUnavailable({ reason: "offline" })
       })
       const view = yield* renderHookWithRuntime(harness)
-      yield* Effect.tryPromise(() =>
-        vi.waitFor(() => expect(view.result().error).toBe("backend unavailable: offline"))
-      )
+      yield* view.awaitResult((value) => value.error === "backend unavailable: offline")
     })))
 
   effectIt.effect("calls ProjectClient with ensure create semantics without using the response as state", () =>
@@ -128,25 +172,23 @@ describe("useProjects", () => {
         }
       })
       const view = yield* renderHookWithRuntime(harness)
-      yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
+      yield* view.waitForProjects(["alpha"])
       view.result().create("beta")
-      yield* Effect.tryPromise(() =>
-        vi.waitFor(() => expect(harness.calls.create).toEqual([{ name: "beta", ensure: true }]))
-      )
+      expect(yield* harness.observed.call("create")).toEqual({ name: "beta", ensure: true })
       expect(view.projects()).toEqual(["alpha"])
     })))
 })
 
 effectIt.effect("owns overlapping mutations until React unmount interrupts each one", () =>
   Effect.scoped(Effect.gen(function* () {
-    const interrupted = [false, false]
+    const interruptions = [yield* Deferred.make<void>(), yield* Deferred.make<void>()]
     let started = 0
     const harness = yield* makeRuntimeHarnessScoped({
       client: {
         create: () => {
           const index = started++
           return Effect.never.pipe(
-            Effect.onInterrupt(() => Effect.sync(() => { interrupted[index] = true }))
+            Effect.onInterrupt(() => Deferred.succeed(interruptions[index]!, undefined))
           )
         }
       }
@@ -154,19 +196,22 @@ effectIt.effect("owns overlapping mutations until React unmount interrupts each 
     const view = yield* renderHookWithRuntime(harness)
     view.result().create("alpha")
     view.result().create("beta")
-    yield* Effect.tryPromise(() => vi.waitFor(() => expect(harness.calls.create).toHaveLength(2)))
+    yield* Effect.all([harness.observed.call("create"), harness.observed.call("create")])
     view.unmount()
-    yield* Effect.tryPromise(() => vi.waitFor(() => expect(interrupted).toEqual([true, true])))
+    yield* Effect.all(interruptions.map(waitForDeferred))
   })))
 
 describe("TUI Effect runner", () => {
   effectIt.effect("logs a cancelled target defect without delivering it to React", () =>
     Effect.scoped(Effect.gen(function* () {
       const finalized = yield* Deferred.make<void>()
+      const logged = yield* Deferred.make<void>()
       const entries: Array<string> = []
       const logger = Logger.make((options) => {
         const messages = Array.isArray(options.message) ? options.message : [options.message]
-        entries.push(messages.map(String).join(" "))
+        const entry = messages.map(String).join(" ")
+        entries.push(entry)
+        if (entry.includes("cancelled effect died")) Deferred.doneUnsafe(logged, Effect.void)
       })
       const harness = yield* makeRuntimeHarnessScoped({
         transformEffect: (effect) => effect.pipe(Effect.provide(Logger.layer([logger])))
@@ -187,9 +232,8 @@ describe("TUI Effect runner", () => {
       runner.dispose()
 
       yield* waitForDeferred(finalized)
-      yield* Effect.tryPromise(() =>
-        vi.waitFor(() => expect(entries.some((entry) => entry.includes("cancelled effect died"))).toBe(true))
-      )
+      yield* waitForDeferred(logged)
+      expect(entries.some((entry) => entry.includes("cancelled effect died"))).toBe(true)
       expect(onExit).not.toHaveBeenCalled()
     })))
 
@@ -197,8 +241,11 @@ describe("TUI Effect runner", () => {
     Effect.scoped(Effect.gen(function* () {
       const failure = new Error("sync failed")
       const release = yield* Deferred.make<void>()
+      const delivered = yield* Deferred.make<Exit.Exit<never, Error>>()
       const harness = yield* makeRuntimeHarnessScoped()
-      const onExit = vi.fn()
+      const onExit = vi.fn((exit: Exit.Exit<never, Error>) => {
+        Deferred.doneUnsafe(delivered, Effect.succeed(exit))
+      })
       const runner = makeEffectRunner(harness.runtime)
       const sink = { snapshot: () => Effect.void, status: () => Effect.void }
 
@@ -209,8 +256,7 @@ describe("TUI Effect runner", () => {
         ),
         onExit
       )
-      yield* Effect.tryPromise(() => vi.waitFor(() => expect(onExit).toHaveBeenCalledTimes(1)))
-      const exit = onExit.mock.calls[0]?.[0]
+      const exit = yield* waitForDeferred(delivered)
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(failure)
 
@@ -271,9 +317,9 @@ describe("TUI Effect runner", () => {
 describe("tuiProgram", () => {
   effectIt.effect("waits for Ink exit and tears down Ink and the runtime exactly once", () =>
     Effect.gen(function* () {
-      const exitRelease = yield* Deferred.make<void>()
       const events: Array<string> = []
-      let unmount: ReturnType<typeof vi.spyOn> | undefined
+      let rawUnmount: (() => void) | undefined
+      let unmount: (() => void) | undefined
       const runtime = {
         disposeEffect: Effect.sync(() => { events.push("runtime:dispose") })
       } as unknown as ExpandRuntime
@@ -281,25 +327,35 @@ describe("tuiProgram", () => {
         makeRuntime: () => runtime,
         render: () => {
           events.push("ink:render")
-          const ink = Object.assign(renderInk(<></>), {
-            waitUntilExit: vi.fn().mockReturnValue(
-              vi.waitFor(() => expect(exitRelease.effect).toBeDefined())
-            )
+          const io = renderTesting(<></>)
+          io.unmount()
+          const instance = renderInk(<Text>ready</Text>, {
+            stdin: io.stdin as unknown as NodeJS.ReadStream,
+            stdout: io.stdout as unknown as NodeJS.WriteStream,
+            stderr: io.stderr as unknown as NodeJS.WriteStream,
+            exitOnCtrlC: false,
+            patchConsole: false
           })
-          unmount = vi.spyOn(ink, "unmount")
-          return ink
+          rawUnmount = vi.fn(instance.unmount)
+          let released = false
+          unmount = () => {
+            if (released) return
+            released = true
+            rawUnmount?.()
+          }
+          return { waitUntilExit: instance.waitUntilExit, unmount }
         }
       }))
 
       yield* Effect.yieldNow
       expect(events).toEqual(["ink:render"])
-      expect(unmount).not.toHaveBeenCalled()
+      expect(rawUnmount).not.toHaveBeenCalled()
 
-      yield* Deferred.succeed(exitRelease, undefined)
+      unmount?.()
       yield* Fiber.join(program)
 
       expect(events).toEqual(["ink:render", "runtime:dispose"])
-      expect(unmount).toHaveBeenCalledTimes(1)
+      expect(rawUnmount).toHaveBeenCalledTimes(1)
     }))
 
   effectIt.effect("disposes the runtime when Ink rendering fails", () =>

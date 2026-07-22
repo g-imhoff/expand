@@ -3,7 +3,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { makeRendererRunner, startRendererRoot } from "@expand/desktop/renderer/app/runner"
 
-const waitForDeferred = Deferred["\u0061wait"]
+const waitForDeferred = Deferred.await
 
 const exitCallback = <A, E>(deferred: Deferred.Deferred<Exit.Exit<A, E>>) =>
   (exit: Exit.Exit<A, E>): void => {

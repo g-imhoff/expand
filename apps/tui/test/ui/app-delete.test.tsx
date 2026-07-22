@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect, vi } from "vitest"
+import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
@@ -10,25 +10,15 @@ import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "
 // nobody and lost. Under load that window outlasts any fixed delay — the flake.
 // So poll for observable outcomes, and warm the pipeline up with Tab (a focus
 // toggle that never types text) before the first real keypress.
-const WAIT = { timeout: 2000, interval: 10 } as const
-const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
-const has = (lastFrame: () => string | undefined, text: string) =>
-  (lastFrame() ?? "").includes(text)
-const ensureInputLive = (
-  stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => Effect.gen(function* () {
-  yield* waitForFrame(lastFrame, atRest)
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "r rename")) stdin.write("\t")
-    expect(lastFrame()).toContain("return create")
-  }, WAIT))
-  yield* Effect.tryPromise(() => vi.waitFor(() => {
-    if (has(lastFrame, "return create")) stdin.write("\t")
-    expect(lastFrame()).toContain("r rename")
-  }, WAIT))
-  yield* waitForFrame(lastFrame, atRest)
-})
+const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntimeScoped>>, atRest: string) =>
+  Effect.gen(function* () {
+    yield* view.awaitFrame(atRest) // seeded + reconciled before warm-up
+    view.stdin.write("\t")
+    yield* view.awaitFrame("return create")
+    view.stdin.write("\t")
+    yield* view.awaitFrame("r rename")
+    yield* view.awaitFrame(atRest) // round-trip preserved selection
+  })
 
 describe("App delete keybinding", () => {
   it.effect("pressing 'x' opens the confirm prompt and 'y' deletes the project", () =>
@@ -36,16 +26,15 @@ describe("App delete keybinding", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("x")
-      yield* waitForFrame(lastFrame, "delete")
-      expect(lastFrame()).toContain("alpha")
-      stdin.write("y")
-      yield* Effect.tryPromise(() => vi.waitFor(() => {
-        const remaining = harness.authoritative.get().projects
-        expect(remaining).toHaveLength(0)
-      }, WAIT))
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("x")
+      yield* view.awaitFrame("delete") // confirm prompt open
+      expect(view.lastFrame()).toContain("alpha")
+      view.stdin.write("y")
+      yield* harness.observed.call("delete")
+      expect(harness.authoritative.get().projects).toHaveLength(0)
     })))
 
   it.effect("pressing 'x' then Escape cancels without deleting", () =>
@@ -53,12 +42,15 @@ describe("App delete keybinding", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
       })
-      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
-      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
-      stdin.write("x")
-      yield* waitForFrame(lastFrame, "delete")
-      stdin.write("\x1b")
-      yield* waitForFrame(lastFrame, "r rename")
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("x")
+      yield* view.awaitFrame("delete") // confirm prompt open
+      view.stdin.write("\x1b") // escape cancels
+      // Cancel completing is observable as the confirm prompt closing — the list
+      // hint returns. Once back at rest, assert the project is still there.
+      yield* view.awaitFrame("r rename")
       const remaining = harness.authoritative.get().projects
       expect(remaining).toHaveLength(1)
     })))

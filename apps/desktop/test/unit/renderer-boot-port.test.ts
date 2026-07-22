@@ -4,7 +4,7 @@ import { describe, expect } from "vitest"
 import { acquireRpcPort } from "@expand/desktop/renderer/app/runtime"
 import type { MessageEventLike, RendererWindowLike } from "@expand/electron-ipc/renderer"
 
-const waitForDeferred = Deferred["\u0061wait"]
+const waitForDeferred = Deferred.await
 
 interface FakeWindow extends RendererWindowLike {
   readonly fire: (event: MessageEventLike) => void

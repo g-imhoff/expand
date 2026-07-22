@@ -40,15 +40,31 @@ const ProjectNames = () => (
   <>{useProjectSelector((state) => state.projects).map((project) => project.name).join(", ")}</>
 )
 
+const ownRender = <A extends { readonly unmount: () => void }>(acquire: () => A) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const rendered = acquire()
+      const rawUnmount = rendered.unmount
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        rawUnmount()
+      }
+      return { rendered: { ...rendered, unmount: release }, release }
+    }),
+    (owned) => Effect.sync(owned.release)
+  ).pipe(Effect.map((owned) => owned.rendered))
+
 describe("ProjectContextProvider", () => {
   it.effect("updates selector consumers without an AppHandle mirror", () =>
     Effect.scoped(Effect.gen(function* () {
       const store = makeProjectsStore()
-      yield* Effect.acquireRelease(Effect.sync(() => render(
+      yield* ownRender(() => render(
         <ProjectContextProvider value={{ store, rpc }}>
           <ProjectNames />
         </ProjectContextProvider>
-      )), (rendered) => Effect.sync(() => rendered.unmount()))
+      ))
       yield* makeProjectSyncSink(store).snapshot({ projects: [alpha], seq: 1 })
       yield* Effect.sync(() => flushSync(() => {}))
       expect(screen.getByText("alpha")).toBeDefined()
@@ -69,10 +85,7 @@ describe("ProjectContextProvider", () => {
           <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
         </RendererRunnerProvider>
       )
-      const { result } = yield* Effect.acquireRelease(
-        Effect.sync(() => renderHook(useCreateProject, { wrapper })),
-        (rendered) => Effect.sync(() => rendered.unmount())
-      )
+      const { result } = yield* ownRender(() => renderHook(useCreateProject, { wrapper }))
       yield* Effect.sync(() => result.current.mutate("alpha"))
       expect(payload).toEqual({ name: "alpha", ensure: true })
       expect(store.getState().projects).toEqual([])
@@ -91,10 +104,7 @@ describe("ProjectContextProvider", () => {
           <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
         </RendererRunnerProvider>
       )
-      const { result } = yield* Effect.acquireRelease(
-        Effect.sync(() => renderHook(useCreateProject, { wrapper })),
-        (rendered) => Effect.sync(() => rendered.unmount())
-      )
+      const { result } = yield* ownRender(() => renderHook(useCreateProject, { wrapper }))
       let callbackError: unknown
 
       yield* Effect.sync(() => act(() => {

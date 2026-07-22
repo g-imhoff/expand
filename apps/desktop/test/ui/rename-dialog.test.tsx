@@ -42,6 +42,8 @@ describe("RenameDialog", () => {
 
   it.effect("renders a backend validation error (ProjectInvalidInput) in the alert", () =>
     Effect.scoped(Effect.gen(function* () {
+      // Invalid input is now validated at the server's ingestion boundary and comes
+      // back as a typed ProjectInvalidInput; describeError renders `invalid <field>: <reason>`.
       const { getByRole } = yield* renderScoped(
         <RenameDialog
           open

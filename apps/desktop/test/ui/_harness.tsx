@@ -47,20 +47,14 @@ export const makeFakeProjectContext = (
 }
 
 export const renderScoped = Effect.fn("DesktopUiTest.renderScoped")((ui: ReactNode) =>
-  Effect.acquireRelease(
-    Effect.sync(() => render(ui)),
-    (rendered) => Effect.sync(() => rendered.unmount())
-  ))
+  ownRender(() => render(ui)))
 
 export const renderWithProjectContextScoped = Effect.fn("DesktopUiTest.renderWithProjectContextScoped")((
   ui: ReactElement,
   value: ProjectContextValue
-) => Effect.acquireRelease(
-  Effect.sync(() => render(
-    <ProjectContextProvider value={value}>{ui}</ProjectContextProvider> as ReactNode
-  )),
-  (rendered) => Effect.sync(() => rendered.unmount())
-))
+) => ownRender(() => render(
+  <ProjectContextProvider value={value}>{ui}</ProjectContextProvider> as ReactNode
+)))
 
 interface FakeProjectOver {
   readonly id?: string
@@ -72,3 +66,19 @@ interface FakeProjectOver {
   readonly createdAt?: string
   readonly updatedAt?: string
 }
+
+const ownRender = (acquire: () => ReturnType<typeof render>) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const rendered = acquire()
+      const rawUnmount = rendered.unmount
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        rawUnmount()
+      }
+      return { rendered: { ...rendered, unmount: release }, release }
+    }),
+    (owned) => Effect.sync(owned.release)
+  ).pipe(Effect.map((owned) => owned.rendered))

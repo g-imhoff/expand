@@ -14,7 +14,7 @@ import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer
 import type { ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
 import type { MakeIpcClientOptions } from "@expand/electron-ipc/renderer"
 
-const waitForDeferred = Deferred["\u0061wait"]
+const waitForDeferred = Deferred.await
 const emptySnapshot: ProjectSnapshot = { projects: [], seq: 0 }
 
 const unavailable = Effect.fn("RendererBootTest.unavailable")(() => Effect.never)
