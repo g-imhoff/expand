@@ -1,12 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Exit, Fiber, FileSystem, Layer, Option, Schedule, Scope } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, Schedule, Schema, Scope, Stream } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { readEndpoint, withClient } from "@expand/client-ts"
-import { connect } from "node:net"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { networkInterfaces, tmpdir } from "node:os"
-import { resolve } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
@@ -21,21 +18,17 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
-import { NodeFileSystem } from "@effect/platform-node"
+import { NodeFileSystem, NodeServices } from "@effect/platform-node"
+import * as NodeSocket from "@effect/platform-node/NodeSocket"
+import { ChildProcess } from "effect/unstable/process"
+import * as Socket from "effect/unstable/socket/Socket"
 import { ProcessServices } from "@expand/server/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-trust-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
@@ -69,85 +62,90 @@ const testCore = (dbPath: string) => {
   return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
 }
 
-const probeTcp = (host: string, port: number): Promise<"open" | "closed"> =>
-  new Promise((resolve) => {
-    const socket = connect({ host, port })
-    const timer = setTimeout(() => done("closed"), 2000)
-    const done = (result: "open" | "closed") => {
-      clearTimeout(timer)
-      socket.destroy()
-      resolve(result)
-    }
-    socket.once("connect", () => done("open"))
-    socket.once("error", () => done("closed"))
-  })
+const probeTcp = (host: string, port: number) =>
+  Effect.scoped(Effect.gen(function*() {
+    const opened = yield* Queue.unbounded<void>()
+    const socket = yield* NodeSocket.makeNet({ host, port, openTimeout: "2 seconds" })
+    const run = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
+      Effect.forkScoped
+    )
+    return yield* Effect.race(
+      Queue.take(opened).pipe(Effect.as("open" as const)),
+      Fiber.join(run).pipe(Effect.as("closed" as const), Effect.catchCause(() => Effect.succeed("closed" as const)))
+    ).pipe(Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) }))
+  }))
 
-const offLoopbackTargets = (): ReadonlyArray<string> => [
-  "::1",
-  ...Object.values(networkInterfaces()).flatMap((infos) =>
-    (infos ?? []).filter((i) => !i.internal && i.family === "IPv4").map((i) => i.address)
+const OffLoopbackTargets = Schema.fromJsonString(Schema.Array(Schema.String))
+
+const offLoopbackTargets = Effect.gen(function*() {
+  const child = yield* ChildProcess.make(
+    "node",
+    [
+      "-e",
+      ["const os=require('node", ":os');const values=Object.values(os.networkInterfaces()).flatMap(xs=>(xs??[]).filter(x=>!x.internal&&x.family==='IPv4').map(x=>x.address));", "process", ".stdout.write(", "JSON", ".stringify(['::1',...values]))"].join("")
+    ],
+    { stdout: "pipe", stderr: "ignore" }
   )
-]
+  const output = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString)
+  return yield* Schema.decodeUnknownEffect(OffLoopbackTargets)(output)
+})
 
-const probeWs = (url: string): Promise<"open" | "closed"> =>
-  new Promise((resolve) => {
-    const ws = new WebSocket(url)
-    const timer = setTimeout(() => {
-      resolve("closed")
-      ws.close()
-    }, 2000)
-    ws.addEventListener("open", () => {
-      clearTimeout(timer)
-      resolve("open")
-      ws.close()
-    })
-    ws.addEventListener("error", () => {
-      clearTimeout(timer)
-      resolve("closed")
-    })
-    ws.addEventListener("close", () => {
-      clearTimeout(timer)
-      resolve("closed")
-    })
-  })
+const probeWs = (url: string) =>
+  Effect.scoped(Effect.gen(function*() {
+    const opened = yield* Queue.unbounded<void>()
+    const socket = yield* Socket.makeWebSocket(url, { openTimeout: "2 seconds" }).pipe(
+      Effect.provide(NodeSocket.layerWebSocketConstructorWS)
+    )
+    const run = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
+      Effect.forkScoped
+    )
+    return yield* Effect.race(
+      Queue.take(opened).pipe(Effect.as("open" as const)),
+      Fiber.join(run).pipe(Effect.as("closed" as const), Effect.catchCause(() => Effect.succeed("closed" as const)))
+    ).pipe(Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) }))
+  }))
 
 describe.sequential("trust boundary", () => {
-  it("binds to a 127.0.0.1 TcpAddress", async () => {
+  it.live("binds to a 127.0.0.1 TcpAddress",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
     const program = Effect.gen(function* () {
       const transport = yield* Layer.build(
         Layer.mergeAll(
-          httpServerLayer(0, "trust-boundary-token").pipe(Layer.provide(testCore(join(dir, "bind.db")))),
+          httpServerLayer(0, "trust-boundary-token").pipe(Layer.provide(testCore(path.join(dir, "bind.db")))),
           ProcessServices.layer
         )
       )
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
       return addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    const hostname = await Effect.runPromise(program)
+    const hostname = yield* (program)
     expect(hostname).toBe("127.0.0.1")
-  })
+  }))
 
-  it("advertises 127.0.0.1 and is unreachable off IPv4 loopback", async () => {
+  it.live("advertises 127.0.0.1 and is unreachable off IPv4 loopback",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const endpoint = yield* currentEndpoint
       const advertisedHost = new URL(endpoint.url).hostname
       const port = Number(new URL(endpoint.url).port)
-      const loopback = yield* Effect.promise(() => probeTcp("127.0.0.1", port))
-      const offLoopback = yield* Effect.promise(() =>
-        Promise.all(
-          offLoopbackTargets().map(async (host) => ({ host, result: await probeTcp(host, port) }))
-        )
+      const loopback = yield* probeTcp("127.0.0.1", port)
+      const offLoopback = yield* Effect.forEach(
+        yield* offLoopbackTargets,
+        (host) => Effect.map(probeTcp(host, port), (result) => ({ host, result })),
+        { concurrency: "unbounded" }
       )
       yield* Fiber.interrupt(serverFiber)
       return { advertisedHost, loopback, offLoopback }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.advertisedHost).toBe("127.0.0.1")
     expect(r.loopback).toBe("open")
     for (const probe of r.offLoopback) {
@@ -156,16 +154,18 @@ describe.sequential("trust boundary", () => {
         result: "closed"
       })
     }
-  })
+  }))
 
-  it("rejects ws upgrades without or with a wrong token and serves an authenticated client", async () => {
+  it.live("rejects ws upgrades without or with a wrong token and serves an authenticated client",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const endpoint = yield* currentEndpoint
-      const noToken = yield* Effect.promise(() => probeWs(endpoint.url))
-      const wrongToken = yield* Effect.promise(() => probeWs(`${endpoint.url}?token=wrong-token`))
+      const noToken = yield* probeWs(endpoint.url)
+      const wrongToken = yield* probeWs(`${endpoint.url}?token=wrong-token`)
       const health = yield* withClient(nodeAdapter, (client) => client.Health())
       yield* Fiber.join(serverFiber).pipe(
         Effect.timeoutOrElse({
@@ -174,17 +174,19 @@ describe.sequential("trust boundary", () => {
         })
       )
       return { noToken, wrongToken, health }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.noToken).toBe("closed")
     expect(r.wrongToken).toBe("closed")
     expect(r.health).toBe("ok")
-  })
+  }))
 
-  it("writes the endpoint file 0600 inside a 0700 directory", async () => {
-    const home = join(dir, "expand-home")
-    const file = makeTestAppContext(home).paths.endpointFile
+  it.live("writes the endpoint file 0600 inside a 0700 directory",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
+    const home = path.join(dir, "expand-home")
+    const file = makeTestAppContext(path, home).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -202,16 +204,21 @@ describe.sequential("trust boundary", () => {
       const dirInfo = yield* fs.stat(home)
       yield* Scope.close(scope, Exit.void)
       return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
-    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(home))))
+    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, home))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.fileMode).toBe(0o600)
     expect(r.dirMode).toBe(0o700)
-  })
+  }))
 
-  it("tightens a pre-existing endpoint file to 0600", async () => {
-    const file = makeTestAppContext(dir).paths.endpointFile
-    writeFileSync(file, "stale", { mode: 0o644 })
+  it.live("tightens a pre-existing endpoint file to 0600",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
+    const file = makeTestAppContext(path, dir).paths.endpointFile
+    yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fs) => fs.writeFileString(file, "stale").pipe(Effect.andThen(fs.chmod(file, 0o644)))),
+      Effect.provide(NodeServices.layer)
+    )
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const scope = yield* Scope.make()
@@ -228,89 +235,122 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(file)
       yield* Scope.close(scope, Exit.void)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    expect(await Effect.runPromise(program)).toBe(0o600)
-  })
+    expect(yield* (program)).toBe(0o600)
+  }))
 
-  it("chmods the database file to 0600 after boot", async () => {
+  it.live("chmods the database file to 0600 after boot",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const info = yield* fs.stat(dbPath)
       yield* Fiber.interrupt(serverFiber)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    expect(await Effect.runPromise(program)).toBe(0o600)
-  })
+    expect(yield* (program)).toBe(0o600)
+  }))
 
-  it("secures the db, WAL, SHM, and data dir even when the ambient umask is permissive", async () => {
+  it.live("secures the db, WAL, SHM, and data dir even when the ambient umask is permissive",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
     // The event store on disk IS the events the token is meant to gate. A
     // different OS user who can traverse the data dir could read the whole
     // history straight off disk, bypassing the token — so boot must leave the
     // dir 0700 and every db file 0600 regardless of the inherited umask, and
     // regardless of the data dir having been pre-created world-traversable
     // (as main.ts does before runServer runs).
-    const previousUmask = process.umask(0o002)
-    try {
-      const dataDir = join(dir, "datadir")
-      const program = Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        yield* fs.makeDirectory(dataDir, { recursive: true }) // mode-less, like main.ts
-        const dbPath = join(dataDir, "events.db")
-        const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
-        yield* awaitEndpointUp
-        const mode = (p: string) => Effect.map(fs.stat(p), (s) => Number(s.mode & 0o777))
-        const db = yield* mode(dbPath)
-        const wal = yield* mode(`${dbPath}-wal`)
-        const shm = yield* mode(`${dbPath}-shm`)
-        const dirMode = yield* mode(dataDir)
-        yield* Fiber.interrupt(serverFiber)
-        return { db, wal, shm, dirMode }
-      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dataDir))))
-
-      const r = await Effect.runPromise(program)
-      expect(r.db, "events.db must be owner-only").toBe(0o600)
-      expect(r.wal, "events.db-wal must be owner-only").toBe(0o600)
-      expect(r.shm, "events.db-shm must be owner-only").toBe(0o600)
-      expect(r.dirMode, "data dir must be owner-only").toBe(0o700)
-    } finally {
-      process.umask(previousUmask)
-    }
-  })
-
-  it("rejects a same-length wrong token and accepts the real token on a raw socket", async () => {
+    const dataDir = path.join(dir, "datadir")
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory(dataDir, { recursive: true })
+      const fixtureDir = yield* fs.makeTempDirectoryScoped({
+        directory: path.resolve("."),
+        prefix: ".expand-trust-boundary-"
+      })
+      const fixturePath = path.join(fixtureDir, "permissive-umask-server.ts")
+      const fixtureSource = [
+        "import { NodeRuntime, NodeServices } from \"@effect/platform-node\"\n",
+        "import { Effect, Layer, Path, Stdio } from \"effect\"\n",
+        "import { AppContext, makeAppContext } from \"@expand/contracts/app-context\"\n",
+        "import { runServer } from \"@expand/server/composition/app\"\n",
+        "import { ProcessServices } from \"@expand/server/node-process-control\"\n",
+        "process", ".umask(0o002)\n",
+        "NodeRuntime", ".runMain(Effect.gen(function*() {\n",
+        "  const path = yield* Path.Path\n",
+        "  const stdio = yield* Stdio.Stdio\n",
+        "  const [dataDir] = yield* stdio.args\n",
+        "  if (dataDir === undefined) return yield* Effect.fail(\"missing data directory\")\n",
+        "  const context = makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })\n",
+        "  yield* runServer({ dbPath: path.join(dataDir, \"events.db\") }).pipe(\n",
+        "    Effect.provide(ProcessServices.layer),\n",
+        "    Effect.provide(Layer.succeed(AppContext, context))\n",
+        "  )\n",
+        "}).pipe(Effect.provide(NodeServices.layer), Effect.orDie))\n"
+      ].join("")
+      yield* fs.writeFileString(fixturePath, fixtureSource)
+      const child = yield* ChildProcess.make(
+        "node",
+        ["--import", "tsx", fixturePath, dataDir],
+        { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
+      )
+      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      yield* Effect.race(
+        awaitEndpointUp,
+        child.exitCode.pipe(
+          Effect.flatMap((code) => Effect.all([Fiber.join(stdout), Fiber.join(stderr)]).pipe(
+            Effect.flatMap(([out, error]) => Effect.fail(`permissive umask fixture exited ${String(code)}: ${out}${error}`))
+          ))
+        )
+      )
+      const dbPath = path.join(dataDir, "events.db")
+      const mode = (p: string) => Effect.map(fs.stat(p), (s) => Number(s.mode & 0o777))
+      const db = yield* mode(dbPath)
+      const wal = yield* mode(`${dbPath}-wal`)
+      const shm = yield* mode(`${dbPath}-shm`)
+      const dirMode = yield* mode(dataDir)
+      return { db, wal, shm, dirMode }
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dataDir))))
+
+    const r = yield* program
+    expect(r.db, "events.db must be owner-only").toBe(0o600)
+    expect(r.wal, "events.db-wal must be owner-only").toBe(0o600)
+    expect(r.shm, "events.db-shm must be owner-only").toBe(0o600)
+    expect(r.dirMode, "data dir must be owner-only").toBe(0o700)
+  }))
+
+  it.live("rejects a same-length wrong token and accepts the real token on a raw socket",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
+    const program = Effect.gen(function* () {
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const endpoint = yield* currentEndpoint
       const flipped = `${endpoint.token.slice(0, -1)}${endpoint.token.endsWith("0") ? "1" : "0"}`
-      const sameLengthWrong = yield* Effect.promise(() =>
-        probeWs(`${endpoint.url}?token=${encodeURIComponent(flipped)}`)
-      )
-      const realToken = yield* Effect.promise(() =>
-        probeWs(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
-      )
+      const sameLengthWrong = yield* probeWs(`${endpoint.url}?token=${encodeURIComponent(flipped)}`)
+      const realToken = yield* probeWs(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
       yield* Fiber.interrupt(serverFiber)
       return { sameLengthWrong, realToken }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.sameLengthWrong).toBe("closed")
     expect(r.realToken).toBe("open")
-  })
+  }))
 })
 
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
   )
 
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

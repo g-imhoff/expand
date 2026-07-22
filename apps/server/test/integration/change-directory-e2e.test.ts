@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Stream, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { Effect, FileSystem, Path, Fiber, Option, Schedule, Stream, Layer } from "effect"
 import { ProcessServices } from "@expand/server/node-process-control"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { resolve } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -11,17 +10,9 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-cd-e2e-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
@@ -33,10 +24,12 @@ const awaitEndpointUp = readEndpoint.pipe(
 )
 
 describe.sequential("change-directory end-to-end", () => {
-  it("change-directory commits, broadcasts ProjectDirectoryChanged, and survives a re-fold", async () => {
+  it.live("change-directory commits, broadcasts ProjectDirectoryChanged, and survives a re-fold",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-change-directory-e2e-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
-      const target = mkdtempSync(join(tmpdir(), "expand-cd-tgt-"))
+      const dbPath = path.join(dir, "events.db")
+      const target = yield* makeTestDirectory("expand-cd-tgt-")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -51,18 +44,19 @@ describe.sequential("change-directory end-to-end", () => {
         })
       )
       yield* Fiber.interrupt(serverFiber)
-      rmSync(target, { recursive: true, force: true })
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
-    const r = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    const r = yield* (program)
     expect(r.moved.directory).toBe(r.listed.projects[0]?.directory)
     expect(Option.isSome(r.event) && r.event.value.event._tag === "ProjectDirectoryChanged").toBe(true)
     expect(r.listed.projects[0]?.directory).toBe(r.moved.directory)
-  })
+  }))
 
-  it("change-directory to a relative path fails with ProjectDirectoryInvalid over the wire", async () => {
+  it.live("change-directory to a relative path fails with ProjectDirectoryInvalid over the wire",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-change-directory-e2e-')
     const program = Effect.gen(function* () {
-      const serverFiber = yield* Effect.forkChild(runServer({ dbPath: join(dir, "events.db") }))
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath: path.join(dir, "events.db") }))
       yield* awaitEndpointUp
       const result = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
@@ -72,18 +66,17 @@ describe.sequential("change-directory end-to-end", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
-    const exit = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string; reason: string } }).failure._tag).toBe("ProjectDirectoryInvalid")
-  })
+  }))
 })
 
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
   )
 
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

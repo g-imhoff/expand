@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Cause, Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -13,14 +14,14 @@ const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestLayer = Layer.mergeAll(ReplayFeedLayer, ProjectEventStoreLayer).pipe(Layer.provideMerge(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(eff, TestLayer))
+  Effect.provide(eff, TestLayer)
 
 const collect = <A, E>(s: Stream.Stream<A, E>) =>
   Stream.runCollect(s).pipe(Effect.map((c) => Array.from(c)))
 
 describe("ReplayFeed", () => {
-  it("reads the whole log strictly after the cursor, in seq order", async () => {
-    const out = await run(
+  it.live("reads the whole log strictly after the cursor, in seq order",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -30,12 +31,12 @@ describe("ReplayFeed", () => {
     )
     expect(out.all.map((se) => se.seq)).toEqual([1, 2, 3])
     expect(out.after.map((se) => se.seq)).toEqual([2, 3])
-  })
+  }))
 
-  it("is unfiltered: a foreign undecodable row is a defect, not silently skipped", async () => {
+  it.live("is unfiltered: a foreign undecodable row is a defect, not silently skipped",  () => Effect.gen(function*() {
     // The deliberate contrast with ProjectEventStore.read (which excludes foreign
     // rows in SQL): the sync feed serves EVERYTHING, so a bad row must die loudly.
-    const exit = await Effect.runPromise(Effect.provide(
+    const exit = yield* (Effect.provide(
       Effect.exit(Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -50,5 +51,5 @@ describe("ReplayFeed", () => {
     if (exit._tag === "Failure") {
       expect(String(Cause.squash(exit.cause))).toMatch(/undecodable event row/)
     }
-  })
+  }))
 })

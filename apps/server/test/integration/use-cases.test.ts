@@ -1,10 +1,8 @@
-import { describe, expect, it } from "vitest"
-import { Effect, Layer, PubSub, Stream } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { Effect, FileSystem, Layer, PubSub, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"
 import { ProjectProjection, ProjectProjectionLayer } from "@expand/server/application/projections"
@@ -29,7 +27,7 @@ const TestLayer = ProjectUseCasesLayer.pipe(
 const TestLayerFs = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provideMerge(NodeServices.layer))
 
 describe("ProjectUseCases.createProject", () => {
-  it("appends a durable event, broadcasts it live, and reflects it in the projection", async () => {
+  it.live("appends a durable event, broadcasts it live, and reflects it in the projection",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
@@ -45,42 +43,40 @@ describe("ProjectUseCases.createProject", () => {
       return { project, broadcast, persisted, listed }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.project.name).toBe("hello")
     expect(r.broadcast.seq).toBe(1)
     expect(r.broadcast.event._tag).toBe("ProjectCreated")
     expect(r.broadcast.event.projectId).toBe(r.project.id)
     expect(r.persisted).toHaveLength(1)
     expect(r.listed).toEqual([r.project])
-  })
+  }))
 
-  it("server health returns ok", async () => {
-    const ok = await Effect.runPromise(
-      Effect.provide(Effect.flatMap(ServerUseCases, (u) => u.health), ServerUseCasesLayer)
-    )
+  it.live("server health returns ok",  () => Effect.gen(function*() {
+    const ok = yield* (Effect.provide(Effect.flatMap(ServerUseCases, (u) => u.health), ServerUseCasesLayer))
     expect(ok).toBe("ok")
-  })
+  }))
 
-  it("listProjects(includeArchived) accepts the flag and returns non-deleted projects", async () => {
-    const r = await Effect.runPromise(Effect.gen(function* () {
+  it.live("listProjects(includeArchived) accepts the flag and returns non-deleted projects",  () => Effect.gen(function*() {
+    const r = yield* (Effect.gen(function* () {
       const u = yield* ProjectUseCases
       yield* u.createProject("alpha", false)
       return { def: yield* u.listProjects(false), all: yield* u.listProjects(true) }
     }).pipe(Effect.provide(TestLayerFs)))
     expect(r.def.map((p) => p.name)).toEqual(["alpha"])
     expect(r.all.map((p) => p.name)).toEqual(["alpha"])
-  })
+  }))
 
-  it("ProjectUseCases resolves with FileSystem+Path provided", async () => {
+  it.live("ProjectUseCases resolves with FileSystem+Path provided",  () => Effect.gen(function*() {
     const FsTestLayer = TestLayer.pipe(Layer.provide(NodeFileSystem.layer), Layer.provide(NodeServices.layer))
-    const projects = await Effect.runPromise(Effect.provide(Effect.flatMap(ProjectUseCases, (u) => u.listProjects()), FsTestLayer))
+    const projects = yield* (Effect.provide(Effect.flatMap(ProjectUseCases, (u) => u.listProjects()), FsTestLayer))
     expect(projects).toEqual([])
-  })
+  }))
 })
 
 describe("ProjectUseCases.changeDirectory", () => {
-  it("sets a valid absolute existing directory and reflects it in the projection", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-"))
+  it.live("sets a valid absolute existing directory and reflects it in the projection",  () => Effect.gen(function*() {
+    const tmp = yield* makeTestDirectory("expand-cd-")
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdok", false)
@@ -88,43 +84,42 @@ describe("ProjectUseCases.changeDirectory", () => {
       const listed = yield* u.listProjects()
       return { updated, listed }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
-    rmSync(tmp, { recursive: true, force: true })
+    const r = yield* (program)
     expect(r.updated.directory).toBe(tmp)
     expect(r.listed[0]?.directory).toBe(tmp)
-  })
-  it("fails ProjectNotFound for an unknown id", async () => {
+  }))
+  it.live("fails ProjectNotFound for an unknown id",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       return yield* u.changeDirectory(uid(1), "/").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
-  it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
+  }))
+  it.live("fails ProjectDirectoryInvalid(not-absolute) for a relative path",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdrel", false)
       return yield* u.changeDirectory(project.id, "relative/dir").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
     expect(f._tag).toBe("ProjectDirectoryInvalid")
     expect(f.reason).toBe("not-absolute")
-  })
-  it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
+  }))
+  it.live("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdmiss", false)
       return yield* u.changeDirectory(project.id, "/this/does/not/exist/expand").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
     expect(f._tag).toBe("ProjectDirectoryInvalid")
     expect(f.reason).toBe("not-found")
-  })
-  it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-"))
+  }))
+  it.live("fails ProjectDirectoryConflict when another live project already uses the directory",  () => Effect.gen(function*() {
+    const tmp = yield* makeTestDirectory("expand-cd-")
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const a = (yield* u.createProject("cda", false)).project
@@ -132,32 +127,30 @@ describe("ProjectUseCases.changeDirectory", () => {
       yield* u.changeDirectory(a.id, tmp)
       return yield* u.changeDirectory(b.id, tmp).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
-    rmSync(tmp, { recursive: true, force: true })
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
-  })
+  }))
 
-  it("fails ProjectDirectoryInvalid(not-a-directory) when the path is a file", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-cd-file-"))
-    const file = join(tmp, "plain.txt")
-    writeFileSync(file, "x")
+  it.live("fails ProjectDirectoryInvalid(not-a-directory) when the path is a file",  () => Effect.gen(function*() {
+    const tmp = yield* makeTestDirectory("expand-cd-file-")
+    const file = `${tmp}/plain.txt`
+    yield* writeTestFile(file, "x")
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("cdfile", false)
       return yield* u.changeDirectory(project.id, file).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
-    rmSync(tmp, { recursive: true, force: true })
+    const exit = yield* (program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
     expect(f._tag).toBe("ProjectDirectoryInvalid")
     expect(f.reason).toBe("not-a-directory")
-  })
+  }))
 
-  it("fails ProjectDirectoryConflict when a symlink resolves to a directory another project already uses", async () => {
-    const real = mkdtempSync(join(tmpdir(), "expand-cd-real-"))
-    const linkParent = mkdtempSync(join(tmpdir(), "expand-cd-link-"))
-    const link = join(linkParent, "alias")
-    symlinkSync(real, link)
+  it.live("fails ProjectDirectoryConflict when a symlink resolves to a directory another project already uses",  () => Effect.gen(function*() {
+    const real = yield* makeTestDirectory("expand-cd-real-")
+    const linkParent = yield* makeTestDirectory("expand-cd-link-")
+    const link = `${linkParent}/alias`
+    yield* makeTestSymlink(real, link)
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const a = (yield* u.createProject("cdreal", false)).project
@@ -165,71 +158,67 @@ describe("ProjectUseCases.changeDirectory", () => {
       yield* u.changeDirectory(a.id, real)
       return yield* u.changeDirectory(b.id, link).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
-    rmSync(linkParent, { recursive: true, force: true })
-    rmSync(real, { recursive: true, force: true })
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
-  })
+  }))
 })
 
 describe("ProjectUseCases.createProject with directory", () => {
-  it("creates with a valid absolute existing unique directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-cr-"))
+  it.live("creates with a valid absolute existing unique directory",  () => Effect.gen(function*() {
+    const tmp = yield* makeTestDirectory("expand-cr-")
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("crdir", false, tmp)
       const listed = yield* u.listProjects()
       return { project, listed }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
-    rmSync(tmp, { recursive: true, force: true })
+    const r = yield* (program)
     expect(r.project.directory).toBe(tmp)
     expect(r.listed[0]?.directory).toBe(tmp)
-  })
-  it("with no directory behaves as before (directory:null)", async () => {
+  }))
+  it.live("with no directory behaves as before (directory:null)",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       return (yield* u.createProject("crnodir", false)).project
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const project = await Effect.runPromise(program)
+    const project = yield* (program)
     expect(project.directory).toBe(null)
-  })
-  it("fails ProjectDirectoryInvalid(not-absolute) for a relative path", async () => {
+  }))
+  it.live("fails ProjectDirectoryInvalid(not-absolute) for a relative path",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       return yield* u.createProject("crrel", false, "relative/dir").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
     expect(f._tag).toBe("ProjectDirectoryInvalid")
     expect(f.reason).toBe("not-absolute")
-  })
-  it("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist", async () => {
+  }))
+  it.live("fails ProjectDirectoryInvalid(not-found) for an absolute path that does not exist",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       return yield* u.createProject("crmiss", false, "/this/does/not/exist/expand").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     const f = (exit as { failure: { _tag: string; reason: string } }).failure
     expect(f._tag).toBe("ProjectDirectoryInvalid")
     expect(f.reason).toBe("not-found")
-  })
-  it("fails ProjectDirectoryConflict when another live project already uses the directory", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-cr-"))
+  }))
+  it.live("fails ProjectDirectoryConflict when another live project already uses the directory",  () => Effect.gen(function*() {
+    const tmp = yield* makeTestDirectory("expand-cr-")
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const a = (yield* u.createProject("crconfa", false, tmp)).project
       void a
       return yield* u.createProject("crconfb", false, tmp).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
-    rmSync(tmp, { recursive: true, force: true })
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
-  })
+  }))
 })
 
 describe("ProjectUseCases.archiveProject / restoreProject", () => {
-  it("archives then restores a project, toggling archived + bumping updatedAt", async () => {
+  it.live("archives then restores a project, toggling archived + bumping updatedAt",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("toarch", false)
@@ -237,20 +226,20 @@ describe("ProjectUseCases.archiveProject / restoreProject", () => {
       const restored = yield* u.restoreProject(project.id)
       return { project, archived, restored }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.archived.archived).toBe(true)
     expect(r.archived.id).toBe(r.project.id)
     expect(r.restored.archived).toBe(false)
-  })
-  it("fails ProjectNotFound when the id is absent", async () => {
+  }))
+  it.live("fails ProjectNotFound when the id is absent",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       return yield* u.archiveProject("00000000-0000-4000-8000-000000000000").pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
-  it("archive/restore return value equals the projection's folded result (no divergent read-back)", async () => {
+  }))
+  it.live("archive/restore return value equals the projection's folded result (no divergent read-back)",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("lockstep", false)
@@ -260,14 +249,14 @@ describe("ProjectUseCases.archiveProject / restoreProject", () => {
       const restoredListed = (yield* u.listProjects(true)).find((p) => p.id === project.id)
       return { archivedReturned, archivedListed, restoredReturned, restoredListed }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.archivedReturned).toEqual(r.archivedListed)
     expect(r.restoredReturned).toEqual(r.restoredListed)
-  })
+  }))
 })
 
 describe("ProjectUseCases.setMetadata", () => {
-  it("replaces only provided fields, stamps updatedAt, and persists/broadcasts", async () => {
+  it.live("replaces only provided fields, stamps updatedAt, and persists/broadcasts",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
@@ -280,25 +269,25 @@ describe("ProjectUseCases.setMetadata", () => {
       return { project, updated, broadcast, persisted }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.updated.description).toBe("hi")
     expect(r.updated.tags).toEqual(["a", "b"])
     expect(r.updated.id).toBe(r.project.id)
     expect(r.broadcast.event._tag).toBe("ProjectMetadataChanged")
     expect(r.persisted).toHaveLength(2)
-  })
+  }))
 
-  it("fails with ProjectNotFound for an unknown id", async () => {
+  it.live("fails with ProjectNotFound for an unknown id",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       return yield* useCases.setMetadata(uid(1), { description: "x" }).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     expect((exit as { _tag: string; failure: { _tag: string } })._tag).toBe("Failure")
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
+  }))
 
-  it("accepts a 2048-char description and persists it", async () => {
+  it.live("accepts a 2048-char description and persists it",  () => Effect.gen(function*() {
     const desc = "x".repeat(2048)
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
@@ -306,12 +295,12 @@ describe("ProjectUseCases.setMetadata", () => {
       const updated = yield* u.setMetadata(project.id, { description: desc })
       return updated
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const updated = await Effect.runPromise(program)
+    const updated = yield* (program)
     expect(updated.description).toBe(desc)
     expect(updated.description?.length).toBe(2048)
-  })
+  }))
 
-  it("rejects a 2049-char description (cap enforced; not persisted)", async () => {
+  it.live("rejects a 2049-char description (cap enforced; not persisted)",  () => Effect.gen(function*() {
     const desc = "x".repeat(2049)
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
@@ -320,15 +309,15 @@ describe("ProjectUseCases.setMetadata", () => {
       const listed = yield* u.listProjects()
       return listed.find((p) => p.id === project.id)?.description ?? null
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const stored = await Effect.runPromiseExit(program)
+    const stored = yield* Effect.exit(program)
     if (stored._tag === "Success") {
       expect(stored.value).not.toBe(desc)
     } else {
       expect(stored._tag).toBe("Failure")
     }
-  })
+  }))
 
-  it("setMetadata return value equals the projection's folded result", async () => {
+  it.live("setMetadata return value equals the projection's folded result",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const u = yield* ProjectUseCases
       const { project } = yield* u.createProject("metalock", false)
@@ -336,13 +325,13 @@ describe("ProjectUseCases.setMetadata", () => {
       const listed = (yield* u.listProjects(true)).find((p) => p.id === project.id)
       return { returned, listed }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.returned).toEqual(r.listed)
-  })
+  }))
 })
 
 describe("ProjectUseCases.deleteProject", () => {
-  it("tombstones the project: removed from the projection, event broadcast", async () => {
+  it.live("tombstones the project: removed from the projection, event broadcast",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       const bus = yield* EventBus
@@ -354,17 +343,35 @@ describe("ProjectUseCases.deleteProject", () => {
       const listed = yield* useCases.listProjects()
       return { result, broadcast, listed, id: project.id }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.result).toEqual({ id: r.id, deleted: true })
     expect(r.broadcast.event._tag).toBe("ProjectDeleted")
     expect(r.listed).toEqual([])
-  })
-  it("fails with ProjectNotFound for an unknown id", async () => {
+  }))
+  it.live("fails with ProjectNotFound for an unknown id",  () => Effect.gen(function*() {
     const program = Effect.gen(function* () {
       const useCases = yield* ProjectUseCases
       return yield* useCases.deleteProject(uid(1)).pipe(Effect.result)
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
-    const exit = await Effect.runPromise(program)
+    const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
+  }))
 })
+
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
+  )
+
+const writeTestFile = (path: string, content: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.writeFileString(path, content)),
+    Effect.provide(NodeServices.layer)
+  )
+
+const makeTestSymlink = (target: string, path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.symlink(target, path)),
+    Effect.provide(NodeServices.layer)
+  )

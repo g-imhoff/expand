@@ -344,6 +344,13 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "apps/server/test/fixtures/state-root-lock-contender.ts",
+    declaration: "module:<module>",
+    host: "Test fixture entrypoint",
+    construct: testFixtureNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "apps/tui/main.tsx",
     declaration: "module:<module>",
     host: "Node application entrypoint",

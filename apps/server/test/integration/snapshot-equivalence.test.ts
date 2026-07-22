@@ -1,10 +1,9 @@
-import { describe, expect, it } from "vitest"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
+import { NodeServices } from "@effect/platform-node"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { Project } from "@expand/contracts/project"
 import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 import type { DomainEvent } from "@expand/contracts/events/domain"
@@ -42,16 +41,16 @@ const layersFor = (dbPath: string) => {
 }
 
 describe("snapshot+tail equivalence", () => {
-  it("booting from a snapshot at any k equals folding the whole log from zero", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "expand-equiv-"))
-    const db = join(dir, "events.db")
-    try {
-      const fromZero = foldAll(script)
+  it.live("booting from a snapshot at any k equals folding the whole log from zero",  () => Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const dir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-equiv-" })
+    const fromZero = foldAll(script)
 
       for (let k = 0; k <= script.length; k++) {
-        const fresh = join(dir, `k${k}.db`)
+        const fresh = path.join(dir, `k${k}.db`)
         // Seed the whole script via an events-only build (no snapshot written).
-        await Effect.runPromise(Effect.provide(
+        yield* (Effect.provide(
           Effect.flatMap(ProjectEventStore, (events) =>
             Effect.forEach(script, (e) => events.append(e), { discard: true })
           ),
@@ -59,7 +58,7 @@ describe("snapshot+tail equivalence", () => {
         ))
         // Force a snapshot exactly at seq k (k===0 means "no snapshot": skip the save).
         if (k > 0) {
-          await Effect.runPromise(Effect.provide(
+          yield* (Effect.provide(
             Effect.gen(function* () {
               const feed = yield* ReplayFeed
               const snapshots = yield* ProjectionStateStore
@@ -72,17 +71,14 @@ describe("snapshot+tail equivalence", () => {
           ))
         }
         // Boot the projection: it loads snapshot@k and folds the tail.
-        const booted = await Effect.runPromise(Effect.provide(
+        const booted = yield* (Effect.provide(
           Effect.flatMap(ProjectProjection, (p) => p.snapshot),
           layersFor(fresh)
         ))
         expect(booted.seq).toBe(script.length)
         expect(sortById(booted.projects)).toEqual(sortById(fromZero))
       }
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
-    }
-  })
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
 const sortById = (ps: ReadonlyArray<Project>) => [...ps].sort((a, b) => a.id.localeCompare(b.id))

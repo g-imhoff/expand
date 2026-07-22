@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Cause, Effect, Layer, Pull, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -21,16 +22,16 @@ const storeWith = (chunkSize?: number) => {
 }
 
 const runWith = <A, E>(chunkSize: number | undefined, eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(eff, storeWith(chunkSize)))
+  Effect.provide(eff, storeWith(chunkSize))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore | SqlClient>) => runWith(undefined, eff)
 
 const runExit = <A, E>(eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(Effect.exit(eff), storeWith(undefined)))
+  Effect.provide(Effect.exit(eff), storeWith(undefined))
 
 describe("event-store base (through its specializations)", () => {
-  it("append returns the monotonically increasing seq", async () => {
-    const seqs = await run(
+  it.live("append returns the monotonically increasing seq",  () => Effect.gen(function*() {
+    const seqs = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const s1 = yield* events.append(ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }))
@@ -39,10 +40,10 @@ describe("event-store base (through its specializations)", () => {
       })
     )
     expect(seqs).toEqual([1, 2])
-  })
+  }))
 
-  it("appends events and reads them back as sequenced rows in insertion order", async () => {
-    const rows = await run(
+  it.live("appends events and reads them back as sequenced rows in insertion order",  () => Effect.gen(function*() {
+    const rows = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -54,12 +55,12 @@ describe("event-store base (through its specializations)", () => {
     expect(rows.map((r) => r.seq)).toEqual([1, 2])
     expect(rows.map((r) => r.event.projectId)).toEqual([uid(1), uid(2)])
     expect(rows[0]?.event._tag).toBe("ProjectCreated")
-  })
+  }))
 })
 
 describe("event-store base (through its specializations) — error paths", () => {
-  it("surfaces a SQL failure (defect) when the events table is missing — never silent corruption", async () => {
-    const exit = await runExit(
+  it.live("surfaces a SQL failure (defect) when the events table is missing — never silent corruption",  () => Effect.gen(function*() {
+    const exit = yield* runExit(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -73,20 +74,20 @@ describe("event-store base (through its specializations) — error paths", () =>
     if (exit._tag === "Failure") {
       expect(String(Cause.squash(exit.cause))).toMatch(/SqlError|no such table/i)
     }
-  })
+  }))
 })
 
 const collect = <A, E>(s: Stream.Stream<A, E>) =>
   Stream.runCollect(s).pipe(Effect.map((c) => Array.from(c)))
 
 describe("event-store base (through its specializations).scan", () => {
-  it("streams an empty log as an empty stream", async () => {
-    const out = await run(Effect.flatMap(ReplayFeed, (feed) => collect(feed.read(0))))
+  it.live("streams an empty log as an empty stream",  () => Effect.gen(function*() {
+    const out = yield* run(Effect.flatMap(ReplayFeed, (feed) => collect(feed.read(0))))
     expect(out).toEqual([])
-  })
+  }))
 
-  it("streams all events in seq order across chunk seams (no gap, no duplicate)", async () => {
-    const out = await runWith(2,
+  it.live("streams all events in seq order across chunk seams (no gap, no duplicate)",  () => Effect.gen(function*() {
+    const out = yield* runWith(2,
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -99,15 +100,15 @@ describe("event-store base (through its specializations).scan", () => {
     )
     expect(out.map((r) => r.seq)).toEqual([1, 2, 3, 4, 5])
     expect(out.map((r) => r.event.projectId)).toEqual([uid(1), uid(2), uid(3), uid(4), uid(5)])
-  })
+  }))
 
-  it("an append landing between chunk fetches surfaces in a later chunk (no gap, no duplicate)", async () => {
+  it.live("an append landing between chunk fetches surfaces in a later chunk (no gap, no duplicate)",  () => Effect.gen(function*() {
     // Deterministic proof of the concurrent-append property of the streamed replay
     // seam. beta.74 exposes `Stream.toPull`, a pull-control primitive: each pull
     // triggers exactly ONE keyset SQL fetch (observed granularity with chunkSize 2:
     // one chunk per pull). So we can interleave an append strictly BETWEEN chunk
     // fetches and prove the new event lands in a later chunk, not lost, not doubled.
-    const chunks = await runWith(2,
+    const chunks = yield* runWith(2,
       Effect.scoped(Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -133,10 +134,10 @@ describe("event-store base (through its specializations).scan", () => {
     // once — the new event surfaces in its own later chunk, seq order intact end to end.
     expect(chunks).toEqual([[1, 2], [3, 4], [5]])
     expect(chunks.flat()).toEqual([1, 2, 3, 4, 5])
-  })
+  }))
 
-  it("afterSeq is strictly exclusive", async () => {
-    const out = await runWith(2,
+  it.live("afterSeq is strictly exclusive",  () => Effect.gen(function*() {
+    const out = yield* runWith(2,
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -153,10 +154,10 @@ describe("event-store base (through its specializations).scan", () => {
     expect(out.fromZero.map((r) => r.seq)).toEqual([1, 2, 3])
     expect(out.fromOne.map((r) => r.seq)).toEqual([2, 3])
     expect(out.fromLast).toEqual([])
-  })
+  }))
 
-  it("dies (defect) on an undecodable row, naming seq, stream_id and event_type", async () => {
-    const exit = await runExit(
+  it.live("dies (defect) on an undecodable row, naming seq, stream_id and event_type",  () => Effect.gen(function*() {
+    const exit = yield* runExit(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const feed = yield* ReplayFeed
@@ -174,5 +175,5 @@ describe("event-store base (through its specializations).scan", () => {
       expect(msg).toContain(`stream_id=${uid(2)}`)
       expect(msg).toContain("event_type=ProjectCreated")
     }
-  })
+  }))
 })

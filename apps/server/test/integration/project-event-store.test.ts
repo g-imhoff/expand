@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Layer, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -11,7 +12,7 @@ const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestLayer = ProjectEventStoreLayer.pipe(Layer.provideMerge(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(eff, TestLayer))
+  Effect.provide(eff, TestLayer)
 
 const collect = <A, E>(s: Stream.Stream<A, E>) =>
   Stream.runCollect(s).pipe(Effect.map((c) => Array.from(c)))
@@ -26,8 +27,8 @@ describe("ProjectEventStore", () => {
     expect([...PROJECT_EVENT_TAGS].sort()).toEqual(Object.keys(ProjectEvent.cases).sort())
   })
 
-  it("read returns only project events — a foreign family's rows are invisible", async () => {
-    const out = await run(
+  it.live("read returns only project events — a foreign family's rows are invisible",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const sql = yield* SqlClient
@@ -44,10 +45,10 @@ describe("ProjectEventStore", () => {
     )
     expect(out.all.map((r) => r.seq)).toEqual([1, 3])       // seq 2 (foreign) filtered in SQL
     expect(out.after.map((r) => r.seq)).toEqual([3])         // strictly-after semantics
-  })
+  }))
 
-  it("append derives stream_id from event.projectId — a mismatched id is unrepresentable", async () => {
-    const out = await run(
+  it.live("append derives stream_id from event.projectId — a mismatched id is unrepresentable",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const sql = yield* SqlClient
@@ -58,5 +59,5 @@ describe("ProjectEventStore", () => {
     )
     expect(out.seq).toBe(1)
     expect(out.streamId).toBe(uid(7))
-  })
+  }))
 })

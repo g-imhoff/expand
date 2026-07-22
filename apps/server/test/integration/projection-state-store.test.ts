@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -8,16 +9,16 @@ const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 const TestLayer = ProjectionStateStoreLayer.pipe(Layer.provideMerge(TestSql))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectionStateStore | SqlClient>) =>
-  Effect.runPromise(Effect.provide(eff, TestLayer))
+  Effect.provide(eff, TestLayer)
 
 describe("ProjectionStateStore", () => {
-  it("returns null when no row exists for the name", async () => {
-    const r = await run(Effect.flatMap(ProjectionStateStore, (s) => s.load("projects")))
+  it.live("returns null when no row exists for the name",  () => Effect.gen(function*() {
+    const r = yield* run(Effect.flatMap(ProjectionStateStore, (s) => s.load("projects")))
     expect(r).toBe(null)
-  })
+  }))
 
-  it("round-trips a saved row (state, lastSeq, foldVersion)", async () => {
-    const r = await run(
+  it.live("round-trips a saved row (state, lastSeq, foldVersion)",  () => Effect.gen(function*() {
+    const r = yield* run(
       Effect.gen(function* () {
         const s = yield* ProjectionStateStore
         yield* s.save("projects", { state: "[]", lastSeq: 7, foldVersion: "v1" })
@@ -25,10 +26,10 @@ describe("ProjectionStateStore", () => {
       })
     )
     expect(r).toEqual({ state: "[]", lastSeq: 7, foldVersion: "v1" })
-  })
+  }))
 
-  it("save upserts — latest row wins per name", async () => {
-    const r = await run(
+  it.live("save upserts — latest row wins per name",  () => Effect.gen(function*() {
+    const r = yield* run(
       Effect.gen(function* () {
         const s = yield* ProjectionStateStore
         yield* s.save("projects", { state: "[1]", lastSeq: 1, foldVersion: "v1" })
@@ -38,10 +39,10 @@ describe("ProjectionStateStore", () => {
     )
     expect(r?.lastSeq).toBe(2)
     expect(r?.state).toBe("[1,2]")
-  })
+  }))
 
-  it("rows are independent per name", async () => {
-    const r = await run(
+  it.live("rows are independent per name",  () => Effect.gen(function*() {
+    const r = yield* run(
       Effect.gen(function* () {
         const s = yield* ProjectionStateStore
         yield* s.save("projects", { state: "[]", lastSeq: 3, foldVersion: "v1" })
@@ -51,10 +52,10 @@ describe("ProjectionStateStore", () => {
     )
     expect(r.projects?.lastSeq).toBe(3)
     expect(r.other?.lastSeq).toBe(9)
-  })
+  }))
 
-  it("treats a NULL state column as absent (checkpoint-only rows are a future flavor)", async () => {
-    const r = await run(
+  it.live("treats a NULL state column as absent (checkpoint-only rows are a future flavor)",  () => Effect.gen(function*() {
+    const r = yield* run(
       Effect.gen(function* () {
         const s = yield* ProjectionStateStore
         const sql = yield* SqlClient
@@ -63,5 +64,5 @@ describe("ProjectionStateStore", () => {
       })
     )
     expect(r).toBe(null)
-  })
+  }))
 })

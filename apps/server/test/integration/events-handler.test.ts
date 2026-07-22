@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Fiber, Layer, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
@@ -15,11 +16,11 @@ const TestLayer = Layer.mergeAll(ProjectEventStoreLayer, ReplayFeedLayer, EventB
 )
 
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | EventBus | ReplayFeed>) =>
-  Effect.runPromise(Effect.provide(Effect.scoped(eff), TestLayer))
+  Effect.provide(Effect.scoped(eff), TestLayer)
 
 describe("Events handler — streamed backlog + live dedup gate", () => {
-  it("replays the backlog then filters live events at or below the replay boundary", async () => {
-    const out = await run(
+  it.live("replays the backlog then filters live events at or below the replay boundary",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const bus = yield* EventBus
@@ -40,10 +41,10 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
       })
     )
     expect(out.map((se) => se.seq)).toEqual([1, 2, 3, 4])
-  })
+  }))
 
-  it("an empty backlog degrades to filtering by the cursor itself (Ref initialized to fromSeq)", async () => {
-    const out = await run(
+  it.live("an empty backlog degrades to filtering by the cursor itself (Ref initialized to fromSeq)",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const bus = yield* EventBus
         const stream = streamHandlers.Events({ fromSeq: 99 })
@@ -55,10 +56,10 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
       })
     )
     expect(out.map((se) => se.seq)).toEqual([100])
-  })
+  }))
 
-  it("appends racing the backlog drain are delivered exactly once, in order, under every interleaving", async () => {
-    const out = await run(
+  it.live("appends racing the backlog drain are delivered exactly once, in order, under every interleaving",  () => Effect.gen(function*() {
+    const out = yield* run(
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const bus = yield* EventBus
@@ -91,5 +92,5 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
       })
     )
     expect(out.map((se) => se.seq)).toEqual([1, 2, 3, 4, 5])
-  })
+  }))
 })

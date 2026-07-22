@@ -1,18 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { Effect, FileSystem, Path, Fiber, Option, Schedule, Schema, Layer } from "effect"
 import { ProcessServices } from "@expand/server/node-process-control"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { resolve } from "node:path"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { readEndpoint } from "@expand/client-ts"
-import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { EndpointFromJson, PROTOCOL_VERSION, type Endpoint } from "@expand/contracts/endpoint"
+import { ProcessControl } from "@expand/contracts/process-control"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.sync(() => ["node", "--import", "tsx", resolve("apps/server/main.ts")])
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 const reviverOwnedAdapter = {
   protocolLayer: nodeAdapter.protocolLayer,
@@ -24,33 +24,22 @@ const reviverOwnedAdapter = {
 // client must bound the connect, delete the stale file, and re-discover a healthy
 // server instead of blocking forever on a dead socket.
 
-let dir: string
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-race-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
-const writeStaleEndpoint = () =>
-  // Live pid (this process) so readEndpoint accepts it, but a port nothing is
-  // listening on — i.e. a server that has already gone away.
-  writeFileSync(
-    makeTestAppContext(dir).paths.endpointFile,
-    JSON.stringify({
-      url: "ws://127.0.0.1:9/rpc",
-      token: "stale",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    })
-  )
+const writeTestEndpoint = (file: string, endpoint: Endpoint) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const encoded = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
+    yield* fs.writeFileString(file, encoded)
+  })
 
 describe.sequential("connect-during-shutdown race (Bug 2)", () => {
-  it(
+  it.live(
     "does not hang on a stale endpoint: times out, deletes it, re-discovers a healthy server",
-    async () => {
+     () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-connect-during-shutdown-')
       const program = Effect.gen(function* () {
-        const dbPath = join(dir, "events.db")
+        const dbPath = path.join(dir, "events.db")
 
         // A REAL backend is running, but it has NOT advertised yet — we control
         // the discovery file by hand to reproduce the race deterministically.
@@ -70,7 +59,14 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
 
         // Now poison discovery with a stale endpoint (dead port). The first client
         // attempt will connect to nothing, time out, and delete this file.
-        writeStaleEndpoint()
+        const processControl = yield* ProcessControl
+        const endpointFile = makeTestAppContext(path, dir).paths.endpointFile
+        yield* writeTestEndpoint(endpointFile, {
+          url: "ws://127.0.0.1:9/rpc",
+          token: "stale",
+          pid: processControl.currentPid,
+          protocolVersion: PROTOCOL_VERSION
+        })
 
         // Background: the instant the client deletes the stale file (its retry
         // path), re-advertise the REAL endpoint so the retry discovers a healthy
@@ -81,11 +77,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
               Option.isNone(o) ? Effect.void : Effect.fail("still-stale" as const)
             ),
             Effect.retry(Schedule.spaced("10 millis")),
-            Effect.andThen(
-              Effect.sync(() =>
-                writeFileSync(makeTestAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))
-              )
-            )
+            Effect.andThen(writeTestEndpoint(endpointFile, realEndpoint))
           )
         )
 
@@ -106,22 +98,21 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(dir))))
+      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
-      const r = await Effect.runPromise(program)
+      const r = yield* (program)
       expect(r.health).toBe("ok")
       expect(r.created.project.name).toBe("after-stale")
-    },
+    }),
     20000
   )
 })
 
-const makeTestAppContext = (dataDir: string) =>
-  makeAppContext(
-    { join, resolve },
-    { homeDir: dataDir, cwd: dataDir, dataDir }
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
   )
 
-function join(...paths: ReadonlyArray<string>): string {
-  return resolve(...paths)
-}
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

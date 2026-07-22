@@ -1,3 +1,4 @@
+import { NodeRuntime } from "@effect/platform-node"
 import { Effect, FileSystem, Schedule, Schema, Stdio } from "effect"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { ProcessServices } from "@expand/server/node-process-control"
@@ -27,7 +28,7 @@ const waitForFile = Effect.fn("StateRootLockTest.waitForFile")(function*(path: s
   )
 })
 
-const lease = await Effect.runPromise(
+NodeRuntime.runMain(
   Effect.gen(function*() {
     const stdio = yield* Stdio.Stdio
     const processControl = yield* ProcessControl
@@ -58,13 +59,9 @@ const lease = await Effect.runPromise(
     if (result._tag === "Success") {
       yield* waitForFile(releasePath)
       yield* releaseStateRootLock(result.success)
-      return result.success
     }
-    return undefined
   }).pipe(
     Effect.provide(ProcessServices.layer),
     Effect.orDie
   )
 )
-
-void lease
