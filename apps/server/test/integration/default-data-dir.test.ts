@@ -10,7 +10,53 @@ const childOutput = (
 ) =>
   Effect.all([Fiber.join(stdout), Fiber.join(stderr)], { concurrency: "unbounded" })
 
+type ServerChild = Effect.Success<ReturnType<typeof ChildProcess.make>>
+
+const awaitChildReadiness = Effect.fn("DefaultDataDir.awaitChildReadiness")(function*(
+  readiness: Effect.Effect<void, unknown>,
+  child: ServerChild,
+  stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
+  stderr: Fiber.Fiber<string, PlatformError.PlatformError>
+) {
+  yield* Effect.raceFirst(
+    readiness,
+    child.exitCode.pipe(
+      Effect.flatMap((code) => childOutput(stdout, stderr).pipe(
+        Effect.flatMap(([output, error]) => Effect.fail(
+          Number(code) === 0
+            ? `production server exited unexpectedly with code 0: stdout=${output} stderr=${error}`
+            : `production server exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`
+        ))
+      ))
+    )
+  )
+})
+
 describe("default data directory", () => {
+  it.live("surfaces an early failing child before readiness times out", () =>
+    Effect.gen(function*() {
+      const child = yield* ChildProcess.make(
+        "node",
+        ["--definitely-invalid-expand-option"],
+        { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
+      )
+      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const readiness = Effect.sleep("5 seconds").pipe(
+        Effect.andThen(Effect.fail("readiness timed out" as const))
+      )
+      const error = yield* awaitChildReadiness(readiness, child, stdout, stderr).pipe(
+        Effect.timeoutOrElse({
+          duration: "1 second",
+          orElse: () => Effect.fail("early exit was not surfaced" as const)
+        }),
+        Effect.flip
+      )
+      expect(error).toBe(
+        "production server exited with nonzero code 9: stdout= stderr=node: bad option: --definitely-invalid-expand-option\n"
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.live("starts fresh without moving an old unscoped home", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -46,18 +92,7 @@ describe("default data directory", () => {
         }),
         Effect.asVoid
       )
-      yield* Effect.race(
-        readiness,
-        child.exitCode.pipe(
-          Effect.flatMap((code) => childOutput(stdout, stderr).pipe(
-            Effect.flatMap(([output, error]) => Effect.fail(
-              Number(code) === 0
-                ? `production server exited unexpectedly with code 0: stdout=${output} stderr=${error}`
-                : `production server exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`
-            ))
-          ))
-        )
-      )
+      yield* awaitChildReadiness(readiness, child, stdout, stderr)
       const exit = yield* child.exitCode.pipe(Effect.timeoutOption("1 millis"))
       if (Option.isSome(exit)) {
         const [output, error] = yield* childOutput(stdout, stderr)

@@ -78,16 +78,19 @@ const probeTcp = (host: string, port: number) =>
 
 const OffLoopbackTargets = Schema.fromJsonString(Schema.Array(Schema.String))
 
-const startTrustBoundaryHost = (args: ReadonlyArray<string>) => Effect.gen(function*() {
+const startChild = (args: ReadonlyArray<string>) => Effect.gen(function*() {
   const child = yield* ChildProcess.make(
     "node",
-    ["--import", "tsx", "apps/server/test/fixtures/trust-boundary-host.ts", ...args],
+    args,
     { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
   )
   const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
   const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
   return { child, stdout, stderr }
 })
+
+const startTrustBoundaryHost = (args: ReadonlyArray<string>) =>
+  startChild(["--import", "tsx", "apps/server/test/fixtures/trust-boundary-host.ts", ...args])
 
 type TrustBoundaryHost = Effect.Success<ReturnType<typeof startTrustBoundaryHost>>
 type ChildExitCode = Effect.Success<TrustBoundaryHost["child"]["exitCode"]>
@@ -122,7 +125,7 @@ const awaitChildReadiness = Effect.fn("TrustBoundary.awaitChildReadiness")(funct
   host: TrustBoundaryHost,
   label: string
 ) {
-  yield* Effect.race(
+  yield* Effect.raceFirst(
     readiness,
     host.child.exitCode.pipe(Effect.flatMap((code) => unexpectedChildExit(host, label, code)))
   )
@@ -152,6 +155,24 @@ const probeWs = (url: string) =>
   }))
 
 describe.sequential("trust boundary", () => {
+  it.live("surfaces an early failing child before readiness times out", () => Effect.gen(function*() {
+    const path = yield* Path.Path
+    const dir = yield* makeTestDirectory("expand-trust-boundary-early-exit-")
+    const host = yield* startChild(["--definitely-invalid-expand-option"])
+    const error = yield* awaitChildReadiness(awaitEndpointUp, host, "trust boundary fixture").pipe(
+      Effect.timeoutOrElse({
+        duration: "1 second",
+        orElse: () => Effect.fail("early exit was not surfaced" as const)
+      }),
+      Effect.flip,
+      Effect.provide(ProcessServices.layer),
+      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))
+    )
+    expect(error).toBe(
+      "trust boundary fixture exited with nonzero code 9: stdout= stderr=node: bad option: --definitely-invalid-expand-option\n"
+    )
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.live("binds to a 127.0.0.1 TcpAddress",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-trust-boundary-')
