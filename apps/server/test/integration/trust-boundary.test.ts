@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, Schedule, Schema, Scope, Stream } from "effect"
+import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Schema, Stream } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { readEndpoint, withClient } from "@expand/client-ts"
@@ -8,6 +8,7 @@ import { runServer } from "@expand/server/composition/app"
 import { writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+import { ProcessControl } from "@expand/contracts/process-control"
 
 import { httpServerLayer } from "@expand/server/http"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
@@ -77,17 +78,62 @@ const probeTcp = (host: string, port: number) =>
 
 const OffLoopbackTargets = Schema.fromJsonString(Schema.Array(Schema.String))
 
-const offLoopbackTargets = Effect.gen(function*() {
+const startTrustBoundaryHost = (args: ReadonlyArray<string>) => Effect.gen(function*() {
   const child = yield* ChildProcess.make(
     "node",
-    [
-      "-e",
-      ["const os=require('node", ":os');const values=Object.values(os.networkInterfaces()).flatMap(xs=>(xs??[]).filter(x=>!x.internal&&x.family==='IPv4').map(x=>x.address));", "process", ".stdout.write(", "JSON", ".stringify(['::1',...values]))"].join("")
-    ],
-    { stdout: "pipe", stderr: "ignore" }
+    ["--import", "tsx", "apps/server/test/fixtures/trust-boundary-host.ts", ...args],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
   )
-  const output = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString)
+  const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+  const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+  return { child, stdout, stderr }
+})
+
+type TrustBoundaryHost = Effect.Success<ReturnType<typeof startTrustBoundaryHost>>
+type ChildExitCode = Effect.Success<TrustBoundaryHost["child"]["exitCode"]>
+
+const childOutput = (
+  stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
+  stderr: Fiber.Fiber<string, PlatformError.PlatformError>
+) =>
+  Effect.all([Fiber.join(stdout), Fiber.join(stderr)], { concurrency: "unbounded" })
+
+const offLoopbackTargets = Effect.scoped(Effect.gen(function*() {
+  const { child, stdout, stderr } = yield* startTrustBoundaryHost(["network-targets"])
+  const code = yield* child.exitCode
+  const [output, error] = yield* childOutput(stdout, stderr)
+  if (Number(code) !== 0) {
+    return yield* Effect.fail(`network target fixture exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`)
+  }
   return yield* Schema.decodeUnknownEffect(OffLoopbackTargets)(output)
+}))
+
+const unexpectedChildExit = (host: TrustBoundaryHost, label: string, code: ChildExitCode) =>
+  childOutput(host.stdout, host.stderr).pipe(
+    Effect.flatMap(([output, error]) => Effect.fail(
+      Number(code) === 0
+        ? `${label} exited unexpectedly with code 0: stdout=${output} stderr=${error}`
+        : `${label} exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`
+    ))
+  )
+
+const awaitChildReadiness = Effect.fn("TrustBoundary.awaitChildReadiness")(function*(
+  readiness: Effect.Effect<void, unknown, FileSystem.FileSystem | AppContext | ProcessControl>,
+  host: TrustBoundaryHost,
+  label: string
+) {
+  yield* Effect.race(
+    readiness,
+    host.child.exitCode.pipe(Effect.flatMap((code) => unexpectedChildExit(host, label, code)))
+  )
+})
+
+const assertChildAlive = Effect.fn("TrustBoundary.assertChildAlive")(function*(
+  host: TrustBoundaryHost,
+  label: string
+) {
+  const exit = yield* host.child.exitCode.pipe(Effect.timeoutOption("1 millis"))
+  if (Option.isSome(exit)) return yield* unexpectedChildExit(host, label, exit.value)
 })
 
 const probeWs = (url: string) =>
@@ -189,26 +235,44 @@ describe.sequential("trust boundary", () => {
     const file = makeTestAppContext(path, home).paths.endpointFile
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const scope = yield* Scope.make()
-      yield* Effect.provideService(
-        writeEndpointFile({
-          url: "ws://127.0.0.1:51789/rpc",
-          token: "tok",
-          pid: 4242,
-          protocolVersion: PROTOCOL_VERSION
-        }),
-        Scope.Scope,
-        scope
-      )
+      yield* writeEndpointFile({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "tok",
+        pid: 4242,
+        protocolVersion: PROTOCOL_VERSION
+      })
       const fileInfo = yield* fs.stat(file)
       const dirInfo = yield* fs.stat(home)
-      yield* Scope.close(scope, Exit.void)
       return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
-    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, home))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, home))))
 
     const r = yield* (program)
     expect(r.fileMode).toBe(0o600)
     expect(r.dirMode).toBe(0o700)
+  }))
+
+  it.live("releases endpoint file ownership when endpoint setup fails", () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-trust-boundary-')
+    const file = makeTestAppContext(path, dir).paths.endpointFile
+    const exit = yield* Effect.exit(Effect.gen(function*() {
+      yield* writeEndpointFile({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "tok",
+        pid: 4242,
+        protocolVersion: PROTOCOL_VERSION
+      })
+      return yield* Effect.fail("forced endpoint setup failure" as const)
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(ProcessServices.layer),
+      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))
+    ))
+    expect(Exit.isFailure(exit)).toBe(true)
+    expect(yield* FileSystem.FileSystem.pipe(
+      Effect.flatMap((fs) => fs.exists(file)),
+      Effect.provide(NodeServices.layer)
+    )).toBe(false)
   }))
 
   it.live("tightens a pre-existing endpoint file to 0600",  () => Effect.gen(function*() {
@@ -221,21 +285,15 @@ describe.sequential("trust boundary", () => {
     )
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const scope = yield* Scope.make()
-      yield* Effect.provideService(
-        writeEndpointFile({
-          url: "ws://127.0.0.1:51789/rpc",
-          token: "tok",
-          pid: 4242,
-          protocolVersion: PROTOCOL_VERSION
-        }),
-        Scope.Scope,
-        scope
-      )
+      yield* writeEndpointFile({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "tok",
+        pid: 4242,
+        protocolVersion: PROTOCOL_VERSION
+      })
       const info = yield* fs.stat(file)
-      yield* Scope.close(scope, Exit.void)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
 
     expect(yield* (program)).toBe(0o600)
   }))
@@ -269,46 +327,9 @@ describe.sequential("trust boundary", () => {
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory(dataDir, { recursive: true })
-      const fixtureDir = yield* fs.makeTempDirectoryScoped({
-        directory: path.resolve("."),
-        prefix: ".expand-trust-boundary-"
-      })
-      const fixturePath = path.join(fixtureDir, "permissive-umask-server.ts")
-      const fixtureSource = [
-        "import { NodeRuntime, NodeServices } from \"@effect/platform-node\"\n",
-        "import { Effect, Layer, Path, Stdio } from \"effect\"\n",
-        "import { AppContext, makeAppContext } from \"@expand/contracts/app-context\"\n",
-        "import { runServer } from \"@expand/server/composition/app\"\n",
-        "import { ProcessServices } from \"@expand/server/node-process-control\"\n",
-        "process", ".umask(0o002)\n",
-        "NodeRuntime", ".runMain(Effect.gen(function*() {\n",
-        "  const path = yield* Path.Path\n",
-        "  const stdio = yield* Stdio.Stdio\n",
-        "  const [dataDir] = yield* stdio.args\n",
-        "  if (dataDir === undefined) return yield* Effect.fail(\"missing data directory\")\n",
-        "  const context = makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })\n",
-        "  yield* runServer({ dbPath: path.join(dataDir, \"events.db\") }).pipe(\n",
-        "    Effect.provide(ProcessServices.layer),\n",
-        "    Effect.provide(Layer.succeed(AppContext, context))\n",
-        "  )\n",
-        "}).pipe(Effect.provide(NodeServices.layer), Effect.orDie))\n"
-      ].join("")
-      yield* fs.writeFileString(fixturePath, fixtureSource)
-      const child = yield* ChildProcess.make(
-        "node",
-        ["--import", "tsx", fixturePath, dataDir],
-        { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
-      )
-      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
-      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
-      yield* Effect.race(
-        awaitEndpointUp,
-        child.exitCode.pipe(
-          Effect.flatMap((code) => Effect.all([Fiber.join(stdout), Fiber.join(stderr)]).pipe(
-            Effect.flatMap(([out, error]) => Effect.fail(`permissive umask fixture exited ${String(code)}: ${out}${error}`))
-          ))
-        )
-      )
+      const host = yield* startTrustBoundaryHost(["permissive-umask-server", dataDir])
+      yield* awaitChildReadiness(awaitEndpointUp, host, "permissive umask fixture")
+      yield* assertChildAlive(host, "permissive umask fixture")
       const dbPath = path.join(dataDir, "events.db")
       const mode = (p: string) => Effect.map(fs.stat(p), (s) => Number(s.mode & 0o777))
       const db = yield* mode(dbPath)

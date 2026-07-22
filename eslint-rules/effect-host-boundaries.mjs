@@ -351,6 +351,27 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "apps/server/test/fixtures/trust-boundary-host.ts",
+    declaration: "module:<module>",
+    host: "Trust-boundary network-target test fixture host adapter",
+    construct: nodeOsImport,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/server/test/fixtures/trust-boundary-host.ts",
+    declaration: "variable:program",
+    host: "Trust-boundary permissive-umask test fixture host setup",
+    construct: processUmask,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/server/test/fixtures/trust-boundary-host.ts",
+    declaration: "module:<module>",
+    host: "Argument-selected trust-boundary test fixture entrypoint",
+    construct: testFixtureNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "apps/tui/main.tsx",
     declaration: "module:<module>",
     host: "Node application entrypoint",

@@ -1,8 +1,14 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Option, Path, Schedule, Stream } from "effect"
+import { Effect, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { describe, expect } from "vitest"
+
+const childOutput = (
+  stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
+  stderr: Fiber.Fiber<string, PlatformError.PlatformError>
+) =>
+  Effect.all([Fiber.join(stdout), Fiber.join(stderr)], { concurrency: "unbounded" })
 
 describe("default data directory", () => {
   it.live("starts fresh without moving an old unscoped home", () =>
@@ -25,24 +31,46 @@ describe("default data directory", () => {
           env: { HOME: root, EXPAND_LOG_LEVEL: "None" },
           extendEnv: true,
           stdin: "ignore",
-          stdout: "ignore",
+          stdout: "pipe",
           stderr: "pipe"
         }
       )
-      yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
-      yield* fs.exists(endpointFile).pipe(
+      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const readiness = fs.exists(endpointFile).pipe(
         Effect.filterOrFail((exists) => exists, () => "pending" as const),
         Effect.retry(Schedule.spaced("25 millis")),
         Effect.timeoutOrElse({
           duration: "10 seconds",
           orElse: () => Effect.fail("production server did not start" as const)
-        })
+        }),
+        Effect.asVoid
       )
-      const exit = child.exitCode.pipe(Effect.timeoutOption("1 millis"))
+      yield* Effect.race(
+        readiness,
+        child.exitCode.pipe(
+          Effect.flatMap((code) => childOutput(stdout, stderr).pipe(
+            Effect.flatMap(([output, error]) => Effect.fail(
+              Number(code) === 0
+                ? `production server exited unexpectedly with code 0: stdout=${output} stderr=${error}`
+                : `production server exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`
+            ))
+          ))
+        )
+      )
+      const exit = yield* child.exitCode.pipe(Effect.timeoutOption("1 millis"))
+      if (Option.isSome(exit)) {
+        const [output, error] = yield* childOutput(stdout, stderr)
+        return yield* Effect.fail(
+          Number(exit.value) === 0
+            ? `production server exited unexpectedly with code 0 after readiness: stdout=${output} stderr=${error}`
+            : `production server exited with nonzero code ${String(exit.value)} after readiness: stdout=${output} stderr=${error}`
+        )
+      }
       expect(yield* fs.exists(path.join(legacyDir, "events.db"))).toBe(true)
       expect(yield* fs.exists(path.join(legacyDir, "marker"))).toBe(true)
       expect(yield* fs.exists(path.join(defaultDir, "events.db"))).toBe(true)
       expect(yield* fs.exists(path.join(defaultDir, "marker"))).toBe(false)
-      expect(Option.isNone(yield* exit)).toBe(true)
+      expect(Option.isNone(exit), "production server must remain alive after readiness").toBe(true)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), 15_000)
 })

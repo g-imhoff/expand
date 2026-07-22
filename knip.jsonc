@@ -20,7 +20,8 @@
     ".": {
       "entry": [
         "scripts/*.ts",
-        "apps/server/test/fixtures/state-root-lock-contender.ts"
+        "apps/server/test/fixtures/state-root-lock-contender.ts",
+        "apps/server/test/fixtures/trust-boundary-host.ts"
       ],
       "project": [
         "apps/cli/**/*.{ts,tsx}",

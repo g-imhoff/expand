@@ -1,40 +1,44 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Fiber, Layer, Stream } from "effect"
+import { Effect, Fiber, Layer, Queue, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
-import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"
+import { EventBus } from "@expand/server/application/event-bus"
 import { streamHandlers } from "@expand/server/rpc/stream"
 import { ProjectCreated } from "@expand/contracts/events/project"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
-const TestLayer = Layer.mergeAll(ProjectEventStoreLayer, ReplayFeedLayer, EventBusLayer).pipe(
+const testLayer = (subscribed: Queue.Queue<void>) => Layer.mergeAll(
+  ProjectEventStoreLayer,
+  ReplayFeedLayer,
+  Layer.effect(EventBus, Effect.map(EventBus.make, (bus) => ({
+    ...bus,
+    subscribe: Effect.tap(bus.subscribe, () => Queue.offer(subscribed, undefined))
+  })))
+).pipe(
   Layer.provideMerge(SqliteClient.layer({ filename: ":memory:", disableWAL: true }))
 )
 
-const run = <A, E>(eff: Effect.Effect<A, E, ProjectEventStore | EventBus | ReplayFeed>) =>
-  Effect.provide(Effect.scoped(eff), TestLayer)
+const run = <A, E>(
+  subscribed: Queue.Queue<void>,
+  eff: Effect.Effect<A, E, ProjectEventStore | EventBus | ReplayFeed>
+) => Effect.provide(Effect.scoped(eff), testLayer(subscribed))
 
 describe("Events handler — streamed backlog + live dedup gate", () => {
   it.live("replays the backlog then filters live events at or below the replay boundary",  () => Effect.gen(function*() {
+    const subscribed = yield* Queue.unbounded<void>()
     const out = yield* run(
+      subscribed,
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const bus = yield* EventBus
         for (let n = 1; n <= 3; n++) yield* events.append(ev(n))
         const stream = streamHandlers.Events({ fromSeq: 0 })
         const fiber = yield* Effect.forkChild(Stream.runCollect(Stream.take(stream, 4)))
-        // Give the handler time to subscribe + drain the backlog, then publish a
-        // DUPLICATE of seq 3 (must be gated out) and a genuinely new seq 4.
-        // Timing note: the 100ms sleep vastly exceeds the fork→subscribe latency
-        // (subscription is the handler's FIRST effect, triggered by the fork's first
-        // pull), so BOTH publishes are guaranteed to land AFTER the subscription —
-        // the duplicate is then gated by the Ref/filter, never lost pre-subscription.
-        // (Were both publishes to land before subscribe, take(4) would HANG, not pass.)
-        yield* Effect.sleep(100)
+        yield* Queue.take(subscribed)
         yield* bus.publish({ seq: 3, event: ev(3) })
         yield* bus.publish({ seq: 4, event: ev(4) })
         return Array.from(yield* Fiber.join(fiber))
@@ -44,12 +48,14 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
   }))
 
   it.live("an empty backlog degrades to filtering by the cursor itself (Ref initialized to fromSeq)",  () => Effect.gen(function*() {
+    const subscribed = yield* Queue.unbounded<void>()
     const out = yield* run(
+      subscribed,
       Effect.gen(function* () {
         const bus = yield* EventBus
         const stream = streamHandlers.Events({ fromSeq: 99 })
         const fiber = yield* Effect.forkChild(Stream.runCollect(Stream.take(stream, 1)))
-        yield* Effect.sleep(100)
+        yield* Queue.take(subscribed)
         yield* bus.publish({ seq: 99, event: ev(1) })   // ≤ cursor → gated
         yield* bus.publish({ seq: 100, event: ev(2) })  // new → delivered
         return Array.from(yield* Fiber.join(fiber))
@@ -59,7 +65,9 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
   }))
 
   it.live("appends racing the backlog drain are delivered exactly once, in order, under every interleaving",  () => Effect.gen(function*() {
+    const subscribed = yield* Queue.unbounded<void>()
     const out = yield* run(
+      subscribed,
       Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const bus = yield* EventBus
@@ -75,15 +83,7 @@ describe("Events handler — streamed backlog + live dedup gate", () => {
         // interleaving, so this test is race-proof by construction — it exercises
         // whichever path the scheduler happens to pick, with no stabilizing sleep.
         yield* bus.publish({ seq: 3, event: ev(3) })
-        // The two genuinely-new events are committed the way the server does
-        // (append → publish each) but only AFTER a 50ms sleep. Subscription is the
-        // handler's first effect, triggered by the fork's first pull (microsecond
-        // latency); 50ms is orders of magnitude above that, so these NEW events are
-        // guaranteed to land after the subscription and therefore be delivered —
-        // without that guarantee take(5) could hang. The sleep is honestly here for
-        // the NEW events only; the DUPLICATE above is published sleep-free precisely
-        // so it can race the drain.
-        yield* Effect.sleep(50)
+        yield* Queue.take(subscribed)
         const s4 = yield* events.append(ev(4))
         yield* bus.publish({ seq: s4, event: ev(4) })
         const s5 = yield* events.append(ev(5))

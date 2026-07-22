@@ -1,6 +1,7 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, FileSystem, Layer, Path } from "effect"
+import { TestClock } from "effect/testing"
 import { NodeServices } from "@effect/platform-node"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -128,7 +129,7 @@ describe("ProjectProjection — boot catch-up", () => {
 })
 
 describe("ProjectProjection — checkpoint cadence", () => {
-  it.live("a debounced checkpoint advances projection_state without a reboot",  () => Effect.gen(function*() {
+  it.effect("a debounced checkpoint advances projection_state without a reboot",  () => Effect.gen(function*() {
     yield* withDb((db) => Effect.gen(function*() {
       const persisted = yield* on(db, Effect.gen(function* () {
         const p = yield* ProjectProjection
@@ -136,7 +137,7 @@ describe("ProjectProjection — checkpoint cadence", () => {
         yield* p.apply({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "x", occurredAt: "t1" }) })
         // Wait out the debounce window inside the SAME layer build (the fiber
         // lives in the projection's scope, which `on` closes when it returns).
-        yield* Effect.sleep(CHECKPOINT_DEBOUNCE_MS + 300)
+        yield* TestClock.adjust(`${CHECKPOINT_DEBOUNCE_MS + 300} millis`)
         return yield* snapshots.load(PROJECTION_NAME)
       }))
       expect(persisted?.lastSeq).toBe(1)
