@@ -10,8 +10,8 @@ import { tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
 import { useProjects } from "@expand/tui/use-projects"
 import {
   fakeProject,
-  makeRuntimeHarness,
-  renderWithRuntime,
+  makeRuntimeHarnessScoped,
+  renderWithRuntimeScoped,
   type RuntimeHarness
 } from "./_runtime-harness"
 
@@ -25,7 +25,7 @@ const renderHookWithRuntime = (harness: RuntimeHarness) => {
     observed = useProjects()
     return null
   }
-  const rendered = renderWithRuntime(<Probe />, harness)
+  return renderWithRuntimeScoped(<Probe />, harness).pipe(Effect.map((rendered) => {
   const result = () => {
     if (!observed) throw new Error("hook was not observed")
     return observed
@@ -38,92 +38,110 @@ const renderHookWithRuntime = (harness: RuntimeHarness) => {
     waitForProjects: (names: ReadonlyArray<string>) =>
       vi.waitFor(() => expect(result().projects.map((project) => project.name)).toEqual(names))
   }
+  }))
 }
 
 describe("useProjects", () => {
-  effectIt.effect("publishes the initial synchronized snapshot", () => {
-    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("releases the Ink root and runtime after an assertion effect fails", () =>
+    Effect.gen(function* () {
+      let retainedWrite: ((value: string) => void) | undefined
+      let frame: (() => string | undefined) | undefined
+      let harness: RuntimeHarness | undefined
+      const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function* () {
+        harness = yield* makeRuntimeHarnessScoped()
+        const rendered = yield* renderWithRuntimeScoped(<>0</>, harness)
+        frame = rendered.lastFrame
+        retainedWrite = rendered.stdin.write
+        yield* Effect.tryPromise(() => vi.waitFor(() => expect(frame?.()).toContain("0")))
+        return yield* Effect.fail("expected assertion failure")
+      })))
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(harness?.lifecycle.inkUnmounts).toBe(1)
+      expect(harness?.lifecycle.runtimeDisposals).toBe(1)
+      const releasedFrame = frame?.()
+      retainedWrite?.("x")
+      yield* Effect.yieldNow
+      expect(frame?.()).toBe(releasedFrame)
+    }))
+
+  effectIt.effect("publishes the initial synchronized snapshot", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
+      const view = yield* renderHookWithRuntime(harness)
       yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
       expect(view.snapshot()).toEqual({ projects: [alpha], seq: 1 })
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+    })))
 
-  effectIt.effect("folds live events into React-owned state", () => {
-    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("folds live events into React-owned state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
+      const view = yield* renderHookWithRuntime(harness)
       yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
-      harness.events.publish(ProjectRenamed.make({
+      yield* harness.events.publish(ProjectRenamed.make({
         projectId: alpha.id,
         name: "alpha-live",
         occurredAt: "t2"
       }))
       yield* Effect.tryPromise(() => view.waitForProjects(["alpha-live"]))
       expect(view.snapshot().seq).toBe(2)
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+    })))
 
-  effectIt.effect("retains projects while reconnecting and replaces after resnapshot", () => {
-    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("retains projects while reconnecting and replaces after resnapshot", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
+      const view = yield* renderHookWithRuntime(harness)
       yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
-      harness.status.set("reconnecting")
+      yield* harness.status.set("reconnecting")
       harness.authoritative.set({ projects: [beta], seq: 5 })
       expect(view.projects()).toEqual(["alpha"])
-      harness.status.set("connected")
+      yield* harness.status.set("connected")
       yield* Effect.tryPromise(() => view.waitForProjects(["beta"]))
       expect(view.snapshot().seq).toBe(5)
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+    })))
 
-  effectIt.effect("interrupts synchronization on unmount", () => {
-    const harness = makeRuntimeHarness({ snapshot: { projects: [alpha], seq: 1 } })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("interrupts synchronization on unmount", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [alpha], seq: 1 } })
+      const view = yield* renderHookWithRuntime(harness)
       view.unmount()
-      expect(yield* Effect.tryPromise(() => harness.syncInterrupted())).toBe(true)
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+      expect(yield* harness.syncInterrupted).toBe(true)
+    })))
 
-  effectIt.effect("surfaces an initial runtime build failure", () => {
-    const harness = makeRuntimeHarness({
-      failure: new BackendUnavailable({ reason: "offline" })
-    })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("surfaces an initial runtime build failure", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        failure: new BackendUnavailable({ reason: "offline" })
+      })
+      const view = yield* renderHookWithRuntime(harness)
       yield* Effect.tryPromise(() =>
         vi.waitFor(() => expect(view.result().error).toBe("backend unavailable: offline"))
       )
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+    })))
 
-  effectIt.effect("calls ProjectClient with ensure create semantics without using the response as state", () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [alpha], seq: 1 },
-      client: {
-        create: () => Effect.succeed({ created: true, project: beta })
-      }
-    })
-    return Effect.gen(function* () {
-      const view = renderHookWithRuntime(harness)
+  effectIt.effect("calls ProjectClient with ensure create semantics without using the response as state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [alpha], seq: 1 },
+        client: {
+          create: () => Effect.succeed({ created: true, project: beta })
+        }
+      })
+      const view = yield* renderHookWithRuntime(harness)
       yield* Effect.tryPromise(() => view.waitForProjects(["alpha"]))
       view.result().create("beta")
       yield* Effect.tryPromise(() =>
         vi.waitFor(() => expect(harness.calls.create).toEqual([{ name: "beta", ensure: true }]))
       )
       expect(view.projects()).toEqual(["alpha"])
-    }).pipe(Effect.ensuring(Effect.tryPromise(() => harness.dispose())))
-  })
+    })))
 })
 
 effectIt.effect("owns overlapping mutations until React unmount interrupts each one", () =>
-  Effect.gen(function* () {
+  Effect.scoped(Effect.gen(function* () {
     const interrupted = [false, false]
     let started = 0
-    const harness = makeRuntimeHarness({
+    const harness = yield* makeRuntimeHarnessScoped({
       client: {
         create: () => {
           const index = started++
@@ -133,25 +151,24 @@ effectIt.effect("owns overlapping mutations until React unmount interrupts each 
         }
       }
     })
-    const view = renderHookWithRuntime(harness)
+    const view = yield* renderHookWithRuntime(harness)
     view.result().create("alpha")
     view.result().create("beta")
     yield* Effect.tryPromise(() => vi.waitFor(() => expect(harness.calls.create).toHaveLength(2)))
     view.unmount()
     yield* Effect.tryPromise(() => vi.waitFor(() => expect(interrupted).toEqual([true, true])))
-    yield* harness.runtime.disposeEffect
-  }))
+  })))
 
 describe("TUI Effect runner", () => {
   effectIt.effect("logs a cancelled target defect without delivering it to React", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const finalized = yield* Deferred.make<void>()
       const entries: Array<string> = []
       const logger = Logger.make((options) => {
         const messages = Array.isArray(options.message) ? options.message : [options.message]
         entries.push(messages.map(String).join(" "))
       })
-      const harness = makeRuntimeHarness({
+      const harness = yield* makeRuntimeHarnessScoped({
         transformEffect: (effect) => effect.pipe(Effect.provide(Logger.layer([logger])))
       })
       const onExit = vi.fn()
@@ -174,14 +191,13 @@ describe("TUI Effect runner", () => {
         vi.waitFor(() => expect(entries.some((entry) => entry.includes("cancelled effect died"))).toBe(true))
       )
       expect(onExit).not.toHaveBeenCalled()
-      yield* harness.runtime.disposeEffect
-    }))
+    })))
 
   effectIt.effect("observes ProjectSync failure and suppresses failure delivery after disposal", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const failure = new Error("sync failed")
       const release = yield* Deferred.make<void>()
-      const harness = makeRuntimeHarness()
+      const harness = yield* makeRuntimeHarnessScoped()
       const onExit = vi.fn()
       const runner = makeEffectRunner(harness.runtime)
       const sink = { snapshot: () => Effect.void, status: () => Effect.void }
@@ -216,14 +232,13 @@ describe("TUI Effect runner", () => {
       yield* Deferred.succeed(release, undefined)
       yield* Effect.yieldNow
       expect(onExit).not.toHaveBeenCalled()
-      yield* harness.runtime.disposeEffect
-    }))
+    })))
 
   effectIt.effect("interrupts through the runtime and suppresses late callbacks after disposal", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const interrupted = yield* Deferred.make<void>()
       const observed: Array<boolean> = []
-      const harness = makeRuntimeHarness({
+      const harness = yield* makeRuntimeHarnessScoped({
         transformFiber: (fiber) => {
           const index = observed.push(false) - 1
           return new Proxy(fiber, {
@@ -250,8 +265,7 @@ describe("TUI Effect runner", () => {
       yield* Effect.yieldNow
       expect(observed).toEqual([true, true])
       expect(onExit).not.toHaveBeenCalled()
-      yield* harness.runtime.disposeEffect
-    }))
+    })))
 })
 
 describe("tuiProgram", () => {

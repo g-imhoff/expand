@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect, vi } from "vitest"
 import React from "react"
+import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
-import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-harness"
+import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./_runtime-harness"
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to
@@ -10,62 +12,54 @@ import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-h
 // toggle that never types text) before the first real keypress.
 const WAIT = { timeout: 2000, interval: 10 } as const
 const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT)
+  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
 const has = (lastFrame: () => string | undefined, text: string) =>
   (lastFrame() ?? "").includes(text)
-const ensureInputLive = async (
+const ensureInputLive = (
   stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => {
-  await waitForFrame(lastFrame, atRest) // seeded + reconciled before warm-up
-  await vi.waitFor(() => {
+) => Effect.gen(function* () {
+  yield* waitForFrame(lastFrame, atRest)
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "r rename")) stdin.write("\t")
     expect(lastFrame()).toContain("return create")
-  }, WAIT)
-  await vi.waitFor(() => {
+  }, WAIT))
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "return create")) stdin.write("\t")
     expect(lastFrame()).toContain("r rename")
-  }, WAIT)
-  await waitForFrame(lastFrame, atRest) // round-trip preserved selection
-}
+  }, WAIT))
+  yield* waitForFrame(lastFrame, atRest)
+})
 
 describe("App delete keybinding", () => {
-  it("pressing 'x' opens the confirm prompt and 'y' deletes the project", async () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
-    })
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "▸ alpha")
+  it.effect("pressing 'x' opens the confirm prompt and 'y' deletes the project", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
+      })
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("x")
-      await waitForFrame(lastFrame, "delete") // confirm prompt open
+      yield* waitForFrame(lastFrame, "delete")
       expect(lastFrame()).toContain("alpha")
       stdin.write("y")
-      await vi.waitFor(async () => {
+      yield* Effect.tryPromise(() => vi.waitFor(() => {
         const remaining = harness.authoritative.get().projects
         expect(remaining).toHaveLength(0)
-      }, WAIT)
-    } finally {
-      await harness.dispose()
-    }
-  })
+      }, WAIT))
+    })))
 
-  it("pressing 'x' then Escape cancels without deleting", async () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
-    })
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "▸ alpha")
+  it.effect("pressing 'x' then Escape cancels without deleting", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
+      })
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("x")
-      await waitForFrame(lastFrame, "delete") // confirm prompt open
-      stdin.write("\x1b") // escape cancels
-      // Cancel completing is observable as the confirm prompt closing — the list
-      // hint returns. Once back at rest, assert the project is still there.
-      await waitForFrame(lastFrame, "r rename")
+      yield* waitForFrame(lastFrame, "delete")
+      stdin.write("\x1b")
+      yield* waitForFrame(lastFrame, "r rename")
       const remaining = harness.authoritative.get().projects
       expect(remaining).toHaveLength(1)
-    } finally {
-      await harness.dispose()
-    }
-  })
+    })))
 })

@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect, vi } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { ProjectNameConflict } from "@expand/contracts/rpc"
 import { App } from "@expand/tui/components/app"
-import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-harness"
+import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./_runtime-harness"
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to
@@ -12,69 +13,60 @@ import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-h
 // Tab (a focus toggle that never types text) before the first real keypress.
 const WAIT = { timeout: 2000, interval: 10 } as const
 const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT)
+  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
 const has = (lastFrame: () => string | undefined, text: string) =>
   (lastFrame() ?? "").includes(text)
-const ensureInputLive = async (
+const ensureInputLive = (
   stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => {
-  await waitForFrame(lastFrame, atRest) // seeded + reconciled before warm-up
-  await vi.waitFor(() => {
+) => Effect.gen(function* () {
+  yield* waitForFrame(lastFrame, atRest)
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "r rename")) stdin.write("\t")
     expect(lastFrame()).toContain("return create")
-  }, WAIT)
-  await vi.waitFor(() => {
+  }, WAIT))
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "return create")) stdin.write("\t")
     expect(lastFrame()).toContain("r rename")
-  }, WAIT)
-  await waitForFrame(lastFrame, atRest) // round-trip preserved at-rest state
-}
+  }, WAIT))
+  yield* waitForFrame(lastFrame, atRest)
+})
 
 describe("App mutation error line", () => {
-  it("renders a failed rename and clears it on the next successful mutation", async () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 },
-      client: {
-        rename: ({ name }) => Effect.fail(new ProjectNameConflict({ name }))
-      }
-    })
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "▸ alpha")
+  it.effect("renders a failed rename and clears it on the next successful mutation", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 },
+        client: {
+          rename: ({ name }) => Effect.fail(new ProjectNameConflict({ name }))
+        }
+      })
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("r")
-      await waitForFrame(lastFrame, "rename ▸") // rename overlay open
+      yield* waitForFrame(lastFrame, "rename ▸")
       stdin.write("\r")
-      await waitForFrame(lastFrame, 'name conflict: "alpha" already exists')
-      stdin.write("n") // focus create before typing
-      await waitForFrame(lastFrame, "return create") // create focused (re-rendered)
+      yield* waitForFrame(lastFrame, 'name conflict: "alpha" already exists')
+      stdin.write("n")
+      yield* waitForFrame(lastFrame, "return create")
       stdin.write("zen")
-      await waitForFrame(lastFrame, "zen") // draft typed
+      yield* waitForFrame(lastFrame, "zen")
       stdin.write("\r")
-      // The successful create clears the error; wait for the new project to land
-      // (positive), then assert the conflict line is gone.
-      await waitForFrame(lastFrame, "• zen")
+      yield* waitForFrame(lastFrame, "• zen")
       expect(lastFrame()).not.toContain("name conflict")
       expect(lastFrame()).toContain("zen")
-    } finally {
-      await harness.dispose()
-    }
-  })
+    })))
 
-  it("shows 'invalid input' when an invalid project name is submitted", async () => {
-    const harness = makeRuntimeHarness()
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "no projects yet")
-      stdin.write("n") // focus create before typing
-      await waitForFrame(lastFrame, "return create") // create focused (re-rendered)
-      // "INVALID NAME!!!" contains uppercase + spaces — fails string regex
+  it.effect("shows 'invalid input' when an invalid project name is submitted", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped()
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "no projects yet")
+      stdin.write("n")
+      yield* waitForFrame(lastFrame, "return create")
       stdin.write("INVALID NAME!!!")
-      await waitForFrame(lastFrame, "INVALID NAME!!!") // draft typed
+      yield* waitForFrame(lastFrame, "INVALID NAME!!!")
       stdin.write("\r")
-      await waitForFrame(lastFrame, "invalid name")
+      yield* waitForFrame(lastFrame, "invalid name")
       expect(lastFrame()).toContain("must match")
-    } finally {
-      await harness.dispose()
-    }
-  })
+    })))
 })

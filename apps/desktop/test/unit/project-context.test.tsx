@@ -42,20 +42,20 @@ const ProjectNames = () => (
 
 describe("ProjectContextProvider", () => {
   it.effect("updates selector consumers without an AppHandle mirror", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const store = makeProjectsStore()
-      render(
+      yield* Effect.acquireRelease(Effect.sync(() => render(
         <ProjectContextProvider value={{ store, rpc }}>
           <ProjectNames />
         </ProjectContextProvider>
-      )
+      )), (rendered) => Effect.sync(() => rendered.unmount()))
       yield* makeProjectSyncSink(store).snapshot({ projects: [alpha], seq: 1 })
       yield* Effect.sync(() => flushSync(() => {}))
       expect(screen.getByText("alpha")).toBeDefined()
-    }))
+    })))
 
   it.live("runs mutations through RPC without updating the store optimistically", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const store = makeProjectsStore()
       let payload: { readonly name: string; readonly ensure: boolean } | undefined
       const mutationRpc = {
@@ -69,14 +69,17 @@ describe("ProjectContextProvider", () => {
           <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
         </RendererRunnerProvider>
       )
-      const { result } = renderHook(useCreateProject, { wrapper })
+      const { result } = yield* Effect.acquireRelease(
+        Effect.sync(() => renderHook(useCreateProject, { wrapper })),
+        (rendered) => Effect.sync(() => rendered.unmount())
+      )
       yield* Effect.sync(() => result.current.mutate("alpha"))
       expect(payload).toEqual({ name: "alpha", ensure: true })
       expect(store.getState().projects).toEqual([])
-    }))
+    })))
 
   it.live("publishes duplicate-create failures as typed mutation errors", () =>
-    Effect.gen(function* () {
+    Effect.scoped(Effect.gen(function* () {
       const store = makeProjectsStore()
       const duplicate = new ProjectAlreadyExists({ name: "alpha" })
       const mutationRpc = {
@@ -88,7 +91,10 @@ describe("ProjectContextProvider", () => {
           <ProjectContextProvider value={{ store, rpc: mutationRpc }}>{children}</ProjectContextProvider>
         </RendererRunnerProvider>
       )
-      const { result } = renderHook(useCreateProject, { wrapper })
+      const { result } = yield* Effect.acquireRelease(
+        Effect.sync(() => renderHook(useCreateProject, { wrapper })),
+        (rendered) => Effect.sync(() => rendered.unmount())
+      )
       let callbackError: unknown
 
       yield* Effect.sync(() => act(() => {
@@ -98,5 +104,5 @@ describe("ProjectContextProvider", () => {
         expect(result.current.error).toBe(duplicate)
         expect(callbackError).toBe(duplicate)
       }))
-    }))
+    })))
 })

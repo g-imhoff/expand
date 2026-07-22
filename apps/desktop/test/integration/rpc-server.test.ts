@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Schema, Stream, SubscriptionRef } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
+import { Effect, Layer, PubSub, Queue, Schema, Stream, SubscriptionRef } from "effect"
 import { Project as ProjectClass, ProjectCreateResult } from "@expand/contracts/project"
 import type { Project } from "@expand/contracts/project"
 import { ProjectCreated } from "@expand/contracts/events/project"
@@ -21,10 +22,10 @@ import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 const fakeClientLayer = (
+  status: SubscriptionRef.SubscriptionRef<ConnectionStatus>,
   ref: SubscriptionRef.SubscriptionRef<ReadonlyArray<Project>>,
   hub: PubSub.PubSub<SequencedEvent>
 ) => {
-  const status = Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected"))
   const session: ClientSessionApi = {
     status,
     current: Effect.die("unused"),
@@ -73,52 +74,59 @@ const fakeClientLayer = (
   )
 }
 
-const makePortPair = (): { server: MainPortLike; renderer: RendererPortLike } => {
-  let serverListener: ((e: { data: unknown }) => void) | null = null
-  let rendererListener: ((e: { data: unknown }) => void) | null = null
-  const deliver = (listener: (() => ((e: { data: unknown }) => void) | null), message: unknown) => {
-    const cloned = structuredClone(message)
-    queueMicrotask(() => listener()?.({ data: cloned }))
-  }
+const makePortPair = Effect.fn("DesktopRpcServerTest.makePortPair")(function* () {
+  let serverListener: ((event: { data: unknown }) => void) | null = null
+  let rendererListener: ((event: { data: unknown }) => void) | null = null
+  const toServer = yield* Queue.unbounded<unknown>()
+  const toRenderer = yield* Queue.unbounded<unknown>()
+  const serverStarted = yield* Queue.unbounded<void>()
+  const rendererStarted = yield* Queue.unbounded<void>()
+  yield* Effect.forkScoped(Effect.forever(
+    Queue.take(toServer).pipe(Effect.tap((message) => Effect.sync(() => {
+      serverListener?.({ data: structuredClone(message) })
+    })))
+  ))
+  yield* Effect.forkScoped(Effect.forever(
+    Queue.take(toRenderer).pipe(Effect.tap((message) => Effect.sync(() => {
+      rendererListener?.({ data: structuredClone(message) })
+    })))
+  ))
   const server: MainPortLike = {
-    postMessage: (message) => deliver(() => rendererListener, message),
-    on: (_event, cb) => { serverListener = cb },
-    start: () => {}
+    postMessage: (message) => { Queue.offerUnsafe(toRenderer, message) },
+    on: (_event, callback) => { serverListener = callback },
+    start: () => { Queue.offerUnsafe(serverStarted, undefined) }
   }
   const renderer: RendererPortLike = {
-    postMessage: (message) => deliver(() => serverListener, message),
+    postMessage: (message) => { Queue.offerUnsafe(toServer, message) },
     get onmessage() { return rendererListener },
-    set onmessage(cb) { rendererListener = cb },
-    start: () => {}
+    set onmessage(callback) { rendererListener = callback },
+    start: () => { Queue.offerUnsafe(rendererStarted, undefined) }
   }
-  return { server, renderer }
-}
+  return { server, renderer, serverStarted, rendererStarted }
+})
 
 describe("main RpcServer <-> renderer RpcClient round-trip (serialized over a cloning port)", () => {
-  it("ProjectList/ProjectCreate cross the seam and decode to typed values", async () => {
-    const ref = await Effect.runPromise(SubscriptionRef.make<ReadonlyArray<Project>>([]))
-    const hub = await Effect.runPromise(PubSub.unbounded<SequencedEvent>())
-    const runtime = ManagedRuntime.make(fakeClientLayer(ref, hub))
-    const { server, renderer } = makePortPair()
+  it.effect("ProjectList/ProjectCreate cross the seam and decode to typed values", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const ref = yield* SubscriptionRef.make<ReadonlyArray<Project>>([])
+      const hub = yield* PubSub.unbounded<SequencedEvent>()
+      const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+      const { server, renderer, serverStarted, rendererStarted } = yield* makePortPair()
+      yield* runRpcServer(server).pipe(
+        Effect.provide(fakeClientLayer(status, ref, hub)),
+        Effect.scoped,
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Queue.take(serverStarted)
+      const client = yield* buildRendererClient(renderer)
+      yield* Queue.take(rendererStarted)
 
-    const serverScope = await Effect.runPromise(Scope.make())
-    runtime.runFork(runRpcServer(server).pipe(Scope.provide(serverScope)))
-
-    const clientScope = await Effect.runPromise(Scope.make())
-    const client = await runtime.runPromise(buildRendererClient(renderer).pipe(Scope.provide(clientScope)))
-
-    try {
-      const list0 = await runtime.runPromise(client.ProjectList({}))
-      const created = await runtime.runPromise(client.ProjectCreate({ name: "omega", ensure: false }))
-      const list1 = await runtime.runPromise(client.ProjectList({}))
+      const list0 = yield* client.ProjectList({})
+      const created = yield* client.ProjectCreate({ name: "omega", ensure: false })
+      const list1 = yield* client.ProjectList({})
 
       expect(list0).toEqual({ projects: [], seq: 0 })
       expect(created).toMatchObject({ created: true, project: { name: "omega" } })
-      expect(list1.projects.map((p) => p.name)).toEqual(["omega"])
-    } finally {
-      await Effect.runPromise(Scope.close(clientScope, Exit.void))
-      await Effect.runPromise(Scope.close(serverScope, Exit.void))
-      await runtime.dispose()
-    }
-  })
+      expect(list1.projects.map((project) => project.name)).toEqual(["omega"])
+    })))
 })

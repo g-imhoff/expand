@@ -48,13 +48,13 @@ export const fakeProject = (
     ...patch
   })
 
-export const makeRuntimeHarness = (
+export const makeRuntimeHarness = Effect.fn("TuiTest.makeRuntimeHarness")(function* (
   options: RuntimeHarnessOptions = {}
-) => {
+) {
   let authoritative = options.snapshot ?? { projects: [], seq: 0 }
   let nextId = authoritative.projects.length + 1
-  const statusRef = Effect.runSync(SubscriptionRef.make<ConnectionStatus>("connected"))
-  const eventQueue = Effect.runSync(Queue.unbounded<SequencedEvent>())
+  const statusRef = yield* SubscriptionRef.make<ConnectionStatus>("connected")
+  const eventQueue = yield* Queue.unbounded<SequencedEvent>()
   const calls = {
     create: [] as Array<Parameters<ProjectClientApi["create"]>[0]>,
     rename: [] as Array<Parameters<ProjectClientApi["rename"]>[0]>,
@@ -202,6 +202,8 @@ export const makeRuntimeHarness = (
         )
   ) as ExpandRuntime
   const unmounts = new Set<() => void>()
+  const lifecycle = { inkUnmounts: 0, runtimeDisposals: 0 }
+  let disposed = false
   let synchronizationForked = false
   let synchronizationInterrupted = false
   const runtime = new Proxy(managedRuntime, {
@@ -210,7 +212,11 @@ export const makeRuntimeHarness = (
       return ((effect: Parameters<ExpandRuntime["runFork"]>[0]) => {
         if (synchronizationForked) synchronizationInterrupted = true
         synchronizationForked = true
-        const fiber = target.runFork(options.transformEffect?.(effect) ?? effect)
+        const fiber = Reflect.apply(
+          Reflect.get(target, property) as ExpandRuntime["runFork"],
+          target,
+          [options.transformEffect?.(effect) ?? effect]
+        )
         return options.transformFiber?.(fiber) ?? fiber
       })
     }
@@ -220,44 +226,63 @@ export const makeRuntimeHarness = (
     runtime,
     calls,
     status: {
-      set: (status: ConnectionStatus) => Effect.runSync(SubscriptionRef.set(statusRef, status))
+      set: (status: ConnectionStatus) => SubscriptionRef.set(statusRef, status)
     },
     authoritative: {
       get: () => authoritative,
       set: (snapshot: ProjectSnapshot) => { authoritative = snapshot }
     },
     events: {
-      publish: (event: SequencedEvent["event"]) => Effect.runSync(publish(event))
+      publish
     },
-    syncInterrupted: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10))
-      return synchronizationForked && synchronizationInterrupted
-    },
+    syncInterrupted: Effect.sync(() => synchronizationForked && synchronizationInterrupted),
+    lifecycle,
     trackUnmount: (unmount: () => void) => { unmounts.add(unmount) },
-    dispose: () => {
-      for (const unmount of [...unmounts]) unmount()
-      return managedRuntime.dispose()
-    }
+    disposeEffect: Effect.suspend(() => {
+      if (disposed) return Effect.void
+      disposed = true
+      return Effect.sync(() => {
+        for (const unmount of [...unmounts]) unmount()
+        lifecycle.runtimeDisposals += 1
+      }).pipe(Effect.andThen(managedRuntime.disposeEffect))
+    }),
   }
-}
+})
 
-export type RuntimeHarness = ReturnType<typeof makeRuntimeHarness>
+export type RuntimeHarness = Effect.Success<ReturnType<typeof makeRuntimeHarness>>
 
-export const renderWithRuntime = (
+export const makeRuntimeHarnessScoped = Effect.fn("TuiTest.makeRuntimeHarnessScoped")((
+  options: RuntimeHarnessOptions = {}
+) => Effect.acquireRelease(
+  makeRuntimeHarness(options),
+  (harness) => harness.disposeEffect
+))
+
+export const renderInkScoped = Effect.fn("TuiTest.renderInkScoped")((node: ReactElement) =>
+  Effect.acquireRelease(
+    Effect.sync(() => render(node)),
+    (rendered) => Effect.sync(() => rendered.unmount())
+  ))
+
+export const renderWithRuntimeScoped = Effect.fn("TuiTest.renderWithRuntimeScoped")((
   node: ReactElement,
   harness: RuntimeHarness
-) => {
-  const rendered = render(createElement(RuntimeContext.Provider, { value: harness.runtime }, node))
-  const inkUnmount = rendered.unmount
-  let unmounted = false
-  const unmount = () => {
-    if (unmounted) return
-    unmounted = true
-    inkUnmount()
-  }
-  harness.trackUnmount(unmount)
-  return { ...rendered, unmount }
-}
+) => Effect.acquireRelease(
+  Effect.sync(() => {
+    const rendered = render(createElement(RuntimeContext.Provider, { value: harness.runtime }, node))
+    const inkUnmount = rendered.unmount
+    let unmounted = false
+    const unmount = () => {
+      if (unmounted) return
+      unmounted = true
+      harness.lifecycle.inkUnmounts += 1
+      inkUnmount()
+    }
+    harness.trackUnmount(unmount)
+    return { ...rendered, unmount }
+  }),
+  (rendered) => Effect.sync(() => rendered.unmount())
+))
 
 const uid = (n: number) =>
   `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`

@@ -1,7 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect, vi } from "vitest"
 import React from "react"
+import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
-import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-harness"
+import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./_runtime-harness"
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects (raw-mode/readable, then the input-emitter subscription);
@@ -12,57 +14,51 @@ import { fakeProject, makeRuntimeHarness, renderWithRuntime } from "./_runtime-h
 // a key provably routes, before the first real keypress.
 const WAIT = { timeout: 2000, interval: 10 } as const
 const waitForFrame = (lastFrame: () => string | undefined, text: string) =>
-  vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT)
+  Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).toContain(text), WAIT))
 const has = (lastFrame: () => string | undefined, text: string) =>
   (lastFrame() ?? "").includes(text)
-const ensureInputLive = async (
+const ensureInputLive = (
   stdin: { write: (s: string) => void }, lastFrame: () => string | undefined, atRest: string
-) => {
-  await waitForFrame(lastFrame, atRest) // seeded + reconciled before warm-up
-  await vi.waitFor(() => {
+) => Effect.gen(function* () {
+  yield* waitForFrame(lastFrame, atRest)
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "r rename")) stdin.write("\t")
     expect(lastFrame()).toContain("return create")
-  }, WAIT)
-  await vi.waitFor(() => {
+  }, WAIT))
+  yield* Effect.tryPromise(() => vi.waitFor(() => {
     if (has(lastFrame, "return create")) stdin.write("\t")
     expect(lastFrame()).toContain("r rename")
-  }, WAIT)
-  await waitForFrame(lastFrame, atRest) // round-trip preserved selection
-}
+  }, WAIT))
+  yield* waitForFrame(lastFrame, atRest)
+})
 
 describe("App archive keybinding", () => {
-  it("pressing 'a' archives the selected project", async () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
-    })
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "▸ alpha")
+  it.effect("pressing 'a' archives the selected project", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
+      })
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
       stdin.write("a")
-      await waitForFrame(lastFrame, "[archived]")
-    } finally {
-      await harness.dispose()
-    }
-  })
+      yield* waitForFrame(lastFrame, "[archived]")
+    })))
 
-  it("shows a project that is ALREADY archived at startup and restores it with 'a'", async () => {
-    const harness = makeRuntimeHarness({
-      snapshot: { projects: [fakeProject(1, "alpha", { archived: true })], seq: 0 }
-    })
-    try {
-      const { stdin, lastFrame } = renderWithRuntime(<App />, harness)
-      await ensureInputLive(stdin, lastFrame, "▸ alpha") // selected + reconciled
+  it.effect("shows a project that is ALREADY archived at startup and restores it with 'a'", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({
+        snapshot: { projects: [fakeProject(1, "alpha", { archived: true })], seq: 0 }
+      })
+      const { stdin, lastFrame } = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* ensureInputLive(stdin, lastFrame, "▸ alpha")
       expect(lastFrame()).toContain("[archived]")
-      stdin.write("a") // restore
-      await vi.waitFor(async () => {
-        const ps = harness.authoritative.get().projects
-        expect(ps[0]?.archived).toBe(false)
-      }, WAIT)
-      await vi.waitFor(() => expect(lastFrame()).not.toContain("[archived]"), WAIT)
-      await waitForFrame(lastFrame, "▸ alpha") // re-rendered after restore
+      stdin.write("a")
+      yield* Effect.tryPromise(() => vi.waitFor(() => {
+        const projects = harness.authoritative.get().projects
+        expect(projects[0]?.archived).toBe(false)
+      }, WAIT))
+      yield* Effect.tryPromise(() => vi.waitFor(() => expect(lastFrame()).not.toContain("[archived]"), WAIT))
+      yield* waitForFrame(lastFrame, "▸ alpha")
       expect(lastFrame()).not.toContain("[archived]")
-    } finally {
-      await harness.dispose()
-    }
-  })
+    })))
 })
