@@ -115,6 +115,7 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
   const values = tokens.map((token) => token.value)
   const activeTokens = tokens.filter((token) => token.active).map((token) => token.value)
   const executableName = (value: string) => value.split(/[\\/]/).at(-1)?.toLowerCase().replace(/\.exe$/, "") ?? value
+  if (values[0] !== undefined && /^[A-Za-z_][A-Za-z0-9_]*=/.test(values[0])) violations.push("environment assignment")
   const forbiddenTokens = new Set(["cd", "for", "while", "do", "done", "rm", "mkdir"])
   const wrappers = new Set(["sh", "bash", "dash", "zsh", "cmd", "powershell", "pwsh", "eval", "env", "command", "exec"])
   if (
@@ -191,6 +192,20 @@ describe("manifest orchestration", () => {
       String.raw`'C:\tools\mkdir.exe' output`
     ]
     for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
+  })
+
+  it("rejects command-leading environment assignment prefixes", () => {
+    const commands = [
+      `MODE=x "/bin/rm" -rf output`,
+      `MODE=x "/bin/bash" -c 'tsx scripts/tool.ts'`,
+      `MODE="quoted value" tsx scripts/tool.ts`,
+      `MODE=x OTHER='quoted value' tsx scripts/tool.ts`
+    ]
+    for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
+  })
+
+  it("allows assignment-shaped quoted later arguments", () => {
+    expect(commandViolations(`tsx scripts/tool.ts "MODE=x" 'OTHER=quoted value'`)).toEqual([])
   })
 
   it("rejects shell, evaluator, environment, execution, and package-manager wrappers", () => {
