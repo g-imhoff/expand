@@ -1,9 +1,9 @@
 import * as NodePlatform from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path } from "effect"
+import { Deferred, Effect, Fiber, FileSystem, Path } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
-import { BuildTool } from "./build"
+import { BuildError, BuildTool } from "./build"
 import { CertificationError, certifyCliBuild } from "./cert-cli-build"
 
 const fileSystem = FileSystem.layerNoop({
@@ -13,18 +13,29 @@ const fileSystem = FileSystem.layerNoop({
 })
 
 describe("CLI build certification", () => {
-  it.effect("builds both binaries before running the scoped smoke harness", () => {
-    const fixture = processSpawnerFixture([0])
-    const operations: Array<string> = []
+  it.effect("proves both builds exit before smoke spawn in one ordered log", () => {
+    const events: Array<string> = []
+    const fixture = processSpawnerFixture([0], { eventLog: events })
     return certifyCliBuild("/repo").pipe(
       Effect.provideService(BuildTool, {
-        build: (options) => Effect.sync(() => operations.push(`build:${String(options.outfile)}`))
+        build: (options) => Effect.sync(() => {
+          events.push(`build:start:${String(options.outfile)}`)
+          events.push(`build:exit:${String(options.outfile)}`)
+        })
       }),
       Effect.provide(fileSystem),
       Effect.provide(Path.layer),
       Effect.provide(fixture.layer),
       Effect.tap(() => Effect.sync(() => {
-        expect(operations).toEqual(["build:/repo/dist/expand", "build:/repo/dist/expand-server"])
+        expect(events).toEqual([
+          "build:start:/repo/dist/expand",
+          "build:exit:/repo/dist/expand",
+          "build:start:/repo/dist/expand-server",
+          "build:exit:/repo/dist/expand-server",
+          "spawn:bash",
+          "exit:bash",
+          "release:bash"
+        ])
         expect(fixture.records).toHaveLength(1)
         const command = fixture.records[0]?.command
         expect(command?._tag).toBe("StandardCommand")
@@ -39,6 +50,65 @@ describe("CLI build certification", () => {
       }))
     )
   })
+
+  it.effect("does not spawn smoke when a build fails", () => {
+    const fixture = processSpawnerFixture([0])
+    const failure = new Error("build failed")
+    const events: Array<string> = []
+    return certifyCliBuild("/repo").pipe(
+      Effect.provideService(BuildTool, {
+        build: () => Effect.sync(() => events.push("build:exit:failure")).pipe(Effect.andThen(Effect.fail(failure)))
+      }),
+      Effect.provide(fileSystem),
+      Effect.provide(Path.layer),
+      Effect.provide(fixture.layer),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toEqual(new BuildError({ operation: "esbuild", cause: failure }))
+        expect(events).toEqual(["build:exit:failure"])
+        expect(fixture.records).toHaveLength(0)
+      }))
+    )
+  })
+
+  it.effect("releases an interrupted active build exactly once without spawning smoke", () =>
+    Effect.gen(function*() {
+      const fixture = processSpawnerFixture([0])
+      const started = yield* Deferred.make<void>()
+      const events: Array<string> = []
+      const fiber = yield* certifyCliBuild("/repo").pipe(
+        Effect.provideService(BuildTool, {
+          build: () => Deferred.succeed(started, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.ensuring(Effect.sync(() => events.push("build:release")))
+          )
+        }),
+        Effect.provide(fileSystem),
+        Effect.provide(Path.layer),
+        Effect.provide(fixture.layer),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Deferred["a\u0077ait"](started)
+      yield* Fiber.interrupt(fiber)
+      expect(events).toEqual(["build:release"])
+      expect(fixture.records).toHaveLength(0)
+    }))
+
+  it.effect("releases an interrupted active smoke process exactly once", () =>
+    Effect.gen(function*() {
+      const fixture = processSpawnerFixture([], { neverExitAt: 0 })
+      const fiber = yield* certifyCliBuild("/repo").pipe(
+        Effect.provideService(BuildTool, { build: () => Effect.void }),
+        Effect.provide(fileSystem),
+        Effect.provide(Path.layer),
+        Effect.provide(fixture.layer),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Effect.yieldNow
+      expect(fixture.records).toHaveLength(1)
+      yield* Fiber.interrupt(fiber)
+      expect(fixture.records[0]?.releaseCount).toBe(1)
+    }))
 
   it.effect("tags a nonzero smoke result", () => {
     const fixture = processSpawnerFixture([4])

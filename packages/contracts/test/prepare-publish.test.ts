@@ -1,7 +1,7 @@
 import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Path, Schema } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../../../test/support/process-spawner"
 import {
@@ -64,6 +64,12 @@ const live = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
   Effect.provide(NodeServices.layer)
 )
 
+const expectNoTransactionArtifacts = (fs: FileSystem.FileSystem, path: Path.Path, root: string) =>
+  Effect.gen(function*() {
+    expect(yield* fs.exists(path.join(root, ".dist-publish.next"))).toBe(false)
+    expect(yield* fs.exists(path.join(root, ".dist-publish.previous"))).toBe(false)
+  })
+
 describe("contracts publish workflow", () => {
   it.live("fails when dist is missing without replacing an existing stage", () =>
     live(withFixture((root) => Effect.gen(function*() {
@@ -79,6 +85,27 @@ describe("contracts publish workflow", () => {
       expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("old")
     }))))
 
+  it.live("keeps filesystem manifest reads in the read-manifest error category", () =>
+    live(withFixture((root) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const failure = { reason: "injected read failure" }
+      yield* fs.makeDirectory(path.join(root, "dist"))
+
+      const error = yield* stage(root).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          readFileString: (target, options) => target === path.join(root, "package.json")
+            ? Effect.fail(failure as never)
+            : fs.readFileString(target, options)
+        }),
+        Effect.flip
+      )
+
+      expect(error).toEqual(new PublishStageError({ operation: "read-manifest", cause: failure }))
+      expect(error).not.toBeInstanceOf(PublishManifestError)
+    }))))
+
   it.live("rejects malformed package metadata without exposing partial output", () =>
     live(withFixture((root) => Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -92,8 +119,182 @@ describe("contracts publish workflow", () => {
       const error = yield* stage(root).pipe(Effect.flip)
 
       expect(error).toBeInstanceOf(PublishManifestError)
+      expect(error).not.toBeInstanceOf(PublishStageError)
       expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("old")
       expect(yield* fs.exists(path.join(root, ".dist-publish.next"))).toBe(false)
+    }))))
+
+  it.live("restores exact prior bytes and removes artifacts after persistent copy and write failures", () =>
+    live(Effect.gen(function*() {
+      for (const operation of ["copy", "write"] as const) {
+        yield* withFixture((root) => Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const failure = { operation }
+          yield* fs.makeDirectory(path.join(root, "dist"))
+          yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+          yield* fs.makeDirectory(path.join(root, "dist-publish"))
+          yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
+          yield* fs.makeDirectory(path.join(root, ".dist-publish.next"))
+          yield* fs.writeFileString(path.join(root, ".dist-publish.next", "stale"), "stale next")
+          yield* fs.makeDirectory(path.join(root, ".dist-publish.previous"))
+          yield* fs.writeFileString(path.join(root, ".dist-publish.previous", "stale"), "stale previous")
+          const injected = {
+            ...fs,
+            copy: (from: string, to: string, options?: Parameters<typeof fs.copy>[2]) => fs.copy(from, to, options).pipe(
+              Effect.andThen(operation === "copy" ? Effect.fail(failure as never) : Effect.void)
+            ),
+            writeFileString: (target: string, value: string, options?: Parameters<typeof fs.writeFileString>[2]) => fs.writeFileString(target, value, options).pipe(
+              Effect.andThen(operation === "write" ? Effect.fail(failure as never) : Effect.void)
+            )
+          }
+
+          const error = yield* stage(root).pipe(
+            Effect.provideService(FileSystem.FileSystem, injected),
+            Effect.flip
+          )
+
+          expect(error).toBeInstanceOf(PublishStageError)
+          expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("original bytes")
+          yield* expectNoTransactionArtifacts(fs, path, root)
+        }))
+      }
+    })))
+
+  it.live("restores original or absent output after persistent rename failures", () =>
+    live(Effect.gen(function*() {
+      for (const scenario of [
+        { prior: true, failFrom: 1 },
+        { prior: true, failFrom: 2 },
+        { prior: false, failFrom: 1 }
+      ] as const) {
+        yield* withFixture((root) => Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const failure = { scenario }
+          let renames = 0
+          yield* fs.makeDirectory(path.join(root, "dist"))
+          yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+          if (scenario.prior) {
+            yield* fs.makeDirectory(path.join(root, "dist-publish"))
+            yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
+          }
+          const injected = {
+            ...fs,
+            rename: (from: string, to: string) => fs.rename(from, to).pipe(
+              Effect.andThen(Effect.suspend(() => {
+                renames += 1
+                return renames >= scenario.failFrom ? Effect.fail(failure as never) : Effect.void
+              }))
+            )
+          }
+
+          yield* stage(root).pipe(
+            Effect.provideService(FileSystem.FileSystem, injected),
+            Effect.flip
+          )
+
+          if (scenario.prior) {
+            expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("original bytes")
+          } else {
+            expect(yield* fs.exists(path.join(root, "dist-publish"))).toBe(false)
+          }
+          yield* expectNoTransactionArtifacts(fs, path, root)
+        }))
+      }
+    })))
+
+  it.live("rolls back an interrupted copy at an explicit mutation barrier", () =>
+    live(withFixture((root) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const copied = yield* Deferred.make<void>()
+      yield* fs.makeDirectory(path.join(root, "dist"))
+      yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+      yield* fs.makeDirectory(path.join(root, "dist-publish"))
+      yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
+      const fiber = yield* stage(root).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          copy: (from, to, options) => fs.copy(from, to, options).pipe(
+            Effect.andThen(Deferred.succeed(copied, undefined)),
+            Effect.andThen(Effect.never)
+          )
+        }),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Deferred["a\u0077ait"](copied)
+      yield* Fiber.interrupt(fiber)
+      expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("original bytes")
+      yield* expectNoTransactionArtifacts(fs, path, root)
+    }))))
+
+  it.live("defers interruption across backup and promotion bookkeeping", () =>
+    live(Effect.gen(function*() {
+      for (const barrierAt of [1, 2] as const) {
+        yield* withFixture((root) => Effect.gen(function*() {
+          const fs = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          const entered = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          let renames = 0
+          yield* fs.makeDirectory(path.join(root, "dist"))
+          yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+          yield* fs.makeDirectory(path.join(root, "dist-publish"))
+          yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
+          const fiber = yield* stage(root).pipe(
+            Effect.provideService(FileSystem.FileSystem, {
+              ...fs,
+              rename: (from, to) => fs.rename(from, to).pipe(
+                Effect.andThen(Effect.suspend(() => {
+                  renames += 1
+                  return renames === barrierAt
+                    ? Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred["a\u0077ait"](release)))
+                    : Effect.void
+                }))
+              )
+            }),
+            Effect.forkChild({ startImmediately: true })
+          )
+          yield* Deferred["a\u0077ait"](entered)
+          const interrupt = yield* Fiber.interrupt(fiber).pipe(Effect.forkChild({ startImmediately: true }))
+          yield* Effect.yieldNow
+          yield* Deferred.succeed(release, undefined)
+          yield* Fiber.join(interrupt)
+          expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("original bytes")
+          expect(yield* fs.exists(path.join(root, "dist-publish", "dist", "index.js"))).toBe(false)
+          yield* expectNoTransactionArtifacts(fs, path, root)
+        }))
+      }
+    })))
+
+  it.live("combines a primary mutation failure with cleanup failures", () =>
+    live(withFixture((root) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const primary = { reason: "copy" }
+      const cleanup = { reason: "cleanup" }
+      let copied = false
+      yield* fs.makeDirectory(path.join(root, "dist"))
+      yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+      const exit = yield* stage(root).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          copy: (from, to, options) => fs.copy(from, to, options).pipe(
+            Effect.tap(() => Effect.sync(() => {
+              copied = true
+            })),
+            Effect.andThen(Effect.fail(primary as never))
+          ),
+          remove: (target, options) => fs.remove(target, options).pipe(
+            Effect.andThen(copied && target.endsWith(".dist-publish.next") ? Effect.fail(cleanup as never) : Effect.void)
+          )
+        }),
+        Effect.exit
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) expect(exit.cause.reasons.filter(Cause.isFailReason)).toHaveLength(2)
+      yield* expectNoTransactionArtifacts(fs, path, root)
     }))))
 
   it.live("recursively stages dist, removes stale output, and writes the exact public export map", () =>
@@ -154,8 +355,8 @@ describe("contracts publish workflow", () => {
   })
 
   it.effect("packs by building, staging, then invoking npm pack in one lazy Effect", () => {
-    const fixture = processSpawnerFixture([0, 0])
     const operations: Array<string> = []
+    const fixture = processSpawnerFixture([0, 0], { eventLog: operations })
     const program = pack("/repo/packages/contracts").pipe(
       Effect.provide(fixture.layer),
       Effect.provide(FileSystem.layerNoop({
@@ -185,8 +386,34 @@ describe("contracts publish workflow", () => {
         expect(npm.args).toEqual(["pack", "./dist-publish"])
         expect(npm.options.cwd).toBe("/repo/packages/contracts")
       }
-      expect(operations).toContain("rename:/repo/packages/contracts/.dist-publish.next:/repo/packages/contracts/dist-publish")
+      expect(operations.indexOf("exit:tsc")).toBeLessThan(operations.indexOf("copy:/repo/packages/contracts/dist:/repo/packages/contracts/.dist-publish.next/dist"))
+      expect(operations.indexOf("rename:/repo/packages/contracts/.dist-publish.next:/repo/packages/contracts/dist-publish")).toBeLessThan(operations.indexOf("spawn:npm"))
     })))
+  })
+
+  it.effect("returns the exact tagged npm pack nonzero failure after build and stage", () => {
+    const events: Array<string> = []
+    const fixture = processSpawnerFixture([0, 6], { eventLog: events })
+    return pack("/repo/packages/contracts").pipe(
+      Effect.provide(fixture.layer),
+      Effect.provide(FileSystem.layerNoop({
+        exists: () => Effect.succeed(true),
+        readFileString: () => Effect.succeed(sourceJson),
+        remove: () => Effect.void,
+        makeDirectory: () => Effect.void,
+        copy: () => Effect.sync(() => events.push("stage")),
+        writeFileString: () => Effect.void,
+        rename: () => Effect.void
+      })),
+      Effect.provide(Path.layer),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toEqual(new PublishCommandError({ command: "npm", exitCode: 6 }))
+        expect(events).toEqual(expect.arrayContaining(["exit:tsc", "stage", "spawn:npm", "exit:npm"]))
+        expect(events.indexOf("exit:tsc")).toBeLessThan(events.indexOf("stage"))
+        expect(events.indexOf("stage")).toBeLessThan(events.indexOf("spawn:npm"))
+      }))
+    )
   })
 
   it.effect("imports without running the CLI", () =>

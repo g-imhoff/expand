@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, FileSystem, Path, Schema } from "effect"
+import { Cause, Console, Data, Effect, Exit, FileSystem, Path, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
@@ -41,9 +41,10 @@ export const stage = Effect.fn("ContractsPublish.stage")(
       return yield* new PublishStageError({ operation: "missing-dist", cause: "dist not found" })
     }
 
-    const source = yield* fs.readFileString(path.join(root, "package.json")).pipe(
-      Effect.mapError((cause) => new PublishStageError({ operation: "read-manifest", cause })),
-      Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(PackageManifest))),
+    const manifestText = yield* fs.readFileString(path.join(root, "package.json")).pipe(
+      Effect.mapError((cause) => new PublishStageError({ operation: "read-manifest", cause }))
+    )
+    const source = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(PackageManifest))(manifestText).pipe(
       Effect.mapError((cause) => new PublishManifestError({ cause }))
     )
     const publishManifest = {
@@ -68,47 +69,80 @@ export const stage = Effect.fn("ContractsPublish.stage")(
       Effect.mapError((cause) => new PublishManifestError({ cause }))
     )
 
-    const prepare = Effect.gen(function*() {
-      yield* fs.remove(next, { recursive: true, force: true }).pipe(
-        Effect.mapError((cause) => new PublishStageError({ operation: "clean", cause }))
-      )
-      yield* fs.makeDirectory(next, { recursive: true }).pipe(
-        Effect.mapError((cause) => new PublishStageError({ operation: "mkdir", cause }))
-      )
-      yield* fs.copy(dist, path.join(next, "dist")).pipe(
-        Effect.mapError((cause) => new PublishStageError({ operation: "copy", cause }))
-      )
-      yield* fs.writeFileString(path.join(next, "package.json"), `${encoded}\n`).pipe(
-        Effect.mapError((cause) => new PublishStageError({ operation: "write", cause }))
-      )
-
-      const targetExists = yield* fs.exists(target).pipe(
+    const remove = (location: string) => fs.remove(location, { recursive: true, force: true }).pipe(
+      Effect.mapError((cause) => new PublishStageError({ operation: "clean", cause }))
+    )
+    const attemptAll = (operations: ReadonlyArray<Effect.Effect<void, PublishStageError>>) =>
+      Effect.gen(function*() {
+        const failures: Array<Cause.Cause<PublishStageError>> = []
+        for (const operation of operations) {
+          const exit = yield* Effect.exit(operation)
+          if (Exit.isFailure(exit)) failures.push(exit.cause)
+        }
+        if (failures.length > 0) {
+          let combined = failures[0] as Cause.Cause<PublishStageError>
+          for (const failure of failures.slice(1)) combined = Cause.combine(combined, failure)
+          return yield* Effect.failCause(combined)
+        }
+      })
+    const cleanupArtifacts = () => attemptAll([remove(next), remove(previous)])
+    let hadTarget = false
+    let committed = false
+    const rollback = () => attemptAll([
+      Effect.gen(function*() {
+        if (hadTarget) {
+          const backupExists = yield* fs.exists(previous).pipe(
+            Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
+          )
+          if (backupExists) {
+            yield* remove(target)
+            yield* fs.rename(previous, target).pipe(
+              Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
+            )
+          }
+        } else {
+          yield* remove(target)
+        }
+      }),
+      remove(next),
+      remove(previous)
+    ])
+    const transaction = Effect.uninterruptibleMask((restore) => Effect.gen(function*() {
+      hadTarget = yield* fs.exists(target).pipe(
         Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
       )
-      if (targetExists) {
-        yield* fs.remove(previous, { recursive: true, force: true }).pipe(
-          Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
-        )
+      yield* restore(attemptAll([remove(next), remove(previous)]))
+      yield* restore(fs.makeDirectory(next, { recursive: true }).pipe(
+        Effect.mapError((cause) => new PublishStageError({ operation: "mkdir", cause }))
+      ))
+      yield* restore(fs.copy(dist, path.join(next, "dist")).pipe(
+        Effect.mapError((cause) => new PublishStageError({ operation: "copy", cause }))
+      ))
+      yield* restore(fs.writeFileString(path.join(next, "package.json"), `${encoded}\n`).pipe(
+        Effect.mapError((cause) => new PublishStageError({ operation: "write", cause }))
+      ))
+      if (hadTarget) {
         yield* fs.rename(target, previous).pipe(
           Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
         )
-        yield* fs.rename(next, target).pipe(
-          Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause })),
-          Effect.onError(() => fs.rename(previous, target).pipe(Effect.ignore))
-        )
-        yield* fs.remove(previous, { recursive: true, force: true }).pipe(
-          Effect.mapError((cause) => new PublishStageError({ operation: "clean", cause }))
-        )
-      } else {
-        yield* fs.rename(next, target).pipe(
-          Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
-        )
+        yield* restore(Effect.void)
       }
-    })
+      yield* fs.rename(next, target).pipe(
+        Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
+      )
+      yield* restore(Effect.void)
+      committed = true
+    }))
 
-    yield* prepare.pipe(
-      Effect.onError(() => fs.remove(next, { recursive: true, force: true }).pipe(Effect.ignore))
-    )
+    yield* transaction.pipe(Effect.onExit((transactionExit) => {
+      const finalizer = Exit.isFailure(transactionExit) && !committed ? rollback() : cleanupArtifacts()
+      return Effect.exit(finalizer).pipe(Effect.flatMap((cleanupExit) => {
+        if (Exit.isSuccess(cleanupExit)) return Effect.void
+        return Effect.failCause(Exit.isFailure(transactionExit)
+          ? Cause.combine(transactionExit.cause, cleanupExit.cause)
+          : cleanupExit.cause)
+      }))
+    }))
     yield* Console.log(`[prepare-publish] staged ${source.name}@${source.version} -> ${target}`)
   }
 )

@@ -21,7 +21,11 @@ const AuditConfigJson = Schema.fromJsonString(Schema.Struct({
   include: Schema.Array(Schema.String),
   exclude: Schema.Array(Schema.String)
 }))
-const DesktopConfigJson = Schema.fromJsonString(Schema.Struct({ extends: Schema.String }))
+const DesktopConfigJson = Schema.fromJsonString(Schema.Struct({
+  extends: Schema.String,
+  exclude: Schema.Array(Schema.String),
+  include: Schema.Array(Schema.String)
+}))
 
 const readJson = Effect.fn("EffectAuditTest.readJson")(
   function* <S extends Schema.Top>(file: string, schema: S) {
@@ -159,7 +163,18 @@ describe("Effect language service diagnostics", () => {
         include: expectedAuditIncludes,
         exclude: expectedAuditExcludes
       })
-      expect(desktopConfig.extends).toBe("../../tsconfig.json")
+      expect(desktopConfig).toEqual({
+        extends: "../../tsconfig.json",
+        exclude: [],
+        include: [
+          "src",
+          "test/integration",
+          "test/ui",
+          "test/unit/*.test.ts",
+          "test/unit/*.test.tsx",
+          "../../packages/contracts/globals.d.ts"
+        ]
+      })
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("covers every tracked TypeScript source with the Effect audit project", () =>

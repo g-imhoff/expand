@@ -32,10 +32,11 @@ const walk = Effect.fn("TestColocation.walk")(function*(dir: string, root: strin
 const isTestFile = (file: string): boolean => file.endsWith(".test.ts") || file.endsWith(".test.tsx")
 
 describe("test colocation", () => {
-  it("collects every approved direct script test extension", () => {
+  it("collects every approved direct script test extension without desktop E2E exceptions", () => {
     expect(testInclude).toEqual(
       expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
     )
+    expect(testInclude).not.toContain("apps/desktop/e2e/effect-test.test.ts")
   })
 
   it("runs process-heavy suites serially after the normal project", () => {
@@ -93,7 +94,6 @@ describe("test colocation", () => {
           /^packages\/[^/]+\/test\//.test(rel) ||
           /^examples\/[^/]+\/test\//.test(rel) ||
           /^scripts\/[^/]+\.test\.tsx?$/.test(rel) ||
-          rel === "apps/desktop/e2e/effect-test.test.ts" ||
           rel === "docs/architecture/scripts/build.test.ts"
         return !ok
       })

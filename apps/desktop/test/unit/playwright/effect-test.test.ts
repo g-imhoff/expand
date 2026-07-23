@@ -8,8 +8,8 @@ import {
   type EffectTestFixtures,
   type EffectTestRegistration,
   type PlaywrightFixtures
-} from "./effect-test"
-import { launchApp, type LaunchAppDependencies } from "./helpers"
+} from "../../../e2e/effect-test"
+import { launchApp, type LaunchAppDependencies } from "../../../e2e/helpers"
 
 type RegisteredCallback = Parameters<EffectTestRegistration>[1]
 

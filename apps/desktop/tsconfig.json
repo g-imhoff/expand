@@ -11,5 +11,12 @@
     "noEmit": true
   },
   "exclude": [],
-  "include": ["src", "test", "../../packages/contracts/globals.d.ts"]
+  "include": [
+    "src",
+    "test/integration",
+    "test/ui",
+    "test/unit/*.test.ts",
+    "test/unit/*.test.tsx",
+    "../../packages/contracts/globals.d.ts"
+  ]
 }
