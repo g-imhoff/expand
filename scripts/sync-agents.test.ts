@@ -1,7 +1,8 @@
+import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, PlatformError } from "effect"
-import { describe, expect } from "vitest"
+import { Cause, Effect, Exit, FileSystem, Fiber, Path, PlatformError } from "effect"
+import { describe, expect, vi } from "vitest"
 import { parse as parseToml } from "smol-toml"
 import {
   AGENT_NAMES,
@@ -146,6 +147,28 @@ describe("renderCodexAgent", () => {
       developer_instructions: `You are the ${name} agent.`
     })
   })
+
+  it("escapes every TOML-prohibited C0 and DEL control from accepted YAML", () => {
+    const controls = Array.from({ length: 32 }, (_, code) => String.fromCharCode(code)).join("") + "\u007f"
+    const yamlControls = Array.from({ length: 32 }, (_, code) => `\\u${code.toString(16).padStart(4, "0")}`).join("") + "\\u007f"
+    const source = claudeSource("code-reviewer").replace(
+      "description: code-reviewer description",
+      `description: "before${yamlControls}after"`
+    )
+    const parsed = parseClaudeAgent("code-reviewer.md", source)
+    expect(parsed.description).toBe(`before${controls}after`)
+
+    const rendered = renderCodexAgent(parsed)
+    expect(rendered).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u)
+    expect(rendered).toContain("\\u0000")
+    expect(rendered).toContain("\\b\\t\\n\\u000B\\f\\r\\u000E")
+    expect(rendered).toContain("\\u007F")
+    expect(parseToml(rendered).description).toBe(`before${controls}after`)
+
+    const renderedInstructions = renderCodexAgent({ ...parsed, instructions: `before${controls}after` })
+    expect(renderedInstructions).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u)
+    expect(parseToml(renderedInstructions).developer_instructions).toBe(`before${controls}after`)
+  })
 })
 
 describe("syncAgents", () => {
@@ -153,6 +176,28 @@ describe("syncAgents", () => {
     const program = syncAgents({ rootDir: "/repo", mode: "check" })
     expect(Effect.isEffect(program)).toBe(true)
   })
+
+  it.effect("performs no script operation during a controlled dynamic import", () =>
+    Effect.gen(function*() {
+      vi.resetModules()
+      const runMain = vi.fn()
+      const parse = vi.fn(() => {
+        throw new Error("YAML parsing ran during import")
+      })
+      vi.doMock("@effect/platform-node", () => ({
+        ...NodePlatform,
+        NodeRuntime: { ...NodePlatform.NodeRuntime, runMain }
+      }))
+      vi.doMock("yaml", () => ({ parse }))
+
+      yield* Effect.promise(() => import("./sync-agents"))
+
+      expect(runMain).not.toHaveBeenCalled()
+      expect(parse).not.toHaveBeenCalled()
+      vi.doUnmock("@effect/platform-node")
+      vi.doUnmock("yaml")
+      vi.resetModules()
+    }))
 
   it.effect("keeps the committed Codex mirrors synchronized", () =>
     live(Effect.gen(function*() {
@@ -328,6 +373,195 @@ describe("syncAgents", () => {
         expect([...files.keys()].some((file) => file.endsWith(".tmp"))).toBe(false)
       }))
     )
+  })
+
+  it.effect("restores originals and nonexistent targets after a persistent promotion failure", () => {
+    const files = new Map<string, string>()
+    const directories = new Set(["/repo/.claude/agents", "/repo/.codex/agents"])
+    const originals = new Map<string, string>()
+    let promotions = 0
+    for (const name of AGENT_NAMES) {
+      files.set(`/repo/.claude/agents/${name}.md`, claudeSource(name))
+      if (name !== "code-reviewer" && name !== "debugger") {
+        const target = `/repo/.codex/agents/${name}.toml`
+        const content = `original:${name}:\u0000bytes`
+        files.set(target, content)
+        originals.set(target, content)
+      }
+    }
+    const entries = (directory: string): Array<string> => [...files.keys()]
+      .filter((file) => file.startsWith(`${directory}/`) && !file.slice(directory.length + 1).includes("/"))
+      .map((file) => file.slice(directory.length + 1))
+    const failure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "rename",
+      pathOrDescriptor: "/repo/.codex/agents/desktop-tester.toml"
+    })
+
+    return syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
+      Effect.provide(FileSystem.layerNoop({
+        exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
+        readDirectory: (directory) => Effect.succeed(entries(directory)),
+        readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
+        makeDirectory: (target) => Effect.sync(() => {
+          directories.add(target)
+        }),
+        writeFileString: (target, content) => Effect.sync(() => {
+          files.set(target, content)
+        }),
+        rename: (from, to) => {
+          if (from.endsWith(".tmp")) {
+            promotions += 1
+            if (promotions === 3) return Effect.fail(failure)
+          }
+          return Effect.sync(() => {
+            files.set(to, files.get(from) ?? "")
+            files.delete(from)
+          })
+        },
+        remove: (target) => Effect.sync(() => {
+          files.delete(target)
+        })
+      })),
+      Effect.provide(Path.layer),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toMatchObject({
+          _tag: "AgentSyncError",
+          reason: "filesystem",
+          detail: "rename: /repo/.codex/agents/desktop-tester.toml",
+          cause: failure
+        })
+        expect(promotions).toBe(3)
+        expect(new Map([...originals.keys()].map((target) => [target, files.get(target)]))).toEqual(originals)
+        expect(files.has("/repo/.codex/agents/code-reviewer.toml")).toBe(false)
+        expect(files.has("/repo/.codex/agents/debugger.toml")).toBe(false)
+        expect([...files.keys()].filter((file) => file.endsWith(".tmp") || file.endsWith(".bak"))).toEqual([])
+      }))
+    )
+  })
+
+  it.effect("retains cleanup failures without replacing the primary promotion cause", () => {
+    const files = new Map<string, string>()
+    const directories = new Set(["/repo/.claude/agents", "/repo/.codex/agents"])
+    let promotions = 0
+    for (const name of AGENT_NAMES) files.set(`/repo/.claude/agents/${name}.md`, claudeSource(name))
+    const entries = (directory: string): Array<string> => [...files.keys()]
+      .filter((file) => file.startsWith(`${directory}/`) && !file.slice(directory.length + 1).includes("/"))
+      .map((file) => file.slice(directory.length + 1))
+    const promotionFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "rename",
+      pathOrDescriptor: "/repo/.codex/agents/task-reviewer.toml"
+    })
+    const cleanupFailure = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "remove",
+      pathOrDescriptor: "/repo/.codex/agents/code-reviewer.toml"
+    })
+
+    return Effect.gen(function*() {
+      const exit = yield* Effect.exit(syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
+        Effect.provide(FileSystem.layerNoop({
+          exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
+          readDirectory: (directory) => Effect.succeed(entries(directory)),
+          readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
+          makeDirectory: (target) => Effect.sync(() => {
+            directories.add(target)
+          }),
+          writeFileString: (target, content) => Effect.sync(() => {
+            files.set(target, content)
+          }),
+          rename: (from, to) => {
+            if (from.endsWith(".tmp")) {
+              promotions += 1
+              if (promotions === 2) return Effect.fail(promotionFailure)
+            }
+            return Effect.sync(() => {
+              files.set(to, files.get(from) ?? "")
+              files.delete(from)
+            })
+          },
+          remove: (target) => target.endsWith("code-reviewer.toml") && !target.endsWith(".tmp")
+            ? Effect.fail(cleanupFailure)
+            : Effect.sync(() => {
+              files.delete(target)
+            })
+        })),
+        Effect.provide(Path.layer)
+      ))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) return
+      const errors = exit.cause.reasons.filter(Cause.isFailReason).map(({ error }) => error)
+      expect(errors).toHaveLength(2)
+      expect(errors[0]).toMatchObject({
+        _tag: "AgentSyncError",
+        detail: "rename: /repo/.codex/agents/task-reviewer.toml",
+        cause: promotionFailure
+      })
+      expect(errors[1]).toMatchObject({
+        _tag: "AgentSyncError",
+        detail: "remove: /repo/.codex/agents/code-reviewer.toml",
+        cause: cleanupFailure
+      })
+    })
+  })
+
+  it.effect("restores the transaction when interrupted after a promotion", () => {
+    const files = new Map<string, string>()
+    const directories = new Set(["/repo/.claude/agents", "/repo/.codex/agents"])
+    const originals = new Map<string, string>()
+    let promotions = 0
+    for (const name of AGENT_NAMES) {
+      files.set(`/repo/.claude/agents/${name}.md`, claudeSource(name))
+      const target = `/repo/.codex/agents/${name}.toml`
+      const content = `original:${name}`
+      files.set(target, content)
+      originals.set(target, content)
+    }
+    const entries = (directory: string): Array<string> => [...files.keys()]
+      .filter((file) => file.startsWith(`${directory}/`) && !file.slice(directory.length + 1).includes("/"))
+      .map((file) => file.slice(directory.length + 1))
+
+    return Effect.gen(function*() {
+      const program = syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
+        Effect.provide(FileSystem.layerNoop({
+          exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
+          readDirectory: (directory) => Effect.succeed(entries(directory)),
+          readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
+          makeDirectory: (target) => Effect.sync(() => {
+            directories.add(target)
+          }),
+          writeFileString: (target, content) => Effect.sync(() => {
+            files.set(target, content)
+          }),
+          rename: (from, to) => {
+            const move = Effect.sync(() => {
+              files.set(to, files.get(from) ?? "")
+              files.delete(from)
+            })
+            if (from.endsWith(".tmp")) {
+              promotions += 1
+              if (promotions === 1) return move.pipe(Effect.andThen(Effect.yieldNow))
+            }
+            return move
+          },
+          remove: (target) => Effect.sync(() => {
+            files.delete(target)
+          })
+        })),
+        Effect.provide(Path.layer)
+      )
+      const fiber = yield* Effect.forkChild(program)
+      yield* Effect.yieldNow
+      expect(promotions).toBe(1)
+      yield* Fiber.interrupt(fiber)
+      expect(new Map([...originals.keys()].map((target) => [target, files.get(target)]))).toEqual(originals)
+      expect([...files.keys()].filter((file) => file.endsWith(".tmp") || file.endsWith(".bak"))).toEqual([])
+    })
   })
 
   it.effect("builds the manual standing-client AppContext from explicit host inputs", () =>

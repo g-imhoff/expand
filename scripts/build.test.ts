@@ -1,7 +1,11 @@
+import * as NodePlatform from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path } from "effect"
-import { describe, expect, expectTypeOf } from "vitest"
+import { describe, expect, expectTypeOf, vi } from "vitest"
 import { BuildTool, buildBinaries, type BuildError } from "./build"
+
+const esbuildBuild = vi.hoisted(() => vi.fn())
+vi.mock("esbuild", () => ({ build: esbuildBuild }))
 
 const pathLayer = Path.layer
 
@@ -39,33 +43,39 @@ describe("buildBinaries", () => {
     )
   })
 
-  it.effect("reports an esbuild rejection as a tagged error and skips chmod", () => {
-    let chmodCalls = 0
-    const cause = new Error("esbuild rejected")
-
-    return buildBinaries("/repo").pipe(
-      Effect.provideService(BuildTool, {
-        build: () => Effect.fail(cause)
-      }),
-      Effect.provide(FileSystem.layerNoop({
-        remove: () => Effect.void,
-        makeDirectory: () => Effect.void,
-        chmod: () => Effect.sync(() => {
-          chmodCalls += 1
-        })
-      })),
-      Effect.provide(pathLayer),
-      Effect.flip,
-      Effect.tap((error) => Effect.sync(() => {
-        expect(error).toMatchObject({
-          _tag: "BuildError",
-          operation: "esbuild",
-          cause
-        })
-        expect(chmodCalls).toBe(0)
+  it.effect("imports lazily and adapts the imported esbuild rejection to the exact tagged cause", () =>
+    Effect.gen(function*() {
+      vi.resetModules()
+      const runMain = vi.fn()
+      const cause = new Error("esbuild rejected")
+      esbuildBuild.mockReset().mockRejectedValue(cause)
+      vi.doMock("@effect/platform-node", () => ({
+        ...NodePlatform,
+        NodeRuntime: { ...NodePlatform.NodeRuntime, runMain }
       }))
-    )
-  })
+      const module = yield* Effect.promise(() => import("./build"))
+      expect(runMain).not.toHaveBeenCalled()
+      expect(esbuildBuild).not.toHaveBeenCalled()
+
+      let chmodCalls = 0
+      const error = yield* module.buildBinaries("/repo").pipe(
+        Effect.provide(module.BuildToolLive),
+        Effect.provide(FileSystem.layerNoop({
+          remove: () => Effect.void,
+          makeDirectory: () => Effect.void,
+          chmod: () => Effect.sync(() => {
+            chmodCalls += 1
+          })
+        })),
+        Effect.provide(pathLayer),
+        Effect.flip
+      )
+      expect(error).toEqual(new module.BuildError({ operation: "esbuild", cause }))
+      expect(esbuildBuild).toHaveBeenCalledTimes(1)
+      expect(chmodCalls).toBe(0)
+      vi.doUnmock("@effect/platform-node")
+      vi.resetModules()
+    }))
 
   it("exposes a typed Effect contract", () => {
     expectTypeOf(buildBinaries("/repo")).toMatchTypeOf<

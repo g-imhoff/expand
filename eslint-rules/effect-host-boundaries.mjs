@@ -675,6 +675,13 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "scripts/build.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "scripts/build.ts",
     declaration: "member:buildTool.try",
     host: "esbuild Promise adapter",
@@ -703,10 +710,24 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "scripts/sync-agents.test.ts",
+    declaration: "module:<module>",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "scripts/sync-agents.ts",
     declaration: "module:<module>",
     host: "Node agent-sync entrypoint",
     construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/fold-version-lockstep.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
     occurrence: 0
   })
 ])

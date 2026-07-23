@@ -1,8 +1,10 @@
+import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 import { it } from "@effect/vitest"
 import { Crypto, Effect, FileSystem, Path } from "effect"
-import { describe, expect, expectTypeOf } from "vitest"
+import * as TypeScript from "typescript"
+import { describe, expect, expectTypeOf, vi } from "vitest"
 import {
   computeFoldHashes,
   FoldVersionError,
@@ -55,4 +57,27 @@ describe("FOLD_VERSIONS generation", () => {
       Effect.Effect<Readonly<Record<string, string>>, FoldVersionError, FileSystem.FileSystem | Path.Path | Crypto.Crypto>
     >()
   })
+
+  it.effect("performs no fold operation during a controlled dynamic import", () =>
+    Effect.gen(function*() {
+      vi.resetModules()
+      const runMain = vi.fn()
+      const createSourceFile = vi.fn(() => {
+        throw new Error("fold parsing ran during import")
+      })
+      vi.doMock("@effect/platform-node", () => ({
+        ...NodePlatform,
+        NodeRuntime: { ...NodePlatform.NodeRuntime, runMain }
+      }))
+      vi.doMock("typescript", () => ({ ...TypeScript, createSourceFile }))
+
+      const module = yield* Effect.promise(() => import("../../scripts/fold-version"))
+
+      expect(Effect.isEffect(module.computeFoldHashes("/repo"))).toBe(true)
+      expect(runMain).not.toHaveBeenCalled()
+      expect(createSourceFile).not.toHaveBeenCalled()
+      vi.doUnmock("@effect/platform-node")
+      vi.doUnmock("typescript")
+      vi.resetModules()
+    }))
 })

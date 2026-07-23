@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, FileSystem, Path } from "effect"
+import { Cause, Console, Data, Effect, Exit, FileSystem, Path } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 import { parse as parseYaml } from "yaml"
 
@@ -110,14 +110,18 @@ const requiredString = (frontmatter: Record<string, unknown>, field: string, fil
 const isAgentName = (value: string): value is AgentName =>
   (AGENT_NAMES as ReadonlyArray<string>).includes(value)
 
-const quoteToml = (value: string): string => `"${value
-  .replaceAll("\\", "\\\\")
-  .replaceAll('"', '\\"')
-  .replaceAll("\b", "\\b")
-  .replaceAll("\f", "\\f")
-  .replaceAll("\n", "\\n")
-  .replaceAll("\r", "\\r")
-  .replaceAll("\t", "\\t")}"`
+const quoteToml = (value: string): string => `"${value.replace(/[\\"\u0000-\u001f\u007f]/gu, (character) => {
+  switch (character) {
+    case "\\": return "\\\\"
+    case '"': return '\\"'
+    case "\b": return "\\b"
+    case "\t": return "\\t"
+    case "\n": return "\\n"
+    case "\f": return "\\f"
+    case "\r": return "\\r"
+    default: return `\\u${character.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()}`
+  }
+})}"`
 
 export const parseClaudeAgent = (filePath: string, source: string): ClaudeAgentDefinition => {
   const filename = filePath.replaceAll("\\", "/").split("/").at(-1) ?? filePath
@@ -181,13 +185,16 @@ export const validateRoster = (definitions: ReadonlyArray<ClaudeAgentDefinition>
 
 export const renderCodexAgent = (definition: ClaudeAgentDefinition): string => {
   const policy = AGENT_POLICY[definition.name]
+  const instructions = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(definition.instructions)
+    ? quoteToml(definition.instructions)
+    : `'''${definition.instructions}'''`
   return [
     `name = ${quoteToml(definition.name)}`,
     `description = ${quoteToml(definition.description)}`,
     `model = ${quoteToml(policy.codexModel)}`,
     `model_reasoning_effort = ${quoteToml(policy.codexEffort)}`,
     `sandbox_mode = ${quoteToml(policy.sandboxMode)}`,
-    `developer_instructions = '''${definition.instructions}'''`,
+    `developer_instructions = ${instructions}`,
     ""
   ].join("\n")
 }
@@ -291,20 +298,106 @@ export const syncAgents = Effect.fn("scripts.sync-agents.syncAgents")(
     )
     const staged = definitions.map((definition) => {
       const target = path.join(codexDir, `${definition.name}.toml`)
-      return { target, temporary: `${target}.tmp`, content: renderCodexAgent(definition) }
+      return {
+        target,
+        temporary: `${target}.tmp`,
+        backup: `${target}.bak`,
+        content: renderCodexAgent(definition),
+        hadOriginal: false,
+        backedUp: false,
+        promoted: false
+      }
     })
-    const cleanup = Effect.forEach(staged, ({ temporary }) =>
-      fs.remove(temporary, { force: true }).pipe(Effect.ignore), { discard: true })
+    const attemptAll = (operations: ReadonlyArray<Effect.Effect<void, AgentSyncError>>) =>
+      Effect.gen(function*() {
+        const failures: Array<Cause.Cause<AgentSyncError>> = []
+        for (const operation of operations) {
+          const exit = yield* Effect.exit(operation)
+          if (Exit.isFailure(exit)) failures.push(exit.cause)
+        }
+        if (failures.length > 0) {
+          let combined = failures[0] as Cause.Cause<AgentSyncError>
+          for (const failure of failures.slice(1)) combined = Cause.combine(combined, failure)
+          return yield* Effect.failCause(combined)
+        }
+      })
+    const remove = (target: string) => fs.remove(target, { force: true }).pipe(
+      Effect.mapError((cause) => filesystemError("remove", target, cause))
+    )
+    const cleanupArtifacts = () => attemptAll(staged.flatMap(({ temporary, backup }) => [
+      remove(temporary),
+      remove(backup)
+    ]))
+    const rollback = () => {
+      const operations: Array<Effect.Effect<void, AgentSyncError>> = []
+      for (const item of [...staged].reverse()) {
+        if (item.promoted) {
+          operations.push(remove(item.target).pipe(Effect.tap(() => Effect.sync(() => {
+            item.promoted = false
+          }))))
+        }
+      }
+      for (const item of [...staged].reverse()) {
+        if (item.backedUp) {
+          operations.push(fs.rename(item.backup, item.target).pipe(
+            Effect.mapError((cause) => filesystemError("rename", item.target, cause)),
+            Effect.tap(() => Effect.sync(() => {
+              item.backedUp = false
+            }))
+          ))
+        }
+      }
+      for (const item of staged) {
+        operations.push(remove(item.temporary))
+        if (!item.backedUp) operations.push(remove(item.backup))
+      }
+      return attemptAll(operations)
+    }
+    let committed = false
+    const transaction = Effect.gen(function*() {
+      yield* Effect.forEach(staged, ({ content, temporary }) =>
+        fs.writeFileString(temporary, content).pipe(
+          Effect.mapError((cause) => filesystemError("writeFileString", temporary, cause))
+        ), { discard: true })
 
-    yield* Effect.forEach(staged, ({ content, temporary }) =>
-      fs.writeFileString(temporary, content).pipe(
-        Effect.mapError((cause) => filesystemError("writeFileString", temporary, cause))
-      ), { discard: true }).pipe(Effect.onError(() => cleanup))
+      yield* Effect.forEach(staged, (item) =>
+        fs.exists(item.target).pipe(
+          Effect.mapError((cause) => filesystemError("exists", item.target, cause)),
+          Effect.tap((exists) => Effect.sync(() => {
+            item.hadOriginal = exists
+          }))
+        ), { discard: true })
 
-    yield* Effect.forEach(staged, ({ target, temporary }) =>
-      fs.rename(temporary, target).pipe(
-        Effect.mapError((cause) => filesystemError("rename", target, cause))
-      ), { discard: true }).pipe(Effect.onError(() => cleanup))
+      yield* Effect.forEach(staged, (item) => item.hadOriginal
+        ? fs.rename(item.target, item.backup).pipe(
+          Effect.mapError((cause) => filesystemError("rename", item.target, cause)),
+          Effect.tap(() => Effect.sync(() => {
+            item.backedUp = true
+          })),
+          Effect.uninterruptible
+        )
+        : Effect.void, { discard: true })
+
+      yield* Effect.forEach(staged, (item) =>
+        fs.rename(item.temporary, item.target).pipe(
+          Effect.mapError((cause) => filesystemError("rename", item.target, cause)),
+          Effect.tap(() => Effect.sync(() => {
+            item.promoted = true
+          })),
+          Effect.uninterruptible
+        ), { discard: true })
+      committed = true
+    })
+
+    yield* transaction.pipe(Effect.onExit((transactionExit) => {
+      const finalizer = Exit.isFailure(transactionExit) && !committed ? rollback() : cleanupArtifacts()
+      return Effect.exit(finalizer).pipe(Effect.flatMap((cleanupExit) => {
+        if (Exit.isSuccess(cleanupExit)) return Effect.void
+        return Effect.failCause(Exit.isFailure(transactionExit)
+          ? Cause.combine(transactionExit.cause, cleanupExit.cause)
+          : cleanupExit.cause)
+      }))
+    }))
   }
 )
 

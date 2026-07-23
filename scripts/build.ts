@@ -1,6 +1,6 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { build as esbuildBuild, type BuildOptions } from "esbuild"
-import { Context, Data, Effect, FileSystem, Path } from "effect"
+import { Context, Data, Effect, FileSystem, Layer, Path } from "effect"
 
 export const BUILD_ENTRIES = [
   ["apps/cli/cli/main.ts", "dist/expand"],
@@ -63,18 +63,20 @@ export const buildBinaries = Effect.fn("scripts.build.buildBinaries")(
 )
 
 const buildTool: BuildToolShape = {
-  build: (options) => Effect.tryPromise({
+  build: Effect.fn("scripts.build.buildTool")((options) => Effect.tryPromise({
     try: () => esbuildBuild(options),
     catch: (cause) => cause
-  })
+  }))
 }
+
+export const BuildToolLive = Layer.succeed(BuildTool, buildTool)
 
 const program = Effect.gen(function*() {
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
   yield* buildBinaries(root)
 }).pipe(
-  Effect.provideService(BuildTool, buildTool),
+  Effect.provide(BuildToolLive),
   Effect.provide(NodeServices.layer)
 )
 
