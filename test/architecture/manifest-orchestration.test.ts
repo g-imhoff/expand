@@ -57,6 +57,8 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
         violations.push("newline")
         index += 1
         finishToken()
+      } else if (quote === "double" && !/[\\$`"]/.test(next)) {
+        token += character
       } else {
         token += next
         tokenHasUnquoted = tokenHasUnquoted || quote === undefined
@@ -115,7 +117,10 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
   const executableName = (value: string) => value.split(/[\\/]/).at(-1)?.toLowerCase().replace(/\.exe$/, "") ?? value
   const forbiddenTokens = new Set(["cd", "for", "while", "do", "done", "rm", "mkdir"])
   const wrappers = new Set(["sh", "bash", "dash", "zsh", "cmd", "powershell", "pwsh", "eval", "env", "command", "exec"])
-  if (activeTokens.some((value) => forbiddenTokens.has(value))) violations.push("inline orchestration")
+  if (
+    (values[0] !== undefined && forbiddenTokens.has(executableName(values[0]))) ||
+    activeTokens.some((value) => forbiddenTokens.has(executableName(value)))
+  ) violations.push("inline orchestration")
   if (
     (values[0] !== undefined && wrappers.has(executableName(values[0]))) ||
     activeTokens.some((value) => wrappers.has(executableName(value)))
@@ -173,6 +178,17 @@ describe("manifest orchestration", () => {
       "tsx scripts/tool.ts\necho no",
       "tsx scripts/tool.ts \\\necho no",
       "tsx scripts/one.ts scripts/two.ts"
+    ]
+    for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
+  })
+
+  it("rejects quoted, absolute, and platform-path forbidden executables by basename", () => {
+    const commands = [
+      `"rm" -rf output`,
+      "'/bin/rm' -rf output",
+      `"/usr/local/bin/mkdir" output`,
+      String.raw`"C:\tools\rm" -rf output`,
+      String.raw`'C:\tools\mkdir.exe' output`
     ]
     for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
   })
