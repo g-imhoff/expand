@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, Ref } from "effect"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, Ref, Scope } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { TestClock } from "effect/testing"
 import { describe, expect } from "vitest"
@@ -19,7 +19,7 @@ import {
   renderReport,
   toJsonReport
 } from "./report"
-import { ensureSeed } from "./seed"
+import { buildLayerOnce, ensureSeed } from "./seed"
 import { runColdBoot } from "./scenarios/cold-boot"
 import { runRpcReplay } from "./scenarios/rpc-replay"
 import { runScanDrain } from "./scenarios/scan-drain"
@@ -63,7 +63,9 @@ describe("benchmark host and reporting", () => {
       const metadata = yield* makeReportMetadata
 
       expect(metadata).toEqual({ machine, generatedAt: "2026-01-01T00:00:00.000Z" })
-      expect(renderReport([measurement], 1000, metadata.machine)).toMatchSnapshot()
+      const report = renderReport([measurement], 1000, metadata.machine)
+      expect(report.split("\n")[5]).toBe("S4 scan drain  100k   500      200,000   10.0MB  PASS   ")
+      expect(report.replaceAll(" ", "·")).toMatchSnapshot()
       expect(toJsonReport([measurement], metadata)).toMatchSnapshot()
     }).pipe(
       Effect.provide(Layer.succeed(BenchmarkHost, BenchmarkHost.of({
@@ -179,6 +181,73 @@ describe("benchmark scenarios", () => {
 })
 
 describe("benchmark resources and orchestration", () => {
+  it.effect("closes a successful one-shot layer build exactly once", () =>
+    Effect.gen(function*() {
+      const events: Array<string> = []
+      const exits: Array<Exit.Exit<unknown, unknown>> = []
+      const layer = Layer.effectDiscard(Effect.gen(function*() {
+        events.push("acquire")
+        const scope = yield* Effect.scope
+        yield* Scope.addFinalizerExit(scope, (exit) => Effect.sync(() => {
+          events.push("release")
+          exits.push(exit)
+        }))
+      }))
+
+      yield* buildLayerOnce(layer)
+
+      expect(events).toEqual(["acquire", "release"])
+      expect(exits).toHaveLength(1)
+      expect(Exit.isSuccess(exits[0]!)).toBe(true)
+    }))
+
+  it.effect("closes an acquired resource once when later layer acquisition fails", () =>
+    Effect.gen(function*() {
+      const events: Array<string> = []
+      const exits: Array<Exit.Exit<unknown, unknown>> = []
+      const layer = Layer.effectDiscard(Effect.gen(function*() {
+        events.push("acquire")
+        const scope = yield* Effect.scope
+        yield* Scope.addFinalizerExit(scope, (exit) => Effect.sync(() => {
+          events.push("release")
+          exits.push(exit)
+        }))
+        return yield* Effect.fail("acquisition failed" as const)
+      }))
+      const failureExit = yield* buildLayerOnce(layer).pipe(Effect.exit)
+
+      expect(events).toEqual(["acquire", "release"])
+      expect(exits).toEqual([failureExit])
+      const failure = Exit.findError(failureExit)
+      expect(failure._tag).toBe("Success")
+      if (failure._tag === "Success") expect(failure.success).toBe("acquisition failed")
+    }))
+
+  it.effect("closes an acquired resource once when layer acquisition is interrupted", () =>
+    Effect.gen(function*() {
+      const events: Array<string> = []
+      const exits: Array<Exit.Exit<unknown, unknown>> = []
+      const acquired = yield* Deferred.make<void>()
+      const layer = Layer.effectDiscard(Effect.gen(function*() {
+        events.push("acquire")
+        const scope = yield* Effect.scope
+        yield* Scope.addFinalizerExit(scope, (exit) => Effect.sync(() => {
+          events.push("release")
+          exits.push(exit)
+        }))
+        yield* Deferred.succeed(acquired, undefined)
+        return yield* Effect.never
+      }))
+      const fiber = yield* buildLayerOnce(layer).pipe(Effect.forkChild({ startImmediately: true }))
+      expect(yield* Deferred.isDone(acquired)).toBe(true)
+      yield* Fiber.interrupt(fiber)
+      const interruptionExit = yield* Fiber.join(fiber).pipe(Effect.exit)
+
+      expect(events).toEqual(["acquire", "release"])
+      expect(exits).toEqual([interruptionExit])
+      expect(Exit.isFailure(interruptionExit)).toBe(true)
+    }))
+
   it.effect("keeps the seed cache anchored to the benchmark module", () =>
     benchmarkServices(Effect.gen(function*() {
       const path = yield* Path.Path

@@ -1,7 +1,7 @@
 // Deterministic event-script generator + (in Task 3) batched seeding into cached
 // SQLite files. Bump GENERATOR_VERSION whenever generated output changes — it is
 // part of the cache filename.
-import { Console, DateTime, Effect, Exit, FileSystem, Layer, Path, Schema, Scope, Stream } from "effect"
+import { Console, DateTime, Effect, FileSystem, Layer, Path, Schema, Scope, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { DomainEventFromJson } from "@expand/contracts/events/domain"
@@ -113,12 +113,8 @@ const uuidOf = (n: number): string => "00000000-0000-4000-8000-" + String(n).pad
 const BASE_MS = 1_767_225_600_000
 
 // Build a layer once (running its acquisition, e.g. DDL) and release it.
-const buildLayerOnce = Effect.fn("Benchmark.buildLayerOnce")(<ROut, E>(layer: Layer.Layer<ROut, E>) =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make()
-    yield* Layer.buildWithScope(layer, scope)
-    yield* Scope.close(scope, Exit.void)
-  }))
+export const buildLayerOnce = Effect.fn("Benchmark.buildLayerOnce")(<ROut, E>(layer: Layer.Layer<ROut, E>) =>
+  Effect.flatMap(Scope.make(), (scope) => Scope.use(Layer.buildWithScope(layer, scope), scope)).pipe(Effect.asVoid))
 
 const cachePathFor = (path: Path.Path, benchDir: string, scale: string): string =>
   path.join(benchDir, ".cache", `events-${scale}-seed${PRNG_SEED}-g${GENERATOR_VERSION}.db`)
