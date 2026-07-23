@@ -668,10 +668,52 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "packages/client-ts/scripts/prepare-publish.ts",
+    declaration: "module:<module>",
+    host: "Client package publish entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "packages/client-ts/test/fixtures/spawn-lock-contender.ts",
     declaration: "module:<module>",
     host: "Test fixture entrypoint",
     construct: testFixtureNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/client-ts/test/prepare-publish.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/contracts/scripts/prepare-publish.ts",
+    declaration: "module:<module>",
+    host: "Contracts package publish entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/contracts/test/prepare-publish.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "docs/architecture/scripts/build.ts",
+    declaration: "module:<module>",
+    host: "Architecture documentation build entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "docs/architecture/scripts/build.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
     occurrence: 0
   }),
   Object.freeze({
@@ -692,6 +734,34 @@ export const effectHostBoundaries = Object.freeze([
     file: "scripts/build.ts",
     declaration: "module:<module>",
     host: "Node build entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/cert-cli-build.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/cert-cli-build.ts",
+    declaration: "module:<module>",
+    host: "CLI build certification entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/desktop-command.test.ts",
+    declaration: "variable:module",
+    host: "Vitest controlled dynamic import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/desktop-command.ts",
+    declaration: "module:<module>",
+    host: "Desktop development command entrypoint",
     construct: scriptNodeRuntimeRunMain,
     occurrence: 0
   }),

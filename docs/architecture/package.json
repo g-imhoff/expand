@@ -3,15 +3,20 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-beta.74"
+  },
   "scripts": {
     "dev": "likec4 start",
-    "build": "npm run clean && npm run build:png && npm run build:svg && echo '✓ built png in ./out and svg in ./out-svg'",
-    "build:png": "echo '→ rendering PNG via likec4 (Playwright)' && likec4 export png -o ./out",
-    "build:svg": "echo '→ generating D2 sources + rendering SVG' && likec4 gen d2 -o ./d2 && npm run render:svg",
-    "render:svg": "mkdir -p ./out-svg && for f in ./d2/*.d2; do name=$(basename \"$f\" .d2); d2 --layout elk --theme 300 \"$f\" \"./out-svg/${name}.svg\"; done",
-    "clean": "rm -rf ./out ./out-svg ./d2"
+    "build": "tsx scripts/build.ts"
   },
   "devDependencies": {
-    "likec4": "1.56.0"
+    "@effect/platform-node": "4.0.0-beta.74",
+    "@effect/vitest": "4.0.0-beta.74",
+    "effect": "4.0.0-beta.74",
+    "likec4": "1.56.0",
+    "tsx": "4.21.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.7"
   }
 }

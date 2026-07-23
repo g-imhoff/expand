@@ -22,16 +22,17 @@ describe("server app split", () => {
   it.live("builds CLI and server as separate binaries", () =>
     Effect.gen(function*() {
       const pkg = yield* Schema.decodeUnknownEffect(PackageJson)(yield* read("package.json"))
-      expect(pkg.scripts.build).toBe("node scripts/build.mjs")
-      expect(yield* read("scripts/build.mjs")).toContain('["apps/cli/cli/main.ts", "dist/expand"]')
-      expect(yield* read("scripts/build.mjs")).toContain('["apps/server/main.ts", "dist/expand-server"]')
+      expect(pkg.scripts.build).toBe("tsx scripts/build.ts")
+      expect(yield* read("scripts/build.ts")).toContain('["apps/cli/cli/main.ts", "dist/expand"]')
+      expect(yield* read("scripts/build.ts")).toContain('["apps/server/main.ts", "dist/expand-server"]')
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("keeps the compiled-binary smoke inside cert:cli:build", () =>
     Effect.gen(function*() {
       const pkg = yield* Schema.decodeUnknownEffect(PackageJson)(yield* read("package.json"))
-      expect(pkg.scripts["cert:cli:build"]).toContain("npm run build")
-      expect(pkg.scripts["cert:cli:build"]).toContain("binary-smoke.sh")
+      expect(pkg.scripts["cert:cli:build"]).toBe("tsx scripts/cert-cli-build.ts")
+      expect(yield* read("scripts/cert-cli-build.ts")).toContain("buildBinaries(root)")
+      expect(yield* read("scripts/cert-cli-build.ts")).toContain("scripts/binary-smoke.sh")
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("does not keep a dependency-cruiser exception for CLI booting backend composition", () =>

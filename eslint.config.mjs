@@ -29,6 +29,7 @@ export default tseslint.config(
   {
     files: [
       "scripts/**/*.{ts,tsx,mts,cts}",
+      "docs/architecture/**/*.{ts,tsx,mts,cts}",
       "test/**/*.{ts,tsx,mts,cts}",
       "bench/**/*.{ts,tsx,mts,cts}",
       "migrations/**/*.{ts,tsx,mts,cts}",

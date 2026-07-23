@@ -39,8 +39,12 @@
     "apps/desktop": {
       "entry": [
         "test/**/*.test.{ts,tsx}",
-        "e2e/**/*.spec.ts"
+        "e2e/**/*.spec.ts",
+        "e2e/playwright.config.ts"
       ]
+    },
+    "docs/architecture": {
+      "project": ["scripts/**/*.ts"]
     }
   }
 }

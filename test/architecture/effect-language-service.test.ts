@@ -119,6 +119,7 @@ const expectedAuditIncludes = [
   "migrations",
   "test",
   "eslint-rules",
+  "docs/architecture",
   "*.ts",
   "*.tsx",
   "*.mts",
