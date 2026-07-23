@@ -12,6 +12,7 @@ const processPlatform = ["platform:process", "platform"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const testFixtureNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
+const scriptNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const documentGetElementById = ["platform:document", "getElementById"].join(".")
 const effectRunFork = ["runner:Effect", "runFork"].join(".")
 const effectRunPromise = ["runner:Effect", "runPromise"].join(".")
@@ -674,10 +675,38 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "scripts/build.ts",
+    declaration: "member:buildTool.try",
+    host: "esbuild Promise adapter",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/build.ts",
+    declaration: "module:<module>",
+    host: "Node build entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "scripts/effect-audit.ts",
     declaration: "module:<module>",
     host: "Node audit entrypoint",
     construct: "runner:NodeRuntime.runMain",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/fold-version.ts",
+    declaration: "module:<module>",
+    host: "Node fold-version entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "scripts/sync-agents.ts",
+    declaration: "module:<module>",
+    host: "Node agent-sync entrypoint",
+    construct: scriptNodeRuntimeRunMain,
     occurrence: 0
   })
 ])

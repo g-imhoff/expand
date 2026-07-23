@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
-import { basename, extname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Console, Data, Effect, FileSystem, Path } from "effect"
+import { Command, Flag } from "effect/unstable/cli"
 import { parse as parseYaml } from "yaml"
 
 export const AGENT_NAMES = [
@@ -90,6 +90,12 @@ export interface SyncAgentsOptions {
   readonly mode: "write" | "check"
 }
 
+export class AgentSyncError extends Data.TaggedError("AgentSyncError")<{
+  readonly reason: "invalid-definition" | "filesystem" | "unexpected-generated" | "stale-generated"
+  readonly detail: string
+  readonly cause?: unknown
+}> {}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -104,8 +110,17 @@ const requiredString = (frontmatter: Record<string, unknown>, field: string, fil
 const isAgentName = (value: string): value is AgentName =>
   (AGENT_NAMES as ReadonlyArray<string>).includes(value)
 
+const quoteToml = (value: string): string => `"${value
+  .replaceAll("\\", "\\\\")
+  .replaceAll('"', '\\"')
+  .replaceAll("\b", "\\b")
+  .replaceAll("\f", "\\f")
+  .replaceAll("\n", "\\n")
+  .replaceAll("\r", "\\r")
+  .replaceAll("\t", "\\t")}"`
+
 export const parseClaudeAgent = (filePath: string, source: string): ClaudeAgentDefinition => {
-  const filename = basename(filePath)
+  const filename = filePath.replaceAll("\\", "/").split("/").at(-1) ?? filePath
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(source)
   if (match === null) throw new Error(`${filename}: missing YAML frontmatter`)
   const frontmatterSource = match[1]
@@ -157,7 +172,7 @@ export const validateRoster = (definitions: ReadonlyArray<ClaudeAgentDefinition>
 
   const expected = [...AGENT_NAMES].sort()
   const actual = [...names].sort()
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  if (actual.length !== expected.length || actual.some((name, index) => name !== expected[index])) {
     const missing = expected.filter((name) => !actual.includes(name))
     const unexpected = actual.filter((name) => !expected.includes(name as AgentName))
     throw new Error(`roster mismatch; missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}`)
@@ -167,91 +182,145 @@ export const validateRoster = (definitions: ReadonlyArray<ClaudeAgentDefinition>
 export const renderCodexAgent = (definition: ClaudeAgentDefinition): string => {
   const policy = AGENT_POLICY[definition.name]
   return [
-    `name = ${JSON.stringify(definition.name)}`,
-    `description = ${JSON.stringify(definition.description)}`,
-    `model = ${JSON.stringify(policy.codexModel)}`,
-    `model_reasoning_effort = ${JSON.stringify(policy.codexEffort)}`,
-    `sandbox_mode = ${JSON.stringify(policy.sandboxMode)}`,
+    `name = ${quoteToml(definition.name)}`,
+    `description = ${quoteToml(definition.description)}`,
+    `model = ${quoteToml(policy.codexModel)}`,
+    `model_reasoning_effort = ${quoteToml(policy.codexEffort)}`,
+    `sandbox_mode = ${quoteToml(policy.sandboxMode)}`,
     `developer_instructions = '''${definition.instructions}'''`,
     ""
   ].join("\n")
 }
 
-const listFiles = async (dir: string, extension: string): Promise<ReadonlyArray<string>> => {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true })
-    return entries
-      .filter((entry) => entry.isFile() && extname(entry.name) === extension)
-      .map((entry) => entry.name)
-      .sort()
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return []
-    throw error
+const filesystemError = (operation: string, target: string, cause: unknown): AgentSyncError =>
+  new AgentSyncError({ reason: "filesystem", detail: `${operation}: ${target}`, cause })
+
+const listFiles = Effect.fn("scripts.sync-agents.listFiles")(
+  function*(directory: string, extension: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const exists = yield* fs.exists(directory).pipe(
+      Effect.mapError((cause) => filesystemError("exists", directory, cause))
+    )
+    if (!exists) return [] as ReadonlyArray<string>
+    const entries = yield* fs.readDirectory(directory).pipe(
+      Effect.mapError((cause) => filesystemError("readDirectory", directory, cause))
+    )
+    return entries.filter((entry) => path.extname(entry) === extension).sort()
   }
-}
+)
 
-const readDefinitions = async (claudeDir: string): Promise<ReadonlyArray<ClaudeAgentDefinition>> => {
-  const filenames = await listFiles(claudeDir, ".md")
-  const definitions = await Promise.all(
-    filenames.map(async (filename) => parseClaudeAgent(filename, await readFile(join(claudeDir, filename), "utf8")))
-  )
-  validateRoster(definitions)
-  return definitions.sort((left, right) => AGENT_NAMES.indexOf(left.name) - AGENT_NAMES.indexOf(right.name))
-}
-
-const readGenerated = async (path: string): Promise<string | undefined> => {
-  try {
-    return await readFile(path, "utf8")
-  } catch (error) {
-    if (isRecord(error) && error.code === "ENOENT") return undefined
-    throw error
+const readDefinitions = Effect.fn("scripts.sync-agents.readDefinitions")(
+  function*(claudeDir: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const filenames = yield* listFiles(claudeDir, ".md")
+    const definitions = yield* Effect.forEach(filenames, (filename) =>
+      fs.readFileString(path.join(claudeDir, filename)).pipe(
+        Effect.mapError((cause) => filesystemError("readFileString", path.join(claudeDir, filename), cause)),
+        Effect.flatMap((source) => Effect.try({
+          try: () => parseClaudeAgent(filename, source),
+          catch: (cause) => new AgentSyncError({
+            reason: "invalid-definition",
+            detail: cause instanceof Error ? cause.message : String(cause),
+            cause
+          })
+        }))
+      ))
+    yield* Effect.try({
+      try: () => validateRoster(definitions),
+      catch: (cause) => new AgentSyncError({
+        reason: "invalid-definition",
+        detail: cause instanceof Error ? cause.message : String(cause),
+        cause
+      })
+    })
+    return definitions.sort((left, right) => AGENT_NAMES.indexOf(left.name) - AGENT_NAMES.indexOf(right.name))
   }
-}
+)
 
-export const syncAgents = async ({ rootDir, mode }: SyncAgentsOptions): Promise<void> => {
-  const claudeDir = join(rootDir, ".claude", "agents")
-  const codexDir = join(rootDir, ".codex", "agents")
-  const definitions = await readDefinitions(claudeDir)
-  const expectedNames = new Set<string>(AGENT_NAMES.map((name) => `${name}.toml`))
-  const actualToml = await listFiles(codexDir, ".toml")
-  const unexpected = actualToml.filter((filename) => !expectedNames.has(filename))
-
-  if (unexpected.length > 0) {
-    throw new Error(`unexpected Codex agent files: ${unexpected.join(", ")}`)
+const readGenerated = Effect.fn("scripts.sync-agents.readGenerated")(
+  function*(target: string) {
+    const fs = yield* FileSystem.FileSystem
+    const exists = yield* fs.exists(target).pipe(
+      Effect.mapError((cause) => filesystemError("exists", target, cause))
+    )
+    if (!exists) return undefined
+    return yield* fs.readFileString(target).pipe(
+      Effect.mapError((cause) => filesystemError("readFileString", target, cause))
+    )
   }
+)
 
-  if (mode === "check") {
-    const stale: string[] = []
-    for (const definition of definitions) {
-      const filename = `${definition.name}.toml`
-      const actual = await readGenerated(join(codexDir, filename))
-      if (actual !== renderCodexAgent(definition)) stale.push(filename)
+export const syncAgents = Effect.fn("scripts.sync-agents.syncAgents")(
+  function*({ rootDir, mode }: SyncAgentsOptions) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const claudeDir = path.join(rootDir, ".claude", "agents")
+    const codexDir = path.join(rootDir, ".codex", "agents")
+    const definitions = yield* readDefinitions(claudeDir)
+    const expectedNames = new Set<string>(AGENT_NAMES.map((name) => `${name}.toml`))
+    const actualToml = yield* listFiles(codexDir, ".toml")
+    const unexpected = actualToml.filter((filename) => !expectedNames.has(filename))
+
+    if (unexpected.length > 0) {
+      return yield* new AgentSyncError({
+        reason: "unexpected-generated",
+        detail: `unexpected Codex agent files: ${unexpected.join(", ")}`
+      })
     }
-    if (stale.length > 0) throw new Error(`agent sync check failed: ${stale.sort().join(", ")}`)
-    return
-  }
 
-  await mkdir(codexDir, { recursive: true })
-  for (const definition of definitions) {
-    const target = join(codexDir, `${definition.name}.toml`)
-    const temporary = `${target}.tmp`
-    await writeFile(temporary, renderCodexAgent(definition))
-    await rename(temporary, target)
+    if (mode === "check") {
+      const stale: Array<string> = []
+      for (const definition of definitions) {
+        const filename = `${definition.name}.toml`
+        const actual = yield* readGenerated(path.join(codexDir, filename))
+        if (actual !== renderCodexAgent(definition)) stale.push(filename)
+      }
+      if (stale.length > 0) {
+        return yield* new AgentSyncError({
+          reason: "stale-generated",
+          detail: `agent sync check failed: ${stale.sort().join(", ")}`
+        })
+      }
+      return
+    }
+
+    yield* fs.makeDirectory(codexDir, { recursive: true }).pipe(
+      Effect.mapError((cause) => filesystemError("makeDirectory", codexDir, cause))
+    )
+    const staged = definitions.map((definition) => {
+      const target = path.join(codexDir, `${definition.name}.toml`)
+      return { target, temporary: `${target}.tmp`, content: renderCodexAgent(definition) }
+    })
+    const cleanup = Effect.forEach(staged, ({ temporary }) =>
+      fs.remove(temporary, { force: true }).pipe(Effect.ignore), { discard: true })
+
+    yield* Effect.forEach(staged, ({ content, temporary }) =>
+      fs.writeFileString(temporary, content).pipe(
+        Effect.mapError((cause) => filesystemError("writeFileString", temporary, cause))
+      ), { discard: true }).pipe(Effect.onError(() => cleanup))
+
+    yield* Effect.forEach(staged, ({ target, temporary }) =>
+      fs.rename(temporary, target).pipe(
+        Effect.mapError((cause) => filesystemError("rename", target, cause))
+      ), { discard: true }).pipe(Effect.onError(() => cleanup))
   }
-}
+)
+
+const syncCommand = Command.make("sync-agents", {
+  check: Flag.boolean("check")
+}, ({ check }) => Effect.gen(function*() {
+  const path = yield* Path.Path
+  const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
+  yield* syncAgents({ rootDir: root, mode: check ? "check" : "write" })
+  yield* Console.log(check ? "agent definitions are synchronized" : "agent definitions synchronized")
+}))
+
+const program = Command.run(syncCommand, { version: "0.0.0" }).pipe(
+  Effect.provide(NodeServices.layer)
+)
 
 if (import.meta.main) {
-  const args = process.argv.slice(2)
-  if (args.some((arg) => arg !== "--check") || args.filter((arg) => arg === "--check").length > 1) {
-    console.error("usage: npm run agents:sync -- [--check]")
-    process.exit(2)
-  }
-  const mode = args[0] === "--check" ? "check" : "write"
-  try {
-    await syncAgents({ rootDir: resolve(fileURLToPath(new URL("..", import.meta.url))), mode })
-    console.log(mode === "check" ? "agent definitions are synchronized" : "agent definitions synchronized")
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error))
-    process.exit(1)
-  }
+  NodeRuntime.runMain(program)
 }
