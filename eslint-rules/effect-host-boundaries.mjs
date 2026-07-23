@@ -437,6 +437,27 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "examples/client-ts/archive-stale.ts",
+    declaration: "module:<module>",
+    host: "Client example entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "examples/client-ts/audit-log.ts",
+    declaration: "module:<module>",
+    host: "Client example entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "examples/client-ts/bootstrap-projects.ts",
+    declaration: "module:<module>",
+    host: "Client example entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "examples/client-ts/node-app-context.ts",
     declaration: "module:<module>",
     host: "Node AppContext host acquisition",

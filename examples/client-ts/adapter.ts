@@ -1,18 +1,18 @@
 import { resolveBackendCommand } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
-import { fileURLToPath } from "node:url"
-import { dirname, join } from "node:path"
-import { Effect } from "effect"
+import { Effect, Path } from "effect"
 export { clientLayer } from "./client-layer"
 
-export const adapter = makeNodeAdapter({
-  backendCommand: Effect.suspend(() => {
-    const serverEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "apps", "server", "main.ts")
-    return resolveBackendCommand({
-      execPath: process.execPath,
-      runtimeArgs: ["--import", "tsx"],
-      sourceEntry: serverEntry,
-      binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
-    })
+export const backendCommand = Effect.fn("ClientExample.backendCommand")(function*() {
+  const path = yield* Path.Path
+  const modulePath = yield* path.fromFileUrl(new URL(import.meta.url)).pipe(Effect.orDie)
+  const exampleDirectory = path.dirname(modulePath)
+  return yield* resolveBackendCommand({
+    execPath: "node",
+    runtimeArgs: ["--import", "tsx"],
+    sourceEntry: path.resolve(exampleDirectory, "..", "..", "apps", "server", "main.ts"),
+    binaryArgs: [path.join(exampleDirectory, "expand-server")]
   })
-})
+}, Effect.provide(Path.layer))
+
+export const adapter = makeNodeAdapter({ backendCommand: backendCommand() })

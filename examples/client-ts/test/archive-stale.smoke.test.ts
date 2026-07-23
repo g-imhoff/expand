@@ -1,68 +1,86 @@
-import { existsSync, readFileSync, rmSync } from "node:fs"
-import { join } from "node:path"
-import { setTimeout as delay } from "node:timers/promises"
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, Exit, Fiber, FileSystem, Layer, Path } from "effect"
+import { TestClock } from "effect/testing"
+import { describe, expect } from "vitest"
+import type { ProjectClientApi } from "@expand/client-ts/project"
+import { ProjectClient } from "@expand/client-ts/project"
+import { ArchiveRpcError, archiveStale, waitForBackendShutdown } from "../archive-stale"
 import { makeDataDir, makeFixtureDir, runExample, spawnExample } from "./helpers"
 
+const clientLayer = (client: ProjectClientApi) => Layer.succeed(ProjectClient, client)
+
 describe("example: archive-stale", () => {
-  it("archives projects whose directory is gone", async () => {
-    const dataDir = makeDataDir()
-    const fixture = makeFixtureDir(["gone"]) // becomes project "gone" -> <fixture>/gone
-    const endpointFile = join(dataDir, "server.json")
-    const endpointLockFile = `${endpointFile}.lock`
-    const backendLockFile = join(dataDir, "backend.lock")
-    const audit = spawnExample("audit-log.ts", [join(dataDir, "audit.jsonl")], dataDir)
-    let auditRunning = true
-    let shutdownBlocker: WebSocket | undefined
-    try {
-      await audit.waitForLine("audit-log: writing to", 30_000)
-      const bootstrap = await runExample("bootstrap-projects.ts", [fixture], dataDir)
-      expect(bootstrap.code, bootstrap.stderr).toBe(0)
-      rmSync(fixture, { recursive: true, force: true }) // its directory is now stale
-
-      const endpoint = JSON.parse(readFileSync(endpointFile, "utf8")) as {
-        readonly token: string
-        readonly url: string
-      }
-      shutdownBlocker = await connectWebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
-      await audit.kill()
-      auditRunning = false
-
-      await waitUntil(
-        () => !existsSync(endpointFile) && existsSync(backendLockFile),
-        "backend shutdown overlap"
+  it.effect("uses TestClock-compatible bounded polling for backend shutdown", () => {
+    let checks = 0
+    return Effect.gen(function*() {
+      const fiber = yield* waitForBackendShutdown("/state/backend.lock").pipe(
+        Effect.provide(FileSystem.layerNoop({
+          exists: () => Effect.sync(() => ++checks < 3)
+        })),
+        Effect.forkChild({ startImmediately: true })
       )
-
-      const r = await runExample("archive-stale.ts", [], dataDir)
-      expect(r.code, r.stderr).toBe(0)
-      expect(r.stdout).toMatch(/archive-stale: archived 1 of 1 active/)
-    } finally {
-      if (auditRunning) await audit.kill()
-      shutdownBlocker?.close()
-      await waitUntil(
-        () =>
-          !existsSync(endpointFile) &&
-          !existsSync(endpointLockFile) &&
-          !existsSync(backendLockFile),
-        "backend runtime cleanup"
-      )
-      rmSync(dataDir, { recursive: true, force: true })
-      rmSync(fixture, { recursive: true, force: true })
-    }
-  }, 45_000)
-})
-
-const connectWebSocket = async (url: string): Promise<WebSocket> =>
-  new Promise((resolve, reject) => {
-    const socket = new WebSocket(url)
-    socket.addEventListener("error", () => reject(new Error("shutdown blocker failed to connect")), { once: true })
-    socket.addEventListener("open", () => resolve(socket), { once: true })
+      yield* Effect.yieldNow
+      expect(checks).toBe(1)
+      yield* TestClock.adjust("50 millis")
+      expect(checks).toBe(2)
+      yield* TestClock.adjust("50 millis")
+      yield* Fiber.join(fiber)
+      expect(checks).toBe(3)
+    })
   })
 
-const waitUntil = async (predicate: () => boolean, label: string): Promise<void> => {
-  const deadline = Date.now() + 5_000
-  while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error(`${label} was not observed before timeout`)
-    await delay(10)
-  }
-}
+  it.effect("reports list RPC failures through the typed channel", () => {
+    const client = {
+      list: () => Effect.fail({ reason: "rpc" })
+    } as unknown as ProjectClientApi
+    return archiveStale.pipe(
+      Effect.provide(FileSystem.layerNoop({})),
+      Effect.provide(clientLayer(client)),
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toBeInstanceOf(ArchiveRpcError)
+        if (error._tag === "ArchiveRpcError") expect(error.operation).toBe("list")
+      }))
+    )
+  })
+
+  it.effect("archives projects whose directory is gone", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const fixture = yield* fs.makeTempDirectoryScoped({ prefix: "expand-fixture-" })
+      const gone = path.join(fixture, "gone")
+      yield* fs.makeDirectory(gone) // becomes project "gone" -> <fixture>/gone
+      yield* fs.remove(gone, { recursive: true, force: true }) // its directory is now stale
+      const archived: Array<string> = []
+      const client = {
+        list: () => Effect.succeed({ projects: [{ id: "project-1", name: "gone", directory: gone }], seq: 1 }),
+        archive: ({ id }: { readonly id: string }) => Effect.sync(() => {
+          archived.push(id)
+          return {}
+        })
+      } as unknown as ProjectClientApi
+
+      yield* archiveStale.pipe(Effect.provide(clientLayer(client)))
+
+      expect(archived).toEqual(["project-1"])
+    })).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("cleans the spawned process and owned directory after assertion failure", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      let ownedDataDir = ""
+      const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function*() {
+        ownedDataDir = yield* makeDataDir()
+        const fixture = yield* makeFixtureDir(["gone"])
+        const audit = yield* spawnExample("audit-log.ts", [path.join(ownedDataDir, "audit.jsonl")], ownedDataDir)
+        yield* audit.waitForLine("audit-log: writing to", 30_000)
+        yield* runExample("bootstrap-projects.ts", [fixture], ownedDataDir)
+        return yield* Effect.fail("assertion failed" as const)
+      })))
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* fs.exists(ownedDataDir)).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+})

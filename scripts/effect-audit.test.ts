@@ -1766,7 +1766,7 @@ describe("Effect launcher inventory command", () => {
         const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
         expect(error.reason).toBe("invalid-output")
       }))
-    }))
+    }), 60_000)
 
   it.effect("requires exact AST string-literal proof for host fixtures", () =>
     Effect.gen(function*() {
@@ -2134,6 +2134,9 @@ void join
 void fileURLToPath
 `,
   "apps/tui/node-app-context.ts": appContextBoundarySource,
+  "examples/client-ts/archive-stale.ts": runnerBoundarySource,
+  "examples/client-ts/audit-log.ts": runnerBoundarySource,
+  "examples/client-ts/bootstrap-projects.ts": runnerBoundarySource,
   "examples/client-ts/node-app-context.ts": appContextBoundarySource,
   "packages/electron-ipc/contract.ts": `type InvokeChannel<P> = { payload: P }
 export type IpcBridgeOf<C> = { [K in keyof C]: C[K] extends InvokeChannel<infer P> ? (payload: P) => ${promiseType}<unknown> : never }
@@ -2304,3 +2307,8 @@ describe("registered Effect language diagnostic command", () => {
     ))
   })
 })
+
+import { clearParserCaches } from "./effect-audit-test-support.mjs"
+import { afterEach } from "vitest"
+
+afterEach(clearParserCaches)

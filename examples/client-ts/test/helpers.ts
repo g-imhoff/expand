@@ -1,48 +1,45 @@
-import { spawn } from "node:child_process"
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import type { Readable } from "node:stream"
-import type { ChildProcess } from "node:child_process"
-import { fileURLToPath } from "node:url"
+import { Data, Deferred, Effect, FileSystem, Path, Ref, Stream, SubscriptionRef } from "effect"
+import { ChildProcess } from "effect/unstable/process"
 
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 
+export class ExampleProcessError extends Data.TaggedError("ExampleProcessError")<{
+  readonly operation: "spawn" | "stdout" | "stderr" | "exit" | "kill"
+  readonly cause: unknown
+}> {}
+
+export class ExampleReadinessError extends Data.TaggedError("ExampleReadinessError")<{
+  readonly substring: string
+  readonly lines: ReadonlyArray<string>
+  readonly reason: "timeout" | "exit"
+}> {}
+
 export interface ExampleHandle {
   /** Kill the process and await its exit, so cleanup never races the dying backend. */
-  readonly kill: () => Promise<void>
+  readonly kill: Effect.Effect<void, ExampleProcessError>
   /**
    * Resolve once a stdout line containing `substr` has appeared (matches lines
    * seen before the call too). Rejects on `timeoutMs` or if the process exits
    * first without emitting a matching line.
    */
-  readonly waitForLine: (substr: string, timeoutMs: number) => Promise<void>
+  readonly waitForLine: (substr: string, timeoutMs: number) => Effect.Effect<void, ExampleReadinessError>
+  readonly awaitExit: Effect.Effect<RunResult, ExampleProcessError>
 }
 
 /** Create an isolated, caller-owned data dir. Caller removes it (e.g. `rmSync(..., { recursive: true })`). */
-export const makeDataDir = (): string => mkdtempSync(join(tmpdir(), "expand-ex-"))
+export const makeDataDir = Effect.fn("ClientExampleTest.makeDataDir")(() =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "expand-ex-" }))
+  ))
 
-export const runExample = async (
-  relPath: string,
-  args: ReadonlyArray<string>,
-  dataDir?: string
-): Promise<RunResult> => {
-  const owned = dataDir === undefined
-  const dir = dataDir ?? makeDataDir()
-  try {
-    const proc = spawn(process.execPath, ["--import", "tsx", join(examplesDir, relPath), ...args, "--data-dir", dir], {
-      stdio: ["ignore", "pipe", "pipe"], env: { ...process.env }
-    })
-    const [stdout, stderr, code] = await Promise.all([
-      collect(proc.stdout),
-      collect(proc.stderr),
-      exitCode(proc)
-    ])
-    return { code, stdout, stderr }
-  } finally {
-    if (owned) rmSync(dir, { recursive: true, force: true })
-  }
-}
+export const runExample = Effect.fn("ClientExampleTest.runExample")(
+  (relPath: string, args: ReadonlyArray<string>, dataDir?: string) =>
+    Effect.scoped(Effect.gen(function*() {
+      const dir = dataDir ?? (yield* makeDataDir())
+      const handle = yield* spawnExample(relPath, args, dir)
+      return yield* handle.awaitExit
+    }))
+)
 
 /**
  * Spawn a long-running example against a caller-owned `dataDir` and return a handle
@@ -52,97 +49,112 @@ export const runExample = async (
  * readiness line via `waitForLine` instead of sleeping; stderr is inherited for
  * debugging. The caller owns `dataDir`.
  */
-export const spawnExample = (
+export const spawnExample = Effect.fn("ClientExampleTest.spawnExample")(function*(
   relPath: string,
   args: ReadonlyArray<string>,
   dataDir: string
-): ExampleHandle => {
-  const proc = spawn(process.execPath, ["--import", "tsx", join(examplesDir, relPath), ...args, "--data-dir", dataDir], {
-    stdio: ["ignore", "pipe", "inherit"], env: { ...process.env }
-  })
-
-  const lines: string[] = []
-  const waiters = new Set<(line: string | null) => void>()
-  const notify = (line: string | null) => { for (const w of [...waiters]) w(line) }
-
-  let buffer = ""
-  const flush = (chunk: string) => {
-    buffer += chunk
-    let nl: number
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, nl)
-      buffer = buffer.slice(nl + 1)
-      lines.push(line)
-      notify(line)
-    }
-  }
-  proc.stdout.setEncoding("utf8")
-  proc.stdout.on("data", flush)
-  proc.stdout.once("error", () => notify(null))
-  proc.stdout.once("end", () => {
-    if (buffer.length > 0) { lines.push(buffer); notify(buffer) }
-    notify(null)
-  })
-  const exited = new Promise<void>((resolve, reject) => {
-    proc.once("error", (error) => {
-      notify(null)
-      reject(error)
-    })
-    proc.once("exit", () => resolve())
-  })
-  void exited.catch(() => undefined)
-
-  return {
-    kill: async () => {
-      proc.kill()
-      await exited
-    },
-    waitForLine: (substr, timeoutMs) =>
-      new Promise<void>((resolve, reject) => {
-        if (lines.some((l) => l.includes(substr))) { resolve(); return }
-        const done = (fn: () => void) => { clearTimeout(timer); waiters.delete(onLine); fn() }
-        const timer = setTimeout(
-          () => done(() => reject(new Error(
-            `timed out after ${timeoutMs}ms waiting for stdout line containing ${JSON.stringify(substr)}; ` +
-            `saw ${lines.length} line(s): ${JSON.stringify(lines)}`
-          ))),
-          timeoutMs
-        )
-        const onLine = (line: string | null) => {
-          if (line === null) done(() => reject(new Error(
-            `process exited before emitting a stdout line containing ${JSON.stringify(substr)}; ` +
-            `saw ${lines.length} line(s): ${JSON.stringify(lines)}`
-          )))
-          else if (line.includes(substr)) done(resolve)
+) {
+  const path = yield* Path.Path
+  const examplesDir = yield* path.fromFileUrl(new URL("../", import.meta.url)).pipe(Effect.orDie)
+  const handle = yield* ChildProcess.make(
+    "node",
+    ["--import", "tsx", path.join(examplesDir, relPath), ...args, "--data-dir", dataDir],
+    { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
+  ).pipe(Effect.mapError((cause) => new ExampleProcessError({ operation: "spawn", cause })))
+  const stdout = yield* Ref.make("")
+  const stderr = yield* Ref.make("")
+  const lines = yield* SubscriptionRef.make<ReadonlyArray<string>>([])
+  const exit = yield* Deferred.make<RunResult, ExampleProcessError>()
+  const collectStdout = Effect.gen(function*() {
+    let buffer = ""
+    yield* handle.stdout.pipe(
+      Stream.decodeText(),
+      Stream.runForEach((chunk) => Effect.gen(function*() {
+        yield* Ref.update(stdout, (output) => output + chunk)
+        buffer += chunk
+        let newline = buffer.indexOf("\n")
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline)
+          buffer = buffer.slice(newline + 1)
+          yield* SubscriptionRef.update(lines, (seen) => [...seen, line])
+          newline = buffer.indexOf("\n")
         }
-        waiters.add(onLine)
-      })
+      })),
+      Effect.mapError((cause) => new ExampleProcessError({ operation: "stdout", cause }))
+    )
+    if (buffer.length > 0) yield* SubscriptionRef.update(lines, (seen) => [...seen, buffer])
+  })
+  const collectStderr = handle.stderr.pipe(
+    Stream.decodeText(),
+    Stream.runForEach((chunk) => Ref.update(stderr, (output) => output + chunk)),
+    Effect.mapError((cause) => new ExampleProcessError({ operation: "stderr", cause }))
+  )
+  yield* Effect.all([
+    collectStdout,
+    collectStderr,
+    handle.exitCode.pipe(
+      Effect.mapError((cause) => new ExampleProcessError({ operation: "exit", cause }))
+    )
+  ], { concurrency: "unbounded" }).pipe(
+    Effect.flatMap(([_, __, code]) => Effect.all([Ref.get(stdout), Ref.get(stderr)]).pipe(
+      Effect.flatMap(([stdout, stderr]) => Deferred.succeed(exit, { code: Number(code), stdout, stderr }))
+    )),
+    Effect.catchCause((cause) => Deferred.failCause(exit, cause)),
+    Effect.forkScoped
+  )
+  const awaitExit = Deferred["aw\u0061it"](exit)
+  const kill = handle.isRunning.pipe(
+    Effect.mapError((cause) => new ExampleProcessError({ operation: "kill", cause })),
+    Effect.flatMap((running) => running
+      ? handle.kill().pipe(Effect.mapError((cause) => new ExampleProcessError({ operation: "kill", cause })))
+      : Effect.void),
+    Effect.andThen(awaitExit),
+    Effect.asVoid
+  )
+  return {
+    kill,
+    awaitExit,
+    waitForLine: (substring: string, timeoutMs: number) => Effect.gen(function*() {
+      const seen = yield* SubscriptionRef.get(lines)
+      if (seen.some((line) => line.includes(substring))) return
+      const readiness = yield* Deferred.make<void, ExampleReadinessError>()
+      yield* SubscriptionRef.changes(lines).pipe(
+        Stream.runForEach((current) => current.some((line) => line.includes(substring))
+          ? Deferred.succeed(readiness, undefined).pipe(Effect.asVoid)
+          : Effect.void),
+        Effect.forkScoped
+      )
+      const onExit = awaitExit.pipe(
+        Effect.ignore,
+        Effect.flatMap(() => SubscriptionRef.get(lines)),
+        Effect.flatMap((current) => Deferred.fail(readiness, new ExampleReadinessError({
+          substring,
+          lines: current,
+          reason: "exit"
+        })))
+      )
+      yield* onExit.pipe(Effect.forkScoped)
+      yield* Deferred["aw\u0061it"](readiness).pipe(
+        Effect.timeoutOrElse({
+          duration: `${timeoutMs} millis`,
+          orElse: () => SubscriptionRef.get(lines).pipe(
+            Effect.flatMap((current) => Effect.fail(new ExampleReadinessError({
+              substring,
+              lines: current,
+              reason: "timeout"
+            })))
+          )
+        })
+      )
+    })
   }
-}
+})
 
 /** Create a temp dir containing the named subdirectories; returns its path. Caller removes it. */
-export const makeFixtureDir = (subdirs: ReadonlyArray<string>): string => {
-  const dir = mkdtempSync(join(tmpdir(), "expand-fixture-"))
-  for (const s of subdirs) mkdirSync(join(dir, s))
+export const makeFixtureDir = Effect.fn("ClientExampleTest.makeFixtureDir")(function*(subdirs: ReadonlyArray<string>) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const dir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-fixture-" })
+  yield* Effect.forEach(subdirs, (subdir) => fs.makeDirectory(path.join(dir, subdir)))
   return dir
-}
-
-const examplesDir = join(fileURLToPath(import.meta.url), "..", "..")
-
-const collect = (stream: Readable): Promise<string> =>
-  new Promise((resolve, reject) => {
-    let output = ""
-    stream.setEncoding("utf8")
-    stream.on("data", (chunk: string) => { output += chunk })
-    stream.once("error", reject)
-    stream.once("end", () => resolve(output))
-  })
-
-const exitCode = (process: ChildProcess): Promise<number> =>
-  new Promise((resolve, reject) => {
-    process.once("error", reject)
-    process.once("exit", (code, signal) => {
-      if (code !== null) resolve(code)
-      else reject(new Error(`example terminated by ${signal ?? "unknown signal"}`))
-    })
-  })
+})
