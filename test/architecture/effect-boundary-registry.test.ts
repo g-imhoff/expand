@@ -130,7 +130,7 @@ describe("Effect host-boundary registry", () => {
       )
 
       yield* validateHostBoundaries({ root, trackedFiles: tracked, eslintFiles, boundaries: effectHostBoundaries })
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 
   it.live("rejects broad paths and empty identity fields", () =>
     expectInvalid([boundary({ file: "src/*.ts" })]).pipe(

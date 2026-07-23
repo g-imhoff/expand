@@ -170,6 +170,8 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
         protocolVersion: PROTOCOL_VERSION
       }
       const postSpawnPollCompleted = yield* Queue.unbounded<void>()
+      const advertiserAwake = yield* Deferred.make<void>()
+      const finderCompleted = yield* Deferred.make<Endpoint, BackendUnavailable | ProbeFailure>()
       let backendSpawned = false
       const adapter = {
         ...nodeAdapter,
@@ -186,20 +188,26 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
         )
       })
       const advertiser = yield* Effect.sleep("6 seconds").pipe(
+        Effect.andThen(Deferred.succeed(advertiserAwake, undefined)),
         Effect.andThen(Schema.encodeEffect(EndpointFromJson)(realEndpoint)),
         Effect.flatMap((encoded) => fs.writeFileString(appContext.paths.endpointFile, encoded)),
         Effect.forkChild
       )
-      const finder = yield* findOrSpawnBackend(adapter).pipe(
-        Effect.provideService(FileSystem.FileSystem, observedFs),
-        Effect.provideService(AppContext, appContext),
-        Effect.forkChild
-      )
+      const finderCompletion = yield* Deferred.complete(
+        finderCompleted,
+        findOrSpawnBackend(adapter).pipe(
+          Effect.provideService(FileSystem.FileSystem, observedFs),
+          Effect.provideService(AppContext, appContext)
+        )
+      ).pipe(Effect.forkChild)
       yield* Queue.take(postSpawnPollCompleted)
       yield* TestClock.adjust("6 seconds")
-      yield* TestClock.adjust("100 millis")
-      const endpoint = yield* Fiber.join(finder)
+      expect(Option.isSome(yield* Deferred.poll(advertiserAwake))).toBe(true)
       yield* Fiber.join(advertiser)
+      expect(Option.isNone(yield* Deferred.poll(finderCompleted))).toBe(true)
+      yield* TestClock.adjust("100 millis")
+      yield* Fiber.join(finderCompletion)
+      const endpoint = yield* Option.getOrThrow(yield* Deferred.poll(finderCompleted))
       expect(endpoint.url).toBe(realEndpoint.url)
     }).pipe(Effect.provide(TestClock.layer())))
 
