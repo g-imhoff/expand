@@ -124,6 +124,42 @@ describe("contracts publish workflow", () => {
       expect(yield* fs.exists(path.join(root, ".dist-publish.next"))).toBe(false)
     }))))
 
+  it.live("does not promote a stale backup when stale cleanup fails before mutation", () =>
+    live(withFixture((root) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const failure = { reason: "stale previous cleanup" }
+      const renames: Array<readonly [string, string]> = []
+      yield* fs.makeDirectory(path.join(root, "dist"))
+      yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
+      yield* fs.makeDirectory(path.join(root, "dist-publish"))
+      yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "exact target bytes")
+      yield* fs.makeDirectory(path.join(root, ".dist-publish.previous"))
+      yield* fs.writeFileString(path.join(root, ".dist-publish.previous", "marker"), "exact stale bytes")
+
+      const exit = yield* stage(root).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          remove: (target, options) => target === path.join(root, ".dist-publish.previous")
+            ? Effect.fail(failure as never)
+            : fs.remove(target, options),
+          rename: (from, to) => Effect.sync(() => renames.push([from, to] as const)).pipe(
+            Effect.andThen(fs.rename(from, to))
+          )
+        }),
+        Effect.exit
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const errors = exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
+        expect(errors).toContainEqual(new PublishStageError({ operation: "clean", cause: failure }))
+      }
+      expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("exact target bytes")
+      expect(yield* fs.readFileString(path.join(root, ".dist-publish.previous", "marker"))).toBe("exact stale bytes")
+      expect(renames).toEqual([])
+    }))))
+
   it.live("restores exact prior bytes and removes artifacts after persistent copy and write failures", () =>
     live(Effect.gen(function*() {
       for (const operation of ["copy", "write"] as const) {
@@ -261,6 +297,7 @@ describe("contracts publish workflow", () => {
           yield* Effect.yieldNow
           yield* Deferred.succeed(release, undefined)
           yield* Fiber.join(interrupt)
+          expect(yield* fs.exists(path.join(root, "dist-publish", "marker")), `barrier ${barrierAt}`).toBe(true)
           expect(yield* fs.readFileString(path.join(root, "dist-publish", "marker"))).toBe("original bytes")
           expect(yield* fs.exists(path.join(root, "dist-publish", "dist", "index.js"))).toBe(false)
           yield* expectNoTransactionArtifacts(fs, path, root)

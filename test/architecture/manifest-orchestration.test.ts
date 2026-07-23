@@ -27,12 +27,14 @@ const manifests = [
 
 const commandViolations = (command: string): ReadonlyArray<string> => {
   const violations: Array<string> = []
-  const tokens: Array<string> = []
+  const tokens: Array<{ readonly value: string; readonly active: boolean }> = []
   let token = ""
+  let tokenHasUnquoted = false
   let quote: "single" | "double" | undefined
   const finishToken = () => {
-    if (token.length > 0) tokens.push(token)
+    if (token.length > 0) tokens.push({ value: token, active: tokenHasUnquoted })
     token = ""
+    tokenHasUnquoted = false
   }
 
   for (let index = 0; index < command.length; index += 1) {
@@ -41,6 +43,11 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
     if (character === "\n" || character === "\r") {
       violations.push("newline")
       finishToken()
+      continue
+    }
+    if (quote === "single") {
+      if (character === "'") quote = undefined
+      else token += character
       continue
     }
     if (character === "\\") {
@@ -52,25 +59,29 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
         finishToken()
       } else {
         token += next
+        tokenHasUnquoted = tokenHasUnquoted || quote === undefined
         index += 1
       }
       continue
     }
-    if (character === "'" && quote !== "double") {
-      quote = quote === "single" ? undefined : "single"
+    if (character === "'" && quote === undefined) {
+      quote = "single"
       continue
     }
-    if (character === "\"" && quote !== "single") {
+    if (character === "\"") {
       quote = quote === "double" ? undefined : "double"
       continue
     }
-    if (quote === "single") {
+    if (character === "`") {
+      violations.push("backtick substitution")
       token += character
+      tokenHasUnquoted = tokenHasUnquoted || quote === undefined
       continue
     }
-    if ((character === "$" && next === "(") || character === "`") {
-      violations.push(character === "`" ? "backtick substitution" : "command substitution")
+    if (character === "$" && next !== undefined && /[({A-Za-z_0-9@*#?$!-]/.test(next)) {
+      violations.push("shell expansion")
       token += character
+      tokenHasUnquoted = tokenHasUnquoted || quote === undefined
       continue
     }
     if (quote === "double") {
@@ -84,7 +95,7 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
       finishToken()
       continue
     }
-    if (character === ";" || character === "<" || character === ">") {
+    if (character === ";" || character === "<" || character === ">" || character === "(" || character === ")" || character === "!") {
       violations.push(character)
       finishToken()
       continue
@@ -94,16 +105,26 @@ const commandViolations = (command: string): ReadonlyArray<string> => {
       continue
     }
     token += character
+    tokenHasUnquoted = true
   }
   finishToken()
   if (quote !== undefined) violations.push("unclosed quote")
 
-  const forbiddenCommands = new Set(["cd", "for", "while", "rm", "mkdir"])
-  if (tokens[0] !== undefined && forbiddenCommands.has(tokens[0])) violations.push("inline orchestration")
-  if (tokens.some((value, index) => (value === "-e" || value === "--eval") && (tokens[0] === "node" || tokens[0] === "tsx"))) {
-    violations.push("inline evaluation")
-  }
-  const entries = tokens.filter((value) => /(?:^|\/)[A-Za-z0-9_.-]+\.(?:ts|tsx|sh)$/.test(value))
+  const values = tokens.map((token) => token.value)
+  const activeTokens = tokens.filter((token) => token.active).map((token) => token.value)
+  const executableName = (value: string) => value.split(/[\\/]/).at(-1)?.toLowerCase().replace(/\.exe$/, "") ?? value
+  const forbiddenTokens = new Set(["cd", "for", "while", "do", "done", "rm", "mkdir"])
+  const wrappers = new Set(["sh", "bash", "dash", "zsh", "cmd", "powershell", "pwsh", "eval", "env", "command", "exec"])
+  if (activeTokens.some((value) => forbiddenTokens.has(value))) violations.push("inline orchestration")
+  if (
+    (values[0] !== undefined && wrappers.has(executableName(values[0]))) ||
+    activeTokens.some((value) => wrappers.has(executableName(value)))
+  ) violations.push("wrapper invocation")
+  const evaluators = new Set(["node", "tsx", "bun", "npm", "npx", "pnpm", "yarn"])
+  const hasEvaluator = values.some((value, index) => evaluators.has(executableName(value)) && (index === 0 || tokens[index]?.active))
+  const hasEvalFlag = values.some((value) => /^(?:-e|--eval|-p|--print)(?:=|$)/.test(value))
+  if (hasEvaluator && hasEvalFlag) violations.push("inline evaluation")
+  const entries = tokens.map((token) => token.value).filter((value) => /(?:^|\/)[A-Za-z0-9_.-]+\.(?:ts|tsx|sh)$/.test(value))
   if (entries.length > 1) violations.push("multiple first-party entries")
   return violations
 }
@@ -126,15 +147,17 @@ describe("manifest orchestration", () => {
 
   it("allows shell operators only as quoted or escaped literal arguments", () => {
     const commands = [
-      `tsx scripts/tool.ts "&& || ; | & > <" "rm" "mkdir" "cd" "for" "while"`,
-      "tsx scripts/tool.ts '$(literal) `literal`'",
-      String.raw`tsx scripts/tool.ts escaped\& escaped\| escaped\> escaped\< escaped\; escaped\$\(literal\) escaped\``
+      `tsx scripts/tool.ts "() ! && || ; | & > <" "rm" "mkdir" "cd" "for" "while"`,
+      "tsx scripts/tool.ts '$(literal) ${literal} $literal `literal` bash -c env exec'",
+      String.raw`tsx scripts/tool.ts escaped\( escaped\) escaped\! escaped\& escaped\| escaped\> escaped\< escaped\; escaped\$\(literal\) escaped\` escaped\$literal`
     ]
     for (const command of commands) expect(commandViolations(command), command).toEqual([])
   })
 
   it("rejects every active shell operator, substitution, newline, and multiple invocation", () => {
     const commands = [
+      "tsx scripts/tool.ts ( echo no )",
+      "! tsx scripts/tool.ts",
       "tsx scripts/tool.ts && echo no",
       "tsx scripts/tool.ts || echo no",
       "tsx scripts/tool.ts ; echo no",
@@ -144,9 +167,39 @@ describe("manifest orchestration", () => {
       "tsx scripts/tool.ts < input",
       "tsx scripts/tool.ts $(echo no)",
       "tsx scripts/tool.ts `echo no`",
+      "tsx scripts/tool.ts $HOME",
+      "tsx scripts/tool.ts ${HOME}",
+      "tsx scripts/tool.ts \"$HOME\"",
       "tsx scripts/tool.ts\necho no",
       "tsx scripts/tool.ts \\\necho no",
       "tsx scripts/one.ts scripts/two.ts"
+    ]
+    for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
+  })
+
+  it("rejects shell, evaluator, environment, execution, and package-manager wrappers", () => {
+    const commands = [
+      "bash -c 'tsx scripts/tool.ts'",
+      "'/bin/bash' -c 'tsx scripts/tool.ts'",
+      "sh -c 'echo harmless'",
+      "dash -c 'echo harmless'",
+      "zsh -c 'echo harmless'",
+      "cmd /c 'echo harmless'",
+      "cmd.exe /c 'echo harmless'",
+      "powershell -Command 'Write-Output harmless'",
+      "eval 'echo harmless'",
+      "env X=1 rm -rf output",
+      "command tsx scripts/tool.ts",
+      "exec tsx scripts/tool.ts",
+      "tsx scripts/tool.ts rm output",
+      "node -e 'harmless'",
+      "node '--eval' 'harmless'",
+      "npm exec -- node -e 'harmless'",
+      "npx node --eval 'harmless'",
+      "npx node '-p' '1'",
+      "pnpm exec node -e 'harmless'",
+      "yarn node -e 'harmless'",
+      "bun -e 'harmless'"
     ]
     for (const command of commands) expect(commandViolations(command), command).not.toEqual([])
   })
@@ -158,17 +211,47 @@ describe("manifest orchestration", () => {
         Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(Manifest)))
       )
       const root = yield* decode("package.json")
+      const desktop = yield* decode("apps/desktop/package.json")
       const contracts = yield* decode("packages/contracts/package.json")
       const client = yield* decode("packages/client-ts/package.json")
       const docs = yield* decode("docs/architecture/package.json")
 
-      expect(root.scripts).toMatchObject({
+      const { "effect:grep": effectGrep, ...rootScripts } = root.scripts ?? {}
+      expect(effectGrep).toBeTypeOf("string")
+      expect(commandViolations(effectGrep ?? "")).toEqual([])
+      expect(rootScripts).toEqual({
+        "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
+        "effect:audit": "tsx scripts/effect-audit.ts",
+        "effect:audit:update": "tsx scripts/effect-audit.ts --update",
+        "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
+        "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
+        "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json",
+        typecheck: "tsc --noEmit",
+        "gen:fold-version": "tsx scripts/fold-version.ts",
+        "agents:sync": "tsx scripts/sync-agents.ts",
+        "agents:check": "tsx scripts/sync-agents.ts --check",
+        "bench:events": "node --expose-gc --import tsx bench/main.ts",
+        "bench:selfcheck": "node --expose-gc --import tsx bench/selfcheck.ts",
+        "typecheck:all": "tsc --noEmit -p tsconfig.effect-audit.json",
+        test: "vitest run",
+        "test:coverage": "vitest run --coverage",
+        "test:watch": "vitest",
+        arch: "depcruise apps packages --config .dependency-cruiser.cjs",
+        knip: "knip",
+        build: "tsx scripts/build.ts",
+        "cert:cli:build": "tsx scripts/cert-cli-build.ts",
+        "dev:cli": "tsx apps/cli/cli/main.ts",
+        "dev:server": "tsx apps/server/main.ts",
+        "dev:tui": "tsx apps/tui/main.tsx",
         "dev:desktop": "tsx scripts/desktop-command.ts dev",
         "build:desktop": "tsx scripts/desktop-command.ts build",
+        "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
         "e2e:desktop": "tsx scripts/desktop-command.ts e2e",
-        "typecheck:all": "tsc --noEmit -p tsconfig.effect-audit.json",
-        "cert:cli:build": "tsx scripts/cert-cli-build.ts"
+        lint: "eslint .",
+        prepare: "git config core.hooksPath .githooks",
+        doctor: "npx react-doctor@latest"
       })
+      expect(desktop.scripts).toBeUndefined()
       expect(contracts.scripts).toEqual({
         build: "tsx scripts/prepare-publish.ts build",
         "stage:publish": "tsx scripts/prepare-publish.ts stage",

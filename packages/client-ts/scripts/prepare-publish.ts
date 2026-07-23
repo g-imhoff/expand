@@ -102,33 +102,44 @@ export const stage = Effect.fn("ClientPublish.stage")(
           return yield* Effect.failCause(combined)
         }
       })
-    const cleanupArtifacts = () => attemptAll([remove(next), remove(previous)])
+    let phase: "initial" | "stale-cleaned" | "backing-up" | "backed-up" | "promoting" | "promoted" = "initial"
     let hadTarget = false
-    let committed = false
-    const rollback = () => attemptAll([
-      Effect.gen(function*() {
-        if (hadTarget) {
-          const backupExists = yield* fs.exists(previous).pipe(
-            Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
-          )
-          if (backupExists) {
+    let ownsPrevious = false
+    const cleanupArtifacts = () => attemptAll([
+      remove(next),
+      ...(ownsPrevious ? [remove(previous)] : [])
+    ])
+    const rollback = () => Effect.gen(function*() {
+      const targetExists = yield* fs.exists(target).pipe(
+        Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
+      )
+      const backupExists = phase === "backing-up" || ownsPrevious
+        ? yield* fs.exists(previous).pipe(
+          Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
+        )
+        : false
+      const mayRestorePrevious = hadTarget && backupExists && (ownsPrevious || (phase === "backing-up" && !targetExists))
+      yield* attemptAll([
+        Effect.gen(function*() {
+          if (mayRestorePrevious) {
             yield* remove(target)
             yield* fs.rename(previous, target).pipe(
               Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
             )
+          } else if (!hadTarget && (phase === "promoting" || phase === "promoted")) {
+            yield* remove(target)
           }
-        } else {
-          yield* remove(target)
-        }
-      }),
-      remove(next),
-      remove(previous)
-    ])
+        }),
+        remove(next),
+        ...(mayRestorePrevious ? [remove(previous)] : [])
+      ])
+    })
     const transaction = Effect.uninterruptibleMask((restore) => Effect.gen(function*() {
       hadTarget = yield* fs.exists(target).pipe(
         Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
       )
       yield* restore(attemptAll([remove(next), remove(previous)]))
+      phase = "stale-cleaned"
       yield* restore(fs.makeDirectory(next, { recursive: true }).pipe(
         Effect.mapError((cause) => new PublishStageError({ operation: "mkdir", cause }))
       ))
@@ -139,20 +150,24 @@ export const stage = Effect.fn("ClientPublish.stage")(
         Effect.mapError((cause) => new PublishStageError({ operation: "write", cause }))
       ))
       if (hadTarget) {
+        phase = "backing-up"
         yield* fs.rename(target, previous).pipe(
           Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
         )
+        ownsPrevious = true
+        phase = "backed-up"
         yield* restore(Effect.void)
       }
+      phase = "promoting"
       yield* fs.rename(next, target).pipe(
         Effect.mapError((cause) => new PublishStageError({ operation: "commit", cause }))
       )
       yield* restore(Effect.void)
-      committed = true
+      phase = "promoted"
     }))
 
     yield* transaction.pipe(Effect.onExit((transactionExit) => {
-      const finalizer = Exit.isFailure(transactionExit) && !committed ? rollback() : cleanupArtifacts()
+      const finalizer = Exit.isFailure(transactionExit) && phase !== "promoted" ? rollback() : cleanupArtifacts()
       return Effect.exit(finalizer).pipe(Effect.flatMap((cleanupExit) => {
         if (Exit.isSuccess(cleanupExit)) return Effect.void
         return Effect.failCause(Exit.isFailure(transactionExit)
