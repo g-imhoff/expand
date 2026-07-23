@@ -76,8 +76,14 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
     }
     yield* fs.writeFileString(path.join(root, "tsconfig.effect-audit.json"), JSON.stringify({
       compilerOptions: { strict: true },
-      include: ["**/*.ts"]
+      include: ["**/*.ts", "**/*.tsx"]
     }))
+    for (const file of allBoundaryFiles) {
+      yield* fs.writeFileString(path.join(root, file), boundarySourceCatalog[file]!)
+    }
+    yield* fs.makeDirectory(path.join(root, "node_modules/electron"), { recursive: true })
+    yield* fs.writeFileString(path.join(root, "node_modules/electron/package.json"), '{"types":"index.d.ts"}')
+    yield* fs.writeFileString(path.join(root, "node_modules/electron/index.d.ts"), electronTypeSource)
 
     if (options.baseline !== undefined) {
       const encoded = typeof options.baseline === "string"
@@ -167,7 +173,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
 const fixture = <A>(
   options: FixtureOptions,
   use: Parameters<typeof withAuditFixture<A>>[1]
-) => withAppContextAuditFixture(options, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+) => withAuditFixture(options, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
 describe("Effect audit model", () => {
   it("keeps identity stable across line and excerpt changes", () => {
@@ -1931,21 +1937,7 @@ describe("Effect launcher inventory command", () => {
     }))
 })
 
-const appContextBoundaryFiles = [
-  "apps/cli/cli/node-app-context.ts",
-  "apps/server/node-app-context.ts",
-  "apps/tui/node-app-context.ts",
-  "apps/desktop/src/main/node-app-context.ts",
-  "examples/client-ts/node-app-context.ts"
-] as const
-
-const stage3BoundaryFiles = [
-  "apps/server/http.ts",
-  "apps/server/node-process-control.ts",
-  "packages/client-ts/adapters/node-process-control.ts"
-] as const
-
-const allBoundaryFiles = [...boundaryFiles, ...appContextBoundaryFiles, ...stage3BoundaryFiles]
+import { effectHostBoundaries } from "../eslint-rules/effect-host-boundaries.mjs"
 
 const nodeOs = ["node", "os"].join(":")
 const nodeCrypto = ["node", "crypto"].join(":")
@@ -1955,9 +1947,50 @@ const hostProcessKill = ["process", "kill"].join(".")
 const hostProcessPid = ["process", "pid"].join(".")
 const hostProcessUmask = ["process", "umask"].join(".")
 const nodeRuntimeRunMain = ["NodeRuntime", "runMain"].join(".")
+const effectRunPromise = ["Effect", "runPromise"].join(".")
+const effectRunFork = ["Effect", "runFork"].join(".")
+const hostProcessExecPath = ["process", "execPath"].join(".")
+const hostProcessPlatform = ["process", "platform"].join(".")
+const documentGetElementById = ["document", "getElementById"].join(".")
+const documentAddEventListener = ["document", "addEventListener"].join(".")
+const documentRemoveEventListener = ["document", "removeEventListener"].join(".")
+const windowExpand = ["window", "expand"].join(".")
+const windowLocation = ["window", "location"].join(".")
+const windowPostMessage = ["window", "postMessage"].join(".")
+const windowAddEventListener = ["window", "addEventListener"].join(".")
+const windowRemoveEventListener = ["window", "removeEventListener"].join(".")
+const cryptoRandomUUID = ["crypto", "randomUUID"].join(".")
+const promiseType = ["Pro", "mise"].join("")
+const promiseLikeType = ["Promise", "Like"].join("")
+const nodePath = ["node", "path"].join(":")
+const nodeUrl = ["node", "url"].join(":")
 const platformProcessCwd = ["platform:process", "cwd"].join(".")
 const asyncKeyword = ["as", "ync"].join("")
 const nativeAsync = ["native:as", "ync"].join("")
+
+const runnerBoundarySource = `import { NodeRuntime } from "@effect/platform-node"
+declare const program: never
+${nodeRuntimeRunMain}(program)
+`
+
+const bracketRunnerBoundarySource = `import { NodeRuntime } from "@effect/platform-node"
+declare const program: never
+NodeRuntime["runMain"](program)
+`
+
+const dynamicImportBoundarySource = `import { Effect } from "effect"
+const module = Effect.promise(() => import("effect"))
+void module
+`
+
+const appContextBoundarySource = `import { Effect } from "effect"
+import { homedir } from "${nodeOs}"
+export const nodeAppContext = Effect.fn("NodeAppContext.make")(function*() {
+  const homeDir = yield* Effect.try({ try: homedir, catch: String })
+  const cwd = yield* Effect.try({ try: () => ${hostProcessCwd}(), catch: String })
+  return { homeDir, cwd }
+})
+`
 
 const serverHttpBoundarySource = `import { timingSafeEqual } from "${nodeCrypto}"
 import { createServer } from "${nodeHttp}"
@@ -1975,37 +2008,211 @@ const processControlBoundarySource = `export const nodeProcessControlLayer = { c
 export const probe = { try: () => ${hostProcessKill}(0, 0) }
 `
 
-const boundarySources = new Map<string, string>([
-  ["apps/server/http.ts", serverHttpBoundarySource],
-  ["apps/server/main.ts", serverMainBoundarySource],
-  ["apps/server/node-process-control.ts", processControlBoundarySource],
-  ["packages/client-ts/adapters/node-process-control.ts", processControlBoundarySource]
-])
-
-const appContextBoundarySource = `import { Effect } from "effect"
-import { homedir } from "${nodeOs}"
-export const nodeAppContext = Effect.fn("NodeAppContext.make")(function*() {
-  const homeDir = yield* Effect.try({ try: homedir, catch: String })
-  const cwd = yield* Effect.try({ try: () => ${hostProcessCwd}(), catch: String })
-  return { homeDir, cwd }
-})
+const electronTypeSource = `export class EventEmitter {
+  on(event: string, listener: (...args: Array<any>) => void): this
+  off(event: string, listener: (...args: Array<any>) => void): this
+}
+export class BrowserWindow extends EventEmitter {
+  webContents: EventEmitter
+  constructor(options?: unknown)
+}
+export class MessageChannelMain {}
+export interface IpcMain {
+  on(event: string, listener: (...args: Array<any>) => void): this
+  off(event: string, listener: (...args: Array<any>) => void): this
+  handle(event: string, listener: (...args: Array<any>) => unknown): void
+  removeHandler(event: string): void
+}
+export interface IpcRenderer {
+  on(event: string, listener: (...args: Array<any>) => void): this
+  removeListener(event: string, listener: (...args: Array<any>) => void): this
+  send(event: string, payload: unknown): void
+  invoke(event: string, payload: unknown): ${promiseType}<unknown>
+}
+export const ipcMain: IpcMain
+export const ipcRenderer: IpcRenderer
+export const contextBridge: { exposeInMainWorld(key: string, api: unknown): void }
+export const app: EventEmitter & {
+  isPackaged: boolean
+  whenReady(): ${promiseType}<void>
+  commandLine: { appendSwitch(name: string, value: string): void }
+  disableHardwareAcceleration(): void
+  quit(): void
+}
+export const session: { defaultSession: { webRequest: { onHeadersReceived(listener: unknown): void } } }
+export interface Event<T = unknown> { value?: T }
+export interface MessagePortMain {}
+export interface IpcRendererEvent { ports: Array<MessagePort> }
 `
 
-const withAppContextAuditFixture = <A>(
-  options: FixtureOptions,
-  use: Parameters<typeof withAuditFixture<A>>[1]
-) => withAuditFixture(options, (input) =>
-  Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    for (const file of appContextBoundaryFiles) {
-      yield* fs.writeFileString(path.join(input.root, file), appContextBoundarySource)
-    }
-    for (const [file, source] of boundarySources) {
-      yield* fs.writeFileString(path.join(input.root, file), source)
-    }
-    return yield* use(input)
-  }))
+const desktopMainBoundarySource = `import { app, BrowserWindow, MessageChannelMain, session } from "electron"
+import type { Event } from "electron"
+import { NodeRuntime } from "@effect/platform-node"
+const appHost = {
+  isPackaged: app.isPackaged,
+  ready: app.whenReady(),
+  appendSwitch: (name: string, value: string) => app.commandLine.appendSwitch(name, value),
+  disableHardwareAcceleration: () => app.disableHardwareAcceleration(),
+  onBeforeQuit: (listener: () => void) => { app.on("before-quit", listener); return () => app.off("before-quit", listener) },
+  onWindowAllClosed: (listener: () => void) => { app.on("window-all-closed", listener); return () => app.off("window-all-closed", listener) },
+  quit: () => app.quit()
+}
+const csp = {
+  onHeadersReceived: (listener: () => void) => {
+    session.defaultSession.webRequest.onHeadersReceived(listener)
+    return () => session.defaultSession.webRequest.onHeadersReceived(null)
+  }
+}
+const createWindow = () => {
+  const browserWindow = new BrowserWindow()
+  const webContents = browserWindow.webContents
+  return {
+    onClosed: (listener: () => void) => { browserWindow.on("closed", listener); return () => browserWindow.off("closed", listener) },
+    onNavigation: (listener: () => void) => { webContents.on("did-start-navigation", listener); return () => webContents.off("did-start-navigation", listener) },
+    onWillNavigate: (listener: () => void) => { webContents.on("will-navigate", listener); return () => webContents.off("will-navigate", listener) }
+  }
+}
+const deps = { platform: ${hostProcessPlatform}, makeMessageChannel: () => new MessageChannelMain() }
+declare const program: never
+${nodeRuntimeRunMain}(program)
+void appHost
+void csp
+void createWindow
+void deps
+void (null as Event | null)
+`
+
+const boundarySourceCatalog: Record<string, string> = {
+  "apps/cli/cli/main.ts": `${boundarySource}const backendCommand = { execPath: ${hostProcessExecPath}, binaryArgs: [${hostProcessExecPath}] }
+void backendCommand
+`,
+  "apps/cli/cli/node-app-context.ts": appContextBoundarySource,
+  "apps/desktop/e2e/effect-test.ts": `import { Effect } from "effect"
+export const makeTestEffect = (): ${promiseLikeType}<void> => ${effectRunPromise}(Effect.void)
+`,
+  "apps/desktop/src/main/index.ts": desktopMainBoundarySource,
+  "apps/desktop/src/main/node-app-context.ts": appContextBoundarySource,
+  "apps/desktop/src/renderer/app/runner.ts": `import { Effect } from "effect"
+declare const effect: Effect.Effect<void>
+const fiber = ${effectRunFork}(effect)
+void fiber
+`,
+  "apps/desktop/src/renderer/main.tsx": `const root = ${documentGetElementById}("root")
+const getBridge = () => ${windowExpand}
+const retry = () => ${windowLocation}.reload()
+const onDispose = (dispose: () => void) => ${windowAddEventListener}("unload", dispose)
+const release = (dispose: () => void) => ${windowRemoveEventListener}("unload", dispose)
+void root
+void getBridge
+void retry
+void onDispose
+void release
+`,
+  "apps/desktop/src/renderer/features/command/model/use-command-palette-hotkey.ts": `export const useCommandPaletteHotkey = () => {
+  const listener = () => undefined
+  ${documentAddEventListener}("keydown", listener)
+  ${documentRemoveEventListener}("keydown", listener)
+}
+`,
+  "apps/server/http.ts": serverHttpBoundarySource,
+  "apps/server/main.ts": serverMainBoundarySource,
+  "apps/server/node-app-context.ts": appContextBoundarySource,
+  "apps/server/node-process-control.ts": processControlBoundarySource,
+  "apps/server/test/fixtures/state-root-lock-contender.ts": runnerBoundarySource,
+  "apps/server/test/fixtures/trust-boundary-host.ts": `import { homedir } from "${nodeOs}"
+import { NodeRuntime } from "@effect/platform-node"
+const program = ${hostProcessUmask}(0o077)
+${nodeRuntimeRunMain}(program as never)
+void homedir
+`,
+  "apps/tui/main.tsx": runnerBoundarySource,
+  "apps/tui/runtime.ts": `import { join } from "${nodePath}"
+import { fileURLToPath } from "${nodeUrl}"
+const backendCommand = { execPath: ${hostProcessExecPath}, binaryArgs: [${hostProcessExecPath}] }
+void backendCommand
+void join
+void fileURLToPath
+`,
+  "apps/tui/node-app-context.ts": appContextBoundarySource,
+  "examples/client-ts/node-app-context.ts": appContextBoundarySource,
+  "packages/electron-ipc/contract.ts": `type InvokeChannel<P> = { payload: P }
+export type IpcBridgeOf<C> = { [K in keyof C]: C[K] extends InvokeChannel<infer P> ? (payload: P) => ${promiseType}<unknown> : never }
+`,
+  "packages/electron-ipc/main-electron.ts": `import { ipcMain } from "electron"
+import type { MessagePortMain } from "electron"
+export const electronBindDeps = {
+  on: (listener: () => void) => { ipcMain.on("channel", listener); return () => ipcMain.off("channel", listener) },
+  handle: (handler: () => ${promiseType}<unknown>) => {
+    const wrapper = (): ${promiseType}<unknown> => handler()
+    ipcMain.handle("channel", wrapper)
+    return () => ipcMain.removeHandler("channel")
+  }
+}
+void (null as MessagePortMain | null)
+`,
+  "packages/electron-ipc/main.ts": `export interface IpcMainLike { handle(handler: () => ${promiseType}<unknown>): void }
+const invokeHandler = (): ${promiseType}<unknown> => ${promiseType}.resolve()
+const runPromise = (): ${promiseType}<unknown> => ${promiseType}.resolve()
+const silentInvoke: ${promiseType}<unknown> = ${promiseType}.resolve()
+void invokeHandler
+void runPromise
+void silentInvoke
+`,
+  "packages/electron-ipc/preload-electron.ts": `import { contextBridge, ipcRenderer } from "electron"
+import type { IpcRendererEvent } from "electron"
+export const electronPreloadDeps = {
+  send: (payload: unknown) => ipcRenderer.send("channel", payload),
+  invoke: (payload: unknown): ${promiseLikeType}<unknown> => ipcRenderer.invoke("channel", payload),
+  on: (listener: () => void) => { ipcRenderer.on("channel", listener); return () => ipcRenderer.removeListener("channel", listener) },
+  exposeInMainWorld: (api: unknown) => contextBridge.exposeInMainWorld("expand", api),
+  postToMainWorld: (message: unknown) => ${windowPostMessage}(message, "*"),
+  onContextDisposed: (dispose: () => void) => { ${windowAddEventListener}("unload", dispose); return () => ${windowRemoveEventListener}("unload", dispose) }
+}
+const origin = ${windowLocation}.origin
+const release = () => ${windowRemoveEventListener}("unload", release)
+void origin
+void release
+void (null as IpcRendererEvent | null)
+`,
+  "packages/electron-ipc/preload.ts": `export interface PreloadIpcDeps { invoke: () => ${promiseType}<unknown> }
+export const exposeBridge = (invoke: () => ${promiseType}<unknown>) => invoke
+`,
+  "packages/electron-ipc/renderer.ts": `const makeNonce = () => ${cryptoRandomUUID}()
+void makeNonce
+`,
+  "packages/client-ts/adapters/node-process-control.ts": processControlBoundarySource,
+  "packages/client-ts/adapters/node.ts": `import { WebSocket as WS } from "ws"
+const wsConstructor = () => new WS("ws://localhost")
+void wsConstructor
+`,
+  "packages/client-ts/scripts/prepare-publish.ts": bracketRunnerBoundarySource,
+  "packages/client-ts/test/fixtures/spawn-lock-contender.ts": runnerBoundarySource,
+  "packages/client-ts/test/prepare-publish.test.ts": dynamicImportBoundarySource,
+  "packages/contracts/scripts/prepare-publish.ts": bracketRunnerBoundarySource,
+  "packages/contracts/test/prepare-publish.test.ts": dynamicImportBoundarySource,
+  "docs/architecture/scripts/build.ts": bracketRunnerBoundarySource,
+  "docs/architecture/scripts/build.test.ts": dynamicImportBoundarySource,
+  "scripts/build.test.ts": dynamicImportBoundarySource,
+  "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"
+const buildTool = { try: (): ${promiseLikeType}<void> => ({ then: () => undefined } as never) }
+declare const program: never
+${nodeRuntimeRunMain}(program)
+void buildTool
+`,
+  "scripts/cert-cli-build.test.ts": dynamicImportBoundarySource,
+  "scripts/cert-cli-build.ts": bracketRunnerBoundarySource,
+  "scripts/desktop-command.test.ts": dynamicImportBoundarySource,
+  "scripts/desktop-command.ts": bracketRunnerBoundarySource,
+  "scripts/effect-audit.ts": runnerBoundarySource,
+  "scripts/fold-version.ts": runnerBoundarySource,
+  "scripts/sync-agents.test.ts": `import { Effect } from "effect"
+Effect.promise(() => import("effect"))
+`,
+  "scripts/sync-agents.ts": runnerBoundarySource,
+  "test/architecture/fold-version-lockstep.test.ts": dynamicImportBoundarySource
+}
+
+const allBoundaryFiles = Object.keys(boundarySourceCatalog)
 
 describe("Effect platform host-boundary classification", () => {
   it.effect("accepts an exact analyzer-proven platform host-boundary classification", () => {
@@ -2060,7 +2267,14 @@ describe("Effect platform host-boundary classification", () => {
 })
 
 describe("registered Effect language diagnostic command", () => {
-  it.effect("admits only the registered Node HTTP language diagnostic", () => {
+  it.effect("validates every permanent host boundary in each isolated audit fixture", () => {
+    const registeredFiles = new Set(effectHostBoundaries.map(({ file }) => file))
+    const syntheticFiles = new Set(Object.keys(boundarySourceCatalog))
+    const missing = [...registeredFiles].filter((file) => !syntheticFiles.has(file))
+    const unregisteredFiles = [...syntheticFiles].filter((file) => !registeredFiles.has(file))
+
+    expect({ missing, unregistered: unregisteredFiles }).toEqual({ missing: [], unregistered: [] })
+
     const start = serverHttpBoundarySource.indexOf(`"${nodeHttp}"`)
     const registered = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
     const unregisteredSource = `import { createServer } from "${nodeHttp}"\n`
