@@ -1,4 +1,4 @@
-import { Data, Deferred, Effect, FileSystem, Path, Ref, Stream, SubscriptionRef } from "effect"
+import { Cause, Data, Deferred, Effect, Exit, FileSystem, Path, Ref, Stream, SubscriptionRef } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
@@ -22,7 +22,7 @@ export interface ExampleHandle {
    * seen before the call too). Rejects on `timeoutMs` or if the process exits
    * first without emitting a matching line.
    */
-  readonly waitForLine: (substr: string, timeoutMs: number) => Effect.Effect<void, ExampleReadinessError>
+  readonly waitForLine: (substr: string, timeoutMs: number) => Effect.Effect<void, ExampleReadinessError | ExampleProcessError>
   readonly awaitExit: Effect.Effect<RunResult, ExampleProcessError>
 }
 
@@ -102,52 +102,68 @@ export const spawnExample = Effect.fn("ClientExampleTest.spawnExample")(function
     Effect.catchCause((cause) => Deferred.failCause(exit, cause)),
     Effect.forkScoped
   )
-  const awaitExit = Deferred["aw\u0061it"](exit)
-  const kill = handle.isRunning.pipe(
+  const awaitExit = Deferred.await(exit)
+  const kill = yield* Effect.cached(Effect.uninterruptible(handle.isRunning.pipe(
     Effect.mapError((cause) => new ExampleProcessError({ operation: "kill", cause })),
     Effect.flatMap((running) => running
       ? handle.kill().pipe(Effect.mapError((cause) => new ExampleProcessError({ operation: "kill", cause })))
       : Effect.void),
-    Effect.andThen(awaitExit),
+    Effect.andThen(Effect.exit(awaitExit)),
     Effect.asVoid
-  )
+  )))
   return {
     kill,
     awaitExit,
-    waitForLine: (substring: string, timeoutMs: number) => Effect.gen(function*() {
-      const seen = yield* SubscriptionRef.get(lines)
-      if (seen.some((line) => line.includes(substring))) return
-      const readiness = yield* Deferred.make<void, ExampleReadinessError>()
-      yield* SubscriptionRef.changes(lines).pipe(
-        Stream.runForEach((current) => current.some((line) => line.includes(substring))
-          ? Deferred.succeed(readiness, undefined).pipe(Effect.asVoid)
-          : Effect.void),
-        Effect.forkScoped
-      )
-      const onExit = awaitExit.pipe(
-        Effect.ignore,
-        Effect.flatMap(() => SubscriptionRef.get(lines)),
-        Effect.flatMap((current) => Deferred.fail(readiness, new ExampleReadinessError({
-          substring,
-          lines: current,
-          reason: "exit"
-        })))
-      )
-      yield* onExit.pipe(Effect.forkScoped)
-      yield* Deferred["aw\u0061it"](readiness).pipe(
-        Effect.timeoutOrElse({
-          duration: `${timeoutMs} millis`,
-          orElse: () => SubscriptionRef.get(lines).pipe(
-            Effect.flatMap((current) => Effect.fail(new ExampleReadinessError({
-              substring,
-              lines: current,
-              reason: "timeout"
-            })))
-          )
-        })
-      )
-    })
+    waitForLine: (substring: string, timeoutMs: number) => waitForLine(lines, awaitExit, kill, substring, timeoutMs)
   }
+})
+
+export const waitForLine = Effect.fn("ClientExampleTest.waitForLine")(function*<E>(
+  lines: SubscriptionRef.SubscriptionRef<ReadonlyArray<string>>,
+  awaitExit: Effect.Effect<unknown, unknown>,
+  close: Effect.Effect<void, E>,
+  substring: string,
+  timeoutMs: number
+) {
+  const seen = yield* SubscriptionRef.get(lines)
+  if (seen.some((line) => line.includes(substring))) return
+  return yield* Effect.scoped(Effect.gen(function*() {
+    const readiness = yield* Deferred.make<void, ExampleReadinessError>()
+    yield* SubscriptionRef.changes(lines).pipe(
+      Stream.runForEach((current) => current.some((line) => line.includes(substring))
+        ? Deferred.succeed(readiness, undefined).pipe(Effect.asVoid)
+        : Effect.void),
+      Effect.forkScoped
+    )
+    yield* awaitExit.pipe(
+      Effect.exit,
+      Effect.flatMap(() => SubscriptionRef.get(lines)),
+      Effect.flatMap((current) => Deferred.fail(readiness, new ExampleReadinessError({
+        substring,
+        lines: current,
+        reason: "exit"
+      }))),
+      Effect.forkScoped
+    )
+    return yield* Deferred.await(readiness).pipe(
+      Effect.timeoutOrElse({
+        duration: `${timeoutMs} millis`,
+        orElse: () => SubscriptionRef.get(lines).pipe(
+          Effect.flatMap((current) => Effect.fail(new ExampleReadinessError({
+            substring,
+            lines: current,
+            reason: "timeout"
+          })))
+        )
+      }),
+      Effect.exit
+    )
+  })).pipe(Effect.flatMap((readinessExit) => Exit.isSuccess(readinessExit)
+    ? Effect.void
+    : close.pipe(Effect.matchCauseEffect({
+      onFailure: (cleanupCause) => Effect.failCause(Cause.combine(readinessExit.cause, cleanupCause)),
+      onSuccess: () => Effect.failCause(readinessExit.cause)
+    }))))
 })
 
 /** Create a temp dir containing the named subdirectories; returns its path. Caller removes it. */

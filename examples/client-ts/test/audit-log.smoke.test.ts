@@ -1,10 +1,14 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Cause, Data, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Schedule, Schema, Stream, SubscriptionRef } from "effect"
+import { ChildProcess } from "effect/unstable/process"
 import { describe, expect } from "vitest"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
+import { ProcessControl } from "@expand/contracts/process-control"
 import { ClientSession, type ClientSessionApi, type ConnectionStatus } from "@expand/client-ts"
+import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { AuditAppendError, AuditLineFromJson, AuditParseError, AuditSessionError, runAuditLog } from "../audit-log"
 import { makeDataDir, makeFixtureDir, runExample, spawnExample } from "./helpers"
@@ -16,6 +20,16 @@ const auditLines = (outfile: string) => Effect.gen(function*() {
   const text = yield* fs.readFileString(outfile)
   return yield* Effect.forEach(text.trim().split("\n").filter(Boolean), (line) =>
     Schema.decodeUnknownEffect(AuditLineFromJson)(line))
+})
+
+const endpointPid = Effect.fn("AuditTest.endpointPid")(function*(dataDir: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const endpointFile = path.join(dataDir, "server.json")
+  if (!(yield* fs.exists(endpointFile))) return undefined
+  return (yield* fs.readFileString(endpointFile).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(EndpointFromJson))
+  )).pid
 })
 
 const event = (seq: number): SequencedEvent => ({
@@ -163,15 +177,28 @@ describe("example: audit-log", () => {
       const outfile = path.join(dataDir, "audit.jsonl")
       const before = yield* makeFixtureDir(["before-reconnect"])
       const after = yield* makeFixtureDir(["after-reconnect"])
-      const firstAudit = yield* spawnExample("audit-log.ts", [outfile], dataDir)
-      yield* firstAudit.waitForLine("audit-log: writing to", 30_000)
-      yield* runExample("bootstrap-projects.ts", [before], dataDir)
+      const audit = yield* spawnExample("audit-log.ts", [outfile], dataDir)
+      yield* audit.waitForLine("audit-log: writing to", 30_000)
+      const first = yield* runExample("bootstrap-projects.ts", [before], dataDir)
+      expect(first.code, first.stderr).toBe(0)
       expect(yield* pollUntil(auditLines(outfile).pipe(Effect.map((lines) => lines.some((entry) => entry.seq === 1))), 5_000)).toBe(true)
-      yield* firstAudit.kill
-      const secondAudit = yield* spawnExample("audit-log.ts", [outfile], dataDir)
-      yield* secondAudit.waitForLine("audit-log: writing to", 30_000)
-      yield* runExample("bootstrap-projects.ts", [after], dataDir)
+      const firstPid = yield* endpointPid(dataDir)
+      expect(firstPid).toBeTypeOf("number")
+      if (firstPid === undefined) return yield* Effect.fail("missing backend pid" as const)
+      const signal = yield* ChildProcess.make("kill", ["-TERM", String(firstPid)], {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe"
+      })
+      expect(Number(yield* signal.exitCode)).toBe(0)
+      expect(yield* pollUntil(endpointPid(dataDir).pipe(
+        Effect.map((pid) => pid !== undefined && pid !== firstPid)
+      ), 15_000)).toBe(true)
+      const processControl = yield* ProcessControl
+      expect(yield* processControl.probe(firstPid)).toBe("dead")
+      const second = yield* runExample("bootstrap-projects.ts", [after], dataDir)
+      expect(second.code, second.stderr).toBe(0)
       expect(yield* pollUntil(auditLines(outfile).pipe(Effect.map((lines) => lines.some((entry) => entry.seq === 2))), 5_000)).toBe(true)
       expect((yield* auditLines(outfile)).map((entry) => entry.seq)).toEqual([1, 2])
-    })).pipe(Effect.provide(NodeServices.layer)), 60_000)
+    })).pipe(Effect.provide(ProcessServices.layer)), 60_000)
 })
