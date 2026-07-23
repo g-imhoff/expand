@@ -6,9 +6,12 @@ const nodeUrlImport = "platform:import:" + ["node", "url"].join(":")
 const cryptoRandomUUID = ["platform:crypto", "randomUUID"].join(".")
 const processCwd = ["platform:process", "cwd"].join(".")
 const processExecPath = ["platform:process", "execPath"].join(".")
+const processArgv = ["platform:process", "argv"].join(".")
 const processKill = ["platform:process", "kill"].join(".")
+const processMemoryUsage = ["platform:process", "memoryUsage"].join(".")
 const processPid = ["platform:process", "pid"].join(".")
 const processPlatform = ["platform:process", "platform"].join(".")
+const processVersion = ["platform:process", "version"].join(".")
 const processUmask = ["platform:process", "umask"].join(".")
 const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const testFixtureNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
@@ -434,6 +437,48 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/main.ts",
+    declaration: "module:<module>",
+    host: "Benchmark Node host adapter",
+    construct: nodeOsImport,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/main.ts",
+    declaration: "member:opts.try",
+    host: "Benchmark command-line argument acquisition",
+    construct: processArgv,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/main.ts",
+    declaration: "member:benchmarkHostLayer.rss",
+    host: "Benchmark RSS host adapter",
+    construct: processMemoryUsage,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/main.ts",
+    declaration: "member:benchmarkHostLayer.nodeVersion",
+    host: "Benchmark machine metadata host adapter",
+    construct: processVersion,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/main.ts",
+    declaration: "module:<module>",
+    host: "Benchmark application entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "bench/selfcheck.ts",
+    declaration: "module:<module>",
+    host: "Benchmark selfcheck entrypoint",
+    construct: scriptNodeRuntimeRunMain,
     occurrence: 0
   }),
   Object.freeze({

@@ -7,10 +7,10 @@ import { withRss } from "../rss"
 import type { Measurement, ScenarioContext } from "../report"
 import { withServer } from "./server-e2e"
 
-export const runRpcReplay = async (ctx: ScenarioContext): Promise<ReadonlyArray<Measurement>> => {
+export const runRpcReplay = Effect.fn("Benchmark.runRpcReplay")(function*(ctx: ScenarioContext) {
   // keep server boot fast and out of the picture — we measure replay, not boot
-  await plantCheckpoint(ctx.dbPath, 0)
-  const { value, rssDeltaBytes } = await withRss(() =>
+  yield* plantCheckpoint(ctx.dbPath, 0)
+  const { value, rssDeltaBytes } = yield* withRss(
     withServer(ctx.dbPath, (client) =>
       Effect.gen(function* () {
         const queue = yield* client.Events({ fromSeq: 0 }, { asQueue: true })
@@ -36,5 +36,5 @@ export const runRpcReplay = async (ctx: ScenarioContext): Promise<ReadonlyArray<
       events: ctx.eventCount,
       rssDeltaBytes
     }
-  ]
-}
+  ] satisfies ReadonlyArray<Measurement>
+})

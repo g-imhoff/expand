@@ -1942,8 +1942,10 @@ import { effectHostBoundaries } from "../eslint-rules/effect-host-boundaries.mjs
 const nodeOs = ["node", "os"].join(":")
 const nodeCrypto = ["node", "crypto"].join(":")
 const nodeHttp = ["node", "http"].join(":")
+const hostProcessArgv = ["process", "argv"].join(".")
 const hostProcessCwd = ["process", "cwd"].join(".")
 const hostProcessKill = ["process", "kill"].join(".")
+const hostProcessMemoryUsage = ["process", "memoryUsage"].join(".")
 const hostProcessPid = ["process", "pid"].join(".")
 const hostProcessUmask = ["process", "umask"].join(".")
 const nodeRuntimeRunMain = ["NodeRuntime", "runMain"].join(".")
@@ -1951,6 +1953,7 @@ const effectRunPromise = ["Effect", "runPromise"].join(".")
 const effectRunFork = ["Effect", "runFork"].join(".")
 const hostProcessExecPath = ["process", "execPath"].join(".")
 const hostProcessPlatform = ["process", "platform"].join(".")
+const hostProcessVersion = ["process", "version"].join(".")
 const documentGetElementById = ["document", "getElementById"].join(".")
 const documentAddEventListener = ["document", "addEventListener"].join(".")
 const documentRemoveEventListener = ["document", "removeEventListener"].join(".")
@@ -2134,6 +2137,17 @@ void join
 void fileURLToPath
 `,
   "apps/tui/node-app-context.ts": appContextBoundarySource,
+  "bench/main.ts": `import { cpus } from "${nodeOs}"
+import { NodeRuntime } from "@effect/platform-node"
+const opts = { try: () => ${hostProcessArgv}.slice(2) }
+const benchmarkHostLayer = { rss: () => ${hostProcessMemoryUsage}().rss, nodeVersion: ${hostProcessVersion} }
+declare const program: never
+${nodeRuntimeRunMain}(program)
+void cpus
+void opts
+void benchmarkHostLayer
+`,
+  "bench/selfcheck.ts": runnerBoundarySource,
   "examples/client-ts/archive-stale.ts": runnerBoundarySource,
   "examples/client-ts/audit-log.ts": runnerBoundarySource,
   "examples/client-ts/bootstrap-projects.ts": runnerBoundarySource,

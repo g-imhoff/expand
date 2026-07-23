@@ -94,6 +94,7 @@ describe("test colocation", () => {
           /^packages\/[^/]+\/test\//.test(rel) ||
           /^examples\/[^/]+\/test\//.test(rel) ||
           /^scripts\/[^/]+\.test\.tsx?$/.test(rel) ||
+          rel === "bench/bench.test.ts" ||
           rel === "docs/architecture/scripts/build.test.ts"
         return !ok
       })

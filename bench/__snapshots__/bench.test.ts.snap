@@ -1,0 +1,39 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`benchmark host and reporting > uses the injected host and TestClock for deterministic metadata 1`] = `
+"
+event-store bench — test cpu (4 cores, 16GB) · node v24.15.0 · test/x64 · chunk 1000
+
+scenario       scale  wall ms  events/s  ΔRSS    verdict
+-------------  -----  -------  --------  ------  -------
+S4 scan drain  100k   500      200,000   10.0MB  PASS   
+
+note: S3/S5 run server + client in one process — ΔRSS proves pipeline boundedness, not per-side attribution (S1/S4 attribute per side).
+budgets are first guesses (bench/budgets.ts) — recalibrate after reading a real run."
+`;
+
+exports[`benchmark host and reporting > uses the injected host and TestClock for deterministic metadata 2`] = `
+"{
+  "machine": {
+    "cpu": "test cpu",
+    "cores": 4,
+    "nodeVersion": "v24.15.0",
+    "platform": "test",
+    "arch": "x64",
+    "totalMemGb": 16
+  },
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "measurements": [
+    {
+      "key": "s4-scan-drain",
+      "label": "S4 scan drain",
+      "scale": "100k",
+      "wallMs": 500,
+      "events": 100000,
+      "rssDeltaBytes": 10485760,
+      "eventsPerSec": 200000,
+      "verdict": "PASS"
+    }
+  ]
+}"
+`;

@@ -1,12 +1,9 @@
 // Deterministic event-script generator + (in Task 3) batched seeding into cached
 // SQLite files. Bump GENERATOR_VERSION whenever generated output changes — it is
 // part of the cache filename.
-import Database from "better-sqlite3"
-import { existsSync, mkdirSync, rmSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { Effect, Exit, Layer, Schema, Scope, Stream } from "effect"
+import { Console, DateTime, Effect, Exit, FileSystem, Layer, Path, Schema, Scope, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { DomainEventFromJson } from "@expand/contracts/events/domain"
 import type { ProjectEvent } from "@expand/contracts/events/project"
 import {
@@ -64,7 +61,7 @@ export function* generateEvents(count: number, seed: number = PRNG_SEED): Genera
   let nextId = 1
   const pick = (arr: ReadonlyArray<string>): string => arr[Math.floor(rand() * arr.length)]!
   for (let i = 0; i < count; i++) {
-    const at = new Date(BASE_MS + i * 1000).toISOString()
+    const at = DateTime.formatIso(DateTime.makeUnsafe(BASE_MS + i * 1000))
     const r = rand()
     if (live.length === 0 || (r < 0.05 && live.length < LIVE_PROJECT_CAP)) {
       const n = nextId++
@@ -113,66 +110,70 @@ export function* generateEvents(count: number, seed: number = PRNG_SEED): Genera
 const uuidOf = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
 // Deterministic timestamps: index-derived, never wall-clock.
-const BASE_MS = Date.UTC(2026, 0, 1)
+const BASE_MS = 1_767_225_600_000
 
 // Build a layer once (running its acquisition, e.g. DDL) and release it.
-const buildLayerOnce = <ROut, E>(layer: Layer.Layer<ROut, E>): Effect.Effect<void, E> =>
+const buildLayerOnce = Effect.fn("Benchmark.buildLayerOnce")(<ROut, E>(layer: Layer.Layer<ROut, E>) =>
   Effect.gen(function* () {
     const scope = yield* Scope.make()
     yield* Layer.buildWithScope(layer, scope)
     yield* Scope.close(scope, Exit.void)
-  })
+  }))
 
-const cachePathFor = (scale: string): string =>
-  join(BENCH_DIR, ".cache", `events-${scale}-seed${PRNG_SEED}-g${GENERATOR_VERSION}.db`)
+const cachePathFor = (path: Path.Path, benchDir: string, scale: string): string =>
+  path.join(benchDir, ".cache", `events-${scale}-seed${PRNG_SEED}-g${GENERATOR_VERSION}.db`)
 
 // Seed (or reuse) the cached DB for a scale. Rows are written with raw batched
 // SQL for speed, but payloads come from the REAL DomainEventFromJson encoder and
 // the schema comes from the REAL ProjectEventStoreLayer DDL — byte-identical to
 // production appends (validated below).
-export const ensureSeed = async (scale: string, opts?: { readonly reseed?: boolean }): Promise<string> => {
+export const ensureSeed = Effect.fn("Benchmark.ensureSeed")(function*(
+  scale: string,
+  opts?: { readonly reseed?: boolean }
+) {
   const count = SCALES[scale]
-  if (count === undefined) throw new Error(`unknown scale: ${scale} (known: ${Object.keys(SCALES).join(", ")})`)
-  const path = cachePathFor(scale)
-  mkdirSync(join(BENCH_DIR, ".cache"), { recursive: true })
-  if (existsSync(path) && opts?.reseed !== true) return path
-  for (const p of [path, `${path}-wal`, `${path}-shm`]) rmSync(p, { force: true })
-  if (count >= 10_000_000) console.log(`seeding ${scale} (${count.toLocaleString()} events) — expect a few minutes…`)
+  if (count === undefined) return yield* Effect.fail(`unknown scale: ${scale} (known: ${Object.keys(SCALES).join(", ")})`)
+  const fs = yield* FileSystem.FileSystem
+  const pathService = yield* Path.Path
+  const modulePath = yield* pathService.fromFileUrl(new URL(import.meta.url))
+  const path = cachePathFor(pathService, pathService.dirname(modulePath), scale)
+  yield* fs.makeDirectory(pathService.dirname(path), { recursive: true })
+  if ((yield* fs.exists(path)) && opts?.reseed !== true) return path
+  yield* Effect.forEach([path, `${path}-wal`, `${path}-shm`], (candidate) => fs.remove(candidate, { force: true }))
+  if (count >= 10_000_000) yield* Console.log(`seeding ${scale} (${count.toLocaleString()} events) — expect a few minutes…`)
 
   // 1) production DDL — no schema duplication in bench code
-  await Effect.runPromise(buildLayerOnce(ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: path })))))
+  yield* buildLayerOnce(ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: path }))))
 
   // 2) batched inserts (10k per transaction), payloads via the production codec
-  const db = new Database(path)
-  db.exec("PRAGMA journal_mode = WAL")
-  const insert = db.prepare("INSERT INTO events (stream_id, event_type, payload) VALUES (?, ?, ?)")
-  const flush = db.transaction((rows: Array<readonly [string, string, string]>) => {
-    for (const r of rows) insert.run(r[0], r[1], r[2])
-  })
-  const encode = Schema.encodeEffect(DomainEventFromJson)
-  let batch: Array<readonly [string, string, string]> = []
-  for (const e of generateEvents(count)) {
-    batch.push([e.projectId, e._tag, Effect.runSync(encode(e))])
-    if (batch.length >= 10_000) {
-      flush(batch)
-      batch = []
+  const seedRows = Effect.gen(function*() {
+    const sql = yield* SqlClient
+    const encode = Schema.encodeEffect(DomainEventFromJson)
+    let batch: Array<Record<string, unknown>> = []
+    for (const event of generateEvents(count)) {
+      batch.push({ stream_id: event.projectId, event_type: event._tag, payload: yield* encode(event) })
+      if (batch.length >= 10_000) {
+        yield* sql.withTransaction(sql`INSERT INTO events ${sql.insert(batch)}`)
+        batch = []
+      }
     }
-  }
-  if (batch.length > 0) flush(batch)
-  db.close()
+    if (batch.length > 0) yield* sql.withTransaction(sql`INSERT INTO events ${sql.insert(batch)}`)
+  })
+  yield* seedRows.pipe(Effect.provide(SqliteClient.layer({ filename: path })))
 
-  await validateSeed(path, count)
+  yield* validateSeed(path, count)
   return path
-}
+})
 
 // Loud abort if the seed is bad — numbers from a bad seed are worse than none.
 // Decodes first/middle/last chunks through the REAL feed (fail-fast decode, D10).
-const validateSeed = async (dbPath: string, expected: number): Promise<void> => {
-  const db = new Database(dbPath, { readonly: true })
-  const row = db.prepare("SELECT COUNT(*) AS c, COALESCE(MAX(seq), 0) AS m FROM events").get() as { c: number; m: number }
-  db.close()
+const validateSeed = Effect.fn("Benchmark.validateSeed")(function*(dbPath: string, expected: number) {
+  const row = yield* Effect.gen(function*() {
+    const sql = yield* SqlClient
+    return (yield* sql<{ readonly c: number; readonly m: number }>`SELECT COUNT(*) AS c, COALESCE(MAX(seq), 0) AS m FROM events`)[0]!
+  }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath })))
   if (row.c !== expected || row.m !== expected) {
-    throw new Error(`seed validation failed: count=${row.c} maxSeq=${row.m} expected=${expected}`)
+    return yield* Effect.fail(`seed validation failed: count=${row.c} maxSeq=${row.m} expected=${expected}`)
   }
   const sampleSize = Math.min(100, expected)
   const sampleAt = (fromSeq: number) =>
@@ -181,36 +182,36 @@ const validateSeed = async (dbPath: string, expected: number): Promise<void> => 
       return yield* Stream.runFold(Stream.take(feed.read(fromSeq), sampleSize), () => 0, (n) => n + 1)
     })
   const layer = ReplayFeedLayer.pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })))
-  const counts = await Effect.runPromise(
-    Effect.provide(
-      Effect.all([sampleAt(0), sampleAt(Math.floor(expected / 2)), sampleAt(Math.max(0, expected - sampleSize))]),
-      layer
-    )
+  const counts = yield* Effect.provide(
+    Effect.all([sampleAt(0), sampleAt(Math.floor(expected / 2)), sampleAt(Math.max(0, expected - sampleSize))]),
+    layer
   )
-  for (const c of counts) {
-    if (c !== sampleSize) throw new Error(`seed validation failed: sample decoded ${c}/${sampleSize} events`)
+  for (const count of counts) {
+    if (count !== sampleSize) return yield* Effect.fail(`seed validation failed: sample decoded ${count}/${sampleSize} events`)
   }
-}
+})
 
-const maxSeqOf = (dbPath: string): number => {
-  const db = new Database(dbPath, { readonly: true })
-  const row = db.prepare("SELECT COALESCE(MAX(seq), 0) AS m FROM events").get() as { m: number }
-  db.close()
-  return row.m
-}
+const maxSeqOf = Effect.fn("Benchmark.maxSeqOf")(function*(dbPath: string) {
+  return yield* Effect.gen(function*() {
+    const sql = yield* SqlClient
+    const row = (yield* sql<{ readonly m: number }>`SELECT COALESCE(MAX(seq), 0) AS m FROM events`)[0]!
+    return row.m
+  }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath })))
+})
 
 // "No checkpoint" surgery: drop the whole table — the production layer recreates
 // it via CREATE IF NOT EXISTS at next boot, so no DDL is duplicated here.
-export const deleteCheckpoint = (dbPath: string): void => {
-  const db = new Database(dbPath)
-  db.exec("DROP TABLE IF EXISTS projection_state")
-  db.close()
-}
+export const deleteCheckpoint = Effect.fn("Benchmark.deleteCheckpoint")(function*(dbPath: string) {
+  yield* Effect.gen(function*() {
+    const sql = yield* SqlClient
+    yield* sql`DROP TABLE IF EXISTS projection_state`
+  }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath })))
+})
 
 // Plant a correct-by-construction checkpoint at maxSeq - tailLength: fold the
 // prefix with the production shared fold, save via the production store.
-export const plantCheckpoint = (dbPath: string, tailLength: number): Promise<void> => {
-  const target = maxSeqOf(dbPath) - tailLength
+export const plantCheckpoint = Effect.fn("Benchmark.plantCheckpoint")(function*(dbPath: string, tailLength: number) {
+  const target = (yield* maxSeqOf(dbPath)) - tailLength
   const sql = SqliteClient.layer({ filename: dbPath })
   const layer = Layer.mergeAll(ProjectEventStoreLayer, ProjectionStateStoreLayer).pipe(Layer.provide(sql))
   const program = Effect.gen(function* () {
@@ -224,7 +225,5 @@ export const plantCheckpoint = (dbPath: string, tailLength: number): Promise<voi
     const state = yield* Schema.encodeEffect(ProjectsFromJson)(folded).pipe(Effect.orDie)
     yield* states.save(PROJECTION_NAME, { state, lastSeq: target, foldVersion: FOLD_VERSIONS.projects })
   })
-  return Effect.runPromise(Effect.provide(program, layer))
-}
-
-const BENCH_DIR = dirname(fileURLToPath(import.meta.url))
+  yield* Effect.provide(program, layer)
+})

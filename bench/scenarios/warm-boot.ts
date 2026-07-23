@@ -12,22 +12,23 @@ const TAILS = [
   { suffix: "t10k", tail: 10_000 }
 ] as const
 
-export const runWarmBoot = async (ctx: ScenarioContext): Promise<ReadonlyArray<Measurement>> => {
-  const out: Array<Measurement> = []
-  for (const { suffix, tail } of TAILS) {
-    if (tail >= ctx.eventCount) continue // smoke scale: only t0 is meaningful
-    await plantCheckpoint(ctx.dbPath, tail) // untimed setup, correct-by-construction
-    const { value: wallMs, rssDeltaBytes } = await withRss(() =>
-      Effect.runPromise(timedLayerBuild(projectionBootLayer(ctx.dbPath)))
-    )
-    out.push({
-      key: `s2-warm-boot-${suffix}`,
-      label: `S2 warm boot (tail ${tail.toLocaleString()})`,
-      scale: ctx.scale,
-      wallMs,
-      events: tail,
-      rssDeltaBytes
+export const runWarmBoot = Effect.fn("Benchmark.runWarmBoot")((ctx: ScenarioContext) =>
+  Effect.forEach(TAILS, ({ suffix, tail }) => {
+    if (tail >= ctx.eventCount) return Effect.void // smoke scale: only t0 is meaningful
+    return Effect.gen(function*() {
+      yield* plantCheckpoint(ctx.dbPath, tail) // untimed setup, correct-by-construction
+      const { value: wallMs, rssDeltaBytes } = yield* withRss(
+        timedLayerBuild(projectionBootLayer(ctx.dbPath))
+      )
+      return {
+        key: `s2-warm-boot-${suffix}`,
+        label: `S2 warm boot (tail ${tail.toLocaleString()})`,
+        scale: ctx.scale,
+        wallMs,
+        events: tail,
+        rssDeltaBytes
+      } satisfies Measurement
     })
-  }
-  return out
-}
+  }, { concurrency: 1 }).pipe(
+    Effect.map((measurements) => measurements.flatMap((measurement) => measurement === undefined ? [] : [measurement]) as ReadonlyArray<Measurement>)
+  ))
