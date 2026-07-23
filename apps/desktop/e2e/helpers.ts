@@ -1,43 +1,48 @@
-import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test"
-import { resolve } from "node:path"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { _electron as electron, type Page } from "@playwright/test"
+import { Clock, Effect, FileSystem, Path, Schedule, Schema } from "effect"
 
-export interface LaunchedApp {
-  readonly app: ElectronApplication
-  readonly win: Page
+export interface LaunchAppDependencies {
+  readonly launch: typeof electron.launch
 }
 
-export const launchApp = async (): Promise<LaunchedApp> => {
-  // Isolate this run's data to a throwaway dir. The desktop main process resolves
-  // its AppContext base from the `--data-dir` argv we pass here, and the node
-  // adapter forwards that same dir to the spawned server via `--data-dir`, so both
-  // sides rendezvous on the same endpoint file without any env override.
-  const dataHome = mkdtempSync(resolve(tmpdir(), "expand-e2e-home-"))
-  const app = await electron.launch({
-    args: ["--no-sandbox", resolve(__dirname, "../out/main/index.mjs"), "--data-dir", dataHome],
-    env: {
-      ...process.env,
-      EXPAND_BACKEND_CMD: JSON.stringify(["node", "--import", "tsx", resolve(repoRoot, "apps/server/main.ts")])
-    }
-  })
-  const win = await app.firstWindow()
-  await win.getByText("Projects (").waitFor()
-  return { app, win }
+export const launchApp = Effect.fn("DesktopE2E.launchApp")(function* (
+  dependencies: LaunchAppDependencies = liveDependencies
+) {
+  yield* Clock.currentTimeMillis
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const dataHome = yield* fs.makeTempDirectoryScoped({ prefix: "expand-e2e-home-" })
+  const executablePath = path.resolve("apps", "desktop", "out", "main", "index.mjs")
+  const args = yield* Schema.decodeUnknownEffect(
+    Schema.Tuple([Schema.Literal("--no-sandbox"), Schema.String, Schema.Literal("--data-dir"), Schema.String])
+  )(["--no-sandbox", executablePath, "--data-dir", dataHome])
+  const app = yield* Effect.acquireRelease(
+    Effect.tryPromise(() => dependencies.launch({ args: [...args] })),
+    (launched) =>
+      Effect.tryPromise(() => launched.close()).pipe(
+        Effect.retry({ schedule: closeSchedule, times: 2 }),
+        Effect.orDie
+      )
+  )
+  const win = yield* Effect.tryPromise(() => app.firstWindow())
+  yield* Effect.tryPromise(() => win.getByText("Projects (").waitFor())
+  return { win }
+})
+
+export const createProject = Effect.fn("DesktopE2E.createProject")(function* (win: Page, name: string) {
+  yield* Effect.tryPromise(() => win.getByLabel("project name").fill(name))
+  yield* Effect.tryPromise(() => win.getByRole("button", { name: "Create" }).click())
+  yield* Effect.tryPromise(() =>
+    win.getByTestId("project-list").getByText(name, { exact: true }).waitFor())
+})
+
+export const openPalette = Effect.fn("DesktopE2E.openPalette")(function* (win: Page) {
+  yield* Effect.tryPromise(() => win.keyboard.press("ControlOrMeta+Shift+P"))
+  yield* Effect.tryPromise(() => win.getByPlaceholder("Type a project name or search…").waitFor())
+})
+
+const liveDependencies: LaunchAppDependencies = {
+  launch: electron.launch.bind(electron)
 }
 
-// Creates a project via the inline form on the main view and waits for it to appear.
-export const createProject = async (win: Page, name: string): Promise<void> => {
-  await win.getByLabel("project name").fill(name)
-  await win.getByRole("button", { name: "Create" }).click()
-  await win.getByTestId("project-list").getByText(name, { exact: true }).waitFor()
-}
-
-// Opens the command palette with Ctrl/Cmd+Shift+P (works on both platforms).
-export const openPalette = async (win: Page): Promise<void> => {
-  const mod = process.platform === "darwin" ? "Meta" : "Control"
-  await win.keyboard.press(`${mod}+Shift+P`)
-  await win.getByPlaceholder("Type a project name or search…").waitFor()
-}
-
-const repoRoot = resolve(__dirname, "../../..")
+const closeSchedule = Schedule.spaced("25 millis")

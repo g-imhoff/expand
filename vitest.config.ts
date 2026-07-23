@@ -3,6 +3,7 @@ import { configDefaults, defineConfig, type TestProjectInlineConfiguration } fro
 export const testInclude = [
   "apps/**/test/**/*.test.ts",
   "apps/**/test/**/*.test.tsx",
+  "apps/desktop/e2e/effect-test.test.ts",
   "packages/**/test/**/*.test.ts",
   "packages/**/test/**/*.test.tsx",
   "test/architecture/**/*.test.ts",

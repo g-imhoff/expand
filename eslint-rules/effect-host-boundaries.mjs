@@ -14,6 +14,7 @@ const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const testFixtureNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
 const documentGetElementById = ["platform:document", "getElementById"].join(".")
 const effectRunFork = ["runner:Effect", "runFork"].join(".")
+const effectRunPromise = ["runner:Effect", "runPromise"].join(".")
 const listenerAddEventListener = ["platform:listener", "addEventListener"].join(".")
 const listenerRemoveEventListener = ["platform:listener", "removeEventListener"].join(".")
 const windowExpand = ["platform:window", "expand"].join(".")
@@ -54,6 +55,20 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/e2e/effect-test.ts",
+    declaration: "variable:makeTestEffect",
+    host: "Playwright Effect test callback ABI",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/e2e/effect-test.ts",
+    declaration: "variable:makeTestEffect",
+    host: "Playwright Effect test runtime",
+    construct: effectRunPromise,
     occurrence: 0
   }),
   Object.freeze({
