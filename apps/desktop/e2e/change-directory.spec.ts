@@ -3,10 +3,10 @@ import { Effect, FileSystem } from "effect"
 import { testEffect } from "./effect-test"
 import { launchApp, createProject } from "./helpers"
 
-testEffect("sets a project directory without surfacing an error", Effect.gen(function* () {
+testEffect("sets a project directory without surfacing an error", (_fixtures, testInfo) => Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-e2e-project-" })
-  const { win } = yield* launchApp()
+  const { win } = yield* launchApp(testInfo.config.configFile ?? "")
   yield* createProject(win, "e2e-cd")
 
   const row = win.getByTestId("project-list").getByRole("listitem").filter({ hasText: "e2e-cd" })

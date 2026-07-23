@@ -3,8 +3,8 @@ import { Effect } from "effect"
 import { testEffect } from "./effect-test"
 import { launchApp, createProject } from "./helpers"
 
-testEffect("renames a project and the list reflects the new name", Effect.gen(function* () {
-  const { win } = yield* launchApp()
+testEffect("renames a project and the list reflects the new name", (_fixtures, testInfo) => Effect.gen(function* () {
+  const { win } = yield* launchApp(testInfo.config.configFile ?? "")
   yield* createProject(win, "e2e-rename-src")
 
   const list = win.getByTestId("project-list")

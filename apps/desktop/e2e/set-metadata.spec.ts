@@ -3,8 +3,8 @@ import { Effect } from "effect"
 import { testEffect } from "./effect-test"
 import { launchApp, createProject, openPalette } from "./helpers"
 
-testEffect("edits project metadata via the command palette", Effect.gen(function* () {
-  const { win } = yield* launchApp()
+testEffect("edits project metadata via the command palette", (_fixtures, testInfo) => Effect.gen(function* () {
+  const { win } = yield* launchApp(testInfo.config.configFile ?? "")
   yield* createProject(win, "e2e-meta")
 
   yield* openPalette(win)

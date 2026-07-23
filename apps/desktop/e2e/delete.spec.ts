@@ -3,8 +3,8 @@ import { Effect } from "effect"
 import { testEffect } from "./effect-test"
 import { launchApp, createProject } from "./helpers"
 
-testEffect("deletes a project and removes it from the live list", Effect.gen(function* () {
-  const { win } = yield* launchApp()
+testEffect("deletes a project and removes it from the live list", (_fixtures, testInfo) => Effect.gen(function* () {
+  const { win } = yield* launchApp(testInfo.config.configFile ?? "")
   yield* createProject(win, "e2e-del")
 
   const list = win.getByTestId("project-list")

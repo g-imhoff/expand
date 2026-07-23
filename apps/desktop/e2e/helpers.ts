@@ -6,13 +6,15 @@ export interface LaunchAppDependencies {
 }
 
 export const launchApp = Effect.fn("DesktopE2E.launchApp")(function* (
+  configFile: string,
   dependencies: LaunchAppDependencies = liveDependencies
 ) {
   yield* Clock.currentTimeMillis
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+  const resolvedConfigFile = yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(configFile)
   const dataHome = yield* fs.makeTempDirectoryScoped({ prefix: "expand-e2e-home-" })
-  const executablePath = path.resolve("apps", "desktop", "out", "main", "index.mjs")
+  const executablePath = path.resolve(path.dirname(resolvedConfigFile), "..", "out", "main", "index.mjs")
   const args = yield* Schema.decodeUnknownEffect(
     Schema.Tuple([Schema.Literal("--no-sandbox"), Schema.String, Schema.Literal("--data-dir"), Schema.String])
   )(["--no-sandbox", executablePath, "--data-dir", dataHome])
