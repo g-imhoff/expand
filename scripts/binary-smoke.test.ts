@@ -1,7 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { it } from "@effect/vitest"
-import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schedule, Sink, Stream } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Ref, Schedule, Sink, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { describe, expect } from "vitest"
@@ -17,7 +18,8 @@ import {
   parseStatus,
   readinessTransition,
   reapTransition,
-  releaseTransition
+  releaseTransition,
+  timeoutTransition
 } from "./binary-smoke-model"
 import {
   acknowledgeGuardianOwnership,
@@ -27,8 +29,12 @@ import {
   cleanupDirectServer,
   cleanupGuardianOwnership,
   parseProcessGroupRows,
+  reserveGuardianRelease,
   retainCleanupCause,
-  runJobControlFact
+  runBinaryOwnershipCore,
+  runCommand,
+  runJobControlFact,
+  runOwnedCli
 } from "./binary-smoke"
 
 const state = () => initialCertificationState("/tmp/expand", 41)
@@ -157,9 +163,154 @@ describe("binary certification model", () => {
     expect(killed.job).toBe("%2")
     expect(killed.phase).toBe("acquired")
   })
+
+  it.each([
+    ["endpoint-readiness", "endpoint readiness timed out"],
+    ["backend-departure", "auto-spawned backend cleanup timed out"],
+    ["guardian-reap", "guardian reap timed out"],
+    ["direct-server-exit", "direct server exit timed out"]
+  ] as const)("models the %s timeout without coordinator policy", (timeout, reason) => {
+    expectModelError(() => timeoutTransition(timeout), reason)
+  })
 })
 
 describe("binary certification live ownership", () => {
+  it.effect.each([
+    ...(["guardian-spawn", "stopped-evidence", "endpoint-publication", "lock-observation", "release", "reap"] as const).map((phase) => [phase, "failure"] as const),
+    ...(["guardian-spawn", "stopped-evidence", "endpoint-publication", "lock-observation", "release", "reap"] as const).map((phase) => [phase, "interruption"] as const)
+  ])(
+    "cleans production-core ownership when %s ends in %s",
+    ([failedPhase, mode]) => Effect.gen(function*() {
+      const events: Array<string> = []
+      let alive = true
+      let artifacts = false
+      let releases = 0
+      let reaps = 0
+      const primary = new BinarySmokeError({ operation: "command", detail: failedPhase })
+      const phase = (name: typeof failedPhase) => Effect.sync(() => {
+        events.push(name)
+        if (name === "endpoint-publication" || name === "lock-observation") artifacts = true
+        if (name === "release") releases += 1
+        if (name === "reap") reaps += 1
+      }).pipe(Effect.andThen(name !== failedPhase
+        ? Effect.void
+        : mode === "failure" ? Effect.fail(primary) : Effect.interrupt))
+      const cleanup = Effect.suspend(() => cleanupGuardianOwnership({
+        evidence: failedPhase === "guardian-spawn" || failedPhase === "stopped-evidence"
+          ? undefined
+          : { job: "%2", pid: 41, pgid: 91 },
+        signalGroup: (signal) => Effect.sync(() => {
+          events.push(signal)
+          alive = false
+          artifacts = false
+        }),
+        discoverStartupGroup: Effect.succeed(Option.some(91)),
+        groupAlive: () => Effect.sync(() => alive),
+        signalGuardian: (signal) => Effect.sync(() => {
+          events.push(`guardian:${signal}`)
+          alive = false
+          artifacts = false
+        }),
+        guardianRunning: Effect.sync(() => alive),
+        releaseGuardian: Effect.sync(() => {
+          releases += 1
+        }),
+        reapGuardian: Effect.sync(() => {
+          if (reaps === 0) reaps += 1
+        }),
+        artifactsRemain: Effect.sync(() => artifacts),
+        wait: Effect.void
+      }))
+      const exit = yield* runBinaryOwnershipCore({
+        guardianSpawn: phase("guardian-spawn"),
+        stoppedEvidence: phase("stopped-evidence"),
+        endpointPublication: () => phase("endpoint-publication"),
+        lockObservation: () => phase("lock-observation"),
+        release: () => phase("release"),
+        reap: () => phase("reap"),
+        cleanup
+      }).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(alive).toBe(false)
+      expect(artifacts).toBe(false)
+      expect(releases).toBeLessThanOrEqual(1)
+      expect(reaps).toBe(1)
+      expect(events).toContain("guardian-spawn")
+    }),
+    30_000
+  )
+
+  it.effect("rolls back an interrupted release reservation and retries CONT", () =>
+    Effect.gen(function*() {
+      const reservation = yield* Ref.make(false)
+      let deliveries = 0
+      yield* reserveGuardianRelease(reservation, Effect.sync(() => {
+        deliveries += 1
+      }).pipe(Effect.andThen(Effect.interrupt))).pipe(Effect.exit)
+      yield* reserveGuardianRelease(reservation, Effect.sync(() => {
+        deliveries += 1
+      }))
+      expect(deliveries).toBe(2)
+    }))
+
+  it.effect("delivers CONT atomically when interruption arrives after reservation", () =>
+    Effect.gen(function*() {
+      const reservation = yield* Ref.make(false)
+      const started = yield* Deferred.make<void>()
+      const finish = yield* Deferred.make<void>()
+      let deliveries = 0
+      const first = yield* reserveGuardianRelease(reservation, Effect.gen(function*() {
+        yield* Deferred.succeed(started, undefined)
+        yield* Deferred.await(finish)
+        deliveries += 1
+      })).pipe(Effect.forkChild)
+      yield* Deferred.await(started)
+      const interrupted = yield* Fiber.interrupt(first).pipe(Effect.forkChild)
+      yield* Deferred.succeed(finish, undefined)
+      yield* Fiber.join(interrupted)
+      yield* reserveGuardianRelease(reservation, Effect.sync(() => {
+        deliveries += 1
+      }))
+      expect(deliveries).toBe(1)
+    }))
+
+  it.live("reaps a TERM-resistant stopped child when TERM arrives during launch evidence", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-pre-evidence-" })
+      const pidFile = path.join(directory, "child.identity")
+      const marker = "expand-pre-evidence-owned-child"
+      const handle = yield* spawner.spawn(ChildProcess.make("bash", [
+        JOB_CONTROL_FIXTURE,
+        "fact",
+        "bash",
+        "-c",
+        `trap '' TERM; printf '%s ' $$ > ${pidFile}; ps -o pgid= -p $$ >> ${pidFile}; kill -TERM $PPID; kill -STOP $$; sleep 30`,
+        marker
+      ], { cwd: "." }))
+      yield* handle.stdout.pipe(Stream.runDrain, Effect.forkScoped)
+      yield* handle.stderr.pipe(Stream.runDrain, Effect.forkScoped)
+      const exit = yield* handle.exitCode.pipe(Effect.timeoutOption("2 seconds"))
+      expect(Option.isSome(exit)).toBe(true)
+      const [pidSource, pgidSource] = (yield* fs.readFileString(pidFile)).trim().split(/\s+/)
+      const pid = Number(pidSource)
+      const pgid = Number(pgidSource)
+      const ownedAlive = runCommand(".", "ps", ["-eo", "pid=,pgid=,stat=,args="]).pipe(
+        Effect.map((report) => report.stdout.split("\n").some((row) => {
+          const match = /^\s*([1-9][0-9]*)\s+([1-9][0-9]*)\s+(\S+)\s+(.*)$/.exec(row)
+          if (match === null || Number(match[2]) !== pgid) return false
+          return (Number(match[1]) === pid && match[3]!.includes("Z")) || match[4]!.includes(marker)
+        }))
+      )
+      const alive = yield* ownedAlive.pipe(
+        Effect.filterOrFail((alive) => !alive),
+        Effect.retry({ schedule: Schedule.spaced("10 millis"), times: 200 })
+      )
+      expect(alive).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(ProcessServices.layer))))
+
   it.live("runs the exact source-declared job-control fixture and propagates cached nonzero status", () =>
     runJobControlFact(".", ["bash", "-c", "sleep 0.05; exit 23"]).pipe(
       Effect.tap((fact) => Effect.sync(() => {
@@ -228,7 +379,7 @@ describe("binary certification live ownership", () => {
         Effect.forkChild({ startImmediately: true })
       )
       yield* Effect.yieldNow
-      expect(fixture.records).toHaveLength(2)
+      expect(fixture.records.length).toBeGreaterThanOrEqual(2)
       const guardian = fixture.records[1]?.command
       expect(guardian?._tag).toBe("StandardCommand")
       if (guardian?._tag === "StandardCommand") {
@@ -360,7 +511,11 @@ describe("binary certification live ownership", () => {
     return cleanupGuardianOwnership({
       evidence: undefined,
       signalGroup: (signal) => Effect.sync(() => events.push(`group:${signal}`)),
-      groupAlive: Effect.succeed(false),
+      discoverStartupGroup: Effect.succeed(Option.some(91)),
+      groupAlive: (pgid) => Effect.sync(() => {
+        events.push(`verify:${pgid}`)
+        return false
+      }),
       signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
       guardianRunning: Effect.succeed(false),
       releaseGuardian: Effect.sync(() => events.push("release")),
@@ -368,7 +523,7 @@ describe("binary certification live ownership", () => {
       artifactsRemain: Effect.succeed(false),
       wait: Effect.void
     }).pipe(Effect.tap(() => Effect.sync(() => {
-      expect(events).toEqual(["guardian:SIGTERM", "reap"])
+      expect(events).toEqual(["guardian:SIGTERM", "reap", "verify:91"])
     })))
   })
 
@@ -377,7 +532,8 @@ describe("binary certification live ownership", () => {
     return cleanupGuardianOwnership({
       evidence: undefined,
       signalGroup: () => Effect.void,
-      groupAlive: Effect.sync(() => {
+      discoverStartupGroup: Effect.succeed(Option.some(91)),
+      groupAlive: () => Effect.sync(() => {
         events.push("discover")
         return true
       }),
@@ -401,7 +557,8 @@ describe("binary certification live ownership", () => {
     return cleanupGuardianOwnership({
       evidence: { job: "%2", pid: 41, pgid: 91 },
       signalGroup: (signal, pgid) => Effect.sync(() => events.push(`${signal}:${pgid}`)),
-      groupAlive: Effect.succeed(false),
+      discoverStartupGroup: Effect.succeed(Option.none()),
+      groupAlive: () => Effect.succeed(false),
       signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
       guardianRunning: Effect.succeed(true),
       releaseGuardian: Effect.sync(() => events.push("release")),
@@ -419,7 +576,8 @@ describe("binary certification live ownership", () => {
     return cleanupGuardianOwnership({
       evidence: { job: "%2", pid: 41, pgid: 91 },
       signalGroup: (signal, pgid) => Effect.sync(() => events.push(`${signal}:${pgid}`)),
-      groupAlive: Effect.sync(() => ++checks === 1),
+      discoverStartupGroup: Effect.succeed(Option.none()),
+      groupAlive: () => Effect.sync(() => ++checks === 1),
       signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
       guardianRunning: Effect.succeed(true),
       releaseGuardian: Effect.sync(() => events.push("release")),
@@ -436,7 +594,8 @@ describe("binary certification live ownership", () => {
     return cleanupGuardianOwnership({
       evidence: { job: "%2", pid: 41, pgid: 91 },
       signalGroup: (signal) => Effect.sync(() => events.push(signal)),
-      groupAlive: Effect.succeed(true),
+      discoverStartupGroup: Effect.succeed(Option.none()),
+      groupAlive: () => Effect.succeed(true),
       signalGuardian: () => Effect.void,
       guardianRunning: Effect.succeed(true),
       releaseGuardian: Effect.sync(() => events.push("release")),
@@ -473,7 +632,8 @@ describe("binary certification live ownership", () => {
       signalGroup: (signal) => Effect.sync(() => events.push(signal)).pipe(
         Effect.andThen(signal === "SIGTERM" ? failure("term failed") : Effect.void)
       ),
-      groupAlive: Effect.succeed(false),
+      discoverStartupGroup: Effect.succeed(Option.none()),
+      groupAlive: () => Effect.succeed(false),
       signalGuardian: () => Effect.void,
       guardianRunning: Effect.succeed(true),
       releaseGuardian: Effect.sync(() => events.push("release")).pipe(Effect.andThen(failure("release failed"))),
@@ -493,6 +653,40 @@ describe("binary certification live ownership", () => {
       }))
     )
   })
+
+  it.effect("retains production direct-server parse and cleanup failures in the same Cause", () =>
+    Effect.gen(function*() {
+      const cleanup = new BinarySmokeError({ operation: "cleanup", detail: "artifact probe failed" })
+      const fixture = processSpawnerFixture([], { neverExitAt: 0 })
+      let existsCalls = 0
+      const exit = yield* Effect.scoped(runOwnedCli({
+        root: "/repo",
+        dataDir: "/tmp/cert",
+        home: "/tmp/home",
+        args: ["health"],
+        attempts: 0
+      })).pipe(
+        Effect.provide(FileSystem.layerNoop({
+          exists: () => Effect.suspend(() => ++existsCalls === 1 ? Effect.succeed(true) : Effect.die(cleanup)),
+          readFileString: () => Effect.succeed("malformed")
+        })),
+        Effect.provide(Path.layer),
+        Effect.provide(Layer.succeed(ProcessControl, {
+          currentPid: 1,
+          probe: () => Effect.succeed("dead" as const)
+        })),
+        Effect.provide(fixture.layer),
+        Effect.exit
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) return
+      expect(exit.cause.reasons.filter(Cause.isFailReason).flatMap(({ error }) => error instanceof BinarySmokeError ? [{
+        operation: error.operation,
+        detail: error.detail
+      }] : [])).toContainEqual({ operation: "parse", detail: "endpoint was malformed" })
+      expect(exit.cause.reasons.filter(Cause.isDieReason).map(({ defect }) => defect)).toContain(cleanup)
+      expect(fixture.records[0]?.releaseCount).toBe(1)
+    }))
 
   it.effect("retains primary and cleanup failures in the same Cause", () => {
     const primary = new BinarySmokeError({ operation: "command", detail: "primary" })

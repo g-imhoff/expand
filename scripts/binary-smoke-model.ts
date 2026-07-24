@@ -2,6 +2,7 @@ import { Data } from "effect"
 
 export type CertificationPhase = "acquired" | "ready" | "departed" | "released" | "reaped" | "cleaned"
 export type CleanupSignal = "SIGTERM" | "SIGKILL"
+export type CertificationTimeout = "endpoint-readiness" | "backend-departure" | "guardian-reap" | "direct-server-exit"
 
 export interface CertificationState {
   readonly dataDirectory: string
@@ -101,6 +102,16 @@ export const releaseTransition = (current: CertificationState): CertificationSta
 export const reapTransition = (current: CertificationState, exitStatus: number): CertificationState => {
   if (current.phase !== "released") return fail("guardian reap requires successful release")
   return { ...current, phase: "reaped", job: undefined, exitStatus }
+}
+
+export const timeoutTransition = (timeout: CertificationTimeout): never => {
+  const reasons: Record<CertificationTimeout, string> = {
+    "endpoint-readiness": "endpoint readiness timed out",
+    "backend-departure": "auto-spawned backend cleanup timed out",
+    "guardian-reap": "guardian reap timed out",
+    "direct-server-exit": "direct server exit timed out"
+  }
+  return fail(reasons[timeout])
 }
 
 export const cleanupTransition = (current: CertificationState, active: boolean): CertificationState => {

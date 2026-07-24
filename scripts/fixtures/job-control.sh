@@ -10,13 +10,22 @@ signal_job() {
 }
 terminate_started_job() {
   trap - TERM INT HUP
+  if [[ -z "$pid" ]]; then
+    pid="$(jobs -p %% 2>/dev/null || true)"
+  fi
+  if [[ -n "$pid" && -z "$pgid" ]]; then
+    pgid="$(ps -o pgid= -p "$pid" 2>/dev/null || true)"
+    pgid="${pgid//[[:space:]]/}"
+  fi
   if [[ -n "$pid" ]]; then
     if [[ -n "$pgid" ]]; then
       signal_job CONT "$pgid" 2>/dev/null || true
       signal_job TERM "$pgid" 2>/dev/null || true
+      signal_job KILL "$pgid" 2>/dev/null || true
     else
       kill -CONT "$pid" 2>/dev/null || true
       kill -TERM "$pid" 2>/dev/null || true
+      kill -KILL "$pid" 2>/dev/null || true
     fi
     wait "$pid" 2>/dev/null || true
   fi
