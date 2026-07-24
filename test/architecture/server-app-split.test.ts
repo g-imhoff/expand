@@ -30,9 +30,9 @@ describe("server app split", () => {
   it.live("keeps the compiled-binary smoke inside cert:cli:build", () =>
     Effect.gen(function*() {
       const pkg = yield* Schema.decodeUnknownEffect(PackageJson)(yield* read("package.json"))
-      expect(pkg.scripts["cert:cli:build"]).toBe("tsx scripts/cert-cli-build.ts")
-      expect(yield* read("scripts/cert-cli-build.ts")).toContain("buildBinaries(root)")
-      expect(yield* read("scripts/cert-cli-build.ts")).toContain("scripts/binary-smoke.sh")
+      expect(pkg.scripts["cert:cli:build"]).toBe("tsx scripts/binary-smoke.ts")
+      expect(yield* read("scripts/binary-smoke.ts")).toContain('runCommand(root, "tsx", ["scripts/build.ts"])')
+      expect(yield* read("scripts/binary-smoke.ts")).toContain("scripts/fixtures/job-control.sh")
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("does not keep a dependency-cruiser exception for CLI booting backend composition", () =>

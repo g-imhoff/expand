@@ -270,7 +270,7 @@ describe("manifest orchestration", () => {
         arch: "depcruise apps packages --config .dependency-cruiser.cjs",
         knip: "knip",
         build: "tsx scripts/build.ts",
-        "cert:cli:build": "tsx scripts/cert-cli-build.ts",
+        "cert:cli:build": "tsx scripts/binary-smoke.ts",
         "dev:cli": "tsx apps/cli/cli/main.ts",
         "dev:server": "tsx apps/server/main.ts",
         "dev:tui": "tsx apps/tui/main.tsx",

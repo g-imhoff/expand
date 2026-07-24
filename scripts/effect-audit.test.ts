@@ -2216,8 +2216,7 @@ declare const program: never
 ${nodeRuntimeRunMain}(program)
 void buildTool
 `,
-  "scripts/cert-cli-build.test.ts": dynamicImportBoundarySource,
-  "scripts/cert-cli-build.ts": bracketRunnerBoundarySource,
+  "scripts/binary-smoke.ts": bracketRunnerBoundarySource,
   "scripts/desktop-command.test.ts": dynamicImportBoundarySource,
   "scripts/desktop-command.ts": bracketRunnerBoundarySource,
   "scripts/effect-audit.ts": runnerBoundarySource,

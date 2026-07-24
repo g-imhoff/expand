@@ -804,16 +804,9 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "scripts/cert-cli-build.test.ts",
-    declaration: "variable:module",
-    host: "Vitest controlled dynamic import",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "scripts/cert-cli-build.ts",
+    file: "scripts/binary-smoke.ts",
     declaration: "module:<module>",
-    host: "CLI build certification entrypoint",
+    host: "CLI binary certification entrypoint",
     construct: scriptNodeRuntimeRunMain,
     occurrence: 0
   }),

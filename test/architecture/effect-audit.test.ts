@@ -352,7 +352,7 @@ describe("Effect grep architecture", () => {
       const result = yield* runAudit({ root, mode: "check" })
 
       expect(modes.exitCode).toBe(0)
-      expect(selected.map(({ file }) => file)).toEqual([".githooks/pre-commit", "scripts/binary-smoke.sh"])
+      expect(selected.map(({ file }) => file)).toEqual([".githooks/pre-commit", "scripts/fixtures/job-control.sh"])
       expect(selected.map(({ file }) => file)).toEqual(inventory.map(executableBoundaryKey))
       expect(inventory.map(executableBoundaryKey)).toEqual(selected.map(({ file }) => file))
       for (const [index, record] of inventory.entries()) {
@@ -369,8 +369,8 @@ describe("Effect grep architecture", () => {
       expect(result.launchers.map(({ file }) => file)).toEqual(inventory.map(executableBoundaryKey))
       expect(result.launcherCounts).toEqual({
         "host-launcher": 1,
-        "host-fixture": 0,
-        "migration-debt": 1
+        "host-fixture": 1,
+        "migration-debt": 0
       })
     }).pipe(
       Effect.provide(AuditCommandRunnerLive),
