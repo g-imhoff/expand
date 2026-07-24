@@ -73,7 +73,7 @@ const runProjectHandlers = () =>
       let metadataPayload: Parameters<ProjectClientApi["setMetadata"]>[0] | undefined
       let deletePayload: Parameters<ProjectClientApi["delete"]>[0] | undefined
       let listPayload: Parameters<ProjectClientApi["list"]>[0] | undefined
-      const upstreamCreateResult = Schema.decodeUnknownSync(ProjectCreateResult)({
+      const upstreamCreateResult = yield* Schema.decodeUnknownEffect(ProjectCreateResult)({
         created: false,
         project
       })

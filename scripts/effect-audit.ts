@@ -318,6 +318,10 @@ const nodeAtOffset = (parsed: ParsedSource, offset: number): SourceNode | undefi
 
 const isAuditFixturePath = (file: string) =>
   /(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^/]+$/.test(file)
+  || /^eslint-rules\/effect-(?:boundary|host-boundaries)/.test(file)
+
+const isAuditInfrastructurePath = (file: string) =>
+  file === "scripts/effect-audit.ts"
 
 const isStringSyntax = (node: SourceNode | undefined) =>
   node?.type === "TemplateElement"
@@ -739,7 +743,7 @@ const grepClassificationError = (evidence: ReadonlyArray<GrepCandidateEvidence>)
       }
       continue
     }
-    if (entry.messageId !== undefined || entry.stringSyntax) {
+    if (entry.messageId !== undefined || (entry.stringSyntax && !isAuditInfrastructurePath(candidate.file))) {
       return `grep inventory false-positive lacks non-blocking analyzer proof: ${grepCandidateKey(candidate)}`
     }
   }

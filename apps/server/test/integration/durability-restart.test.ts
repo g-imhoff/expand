@@ -19,7 +19,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   Effect.retry(Schedule.spaced("25 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
-    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
+    orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
   })
 )
 
@@ -38,7 +38,7 @@ describe.sequential("durability across a backend restart", () => {
         yield* awaitEndpointUp
         const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
-          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
+          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("no I-4 shutdown") })
         )
         return out
       })
@@ -84,7 +84,7 @@ describe.sequential("durability across a backend restart", () => {
         yield* awaitEndpointUp
         const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
-          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
+          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("no I-4 shutdown") })
         )
         return out
       })
@@ -128,7 +128,7 @@ describe.sequential("durability across a backend restart", () => {
         yield* awaitEndpointUp
         const out = yield* withClient(nodeAdapter, use)
         yield* Fiber.join(serverFiber).pipe(
-          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("no I-4 shutdown")) })
+          Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("no I-4 shutdown") })
         )
         return out
       })

@@ -13,13 +13,25 @@ export const launchApp = Effect.fn("DesktopE2E.launchApp")(function* (
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const resolvedConfigFile = yield* Schema.decodeUnknownEffect(Schema.NonEmptyString)(configFile)
-  const dataHome = yield* fs.makeTempDirectoryScoped({ prefix: "expand-e2e-home-" })
-  const executablePath = path.resolve(path.dirname(resolvedConfigFile), "..", "out", "main", "index.mjs")
+  const dataHome = yield* Effect.acquireRelease(
+    fs.makeTempDirectory({ prefix: "expand-e2e-home-" }),
+    (directory) => Effect.gen(function*() {
+      const ownershipFiles = ["server.json", "server.json.lock", "backend.lock"]
+      yield* Effect.forEach(ownershipFiles, (file) => fs.exists(path.join(directory, file))).pipe(
+        Effect.filterOrFail((present) => present.every((exists) => !exists)),
+        Effect.retry({ schedule: Schedule.spaced("25 millis"), times: 200 })
+      )
+      yield* fs.remove(directory, { recursive: true })
+    }).pipe(Effect.orDie)
+  )
+  const desktopDirectory = path.resolve(path.dirname(resolvedConfigFile), "..")
+  const repositoryRoot = path.resolve(desktopDirectory, "..", "..")
+  const executablePath = path.resolve(desktopDirectory, "out", "main", "index.mjs")
   const args = yield* Schema.decodeUnknownEffect(
     Schema.Tuple([Schema.Literal("--no-sandbox"), Schema.String, Schema.Literal("--data-dir"), Schema.String])
   )(["--no-sandbox", executablePath, "--data-dir", dataHome])
   const app = yield* Effect.acquireRelease(
-    Effect.tryPromise(() => dependencies.launch({ args: [...args] })),
+    Effect.tryPromise(() => dependencies.launch({ args: [...args], cwd: repositoryRoot })),
     (launched) =>
       Effect.tryPromise(() => launched.close()).pipe(
         Effect.retry({ schedule: closeSchedule, times: 2 }),

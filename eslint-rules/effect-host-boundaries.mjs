@@ -1,29 +1,29 @@
-const nodeCryptoImport = "platform:import:" + ["node", "crypto"].join(":")
-const nodeHttpImport = "platform:import:" + ["node", "http"].join(":")
-const nodeOsImport = "platform:import:" + ["node", "os"].join(":")
-const nodePathImport = "platform:import:" + ["node", "path"].join(":")
-const nodeUrlImport = "platform:import:" + ["node", "url"].join(":")
-const cryptoRandomUUID = ["platform:crypto", "randomUUID"].join(".")
-const processCwd = ["platform:process", "cwd"].join(".")
-const processExecPath = ["platform:process", "execPath"].join(".")
-const processArgv = ["platform:process", "argv"].join(".")
-const processKill = ["platform:process", "kill"].join(".")
-const processMemoryUsage = ["platform:process", "memoryUsage"].join(".")
-const processPid = ["platform:process", "pid"].join(".")
-const processPlatform = ["platform:process", "platform"].join(".")
-const processVersion = ["platform:process", "version"].join(".")
-const processUmask = ["platform:process", "umask"].join(".")
-const desktopNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
-const testFixtureNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
-const scriptNodeRuntimeRunMain = ["runner:NodeRuntime", "runMain"].join(".")
-const documentGetElementById = ["platform:document", "getElementById"].join(".")
-const effectRunFork = ["runner:Effect", "runFork"].join(".")
-const effectRunPromise = ["runner:Effect", "runPromise"].join(".")
-const listenerAddEventListener = ["platform:listener", "addEventListener"].join(".")
-const listenerRemoveEventListener = ["platform:listener", "removeEventListener"].join(".")
-const windowExpand = ["platform:window", "expand"].join(".")
-const windowLocation = ["platform:window", "location"].join(".")
-const windowPostMessage = ["platform:window", "postMessage"].join(".")
+const nodeCryptoImport = "platform:import:node:crypto"
+const nodeHttpImport = "platform:import:node:http"
+const nodeOsImport = "platform:import:node:os"
+const nodePathImport = "platform:import:node:path"
+const nodeUrlImport = "platform:import:node:url"
+const cryptoRandomUUID = "platform:crypto.randomUUID"
+const processCwd = "platform:process.cwd"
+const processExecPath = "platform:process.execPath"
+const processArgv = "platform:process.argv"
+const processKill = "platform:process.kill"
+const processMemoryUsage = "platform:process.memoryUsage"
+const processPid = "platform:process.pid"
+const processPlatform = "platform:process.platform"
+const processVersion = "platform:process.version"
+const processUmask = "platform:process.umask"
+const desktopNodeRuntimeRunMain = "runner:NodeRuntime.runMain"
+const testFixtureNodeRuntimeRunMain = "runner:NodeRuntime.runMain"
+const scriptNodeRuntimeRunMain = "runner:NodeRuntime.runMain"
+const documentGetElementById = "platform:document.getElementById"
+const effectRunFork = "runner:Effect.runFork"
+const effectRunPromise = "runner:Effect.runPromise"
+const listenerAddEventListener = "platform:listener.addEventListener"
+const listenerRemoveEventListener = "platform:listener.removeEventListener"
+const windowExpand = "platform:window.expand"
+const windowLocation = "platform:window.location"
+const windowPostMessage = "platform:window.postMessage"
 
 export const effectHostBoundaries = Object.freeze([
   Object.freeze({
@@ -59,6 +59,20 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/electron.vite.config.ts",
+    declaration: "module:<module>",
+    host: "Electron Vite Node builtin catalog",
+    construct: "platform:import:node:module",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/electron.vite.config.ts",
+    declaration: "module:<module>",
+    host: "Electron Vite repository path resolution",
+    construct: "platform:import:node:path",
     occurrence: 0
   }),
   Object.freeze({
@@ -850,6 +864,20 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "module:<module>",
     host: "Node agent-sync entrypoint",
     construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/client-ts-barrel.test.ts",
+    declaration: "module:<module>",
+    host: "Architecture package export resolution",
+    construct: "platform:import:node:module",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/depcruise-exclude.test.ts",
+    declaration: "module:<module>",
+    host: "Architecture dependency-cruiser resolution",
+    construct: "platform:import:node:module",
     occurrence: 0
   }),
   Object.freeze({

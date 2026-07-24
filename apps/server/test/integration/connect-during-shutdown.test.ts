@@ -53,7 +53,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
           Effect.retry(Schedule.spaced("25 millis")),
           Effect.timeoutOrElse({
             duration: "5 seconds",
-            orElse: () => Effect.fail(new Error("real server never advertised"))
+            orElse: () => Effect.fail("real server never advertised")
           })
         )
 
@@ -91,7 +91,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         ).pipe(
           Effect.timeoutOrElse({
             duration: "10 seconds",
-            orElse: () => Effect.fail(new Error("withClient HUNG on a stale endpoint (Bug 2 regression)"))
+            orElse: () => Effect.fail("withClient HUNG on a stale endpoint (Bug 2 regression)")
           })
         )
 

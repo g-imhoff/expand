@@ -284,7 +284,7 @@ const runAcquireDisconnectRaceScenario = () =>
     ).pipe(
       Effect.timeoutOrElse({
         duration: "5 seconds",
-        orElse: () => Effect.fail(new Error("session neither published nor retried"))
+        orElse: () => Effect.fail("session neither published nor retried")
       })
     )
   }))
@@ -455,7 +455,7 @@ const runScopeClosureScenario = () =>
     yield* backend.retryStarted.pipe(
       Effect.timeoutOrElse({
         duration: "5 seconds",
-        orElse: () => Effect.fail(new Error("retry did not start"))
+        orElse: () => Effect.fail("retry did not start")
       })
     )
     yield* Scope.close(scope, Exit.void)

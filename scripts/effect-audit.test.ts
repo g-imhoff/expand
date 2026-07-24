@@ -74,10 +74,13 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
       yield* fs.makeDirectory(path.dirname(path.join(root, file)), { recursive: true })
       yield* fs.writeFileString(path.join(root, file), file === sample ? source : boundarySource)
     }
-    yield* fs.writeFileString(path.join(root, "tsconfig.effect-audit.json"), JSON.stringify({
-      compilerOptions: { strict: true },
-      include: ["**/*.ts", "**/*.tsx"]
-    }))
+    yield* fs.writeFileString(
+      path.join(root, "tsconfig.effect-audit.json"),
+      yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
+        compilerOptions: { strict: true },
+        include: ["**/*.ts", "**/*.tsx"]
+      })
+    )
     for (const file of allBoundaryFiles) {
       yield* fs.writeFileString(path.join(root, file), boundarySourceCatalog[file]!)
     }
@@ -88,7 +91,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
     if (options.baseline !== undefined) {
       const encoded = typeof options.baseline === "string"
         ? options.baseline
-        : Schema.encodeSync(AuditBaselineJson)([...options.baseline])
+        : yield* Schema.encodeEffect(AuditBaselineJson)([...options.baseline])
       yield* fs.writeFileString(path.join(root, "effect-audit-baseline.json"), encoded)
     }
 
@@ -107,7 +110,11 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
       .map((file) => ({ filePath: path.join(root, file), messages: [] }))
     const defaults: Record<AuditCommandRequest["name"], AuditCommandResult> = {
       "language-service": { exitCode: 0, stdout: options.languageService ?? '{"diagnostics":[]}', stderr: "" },
-      eslint: { exitCode: 0, stdout: options.eslint ?? JSON.stringify(eslintFiles), stderr: "" },
+      eslint: {
+        exitCode: 0,
+        stdout: options.eslint ?? (yield* Schema.encodeEffect(Schema.UnknownFromJsonString)(eslintFiles)),
+        stderr: ""
+      },
       "typescript-files": { exitCode: 0, stdout: `${typeScriptFiles}\n`, stderr: "" },
       "tracked-files": { exitCode: 0, stdout: `${tracked.join("\0")}\0`, stderr: "" },
       "tracked-modes": {
@@ -364,7 +371,7 @@ describe("Effect audit command", () => {
         const updated = yield* runAudit({ root, mode: "update" })
         const fs = yield* FileSystem.FileSystem
         expect(updated.removed).toHaveLength(1)
-        expect(Schema.decodeUnknownSync(AuditBaselineJson)(yield* fs.readFileString(`${root}/effect-audit-baseline.json`))).toEqual([])
+        expect(yield* Schema.decodeUnknownEffect(AuditBaselineJson)(yield* fs.readFileString(`${root}/effect-audit-baseline.json`))).toEqual([])
 
         yield* runAudit({ root, mode: "check" })
       })))
@@ -2090,6 +2097,11 @@ const boundarySourceCatalog: Record<string, string> = {
 void backendCommand
 `,
   "apps/cli/cli/node-app-context.ts": appContextBoundarySource,
+  "apps/desktop/electron.vite.config.ts": `import { builtinModules } from "node:module"
+import { resolve } from "node:path"
+void builtinModules
+void resolve
+`,
   "apps/desktop/e2e/effect-test.ts": `import { Effect } from "effect"
 export const makeTestEffect = (): ${promiseLikeType}<void> => ${effectRunPromise}(Effect.void)
 `,
@@ -2225,6 +2237,12 @@ void buildTool
 Effect.promise(() => import("effect"))
 `,
   "scripts/sync-agents.ts": runnerBoundarySource,
+  "test/architecture/client-ts-barrel.test.ts": `import { createRequire } from "node:module"
+void createRequire
+`,
+  "test/architecture/depcruise-exclude.test.ts": `import { createRequire } from "node:module"
+void createRequire
+`,
   "test/architecture/fold-version-lockstep.test.ts": dynamicImportBoundarySource
 }
 

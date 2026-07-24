@@ -88,7 +88,7 @@ describe("access log redaction", () => {
         Effect.retry(Schedule.spaced("25 millis")),
         Effect.timeoutOrElse({
           duration: "5 seconds",
-          orElse: () => Effect.fail(new Error("no /rpc access-log record was captured"))
+          orElse: () => Effect.fail("no /rpc access-log record was captured")
         })
       )
       const hostname = addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`

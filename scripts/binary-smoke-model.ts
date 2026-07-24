@@ -56,6 +56,7 @@ export const parseJobIdentity = (source: string, expectedPid: number): { readonl
   const match = /^\[([1-9][0-9]*)\][+-]?\s+([1-9][0-9]*)\s+/.exec(source)
   if (match === null) return fail("shell job identity was malformed")
   const pid = Number(match[2])
+  if (match[1] !== "2") return fail("shell job identity was not the exact second job")
   if (pid !== expectedPid) return fail("shell job PID does not match the started process PID")
   return { job: `%${match[1]}`, pid }
 }
@@ -105,6 +106,6 @@ export const reapTransition = (current: CertificationState, exitStatus: number):
 export const cleanupTransition = (current: CertificationState, active: boolean): CertificationState => {
   if (!active) return { ...current, phase: "cleaned", job: undefined }
   if (current.cleanupSignal === undefined) return { ...current, cleanupSignal: "SIGTERM" }
-  if (current.cleanupSignal === "SIGTERM") return { ...current, cleanupSignal: "SIGKILL", job: undefined }
+  if (current.cleanupSignal === "SIGTERM") return { ...current, cleanupSignal: "SIGKILL" }
   return fail("bounded cleanup failed after TERM-to-KILL escalation")
 }

@@ -187,6 +187,27 @@ describe("Effect Playwright adapter", () => {
       expect(launch).not.toHaveBeenCalled()
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.live("recursively removes real backend artifacts from the E2E data directory", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      let dataHome = ""
+      const waitFor = vi.fn().mockResolvedValue(undefined)
+      const fakeApp = {
+        close: vi.fn().mockResolvedValue(undefined),
+        firstWindow: vi.fn().mockResolvedValue({ getByText: () => ({ waitFor }) })
+      }
+      const launch = vi.fn().mockResolvedValue(fakeApp)
+      yield* Effect.scoped(
+        launchApp("/workspace/apps/desktop/e2e/playwright.config.ts", { launch }).pipe(
+          Effect.tap(() => {
+            dataHome = launch.mock.calls[0]?.[0].args?.at(-1) ?? ""
+            return fs.writeFileString(`${dataHome}/events.db`, "owned")
+          })
+        )
+      )
+      expect(yield* fs.exists(dataHome)).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("cleans every launch owner before propagating an assertion Promise failure", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
@@ -241,5 +262,6 @@ describe("Effect Playwright adapter", () => {
       expect(fakeApp.close).toHaveBeenCalledOnce()
       expect(events).toEqual(["listener", "cdp", "backend", "app", "temp", "propagate"])
       expect(launch.mock.calls[0]?.[0].args?.[1]).toBe(path.resolve("/workspace/apps/desktop/out/main/index.mjs"))
+      expect(launch.mock.calls[0]?.[0].cwd).toBe("/workspace")
     }).pipe(Effect.provide(NodeServices.layer)))
 })

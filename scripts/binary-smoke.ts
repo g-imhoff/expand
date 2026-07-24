@@ -1,10 +1,21 @@
 import { NodeRuntime } from "@effect/platform-node"
-import { ProcessControl } from "@expand/contracts/process-control"
+import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
 import { ProcessServices } from "@expand/server/node-process-control"
-import { Config, Data, Effect, FileSystem, Option, Path, Schedule, Schema, Stream } from "effect"
+import { Cause, Config, Data, Effect, Exit, Fiber, FileSystem, Option, Path, Ref, Schedule, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import type { ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
-import { assessArtifacts, parseEvidence, parseStatus, readinessTransition, initialCertificationState } from "./binary-smoke-model"
+import {
+  assessArtifacts,
+  assessDeparture,
+  cleanupTransition,
+  parseEvidence,
+  parseJobIdentity,
+  parseStatus,
+  readinessTransition,
+  initialCertificationState,
+  reapTransition,
+  releaseTransition
+} from "./binary-smoke-model"
 
 export const JOB_CONTROL_FIXTURE = "scripts/fixtures/job-control.sh"
 
@@ -30,6 +41,21 @@ interface CommandReport {
 
 const commandError = (operation: BinarySmokeError["operation"], detail: string, cause?: unknown) =>
   new BinarySmokeError({ operation, detail, cause })
+
+export const retainCleanupCause = Effect.fn("BinarySmoke.retainCleanupCause")(
+  <A, E, R, E2, R2>(
+    program: Effect.Effect<A, E, R>,
+    cleanup: Effect.Effect<void, E2, R2>
+  ): Effect.Effect<A, E | E2, R | R2> => Effect.exit(program).pipe(
+    Effect.flatMap((primary) => Exit.isSuccess(primary)
+      ? Effect.succeed(primary.value)
+      : Effect.exit(cleanup).pipe(
+        Effect.flatMap((released) => Exit.isSuccess(released)
+          ? Effect.failCause(primary.cause)
+          : Effect.failCause(Cause.combine(primary.cause, released.cause)))
+      ))
+  )
+)
 
 const model = <A>(operation: BinarySmokeError["operation"], evaluate: () => A): Effect.Effect<A, BinarySmokeError> =>
   Effect.try({
@@ -73,13 +99,14 @@ const JobFactOutput = Schema.Struct({
 })
 
 const decodeJobFact = (source: string): Effect.Effect<JobControlFact, BinarySmokeError> => Effect.gen(function*() {
-  const match = /^job=(%[1-9][0-9]*) pid=([1-9][0-9]*) pgid=([1-9][0-9]*)\nstatus=([0-9]{1,3})\n$/.exec(source)
+  const match = /(?:^|\n)job=(%[1-9][0-9]*) pid=([1-9][0-9]*) jobPid=([1-9][0-9]*) pgid=([1-9][0-9]*)\n[\s\S]*?status=([0-9]{1,3})(?:\n|$)/.exec(source)
   if (match === null) return yield* commandError("parse", "job-control evidence was malformed")
+  const identity = yield* model("parse", () => parseJobIdentity(`[${match[1]!.slice(1)}] ${match[3]!} Running`, Number(match[2]!)))
   return yield* Schema.decodeUnknownEffect(JobFactOutput)({
-    job: match[1],
-    pid: Number(match[2]),
-    pgid: Number(match[3]),
-    exitStatus: Number(match[4])
+    job: identity.job,
+    pid: identity.pid,
+    pgid: Number(match[4]),
+    exitStatus: Number(match[5])
   }).pipe(Effect.mapError((cause) => commandError("parse", "job-control evidence was malformed", cause)))
 })
 
@@ -87,7 +114,7 @@ export const runJobControlFact = Effect.fn("BinarySmoke.runJobControlFact")(
   function*(root: string, command: ReadonlyArray<string>) {
     const [executable, ...args] = command
     if (executable === undefined) return yield* commandError("command", "job-control command was empty")
-    const report = yield* runCommand(root, "bash", [JOB_CONTROL_FIXTURE, executable, ...args])
+    const report = yield* runCommand(root, "bash", [JOB_CONTROL_FIXTURE, "fact", executable, ...args])
     if (report.stderr !== "") return yield* commandError("command", `job-control fixture wrote stderr: ${report.stderr.trim()}`)
     return yield* decodeJobFact(report.stdout)
   }
@@ -128,8 +155,14 @@ const awaitEndpoint = Effect.fn("BinarySmoke.awaitEndpoint")(
       return endpoint
     })
     return yield* wait.pipe(
-      Effect.retry({ schedule: Schedule.spaced("20 millis"), times: attempts }),
-      Effect.mapError((cause) => commandError("readiness", "endpoint readiness timed out", cause))
+      Effect.retry({
+        schedule: Schedule.spaced("20 millis"),
+        times: attempts,
+        while: (error) => error._tag === "BinarySmokeError" && error.operation === "readiness" && error.detail === "endpoint was not advertised"
+      }),
+      Effect.mapError((cause) => cause._tag === "BinarySmokeError" && cause.operation === "readiness" && cause.detail === "endpoint was not advertised"
+        ? commandError("readiness", "endpoint readiness timed out", cause)
+        : cause)
     )
   }
 )
@@ -181,8 +214,9 @@ const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
       HOME: options.home,
       EXPAND_BACKEND_CMD: undefined
     }).pipe(Effect.flatMap((result) => requireSuccess(result, "expand")))
-    const status = yield* waitForExit(handle, "expand-server").pipe(
-      Effect.onError(() => Effect.ignore(stopOwned(handle)))
+    const status = yield* retainCleanupCause(
+      waitForExit(handle, "expand-server"),
+      stopOwned(handle)
     )
     if (status !== 0) return yield* commandError("command", `expand-server exited ${status}`)
     const probe = yield* processControl.probe(Number(handle.pid))
@@ -197,6 +231,154 @@ const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
   }
 )
 
+const processGroupOf = Effect.fn("BinarySmoke.processGroupOf")(function*(root: string, pid: number) {
+  const report = yield* runCommand(root, "ps", ["-o", "pgid=", "-p", String(pid)])
+  if (report.exitCode !== 0 || !/^[1-9][0-9]*$/.test(report.stdout.trim())) {
+    return yield* commandError("readiness", "endpoint process group was malformed")
+  }
+  return Number(report.stdout.trim())
+})
+
+const observeDeparture = Effect.fn("BinarySmoke.observeDeparture")(function*(
+  root: string,
+  fs: FileSystem.FileSystem,
+  processControl: ProcessControlShape,
+  files: { readonly endpoint: string; readonly endpointLock: string; readonly backendLock: string },
+  pid: number,
+  pgid: number,
+  attempts: number
+) {
+  const observe = Effect.gen(function*() {
+    const group = yield* runCommand(root, "ps", ["-o", "pid=", "-g", String(pgid)])
+    const remaining = {
+      endpoint: yield* fs.exists(files.endpoint),
+      endpointLock: yield* fs.exists(files.endpointLock),
+      backendLock: yield* fs.exists(files.backendLock),
+      processInGroup: group.stdout.trim().length > 0 || (yield* processControl.probe(pid)) !== "dead"
+    }
+    if (remaining.endpoint || remaining.endpointLock || remaining.backendLock || remaining.processInGroup) {
+      return yield* commandError("cleanup", "auto-spawn departure pending")
+    }
+    return remaining
+  })
+  return yield* observe.pipe(
+    Effect.retry({
+      schedule: Schedule.spaced("20 millis"),
+      times: attempts,
+      while: (error) => error._tag === "BinarySmokeError" && error.operation === "cleanup" && error.detail === "auto-spawn departure pending"
+    }),
+    Effect.mapError((cause) => cause._tag === "BinarySmokeError" && cause.operation === "cleanup" && cause.detail === "auto-spawn departure pending"
+      ? commandError("cleanup", "auto-spawned backend cleanup timed out", cause)
+      : cause)
+  )
+})
+
+const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(options: {
+  readonly root: string
+  readonly dataDir: string
+  readonly home: string
+  readonly attempts: number
+}) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const processControl = yield* ProcessControl
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const endpointFile = path.join(options.dataDir, "server.json")
+  const handle = yield* spawner.spawn(ChildProcess.make("bash", [
+    JOB_CONTROL_FIXTURE,
+    "guardian",
+    "./dist/expand",
+    "--data-dir",
+    options.dataDir,
+    "health",
+    "--format",
+    "json"
+  ], {
+    cwd: options.root,
+    env: { HOME: options.home, EXPAND_BACKEND_CMD: undefined },
+    extendEnv: true
+  })).pipe(Effect.mapError((cause) => commandError("command", "auto-spawn guardian could not start", cause)))
+  const cleanupStarted = yield* Ref.make(false)
+  let ownedState: ReturnType<typeof initialCertificationState> | undefined
+  const cleanup = Ref.getAndSet(cleanupStarted, true).pipe(Effect.flatMap((started) => {
+    if (started) return Effect.void
+    return Effect.gen(function*() {
+      let active = yield* handle.isRunning.pipe(
+        Effect.mapError((cause) => commandError("cleanup", "guardian state could not be observed", cause))
+      )
+      if (active) {
+        if (ownedState !== undefined) ownedState = yield* model("cleanup", () => cleanupTransition(ownedState!, true))
+        yield* handle.kill({ killSignal: "SIGTERM" }).pipe(
+          Effect.mapError((cause) => commandError("cleanup", "guardian TERM failed", cause))
+        )
+        yield* Effect.sleep("1 second")
+        active = yield* handle.isRunning.pipe(
+          Effect.mapError((cause) => commandError("cleanup", "guardian TERM state could not be observed", cause))
+        )
+      }
+      if (active) {
+        if (ownedState !== undefined) ownedState = yield* model("cleanup", () => cleanupTransition(ownedState!, true))
+        yield* handle.kill({ killSignal: "SIGKILL" }).pipe(
+          Effect.mapError((cause) => commandError("cleanup", "guardian KILL failed", cause))
+        )
+        yield* Effect.sleep("20 millis")
+        active = yield* handle.isRunning.pipe(
+          Effect.mapError((cause) => commandError("cleanup", "guardian KILL state could not be observed", cause))
+        )
+      }
+      if (ownedState !== undefined) {
+        ownedState = yield* model("cleanup", () => cleanupTransition(ownedState!, active))
+        const pid = ownedState.pid
+        const remaining = {
+          endpoint: yield* fs.exists(endpointFile),
+          endpointLock: yield* fs.exists(`${endpointFile}.lock`),
+          backendLock: yield* fs.exists(path.join(options.dataDir, "backend.lock")),
+          processInGroup: (yield* processControl.probe(pid)) !== "dead"
+        }
+        yield* model("cleanup", () => assessDeparture(ownedState!, remaining))
+      } else if (active) {
+        return yield* commandError("cleanup", "guardian survived bounded cleanup")
+      }
+    })
+  }))
+  yield* Effect.addFinalizer(() => cleanup.pipe(Effect.orDie))
+  const body = Effect.gen(function*() {
+    const collected = yield* collectHandle(handle).pipe(Effect.forkScoped)
+    const endpoint = yield* awaitEndpoint(fs, endpointFile, handle, options.attempts)
+    const pgid = yield* processGroupOf(options.root, endpoint.pid)
+    const guardianActive = yield* handle.isRunning
+    let state = yield* model("readiness", () => readinessTransition(
+      initialCertificationState(options.dataDir, endpoint.pid, { pgid, job: "%2" }),
+      { endpointPid: endpoint.pid, activeBefore: true, activeAfter: guardianActive }
+    ))
+    ownedState = state
+    const remaining = yield* observeDeparture(options.root, fs, processControl, {
+      endpoint: endpointFile,
+      endpointLock: `${endpointFile}.lock`,
+      backendLock: path.join(options.dataDir, "backend.lock")
+    }, endpoint.pid, pgid, options.attempts)
+    state = yield* model("cleanup", () => assessDeparture(state, remaining))
+    ownedState = state
+    state = yield* model("cleanup", () => releaseTransition(state))
+    ownedState = state
+    yield* handle.kill({ killSignal: "SIGCONT" }).pipe(
+      Effect.mapError((cause) => commandError("cleanup", "guardian release failed", cause))
+    )
+    const report = yield* Fiber.join(collected)
+    const fact = yield* decodeJobFact(report.stdout)
+    yield* model("parse", () => parseEvidence(`${endpoint.pid} ${pgid}\n`, fact.pgid))
+    const status = yield* model("parse", () => parseStatus(`${fact.exitStatus}\n`))
+    state = yield* model("cleanup", () => reapTransition(state, status))
+    ownedState = state
+    if (state.exitStatus !== 0 || report.exitCode !== 0) {
+      return yield* commandError("command", `auto-spawn health exited ${state.exitStatus ?? report.exitCode}`)
+    }
+    const output = report.stdout.split("\n").filter((line) => !line.startsWith("job=") && !line.startsWith("status=")).join("\n").trim()
+    return yield* decodeOutput(Health, output, "health")
+  })
+  return yield* retainCleanupCause(body, cleanup)
+})
+
 export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
   function*(root: string) {
     const fs = yield* FileSystem.FileSystem
@@ -206,20 +388,13 @@ export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
       Effect.mapError((cause) => cause.operation === "command" ? new BinarySmokeError({ ...cause, operation: "build" }) : cause)
     )
     const attempts = yield* Config.int("EXPAND_BINARY_SMOKE_ATTEMPTS").pipe(Config.withDefault(250))
-    const fact = yield* runJobControlFact(root, ["bash", "-c", "sleep 0.05; exit 23"])
-    yield* model("parse", () => parseEvidence(`${fact.pid} ${fact.pgid}\n`, fact.pgid))
-    yield* model("parse", () => parseStatus(`${fact.exitStatus}\n`))
     yield* Effect.scoped(Effect.gen(function*() {
       const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-binary-smoke-" })
       const home = path.join(dataDir, "default-sentinel")
       const project = path.join(dataDir, "project")
       yield* fs.makeDirectory(home, { recursive: true })
       yield* fs.makeDirectory(project, { recursive: true })
-      const health = yield* runCommand(root, "./dist/expand", ["--data-dir", dataDir, "health", "--format", "json"], {
-        HOME: home,
-        EXPAND_BACKEND_CMD: undefined
-      }).pipe(Effect.flatMap((report) => requireSuccess(report, "auto-spawn health")))
-      yield* decodeOutput(Health, health.stdout, "health")
+      yield* autoSpawnHealth({ root, dataDir, home, attempts })
       const createdSource = yield* runOwnedCli({
         root,
         dataDir,

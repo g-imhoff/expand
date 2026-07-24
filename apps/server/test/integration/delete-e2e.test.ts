@@ -17,7 +17,7 @@ const nodeAdapter = makeNodeAdapter({
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
-  Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail(new Error("server never advertised an endpoint")) })
+  Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("server never advertised an endpoint") })
 )
 
 describe.sequential("project delete e2e", () => {

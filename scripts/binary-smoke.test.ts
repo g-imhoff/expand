@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { it } from "@effect/vitest"
-import { Deferred, Effect, Fiber, FileSystem, Layer, Path } from "effect"
+import { Cause, Deferred, Effect, Fiber, FileSystem, Layer, Path } from "effect"
 import { describe, expect } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
 import {
@@ -21,6 +21,7 @@ import {
   BinarySmokeError,
   JOB_CONTROL_FIXTURE,
   certifyBinaries,
+  retainCleanupCause,
   runJobControlFact
 } from "./binary-smoke"
 
@@ -52,8 +53,12 @@ describe("binary certification model", () => {
     expectModelError(() => parseEvidence("73 92", 91), "process group")
   })
 
-  it("captures a non-first shell job", () => {
+  it("captures the exact second shell job", () => {
     expect(parseJobIdentity("[2]+ 44 Running command", 44)).toEqual({ job: "%2", pid: 44 })
+  })
+
+  it("rejects the first shell job", () => {
+    expectModelError(() => parseJobIdentity("[1]+ 44 Running command", 44), "second job")
   })
 
   it("rejects a shell job whose PID was replaced", () => {
@@ -128,9 +133,10 @@ describe("binary certification model", () => {
   })
 
   it("retains active-job ownership after bounded KILL failure", () => {
-    const killed = cleanupTransition(cleanupTransition(state(), true), true)
+    const killed = cleanupTransition(cleanupTransition({ ...state(), job: "%2" }, true), true)
     expectModelError(() => cleanupTransition(killed, true), "bounded cleanup")
-    expect(killed.job).toBeUndefined()
+    expect(killed.job).toBe("%2")
+    expect(killed.phase).toBe("acquired")
   })
 })
 
@@ -139,13 +145,45 @@ describe("binary certification live ownership", () => {
     runJobControlFact(".", ["bash", "-c", "sleep 0.05; exit 23"]).pipe(
       Effect.tap((fact) => Effect.sync(() => {
         expect(JOB_CONTROL_FIXTURE).toBe("scripts/fixtures/job-control.sh")
-        expect(fact.job).toMatch(/^%\d+$/)
+        expect(fact.job).toBe("%2")
         expect(fact.pid).toBeGreaterThan(0)
         expect(fact.pgid).toBeGreaterThan(0)
         expect(fact.exitStatus).toBe(23)
       })),
       Effect.provide(NodeServices.layer)
     ))
+
+  it.effect("starts the real health CLI under the guardian immediately after the build", () =>
+    Effect.gen(function*() {
+      const fixture = processSpawnerFixture([0, 1])
+      yield* certifyBinaries("/repo").pipe(
+        Effect.provide(FileSystem.layerNoop({
+          makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
+          makeDirectory: () => Effect.void,
+          remove: () => Effect.void
+        })),
+        Effect.provide(Path.layer),
+        Effect.provide(Layer.succeed(ProcessControl, {
+          currentPid: 1,
+          probe: () => Effect.succeed("dead" as const)
+        })),
+        Effect.provide(fixture.layer),
+        Effect.exit
+      )
+      expect(fixture.records).toHaveLength(2)
+      const guardian = fixture.records[1]?.command
+      expect(guardian?._tag).toBe("StandardCommand")
+      if (guardian?._tag === "StandardCommand") {
+        expect(guardian.command).toBe("bash")
+        expect(guardian.args).toEqual(expect.arrayContaining([
+          JOB_CONTROL_FIXTURE,
+          "./dist/expand",
+          "--data-dir",
+          "/tmp/cert",
+          "health"
+        ]))
+      }
+    }))
 
   it.effect("build is the first child step and interruption releases the active build", () =>
     Effect.gen(function*() {
@@ -186,12 +224,18 @@ describe("binary certification live ownership", () => {
       expect(fixture.records[0]?.releaseCount).toBe(1)
     }))
 
-  it.effect("keeps a primary typed failure when cleanup also fails", () =>
-    Effect.fail(new BinarySmokeError({ operation: "command", detail: "primary", cleanup: ["kill failed"] })).pipe(
+  it.effect("retains primary and cleanup failures in the same Cause", () => {
+    const primary = new BinarySmokeError({ operation: "command", detail: "primary" })
+    const cleanup = new BinarySmokeError({ operation: "cleanup", detail: "kill failed" })
+    return retainCleanupCause(Effect.fail(primary), Effect.die(cleanup)).pipe(
+      Effect.sandbox,
       Effect.flip,
-      Effect.tap((error) => Effect.sync(() => {
-        expect(error.detail).toBe("primary")
-        expect(error.cleanup).toEqual(["kill failed"])
+      Effect.tap((cause) => Effect.sync(() => {
+        const errors = cause.reasons.filter(Cause.isFailReason).map(({ error }) => error)
+        const defects = cause.reasons.filter(Cause.isDieReason).map(({ defect }) => defect)
+        expect(errors).toEqual([primary])
+        expect(defects).toEqual([cleanup])
       }))
-    ))
+    )
+  })
 })
