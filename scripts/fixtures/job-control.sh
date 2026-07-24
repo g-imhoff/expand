@@ -3,12 +3,33 @@ set -euo pipefail
 set -m
 mode="$1"
 shift
+pid=""
+pgid=""
 signal_job() {
   kill "-$1" -- "-$2"
 }
+terminate_started_job() {
+  trap - TERM INT HUP
+  if [[ -n "$pid" ]]; then
+    if [[ -n "$pgid" ]]; then
+      signal_job CONT "$pgid" 2>/dev/null || true
+      signal_job TERM "$pgid" 2>/dev/null || true
+    else
+      kill -CONT "$pid" 2>/dev/null || true
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+    wait "$pid" 2>/dev/null || true
+  fi
+  exit 143
+}
 start_job() {
   true &
-  "$@" &
+  trap terminate_started_job TERM INT HUP
+  if [[ "$mode" == "guardian" ]]; then
+    (kill -STOP "$BASHPID"; exec "$@") &
+  else
+    "$@" &
+  fi
   pid=$!
   job_line="$(jobs -l %%)"
   job_marker="${job_line%% *}"
@@ -17,12 +38,12 @@ start_job() {
   job_pid="$(jobs -p "%$job_number")"
   pgid="$(ps -o pgid= -p "$pid")"
   pgid="${pgid//[[:space:]]/}"
-  trap 'signal_job TERM "$pgid"' TERM
   printf 'job=%%%s pid=%s jobPid=%s pgid=%s\n' "$job_number" "$pid" "$job_pid" "$pgid"
   set +e
-  wait "%$job_number" 2>/dev/null
+  wait -f "%$job_number" 2>/dev/null
   status=$?
   set -e
+  trap - TERM INT HUP
   wait %1 2>/dev/null || true
   printf 'status=%s\n' "$status"
 }

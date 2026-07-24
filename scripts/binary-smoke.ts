@@ -63,30 +63,98 @@ export const cleanupGuardianOwnership: <R>(
   operations: GuardianCleanupOperations<R>
 ) => Effect.Effect<void, BinarySmokeError, R> = Effect.fn("BinarySmoke.cleanupGuardianOwnership")(
   <R>(operations: GuardianCleanupOperations<R>) => Effect.gen(function*() {
+    let failures: Cause.Cause<BinarySmokeError> | undefined
+    const attempt = <A>(effect: Effect.Effect<A, BinarySmokeError, R>) => Effect.exit(effect).pipe(
+      Effect.map((exit) => {
+        if (Exit.isSuccess(exit)) return Option.some(exit.value)
+        failures = failures === undefined ? exit.cause : Cause.combine(failures, exit.cause)
+        return Option.none<A>()
+      })
+    )
+    const record = (error: BinarySmokeError) => attempt(Effect.fail(error))
     if (operations.evidence === undefined) {
-      yield* operations.signalGuardian("SIGTERM")
+      yield* attempt(operations.signalGuardian("SIGTERM"))
       yield* operations.wait
-      if (yield* operations.guardianRunning) {
-        yield* operations.signalGuardian("SIGKILL")
+      const runningAfterTerm = yield* attempt(operations.guardianRunning)
+      if (Option.isNone(runningAfterTerm) || runningAfterTerm.value) {
+        yield* attempt(operations.signalGuardian("SIGKILL"))
         yield* operations.wait
-        if (yield* operations.guardianRunning) return yield* commandError("cleanup", "guardian survived KILL")
+        const runningAfterKill = yield* attempt(operations.guardianRunning)
+        if (Option.isNone(runningAfterKill) || runningAfterKill.value) {
+          yield* record(commandError("cleanup", "guardian survived KILL"))
+        }
       }
-      yield* operations.reapGuardian
+      yield* attempt(operations.reapGuardian)
+      const startupChildAlive = yield* attempt(operations.groupAlive)
+      if (Option.isNone(startupChildAlive) || startupChildAlive.value) {
+        yield* record(commandError("cleanup", "pre-evidence startup child survived guardian reap"))
+      }
     } else {
-      yield* operations.signalGroup("SIGTERM", operations.evidence.pgid)
+      yield* attempt(operations.signalGroup("SIGTERM", operations.evidence.pgid))
       yield* operations.wait
-      let survivedKill = false
-      if (yield* operations.groupAlive) {
-        yield* operations.signalGroup("SIGKILL", operations.evidence.pgid)
+      const aliveAfterTerm = yield* attempt(operations.groupAlive)
+      if (Option.isNone(aliveAfterTerm) || aliveAfterTerm.value) {
+        yield* attempt(operations.signalGroup("SIGKILL", operations.evidence.pgid))
         yield* operations.wait
-        survivedKill = yield* operations.groupAlive
+        const aliveAfterKill = yield* attempt(operations.groupAlive)
+        if (Option.isNone(aliveAfterKill) || aliveAfterKill.value) {
+          yield* record(commandError("cleanup", "owned process group survived KILL"))
+        }
       }
-      if (yield* operations.guardianRunning) yield* operations.releaseGuardian
-      yield* operations.reapGuardian
-      if (survivedKill) return yield* commandError("cleanup", "owned process group survived KILL")
-      if (yield* operations.groupAlive) return yield* commandError("cleanup", "owned process group remained after guardian reap")
+      const guardianRunning = yield* attempt(operations.guardianRunning)
+      if (Option.isNone(guardianRunning) || guardianRunning.value) yield* attempt(operations.releaseGuardian)
+      yield* attempt(operations.reapGuardian)
+      const aliveAfterReap = yield* attempt(operations.groupAlive)
+      if (Option.isNone(aliveAfterReap) || aliveAfterReap.value) {
+        yield* record(commandError("cleanup", "owned process group remained after guardian reap"))
+      }
     }
-    if (yield* operations.artifactsRemain) return yield* commandError("cleanup", "owned certification artifacts remained after cleanup")
+    const artifactsRemain = yield* attempt(operations.artifactsRemain)
+    if (Option.isNone(artifactsRemain) || artifactsRemain.value) {
+      yield* record(commandError("cleanup", "owned certification artifacts remained after cleanup"))
+    }
+    if (failures !== undefined) return yield* Effect.failCause(failures)
+  })
+)
+
+export interface DirectServerCleanupOperations<R> {
+  readonly signal: (signal: "SIGTERM" | "SIGKILL") => Effect.Effect<void, BinarySmokeError, R>
+  readonly probe: Effect.Effect<boolean, BinarySmokeError, R>
+  readonly artifactsRemain: Effect.Effect<boolean, BinarySmokeError, R>
+  readonly wait: Effect.Effect<void, never, R>
+}
+
+export const cleanupDirectServer: <R>(
+  operations: DirectServerCleanupOperations<R>
+) => Effect.Effect<void, BinarySmokeError, R> = Effect.fn("BinarySmoke.cleanupDirectServer")(
+  <R>(operations: DirectServerCleanupOperations<R>) => Effect.gen(function*() {
+    let failures: Cause.Cause<BinarySmokeError> | undefined
+    const attempt = <A>(effect: Effect.Effect<A, BinarySmokeError, R>) => Effect.exit(effect).pipe(
+      Effect.map((exit) => {
+        if (Exit.isSuccess(exit)) return Option.some(exit.value)
+        failures = failures === undefined ? exit.cause : Cause.combine(failures, exit.cause)
+        return Option.none<A>()
+      })
+    )
+    const running = yield* attempt(operations.probe)
+    if (Option.isNone(running) || running.value) {
+      yield* attempt(operations.signal("SIGTERM"))
+      yield* operations.wait
+      const afterTerm = yield* attempt(operations.probe)
+      if (Option.isNone(afterTerm) || afterTerm.value) {
+        yield* attempt(operations.signal("SIGKILL"))
+        yield* operations.wait
+      }
+    }
+    const afterKill = yield* attempt(operations.probe)
+    if (Option.isNone(afterKill) || afterKill.value) {
+      yield* attempt(Effect.fail(commandError("cleanup", "owned server process survived bounded cleanup")))
+    }
+    const artifacts = yield* attempt(operations.artifactsRemain)
+    if (Option.isNone(artifacts) || artifacts.value) {
+      yield* attempt(Effect.fail(commandError("cleanup", "owned server artifacts remained after cleanup")))
+    }
+    if (failures !== undefined) return yield* Effect.failCause(failures)
   })
 )
 
@@ -233,11 +301,6 @@ const waitForExit = Effect.fn("BinarySmoke.waitForExit")(
   }
 )
 
-const stopOwned = Effect.fn("BinarySmoke.stopOwned")((handle: ChildProcessHandle) =>
-  handle.kill({ killSignal: "SIGTERM", forceKillAfter: "1 second" }).pipe(
-    Effect.mapError((cause) => commandError("cleanup", "TERM-to-KILL cleanup failed", cause))
-  ))
-
 const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
   function*(options: {
     readonly root: string
@@ -251,11 +314,33 @@ const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
     const processControl = yield* ProcessControl
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const endpointFile = path.join(options.dataDir, "server.json")
-    const handle = yield* spawner.spawn(ChildProcess.make("./dist/expand-server", ["--data-dir", options.dataDir], {
-      cwd: options.root,
-      env: { HOME: options.home, EXPAND_BACKEND_CMD: undefined },
-      extendEnv: true
-    })).pipe(Effect.mapError((cause) => commandError("command", "expand-server could not start", cause)))
+    const handle = yield* Effect.uninterruptible(Effect.gen(function*() {
+      const handle = yield* spawner.spawn(ChildProcess.make("./dist/expand-server", ["--data-dir", options.dataDir], {
+        cwd: options.root,
+        env: { HOME: options.home, EXPAND_BACKEND_CMD: undefined },
+        extendEnv: true
+      })).pipe(Effect.mapError((cause) => commandError("command", "expand-server could not start", cause)))
+      const directCleanup = cleanupDirectServer({
+        signal: (signal) => handle.kill({ killSignal: signal }).pipe(
+          Effect.mapError((cause) => commandError("cleanup", `${signal} server signal failed`, cause))
+        ),
+        probe: processControl.probe(Number(handle.pid)).pipe(
+          Effect.map((status) => status !== "dead"),
+          Effect.mapError((cause) => commandError("cleanup", "owned server process could not be observed", cause))
+        ),
+        artifactsRemain: Effect.all([
+          fs.exists(endpointFile),
+          fs.exists(`${endpointFile}.lock`),
+          fs.exists(path.join(options.dataDir, "backend.lock"))
+        ]).pipe(
+          Effect.map(([endpoint, endpointLock, backendLock]) => endpoint || endpointLock || backendLock),
+          Effect.mapError((cause) => commandError("cleanup", "owned server artifacts could not be observed", cause))
+        ),
+        wait: Effect.sleep("1 second")
+      })
+      yield* Effect.addFinalizer(() => directCleanup.pipe(Effect.orDie))
+      return handle
+    }))
     yield* handle.stdout.pipe(Stream.runDrain, Effect.forkScoped)
     yield* handle.stderr.pipe(Stream.runDrain, Effect.forkScoped)
     const endpoint = yield* awaitEndpoint(fs, endpointFile, handle, options.attempts)
@@ -269,10 +354,7 @@ const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
       HOME: options.home,
       EXPAND_BACKEND_CMD: undefined
     }).pipe(Effect.flatMap((result) => requireSuccess(result, "expand")))
-    const status = yield* retainCleanupCause(
-      waitForExit(handle, "expand-server"),
-      stopOwned(handle)
-    )
+    const status = yield* waitForExit(handle, "expand-server")
     if (status !== 0) return yield* commandError("command", `expand-server exited ${status}`)
     const probe = yield* processControl.probe(Number(handle.pid))
     if (probe !== "dead") return yield* commandError("cleanup", "owned server process remained after exit")
@@ -294,9 +376,24 @@ const processGroupOf = Effect.fn("BinarySmoke.processGroupOf")(function*(root: s
   return Number(report.stdout.trim())
 })
 
+export const parseProcessGroupRows = (source: string, pgid: number): ReadonlyArray<number> => {
+  const rows = source.split("\n").filter((row) => row.trim() !== "")
+  return rows.flatMap((row) => {
+    const match = /^\s*([1-9][0-9]*)\s+(0|[1-9][0-9]*)\s*$/.exec(row)
+    if (match === null) throw commandError("parse", "process table row was malformed")
+    return Number(match[2]) === pgid ? [Number(match[1])] : []
+  })
+}
+
+export const acknowledgeGuardianOwnership = Effect.fn("BinarySmoke.acknowledgeGuardianOwnership")(function*(root: string, pgid: number) {
+  const report = yield* runCommand(root, "bash", [JOB_CONTROL_FIXTURE, "signal", "CONT", String(pgid)])
+  if (report.exitCode !== 0) return yield* commandError("cleanup", "guardian ownership acknowledgement failed")
+})
+
 const processGroupAlive = Effect.fn("BinarySmoke.processGroupAlive")(function*(root: string, pgid: number) {
-  const report = yield* runCommand(root, "ps", ["-o", "pid=", "-g", String(pgid)])
-  return report.exitCode === 0 && report.stdout.trim().length > 0
+  const report = yield* runCommand(root, "ps", ["-eo", "pid=,pgid="])
+  if (report.exitCode !== 0) return yield* commandError("cleanup", "process table query failed")
+  return yield* model("parse", () => parseProcessGroupRows(report.stdout, pgid)).pipe(Effect.map((pids) => pids.length > 0))
 })
 
 const observeDeparture = Effect.fn("BinarySmoke.observeDeparture")(function*(
@@ -309,12 +406,11 @@ const observeDeparture = Effect.fn("BinarySmoke.observeDeparture")(function*(
   attempts: number
 ) {
   const observe = Effect.gen(function*() {
-    const group = yield* runCommand(root, "ps", ["-o", "pid=", "-g", String(pgid)])
     const remaining = {
       endpoint: yield* fs.exists(files.endpoint),
       endpointLock: yield* fs.exists(files.endpointLock),
       backendLock: yield* fs.exists(files.backendLock),
-      processInGroup: group.stdout.trim().length > 0 || (yield* processControl.probe(pid)) !== "dead"
+      processInGroup: (yield* processGroupAlive(root, pgid)) || (yield* processControl.probe(pid)) !== "dead"
     }
     if (remaining.endpoint || remaining.endpointLock || remaining.backendLock || remaining.processInGroup) {
       return yield* commandError("cleanup", "auto-spawn departure pending")
@@ -333,6 +429,16 @@ const observeDeparture = Effect.fn("BinarySmoke.observeDeparture")(function*(
   )
 })
 
+const guardianStartupChildAlive = Effect.fn("BinarySmoke.guardianStartupChildAlive")(function*(root: string, guardianPid: number) {
+  const report = yield* runCommand(root, "ps", ["-eo", "pid=,ppid=,pgid="])
+  if (report.exitCode !== 0) return yield* commandError("cleanup", "guardian child process query failed")
+  return yield* model("parse", () => report.stdout.split("\n").filter((row) => row.trim() !== "").some((row) => {
+    const match = /^\s*([1-9][0-9]*)\s+([1-9][0-9]*)\s+([1-9][0-9]*)\s*$/.exec(row)
+    if (match === null) throw commandError("parse", "guardian child process table row was malformed")
+    return Number(match[2]) === guardianPid
+  }))
+})
+
 const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(options: {
   readonly root: string
   readonly dataDir: string
@@ -344,6 +450,10 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
   const processControl = yield* ProcessControl
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const endpointFile = path.join(options.dataDir, "server.json")
+  const evidenceRef = yield* Ref.make<GuardianOwnershipEvidence | undefined>(undefined)
+  const releaseStarted = yield* Ref.make(false)
+  const reapStarted = yield* Ref.make(false)
+  const cleanupStarted = yield* Ref.make(false)
   const handle = yield* spawner.spawn(ChildProcess.make("bash", [
     JOB_CONTROL_FIXTURE,
     "guardian",
@@ -358,6 +468,65 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
     env: { HOME: options.home, EXPAND_BACKEND_CMD: undefined },
     extendEnv: true
   })).pipe(Effect.mapError((cause) => commandError("command", "auto-spawn guardian could not start", cause)))
+  const signalGroup = Effect.fn("BinarySmoke.signalGroup")(function*(signal: "SIGTERM" | "SIGKILL", pgid: number) {
+    const report = yield* runCommand(options.root, "bash", [JOB_CONTROL_FIXTURE, "signal", signal.slice(3), String(pgid)])
+    if (report.exitCode !== 0 && (yield* processGroupAlive(options.root, pgid))) {
+      return yield* commandError("cleanup", `${signal} process-group signal failed`)
+    }
+  })
+  const releaseGuardian = Ref.modify(releaseStarted, (started) => [!started, true] as const).pipe(
+    Effect.flatMap((ownsRelease) => ownsRelease
+      ? handle.kill({ killSignal: "SIGCONT" }).pipe(
+        Effect.mapError((cause) => commandError("cleanup", "guardian release failed", cause)),
+        Effect.tapError(() => Ref.set(releaseStarted, false))
+      )
+      : Effect.void)
+  )
+  const reapGuardian = Ref.modify(reapStarted, (started) => [!started, true] as const).pipe(
+    Effect.flatMap((ownsReap) => ownsReap
+      ? handle.exitCode.pipe(
+        Effect.timeoutOption("1 second"),
+        Effect.flatMap(Option.match({
+          onNone: () => Effect.fail(commandError("cleanup", "guardian reap timed out")),
+          onSome: () => Effect.void
+        })),
+        Effect.mapError((cause) => cause._tag === "BinarySmokeError" ? cause : commandError("cleanup", "guardian reap failed", cause)),
+        Effect.tapError(() => Ref.set(reapStarted, false))
+      )
+      : Effect.void)
+  )
+  const cleanup = Ref.modify(cleanupStarted, (started) => [!started, true] as const).pipe(
+    Effect.flatMap((ownsCleanup) => ownsCleanup
+      ? Ref.get(evidenceRef).pipe(
+        Effect.flatMap((evidence) => cleanupGuardianOwnership({
+          evidence,
+          signalGroup,
+          groupAlive: evidence === undefined
+            ? guardianStartupChildAlive(options.root, Number(handle.pid))
+            : processGroupAlive(options.root, evidence.pgid),
+          signalGuardian: (signal) => handle.kill({ killSignal: signal }).pipe(
+            Effect.mapError((cause) => commandError("cleanup", `${signal} guardian signal failed`, cause))
+          ),
+          guardianRunning: handle.isRunning.pipe(
+            Effect.mapError((cause) => commandError("cleanup", "guardian state could not be observed", cause))
+          ),
+          releaseGuardian,
+          reapGuardian,
+          artifactsRemain: Effect.all([
+            fs.exists(endpointFile),
+            fs.exists(`${endpointFile}.lock`),
+            fs.exists(path.join(options.dataDir, "backend.lock"))
+          ]).pipe(
+            Effect.map(([endpoint, endpointLock, backendLock]) => endpoint || endpointLock || backendLock),
+            Effect.mapError((cause) => commandError("cleanup", "owned artifacts could not be observed", cause))
+          ),
+          wait: Effect.sleep("1 second")
+        })),
+        Effect.tapError(() => Ref.set(cleanupStarted, false))
+      )
+      : Effect.void)
+  )
+  yield* Effect.addFinalizer(() => cleanup.pipe(Effect.orDie))
   const stdout = yield* handle.stdout.pipe(Stream.decodeText(), Stream.broadcast({ capacity: "unbounded", replay: 1 }))
   const evidenceFiber = yield* stdout.pipe(
     Stream.splitLines,
@@ -378,87 +547,39 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
     Effect.mapError((cause) => commandError("command", "guardian process failed", cause)),
     Effect.forkScoped
   )
-  const cleanupStarted = yield* Ref.make(false)
-  let evidence: GuardianOwnershipEvidence | undefined
-  const signalGroup = Effect.fn("BinarySmoke.signalGroup")(function*(signal: "SIGTERM" | "SIGKILL", pgid: number) {
-    const report = yield* runCommand(options.root, "bash", [JOB_CONTROL_FIXTURE, "signal", signal.slice(3), String(pgid)])
-    if (report.exitCode !== 0 && (yield* processGroupAlive(options.root, pgid))) {
-      return yield* commandError("cleanup", `${signal} process-group signal failed`)
-    }
-  })
-  const reapGuardian = Fiber.join(collected).pipe(
-    Effect.asVoid,
-    Effect.timeoutOption("1 second"),
-    Effect.flatMap(Option.match({
-      onNone: () => Effect.fail(commandError("cleanup", "guardian reap timed out")),
-      onSome: () => Effect.void
-    }))
-  )
-  const cleanup = Ref.getAndSet(cleanupStarted, true).pipe(Effect.flatMap((started) => {
-    if (started) return Effect.void
-    return cleanupGuardianOwnership({
-      evidence,
-      signalGroup,
-      groupAlive: evidence === undefined ? Effect.succeed(false) : processGroupAlive(options.root, evidence.pgid),
-      signalGuardian: (signal) => handle.kill({ killSignal: signal }).pipe(
-        Effect.mapError((cause) => commandError("cleanup", `${signal} guardian signal failed`, cause))
-      ),
-      guardianRunning: handle.isRunning.pipe(
-        Effect.mapError((cause) => commandError("cleanup", "guardian state could not be observed", cause))
-      ),
-      releaseGuardian: handle.kill({ killSignal: "SIGCONT" }).pipe(
-        Effect.mapError((cause) => commandError("cleanup", "guardian release failed", cause))
-      ),
-      reapGuardian,
-      artifactsRemain: Effect.all([
-        fs.exists(endpointFile),
-        fs.exists(`${endpointFile}.lock`),
-        fs.exists(path.join(options.dataDir, "backend.lock"))
-      ]).pipe(
-        Effect.map(([endpoint, endpointLock, backendLock]) => endpoint || endpointLock || backendLock),
-        Effect.mapError((cause) => commandError("cleanup", "owned artifacts could not be observed", cause))
-      ),
-      wait: Effect.sleep("1 second")
-    })
-  }))
-  yield* Effect.addFinalizer(() => cleanup.pipe(Effect.orDie))
-  const body = Effect.gen(function*() {
-    const ownershipEvidence = yield* Fiber.join(evidenceFiber)
-    evidence = ownershipEvidence
-    const endpoint = yield* awaitEndpoint(fs, endpointFile, handle, options.attempts)
-    const pgid = yield* processGroupOf(options.root, endpoint.pid)
-    yield* model("parse", () => parseEvidence(`${endpoint.pid} ${pgid}\n`, ownershipEvidence.pgid))
-    const guardianActive = yield* handle.isRunning
-    let state = yield* model("readiness", () => readinessTransition(
-      initialCertificationState(options.dataDir, endpoint.pid, { pgid, job: ownershipEvidence.job }),
-      { endpointPid: endpoint.pid, activeBefore: true, activeAfter: guardianActive }
-    ))
-    const remaining = yield* observeDeparture(options.root, fs, processControl, {
-      endpoint: endpointFile,
-      endpointLock: `${endpointFile}.lock`,
-      backendLock: path.join(options.dataDir, "backend.lock")
-    }, endpoint.pid, pgid, options.attempts)
-    state = yield* model("cleanup", () => assessDeparture(state, remaining))
-    state = yield* model("cleanup", () => releaseTransition(state))
-    yield* handle.kill({ killSignal: "SIGCONT" }).pipe(
-      Effect.mapError((cause) => commandError("cleanup", "guardian release failed", cause))
-    )
-    const report = yield* Fiber.join(collected)
-    const fact = yield* decodeJobFact(report.stdout)
-    if (fact.job !== ownershipEvidence.job || fact.pid !== ownershipEvidence.pid || fact.pgid !== ownershipEvidence.pgid) {
-      return yield* commandError("parse", "guardian ownership evidence was replaced")
-    }
-    yield* model("parse", () => parseEvidence(`${endpoint.pid} ${pgid}\n`, fact.pgid))
-    const status = yield* model("parse", () => parseStatus(`${fact.exitStatus}\n`))
-    state = yield* model("cleanup", () => reapTransition(state, status))
-    yield* Ref.set(cleanupStarted, true)
-    if (state.exitStatus !== 0 || report.exitCode !== 0) {
-      return yield* commandError("command", `auto-spawn health exited ${state.exitStatus ?? report.exitCode}`)
-    }
-    const output = report.stdout.split("\n").filter((line) => !line.startsWith("job=") && !line.startsWith("status=")).join("\n").trim()
-    return yield* decodeOutput(Health, output, "health")
-  })
-  return yield* retainCleanupCause(body, cleanup)
+  const ownershipEvidence = yield* Fiber.join(evidenceFiber)
+  yield* Ref.set(evidenceRef, ownershipEvidence)
+  yield* acknowledgeGuardianOwnership(options.root, ownershipEvidence.pgid)
+  const endpoint = yield* awaitEndpoint(fs, endpointFile, handle, options.attempts)
+  const pgid = yield* processGroupOf(options.root, endpoint.pid)
+  yield* model("parse", () => parseEvidence(`${endpoint.pid} ${pgid}\n`, ownershipEvidence.pgid))
+  const guardianActive = yield* handle.isRunning
+  let state = yield* model("readiness", () => readinessTransition(
+    initialCertificationState(options.dataDir, endpoint.pid, { pgid, job: ownershipEvidence.job }),
+    { endpointPid: endpoint.pid, activeBefore: true, activeAfter: guardianActive }
+  ))
+  const remaining = yield* observeDeparture(options.root, fs, processControl, {
+    endpoint: endpointFile,
+    endpointLock: `${endpointFile}.lock`,
+    backendLock: path.join(options.dataDir, "backend.lock")
+  }, endpoint.pid, pgid, options.attempts)
+  state = yield* model("cleanup", () => assessDeparture(state, remaining))
+  state = yield* model("cleanup", () => releaseTransition(state))
+  yield* releaseGuardian
+  const report = yield* Fiber.join(collected)
+  yield* Ref.set(reapStarted, true)
+  const fact = yield* decodeJobFact(report.stdout)
+  if (fact.job !== ownershipEvidence.job || fact.pid !== ownershipEvidence.pid || fact.pgid !== ownershipEvidence.pgid) {
+    return yield* commandError("parse", "guardian ownership evidence was replaced")
+  }
+  yield* model("parse", () => parseEvidence(`${endpoint.pid} ${pgid}\n`, fact.pgid))
+  const status = yield* model("parse", () => parseStatus(`${fact.exitStatus}\n`))
+  state = yield* model("cleanup", () => reapTransition(state, status))
+  if (state.exitStatus !== 0 || report.exitCode !== 0) {
+    return yield* commandError("command", `auto-spawn health exited ${state.exitStatus ?? report.exitCode}`)
+  }
+  const output = report.stdout.split("\n").filter((line) => !line.startsWith("job=") && !line.startsWith("status=")).join("\n").trim()
+  return yield* decodeOutput(Health, output, "health")
 })
 
 export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(

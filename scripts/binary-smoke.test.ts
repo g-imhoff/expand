@@ -1,7 +1,9 @@
 import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { it } from "@effect/vitest"
-import { Cause, Effect, Fiber, FileSystem, Layer, Path } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schedule, Sink, Stream } from "effect"
+import { TestClock } from "effect/testing"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { describe, expect } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
 import {
@@ -18,10 +20,13 @@ import {
   releaseTransition
 } from "./binary-smoke-model"
 import {
+  acknowledgeGuardianOwnership,
   BinarySmokeError,
   JOB_CONTROL_FIXTURE,
   certifyBinaries,
+  cleanupDirectServer,
   cleanupGuardianOwnership,
+  parseProcessGroupRows,
   retainCleanupCause,
   runJobControlFact
 } from "./binary-smoke"
@@ -40,6 +45,19 @@ const expectModelError = (operation: () => unknown, reason: string): void => {
 describe("binary certification model", () => {
   it("accepts ownership evidence in the recorded guardian group", () => {
     expect(parseEvidence("73 91\n", 91)).toEqual({ pid: 73, pgid: 91 })
+  })
+
+  it("selects only exact PGID rows from the complete process table", () => {
+    expect(parseProcessGroupRows("  2 0\n  41 9\n  42 91\n  43 910\n", 91)).toEqual([42])
+  })
+
+  it("fails closed on a malformed complete process table row", () => {
+    try {
+      parseProcessGroupRows("41 91\nmalformed\n", 91)
+      expect.unreachable("expected malformed process table failure")
+    } catch (error) {
+      expect(error).toMatchObject({ operation: "parse", detail: "process table row was malformed" })
+    }
   })
 
   it("rejects missing ownership evidence", () => {
@@ -154,6 +172,44 @@ describe("binary certification live ownership", () => {
       Effect.provide(NodeServices.layer)
     ))
 
+  it.live("keeps the guardian child stopped until production acknowledges ownership", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-guardian-handshake-" })
+      const marker = path.join(directory, "started")
+      const handle = yield* spawner.spawn(ChildProcess.make("bash", [
+        JOB_CONTROL_FIXTURE,
+        "guardian",
+        "bash",
+        "-c",
+        `printf started > ${marker}`
+      ], { cwd: "." }))
+      const stdout = yield* handle.stdout.pipe(Stream.decodeText(), Stream.broadcast({ capacity: "unbounded", replay: 1 }))
+      const statusFiber = yield* stdout.pipe(
+        Stream.splitLines,
+        Stream.filter((line) => line.startsWith("status=")),
+        Stream.runHead,
+        Effect.forkChild
+      )
+      const evidence = yield* stdout.pipe(Stream.splitLines, Stream.runHead)
+      expect(Option.isSome(evidence)).toBe(true)
+      if (Option.isNone(evidence)) return
+      const match = /pgid=([1-9][0-9]*)$/.exec(evidence.value)
+      expect(match).not.toBeNull()
+      if (match === null) return
+      expect(yield* fs.exists(marker)).toBe(false)
+      yield* acknowledgeGuardianOwnership(".", Number(match[1]))
+      yield* fs.exists(marker).pipe(
+        Effect.filterOrFail((exists) => exists),
+        Effect.retry({ schedule: Schedule.spaced("10 millis"), times: 100 })
+      )
+      yield* Fiber.join(statusFiber)
+      yield* handle.kill({ killSignal: "SIGCONT" })
+      expect(Number(yield* handle.exitCode)).toBe(0)
+    }).pipe(Effect.provide(NodeServices.layer))))
+
   it.effect("starts the real health CLI under the guardian immediately after the build", () =>
     Effect.gen(function*() {
       const fixture = processSpawnerFixture([0, 1])
@@ -185,8 +241,94 @@ describe("binary certification live ownership", () => {
           "health"
         ]))
       }
-      yield* Fiber.interrupt(fiber)
+      const interrupted = yield* Fiber.interrupt(fiber).pipe(Effect.forkChild)
+      yield* TestClock.adjust("3 seconds")
+      yield* Fiber.join(interrupted)
       expect(fixture.records[1]?.releaseCount).toBe(1)
+    }))
+
+  it.live("interrupts the production coordinator after direct-server spawn with no surviving process", () =>
+    Effect.gen(function*() {
+      const directSpawned = yield* Deferred.make<void>()
+      const directExited = yield* Deferred.make<void>()
+      const kills: Array<string> = []
+      let phase: "auto" | "direct" = "auto"
+      let autoAcknowledged = false
+      let endpointChecks = 0
+      let directPid = 0
+      let directRunning = false
+      let directReleaseCount = 0
+      let nextPid = 10
+      const layer = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make((command) => {
+          const pid = nextPid++
+          const standard = command._tag === "StandardCommand" ? command : undefined
+          const guardian = standard?.command === "bash" && standard.args.includes("guardian")
+          if (standard?.command === "bash" && standard.args.includes("signal") && standard.args.includes("CONT")) autoAcknowledged = true
+          const direct = standard?.command === "./dist/expand-server"
+          const pgid = standard?.command === "ps" && standard.args.includes("pgid=")
+          let guardianRunning = guardian
+          if (direct) {
+            phase = "direct"
+            endpointChecks = 0
+            directPid = pid
+            directRunning = true
+          }
+          const stdout = guardian
+            ? "job=%2 pid=41 jobPid=41 pgid=91\n{\"kind\":\"ServerHealth\",\"data\":{\"status\":\"ok\"}}\nstatus=0\n"
+            : pgid ? "91\n" : ""
+          return Effect.acquireRelease(
+            Effect.sync(() => ChildProcessSpawner.makeHandle({
+                pid: ChildProcessSpawner.ProcessId(pid),
+                exitCode: direct ? Deferred.await(directExited).pipe(Effect.as(ChildProcessSpawner.ExitCode(0))) : Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+                isRunning: Effect.sync(() => guardianRunning || (direct && directRunning)),
+                kill: (options) => Effect.gen(function*() {
+                  if (guardian) guardianRunning = false
+                  if (direct) {
+                    kills.push(String(options?.killSignal))
+                    directRunning = false
+                    endpointChecks = 1
+                    yield* Deferred.succeed(directExited, undefined)
+                  }
+                }),
+                stdin: Sink.drain,
+                stdout: Stream.fromEffect(Effect.yieldNow.pipe(Effect.as(stdout))).pipe(Stream.encodeText),
+                stderr: Stream.empty,
+                all: Stream.empty,
+                getInputFd: () => Sink.drain,
+                getOutputFd: () => Stream.empty,
+                unref: Effect.succeed(Effect.void)
+              })).pipe(
+                Effect.tap(() => direct ? Deferred.succeed(directSpawned, undefined) : Effect.void)
+              ),
+            () => Effect.sync(() => {
+              if (direct) directReleaseCount += 1
+            })
+          )
+        })
+      )
+      const fiber = yield* certifyBinaries("/repo").pipe(
+        Effect.provide(FileSystem.layerNoop({
+          makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
+          makeDirectory: () => Effect.void,
+          remove: () => Effect.void,
+          exists: (file) => Effect.sync(() => phase === "auto" && file.endsWith("server.json") && autoAcknowledged && endpointChecks++ === 0),
+          readFileString: () => Effect.succeed(phase === "auto" ? "{\"pid\":41}" : `{\"pid\":${directPid}}`)
+        })),
+        Effect.provide(Path.layer),
+        Effect.provide(Layer.succeed(ProcessControl, {
+          currentPid: 1,
+          probe: (pid) => Effect.sync(() => pid === directPid && directRunning ? "alive" as const : "dead" as const)
+        })),
+        Effect.provide(layer),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Deferred.await(directSpawned)
+      yield* Fiber.interrupt(fiber)
+      expect(kills).toEqual(["SIGTERM"])
+      expect(directRunning).toBe(false)
+      expect(directReleaseCount).toBe(1)
     }))
 
   it.effect("build is the first child step and interruption releases the active build", () =>
@@ -228,6 +370,30 @@ describe("binary certification live ownership", () => {
     }).pipe(Effect.tap(() => Effect.sync(() => {
       expect(events).toEqual(["guardian:SIGTERM", "reap"])
     })))
+  })
+
+  it.effect("fails pre-evidence cleanup when a discoverable startup child survives guardian reap", () => {
+    const events: Array<string> = []
+    return cleanupGuardianOwnership({
+      evidence: undefined,
+      signalGroup: () => Effect.void,
+      groupAlive: Effect.sync(() => {
+        events.push("discover")
+        return true
+      }),
+      signalGuardian: () => Effect.void,
+      guardianRunning: Effect.succeed(false),
+      releaseGuardian: Effect.void,
+      reapGuardian: Effect.sync(() => events.push("reap")),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.void
+    }).pipe(
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error.detail).toContain("startup child")
+        expect(events).toEqual(["reap", "discover"])
+      }))
+    )
   })
 
   it.effect("terminates the exact evidenced group with TERM and reaps the guardian once", () => {
@@ -282,6 +448,48 @@ describe("binary certification live ownership", () => {
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toMatchObject({ operation: "cleanup", detail: expect.stringContaining("survived KILL") })
         expect(events).toEqual(["SIGTERM", "SIGKILL", "release", "reap"])
+      }))
+    )
+  })
+
+  it.effect("bounds directly-owned server cleanup with TERM, KILL, and complete verification", () => {
+    const events: Array<string> = []
+    let probes = 0
+    return cleanupDirectServer({
+      signal: (signal) => Effect.sync(() => events.push(signal)),
+      probe: Effect.sync(() => ++probes < 3),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.sync(() => events.push("wait"))
+    }).pipe(Effect.tap(() => Effect.sync(() => {
+      expect(events).toEqual(["SIGTERM", "wait", "SIGKILL", "wait"])
+    })))
+  })
+
+  it.effect("continues release, reap, and verification after cleanup failures and aggregates every Cause", () => {
+    const events: Array<string> = []
+    const failure = (detail: string) => Effect.fail(new BinarySmokeError({ operation: "cleanup", detail }))
+    return cleanupGuardianOwnership({
+      evidence: { job: "%2", pid: 41, pgid: 91 },
+      signalGroup: (signal) => Effect.sync(() => events.push(signal)).pipe(
+        Effect.andThen(signal === "SIGTERM" ? failure("term failed") : Effect.void)
+      ),
+      groupAlive: Effect.succeed(false),
+      signalGuardian: () => Effect.void,
+      guardianRunning: Effect.succeed(true),
+      releaseGuardian: Effect.sync(() => events.push("release")).pipe(Effect.andThen(failure("release failed"))),
+      reapGuardian: Effect.sync(() => events.push("reap")).pipe(Effect.andThen(failure("reap failed"))),
+      artifactsRemain: Effect.sync(() => {
+        events.push("verify")
+        return true
+      }),
+      wait: Effect.void
+    }).pipe(
+      Effect.exit,
+      Effect.tap((exit) => Effect.sync(() => {
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isSuccess(exit)) return
+        expect(exit.cause.reasons.filter(Cause.isFailReason)).toHaveLength(4)
+        expect(events).toEqual(["SIGTERM", "release", "reap", "verify"])
       }))
     )
   })
