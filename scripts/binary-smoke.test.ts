@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { it } from "@effect/vitest"
-import { Cause, Deferred, Effect, Fiber, FileSystem, Layer, Path } from "effect"
+import { Cause, Effect, Fiber, FileSystem, Layer, Path } from "effect"
 import { describe, expect } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
 import {
@@ -21,6 +21,7 @@ import {
   BinarySmokeError,
   JOB_CONTROL_FIXTURE,
   certifyBinaries,
+  cleanupGuardianOwnership,
   retainCleanupCause,
   runJobControlFact
 } from "./binary-smoke"
@@ -156,7 +157,7 @@ describe("binary certification live ownership", () => {
   it.effect("starts the real health CLI under the guardian immediately after the build", () =>
     Effect.gen(function*() {
       const fixture = processSpawnerFixture([0, 1])
-      yield* certifyBinaries("/repo").pipe(
+      const fiber = yield* certifyBinaries("/repo").pipe(
         Effect.provide(FileSystem.layerNoop({
           makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
           makeDirectory: () => Effect.void,
@@ -168,8 +169,9 @@ describe("binary certification live ownership", () => {
           probe: () => Effect.succeed("dead" as const)
         })),
         Effect.provide(fixture.layer),
-        Effect.exit
+        Effect.forkChild({ startImmediately: true })
       )
+      yield* Effect.yieldNow
       expect(fixture.records).toHaveLength(2)
       const guardian = fixture.records[1]?.command
       expect(guardian?._tag).toBe("StandardCommand")
@@ -183,6 +185,8 @@ describe("binary certification live ownership", () => {
           "health"
         ]))
       }
+      yield* Fiber.interrupt(fiber)
+      expect(fixture.records[1]?.releaseCount).toBe(1)
     }))
 
   it.effect("build is the first child step and interruption releases the active build", () =>
@@ -209,20 +213,78 @@ describe("binary certification live ownership", () => {
       expect(fixture.records[0]?.releaseCount).toBe(1)
     }))
 
-  it.effect("interrupts every acquired child and retains no process owner", () =>
-    Effect.gen(function*() {
-      const fixture = processSpawnerFixture([], { neverExitAt: 0 })
-      const started = yield* Deferred.make<void>()
-      const layer = Layer.effectDiscard(Deferred.succeed(started, undefined)).pipe(Layer.provide(fixture.layer))
-      const fiber = yield* runJobControlFact("/repo", ["sleep", "30"]).pipe(
-        Effect.provide(fixture.layer),
-        Effect.forkChild({ startImmediately: true })
-      )
-      yield* Deferred.succeed(started, undefined)
-      yield* Fiber.interrupt(fiber)
-      expect(layer).toBeDefined()
-      expect(fixture.records[0]?.releaseCount).toBe(1)
-    }))
+  it.effect("cleans pre-evidence guardian acquisition without group signaling", () => {
+    const events: Array<string> = []
+    return cleanupGuardianOwnership({
+      evidence: undefined,
+      signalGroup: (signal) => Effect.sync(() => events.push(`group:${signal}`)),
+      groupAlive: Effect.succeed(false),
+      signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
+      guardianRunning: Effect.succeed(false),
+      releaseGuardian: Effect.sync(() => events.push("release")),
+      reapGuardian: Effect.sync(() => events.push("reap")),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.void
+    }).pipe(Effect.tap(() => Effect.sync(() => {
+      expect(events).toEqual(["guardian:SIGTERM", "reap"])
+    })))
+  })
+
+  it.effect("terminates the exact evidenced group with TERM and reaps the guardian once", () => {
+    const events: Array<string> = []
+    return cleanupGuardianOwnership({
+      evidence: { job: "%2", pid: 41, pgid: 91 },
+      signalGroup: (signal, pgid) => Effect.sync(() => events.push(`${signal}:${pgid}`)),
+      groupAlive: Effect.succeed(false),
+      signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
+      guardianRunning: Effect.succeed(true),
+      releaseGuardian: Effect.sync(() => events.push("release")),
+      reapGuardian: Effect.sync(() => events.push("reap")),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.void
+    }).pipe(Effect.tap(() => Effect.sync(() => {
+      expect(events).toEqual(["SIGTERM:91", "release", "reap"])
+    })))
+  })
+
+  it.effect("escalates a TERM-resistant group to KILL before guardian reap", () => {
+    const events: Array<string> = []
+    let checks = 0
+    return cleanupGuardianOwnership({
+      evidence: { job: "%2", pid: 41, pgid: 91 },
+      signalGroup: (signal, pgid) => Effect.sync(() => events.push(`${signal}:${pgid}`)),
+      groupAlive: Effect.sync(() => ++checks === 1),
+      signalGuardian: (signal) => Effect.sync(() => events.push(`guardian:${signal}`)),
+      guardianRunning: Effect.succeed(true),
+      releaseGuardian: Effect.sync(() => events.push("release")),
+      reapGuardian: Effect.sync(() => events.push("reap")),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.void
+    }).pipe(Effect.tap(() => Effect.sync(() => {
+      expect(events).toEqual(["SIGTERM:91", "SIGKILL:91", "release", "reap"])
+    })))
+  })
+
+  it.effect("releases and reaps the guardian once when the group survives KILL", () => {
+    const events: Array<string> = []
+    return cleanupGuardianOwnership({
+      evidence: { job: "%2", pid: 41, pgid: 91 },
+      signalGroup: (signal) => Effect.sync(() => events.push(signal)),
+      groupAlive: Effect.succeed(true),
+      signalGuardian: () => Effect.void,
+      guardianRunning: Effect.succeed(true),
+      releaseGuardian: Effect.sync(() => events.push("release")),
+      reapGuardian: Effect.sync(() => events.push("reap")),
+      artifactsRemain: Effect.succeed(false),
+      wait: Effect.void
+    }).pipe(
+      Effect.flip,
+      Effect.tap((error) => Effect.sync(() => {
+        expect(error).toMatchObject({ operation: "cleanup", detail: expect.stringContaining("survived KILL") })
+        expect(events).toEqual(["SIGTERM", "SIGKILL", "release", "reap"])
+      }))
+    )
+  })
 
   it.effect("retains primary and cleanup failures in the same Cause", () => {
     const primary = new BinarySmokeError({ operation: "command", detail: "primary" })
