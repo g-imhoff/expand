@@ -393,6 +393,71 @@ launch({ target: globalThis["process"].argv[2] })
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live.each([
+    { exportClause: "export { launch as default }", callerImport: `import launch from "./wrapper"` },
+    { exportClause: "const middle = launch\nconst exposed = middle\nexport { exposed as start }", callerImport: `import { start as launch } from "./wrapper"` }
+  ])("resolves local export aliases without module specifiers", ({ exportClause, callerImport }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\n${exportClause}\n`,
+        "scripts/caller.ts": `${callerImport}\nlaunch("scripts/local-export-static.ts")\n`,
+        "scripts/local-export-static.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "scripts/local-export-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/local-export-static.ts", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for dynamic local export alias chains", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\nconst middle = launch\nexport { middle as start }\n`,
+        "scripts/caller.ts": `import { start } from "./wrapper"\nstart(globalThis["process"].argv[2])\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    { argument: `"scripts/export-chain-static.ts"`, dynamic: false },
+    { argument: `globalThis["process"].argv[2]`, dynamic: true }
+  ])("resolves transitive import-equals and export-equals wrapper chains", ({ argument, dynamic }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\nexport = launch\n`,
+        "scripts/barrel-one.ts": `import launch = require("./wrapper")\nconst alias = launch\nexport = alias\n`,
+        "scripts/barrel-two.ts": `import launch = require("./barrel-one")\nconst alias = launch\nexport = alias\n`,
+        "scripts/caller.ts": `import launch = require("./barrel-two")\nlaunch(${argument})\n`,
+        "scripts/export-chain-static.ts": `export {}\n`
+      })
+      if (dynamic) {
+        const error = yield* Effect.flip(discoverExecutableInventory(root))
+        expect(errorDetail(error)).toContain("unresolved first-party launch")
+      } else {
+        const discovery = yield* discoverExecutableInventory(root)
+        expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+          { file: "scripts/export-chain-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/export-chain-static.ts", occurrence: 0 } }
+        ])
+      }
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for cyclic import-equals and export-equals callable flow", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/a.ts": `import launch = require("./b")\nexport = launch\n`,
+        "scripts/b.ts": `import launch = require("./a")\nexport = launch\n`,
+        "scripts/caller.ts": `import launch = require("./a")\nlaunch("scripts/cycle-target.ts")\n`,
+        "scripts/cycle-target.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
     { file: "scripts/host.bash", source: "#!/usr/bin/env bash\nprintf ok\n" },
     { file: "scripts/host.zsh", source: "#!/usr/bin/env zsh\nprintf ok\n" },
     { file: "scripts/host", source: "#!/bin/sh\nprintf ok\n" }

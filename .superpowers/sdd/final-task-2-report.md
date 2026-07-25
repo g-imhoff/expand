@@ -429,3 +429,45 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: records local export clauses without module specifiers, resolves exact local aliases and transitive import-equals/export-equals wrapper chains, and rejects cyclic callable export flow.
+- `test/architecture/effect-executable-inventory.test.ts`: adds actual-collector regressions for default and named local export aliases, multi-hop local and import-equals/export-equals chains, static observations, dynamic fail-closed behavior, and a callable export cycle.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "local export aliases|dynamic local export|transitive import-equals|cyclic import-equals" --reporter=verbose` exited 1. Static local and transitive aliases raised `unresolved child command`, dynamic aliases failed before invoked wrapper resolution, and the callable cycle returned a successful empty discovery.
+- GREEN: the same focused command passed 6 tests with 84 skipped, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts --reporter=verbose` passed 4 files and 169 tests, exit 0.
+- Two consecutive `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-ninth-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: 1 file and 90 tests passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: 164 files passed; 1366 tests passed and 1 expected failure, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue, added TypeScript comment, and production migration-launcher scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: complete executable export resolution` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Local `export { launch as default }`, named aliases, and multi-hop local alias chains resolve by exact exported and declared symbols: satisfied.
+- Transitive import-equals/export-equals barrels and local aliases resolve across multiple hops; static targets produce exact observations and dynamic targets fail closed: satisfied.
+- Callable export traversal uses per-file/export identity cycle detection, fails closed on cycles, and preserves checker-based lexical identity and shadowing: satisfied.
+- Scope is limited to the executable analyzer, its actual-collector regressions, and this durable report; no comments, dependencies, inventories, harness artifacts, or neighboring behavior were changed: satisfied.
+
+## Concerns
+- None

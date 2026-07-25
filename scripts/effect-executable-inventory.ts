@@ -610,10 +610,14 @@ const analyzeSourceModules = (
         if (statement.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) === true) wrappers.set("default", binding)
       }
       if (ts.isExportAssignment(statement)) constants.set("default", statement.expression)
-      if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
-        const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
-        if (exportedFile !== undefined) {
-          for (const element of statement.exportClause.elements) reExports.set(element.name.text, { file: exportedFile, imported: element.propertyName?.text ?? element.name.text })
+      if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+        if (statement.moduleSpecifier === undefined) {
+          for (const element of statement.exportClause.elements) reExports.set(element.name.text, { file, imported: element.propertyName?.text ?? element.name.text })
+        } else if (ts.isStringLiteralLike(statement.moduleSpecifier)) {
+          const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
+          if (exportedFile !== undefined) {
+            for (const element of statement.exportClause.elements) reExports.set(element.name.text, { file: exportedFile, imported: element.propertyName?.text ?? element.name.text })
+          }
         }
       }
       if (ts.isVariableStatement(statement)) {
@@ -720,7 +724,8 @@ const discoverChildTargets = (
   }
   const resolveExportWrapper = (file: string, name: string, seen = new Set<string>()): WrapperBinding | undefined => {
     const key = `${file}\0${name}`
-    if (seen.has(key)) return undefined
+    if (seen.has(key)) throw fail(`unresolved first-party launch: cyclic callable export flow: ${file}`)
+    const nextSeen = new Set([...seen, key])
     const module = modules.get(file)
     const local = module?.wrappers.get(name)
     if (local !== undefined) return local
@@ -731,9 +736,12 @@ const discoverChildTargets = (
       if (declaration === undefined || declarations.has(declaration)) return undefined
       const declaredWrapper = module?.wrapperDeclarations.get(declaration)
       if (declaredWrapper !== undefined) return declaredWrapper
-      return ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined
-        ? resolveExpression(declaration.initializer, new Set([...declarations, declaration]))
-        : undefined
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return resolveExpression(declaration.initializer, new Set([...declarations, declaration]))
+      if (ts.isImportEqualsDeclaration(declaration)) {
+        const imported = module?.imports.get(declaration.name.text)
+        return imported === undefined ? undefined : resolveExportWrapper(imported.file, imported.imported, nextSeen)
+      }
+      return undefined
     }
     const exported = module?.constants.get(name)
     if (exported !== undefined) {
@@ -741,7 +749,7 @@ const discoverChildTargets = (
       if (exportedWrapper !== undefined) return exportedWrapper
     }
     const reExport = module?.reExports.get(name)
-    return reExport === undefined ? undefined : resolveExportWrapper(reExport.file, reExport.imported, new Set([...seen, key]))
+    return reExport === undefined ? undefined : resolveExportWrapper(reExport.file, reExport.imported, nextSeen)
   }
   const resolveValues = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<string>()): ReadonlyArray<string> => {
     if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text]
