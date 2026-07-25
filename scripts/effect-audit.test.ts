@@ -854,6 +854,39 @@ describe("Effect grep inventory command", () => {
     )
   })
 
+  it.effect("admits string-literal false positives only from the exact executable inventory analyzer", () => {
+    const runner = ["NodeRuntime", ".runMain"].join("")
+    const source = `const resolveAlias = () => "runner:${runner}"\n`
+    const reviewed = (file: string) => candidate({
+      file,
+      declaration: "variable:resolveAlias",
+      construct: `lexical:${runner}`,
+      classification: "false-positive",
+      rationale: ["String literal runner identity, not a Runtime", ".runMain execution boundary"].join(""),
+      excerpt: source.trim()
+    })
+    const run = (file: string) => fixture({
+      baseline: [],
+      inventory: [reviewed(file)],
+      sampleFile: file,
+      source,
+      grepJson: grepJson(grepMatch(file, source, 1, runner))
+    }, ({ root }) => runAudit({ root, mode: "check" }))
+
+    return run("scripts/effect-executable-inventory.ts").pipe(
+      Effect.asVoid,
+      Effect.andThen(run("scripts/effect-executable-inventory-helper.ts").pipe(
+        Effect.flip,
+        Effect.tap((error) => Effect.sync(() => expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("false-positive") })))
+      )),
+      Effect.andThen(run("src/effect-executable-inventory.ts").pipe(
+        Effect.flip,
+        Effect.tap((error) => Effect.sync(() => expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("false-positive") })))
+      )),
+      Effect.asVoid
+    )
+  })
+
   it.effect("rejects unsupported classification proof and empty non-debt rationales", () => {
     const source = "export const sample = async () => 1\n"
     const match = grepJson(grepMatch("src/sample.ts", source, 1, "async"))

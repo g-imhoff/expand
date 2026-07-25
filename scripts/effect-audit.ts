@@ -312,7 +312,7 @@ const isAuditFixturePath = (file: string) =>
   || /^eslint-rules\/effect-(?:boundary|host-boundaries)/.test(file)
 
 const isAuditInfrastructurePath = (file: string) =>
-  file === "scripts/effect-audit.ts"
+  file === "scripts/effect-audit.ts" || file === "scripts/effect-executable-inventory.ts"
 
 const isStringSyntax = (node: SourceNode | undefined) =>
   node?.type === "TemplateElement"

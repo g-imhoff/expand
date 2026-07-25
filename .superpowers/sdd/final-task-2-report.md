@@ -267,3 +267,32 @@ Status: DONE
 ## Concerns
 - Full repository, build, desktop, E2E, benchmark, and package certification gates remain for controller certification after review.
 - The commit hook reran `effect:audit` and exited 1 after printing the successful 0-blocking/75-advisory summary, despite the immediately preceding standalone audit passing with 280 candidates and migration-debt=0. Per finalize-only steering, the verified scoped commit was created with `--no-verify`; controller review should rerun the audit gate.
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `effect-grep-inventory.json`: classified the three analyzer-proven `resolveAlias` selector literals as exact false positives without migration debt or reclassification.
+- `scripts/effect-audit.ts`: admitted only `scripts/effect-executable-inventory.ts` as additional permanent audit infrastructure.
+- `scripts/effect-audit.test.ts`: proved the exact analyzer path is admitted while an adjacent script and a general source path remain rejected.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `./node_modules/.bin/vitest run scripts/effect-audit.test.ts -t "admits string-literal false positives only" --reporter=verbose` failed 1/1 because the exact executable inventory analyzer path was not admitted.
+- GREEN: the same focused test passed 1/1, exit 0.
+- Two consecutive `npm run effect:audit:update` executions passed with the identical SHA-256 `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`.
+
+## Task gate
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+
+## Commits
+- `HEAD` `fix: classify executable selector literals`
+
+## Self-review
+- Three exact source-ordered selector identities at lines 439, 450, and 461 are false-positive records with the required rationale: satisfied.
+- Audit-infrastructure widening is limited to one exact analyzer path and rejects adjacent/general paths: satisfied.
+- Canonical inventory is byte-idempotent with zero migration debt or reclassification: satisfied.
+
+## Concerns
+- None
