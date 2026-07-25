@@ -19,7 +19,7 @@ import {
   grepCandidateKey,
   grepInventoryValidationError
 } from "./effect-inventory-model"
-import { validateExecutableInventory } from "./effect-executable-inventory"
+import { ExecutableInventoryError, validateExecutableInventory } from "./effect-executable-inventory"
 import { HostBoundary, NonNegativeInt, PositiveInt } from "./effect-policy-model"
 
 export interface AuditCommandRequest {
@@ -1011,7 +1011,7 @@ const auditCommand = Command.make("effect-audit", {
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
   yield* runAudit({ root, mode: update ? "update" : "check" })
   yield* validateExecutableInventory(root).pipe(
-    Effect.mapError((error) => auditError("invalid-output", error.detail))
+    Effect.mapError((error) => auditError("invalid-output", error instanceof ExecutableInventoryError ? error.detail : String(error)))
   )
 }))
 

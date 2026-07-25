@@ -19,6 +19,9 @@ import {
 
 export const JOB_CONTROL_FIXTURE = "scripts/fixtures/job-control.sh"
 
+export const jobControlCommand = (args: ReadonlyArray<string>, options?: ChildProcess.CommandOptions) =>
+  ChildProcess.make("bash", [JOB_CONTROL_FIXTURE, ...args], options)
+
 export class BinarySmokeError extends Data.TaggedError("BinarySmokeError")<{
   readonly operation: "build" | "command" | "parse" | "readiness" | "cleanup"
   readonly detail: string
@@ -272,6 +275,16 @@ export const runCommand = Effect.fn("BinarySmoke.runCommand")(
     }))
 )
 
+const runJobControlCommand = Effect.fn("BinarySmoke.runJobControlCommand")(
+  (root: string, args: ReadonlyArray<string>) => Effect.scoped(Effect.gen(function*() {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const handle = yield* spawner.spawn(jobControlCommand(args, { cwd: root })).pipe(
+      Effect.mapError((cause) => commandError("command", "job-control fixture could not start", cause))
+    )
+    return yield* collectHandle(handle)
+  }))
+)
+
 const requireSuccess = (report: CommandReport, label: string): Effect.Effect<CommandReport, BinarySmokeError> =>
   report.exitCode === 0
     ? Effect.succeed(report)
@@ -307,7 +320,7 @@ export const runJobControlFact = Effect.fn("BinarySmoke.runJobControlFact")(
   function*(root: string, command: ReadonlyArray<string>) {
     const [executable, ...args] = command
     if (executable === undefined) return yield* commandError("command", "job-control command was empty")
-    const report = yield* runCommand(root, "bash", [JOB_CONTROL_FIXTURE, "fact", executable, ...args])
+    const report = yield* runJobControlCommand(root, ["fact", executable, ...args])
     if (report.stderr !== "") return yield* commandError("command", `job-control fixture wrote stderr: ${report.stderr.trim()}`)
     return yield* decodeJobFact(report.stdout)
   }
@@ -458,7 +471,7 @@ export const parseProcessGroupRows = (source: string, pgid: number): ReadonlyArr
 }
 
 export const acknowledgeGuardianOwnership = Effect.fn("BinarySmoke.acknowledgeGuardianOwnership")(function*(root: string, pgid: number) {
-  const report = yield* runCommand(root, "bash", [JOB_CONTROL_FIXTURE, "signal", "CONT", String(pgid)])
+  const report = yield* runJobControlCommand(root, ["signal", "CONT", String(pgid)])
   if (report.exitCode !== 0) return yield* commandError("cleanup", "guardian ownership acknowledgement failed")
 })
 
@@ -534,8 +547,7 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
   const reapStarted = yield* Ref.make(false)
   const cleanupStarted = yield* Ref.make(false)
   return yield* Effect.uninterruptibleMask((restore) => Effect.gen(function*() {
-  const guardianSpawn = spawner.spawn(ChildProcess.make("bash", [
-    JOB_CONTROL_FIXTURE,
+  const guardianSpawn = spawner.spawn(jobControlCommand([
     "guardian",
     "./dist/expand",
     "--data-dir",
@@ -549,7 +561,7 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
     extendEnv: true
   })).pipe(Effect.mapError((cause) => commandError("command", "auto-spawn guardian could not start", cause)))
   const signalGroup = Effect.fn("BinarySmoke.signalGroup")(function*(signal: "SIGTERM" | "SIGKILL", pgid: number) {
-    const report = yield* runCommand(options.root, "bash", [JOB_CONTROL_FIXTURE, "signal", signal.slice(3), String(pgid)])
+    const report = yield* runJobControlCommand(options.root, ["signal", signal.slice(3), String(pgid)])
     if (report.exitCode !== 0 && (yield* processGroupAlive(options.root, pgid))) {
       return yield* commandError("cleanup", `${signal} process-group signal failed`)
     }

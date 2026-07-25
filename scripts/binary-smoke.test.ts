@@ -26,6 +26,7 @@ import {
   BinarySmokeError,
   JOB_CONTROL_FIXTURE,
   certifyBinaries,
+  jobControlCommand,
   cleanupDirectServer,
   cleanupGuardianOwnership,
   parseProcessGroupRows,
@@ -403,6 +404,17 @@ describe("binary certification live ownership", () => {
       }).join("\n"), childPgid)).toEqual([])
     }).pipe(Effect.provide(NodeServices.layer), Effect.provide(ProcessServices.layer))))
 
+  it("routes every fixture mode through one ChildProcess command helper", () => {
+    for (const args of [["fact", "node"], ["guardian", "./dist/expand"], ["signal", "TERM", "123"]]) {
+      const command = jobControlCommand(args, { cwd: "." })
+      expect(command._tag).toBe("StandardCommand")
+      if (command._tag === "StandardCommand") {
+        expect(command.command).toBe("bash")
+        expect(command.args).toEqual([JOB_CONTROL_FIXTURE, ...args])
+      }
+    }
+  })
+
   it.live("runs the exact source-declared job-control fixture and propagates cached nonzero status", () =>
     runJobControlFact(".", ["bash", "-c", "sleep 0.05; exit 23"]).pipe(
       Effect.tap((fact) => Effect.sync(() => {
@@ -422,8 +434,7 @@ describe("binary certification live ownership", () => {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-guardian-handshake-" })
       const marker = path.join(directory, "started")
-      const handle = yield* spawner.spawn(ChildProcess.make("bash", [
-        JOB_CONTROL_FIXTURE,
+      const handle = yield* spawner.spawn(jobControlCommand([
         "guardian",
         "bash",
         "-c",

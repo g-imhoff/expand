@@ -70,3 +70,65 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: replaced registry-seeded and set-collapsed discovery with parsed manifest, child-process, declaration, runner, shell, and preload discovery that retains exact source-ordered occurrences and rejects missing, ambiguous, or unregistered boundaries.
+- `effect-executable-inventory.json`: updated the exact live bijection to 27 entrypoints and 93 independently parsed invocation observations, including every repeated launch occurrence.
+- `scripts/effect-executable-inventory.test.ts`: added closed shell grammar and complete preload module-form adversarial tests.
+- `test/architecture/effect-executable-inventory.test.ts`: added actual-collector synthetic repositories for multiple manifest targets, repeated child calls, child-only inventory failure, exact synthetic declaration exclusion, preload drift, and unregistered, aliased, and multiple runner failure; strengthened the live assertions through the exact validator.
+- `scripts/binary-smoke.ts`: routed fact, guardian, and signal modes through one `ChildProcess.make` fixture consumer helper.
+- `scripts/binary-smoke.test.ts`: added the covering one-helper fixture-mode test and moved the live guardian launch through that helper.
+- `scripts/effect-audit.ts`: preserved typed executable-inventory failures while handling platform failures from complete repository discovery.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts` exited 1 because the new shell and preload parsers were absent; after correcting the assertion to inspect the typed error, GREEN passed 7/7.
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts --reporter=verbose` exited 1 because the old collector failed on a synthetic repository before discovering occurrences and then exposed registry-seeded/stale runner behavior; GREEN passed after parsed independent discovery and exact occurrence retention.
+- RED: `npm exec -- vitest run scripts/binary-smoke.test.ts -t "routes every fixture mode"` exited 1 with `jobControlCommand is not a function`; GREEN passed 1/1 after introducing the sole consumer helper.
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "unregistered and multiple"` exited 1 because an aliased runner produced a successful empty discovery; GREEN passed 1/1 after import-alias-aware runner parsing.
+- RED validation: bounded `npm run effect:audit` reported 5 blocking findings from newly added native JSON fixture encoding, then 13 exact grep additions from synthetic fixture strings; the tests were corrected to use `Schema.UnknownFromJsonString` and non-candidate fixture spellings. GREEN audit reported 0 blocking findings, 75 advisories, 280 exact grep candidates, and migration-debt=0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, and `scripts/binary-smoke.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts` passed 3 files and 76 tests, exit 0.
+
+## Task gate
+- `npm ci`: passed with no tracked changes, exit 0.
+- `npm ci --prefix docs/architecture`: passed, exit 0.
+- `npm run agents:check`: synchronized, exit 0.
+- `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts`: 3 files and 76 tests passed, exit 0.
+- `setsid timeout --foreground --signal=TERM --kill-after=5s 120s npm run effect:audit`: 0 blocking findings, 75 advisories, 280 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: 1 file and 7 tests passed, exit 0.
+- `npm run lint`: passed, exit 0.
+- `npm run typecheck:all`: passed, exit 0.
+- `npm run arch`: 189 modules and 624 dependencies with no violations, exit 0.
+- `npm run knip`: passed, exit 0.
+- `npm run test`: 164 files passed; 1282 tests passed and 1 expected failure, exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`, exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed, exit 0.
+- `npm run build`: passed, exit 0.
+- `npm run cert:cli:build`: passed, exit 0.
+- `npm run build:desktop`: passed, exit 0.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- `npm run cert:packages`: passed, exit 0.
+- `git ls-files -s .githooks/pre-commit scripts/fixtures/job-control.sh` and SHA-256 comparison: both modes are `100755` and both inventory hashes match, exit 0.
+- Package residue scan, added-comment scan, and production migration-launcher scan: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: prove executable inventory completeness` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Every invocation occurrence is retained with caller, selector, and source-order occurrence; multiple manifest targets and repeated calls are proven synthetically and live: satisfied.
+- Child discovery parses every tracked TypeScript/JavaScript caller independently and ignores only exact string-literal synthetic declarations: satisfied.
+- Declarations and module runners are parsed before registry comparison; missing, aliased, unregistered, ambiguous, and multiple runners cannot be disabled by an absent host boundary: satisfied.
+- All job-control modes use one exact fixture consumer and the shell validator admits only the retained closed grammar while rejecting polling, network, filesystem, substitution, and cleanup-policy drift: satisfied.
+- Static, side-effect, dynamic, require/alias, import-equals, export-from, export-star, Effect, and Node builtin preload forms are parsed and rejected: satisfied.
+- Synthetic and live collector tests prove exact observations and occurrences, child-only failure, fixture exclusion, preload drift, fixture drift, and exact inventory bijection: satisfied.
+- No updater/generator, migration registry, migration debt, comments, unrelated behavior, or unrelated tracked files were added: satisfied.
+
+## Concerns
+- None

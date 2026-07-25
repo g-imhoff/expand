@@ -5,7 +5,9 @@ import {
   ExecutableInventory,
   ExecutableInventoryError,
   type ExecutableObservation,
-  validateExecutableInventoryRecords
+  validateExecutableInventoryRecords,
+  validateJobControlFixtureSource,
+  validatePreloadSource
 } from "./effect-executable-inventory"
 
 const runnerBoundary = {
@@ -44,6 +46,77 @@ const inventory = {
 
 const failureDetail = <A>(effect: Effect.Effect<A, ExecutableInventoryError>) =>
   Effect.flip(effect).pipe(Effect.map((error) => error.detail))
+
+describe("ExecutableInventory source parsers", () => {
+  it("accepts only the retained closed job-control grammar", () => {
+    const valid = `#!/usr/bin/env bash
+set -euo pipefail
+set -m
+mode="$1"
+shift
+signal_job() {
+  kill "-$1" -- "-$2"
+}
+start_job() {
+  true &
+  if [[ "$mode" == "guardian" ]]; then
+    (kill -STOP "$BASHPID"; exec "$@") &
+  else
+    "$@" &
+  fi
+  pid=$!
+  job_line="$(jobs -l %%)"
+  job_marker="${"${job_line%% *}"}"
+  job_number="${"${job_marker#[}"}"
+  job_number="${"${job_number%%]*}"}"
+  job_pid="$(jobs -p "%$job_number")"
+  pgid="$(ps -o pgid= -p "$pid")"
+  pgid="${"${pgid//[[:space:]]/}"}"
+  printf 'job=%%%s pid=%s jobPid=%s pgid=%s\\n' "$job_number" "$pid" "$job_pid" "$pgid"
+  set +e
+  wait -f "%$job_number" 2>/dev/null
+  status=$?
+  set -e
+  wait %1 2>/dev/null || true
+  printf 'status=%s\\n' "$status"
+}
+if [[ "$mode" == "signal" ]]; then
+  signal_job "$1" "$2"
+  exit 0
+fi
+start_job "$@"
+if [[ "$mode" == "guardian" ]]; then
+  kill -STOP "$$"
+fi
+exit "$status"
+`
+    expect(validateJobControlFixtureSource(valid)).toBeUndefined()
+    for (const drift of [
+      `${valid}\ncurl https://example.test\n`,
+      valid.replace("start_job \"$@\"", "while true; do start_job \"$@\"; done"),
+      valid.replace("exit \"$status\"", "rm -rf /tmp/expand; exit \"$status\""),
+      valid.replace("mode=\"$1\"", "mode=\"$(cat /tmp/mode)\"")
+    ]) {
+      expect(() => validateJobControlFixtureSource(drift)).toThrow(ExecutableInventoryError)
+    }
+  })
+
+  it("rejects Effect and Node platform imports through every preload module form", () => {
+    const forbidden = [
+      `import "effect"`,
+      `import { Effect as E } from "effect"`,
+      `export * from "@effect/platform-node"`,
+      `export { FileSystem as Fs } from "@effect/platform-node/FileSystem"`,
+      `const value = import("node${":"}fs")`,
+      `const value = require("fs")`,
+      `const req = require; const value = req("node${":"}path")`
+    ]
+    for (const source of forbidden) {
+      expect(() => validatePreloadSource(source)).toThrow(ExecutableInventoryError)
+    }
+    expect(validatePreloadSource(`import { contextBridge } from "electron"\nexport { type Api } from "./api"`)).toBeUndefined()
+  })
+})
 
 describe("ExecutableInventory schema", () => {
   it.effect("decodes the versioned exact model", () =>
