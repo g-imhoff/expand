@@ -34,6 +34,7 @@ import {
   retainCleanupCause,
   runBinaryOwnershipCore,
   runCommand,
+  runJobControlCommand,
   runJobControlFact,
   runOwnedCli
 } from "./binary-smoke"
@@ -348,8 +349,7 @@ describe("binary certification live ownership", () => {
       const processTable = () => runCommand(".", "ps", ["-eo", "pid=,ppid=,pgid="])
       yield* cleanupGuardianOwnership({
         evidence: undefined,
-        signalGroup: (signal, pgid) => runCommand(".", "bash", [
-          JOB_CONTROL_FIXTURE,
+        signalGroup: (signal, pgid) => runJobControlCommand(".", [
           "signal",
           signal.slice(3),
           String(pgid)

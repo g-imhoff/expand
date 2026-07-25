@@ -275,7 +275,7 @@ export const runCommand = Effect.fn("BinarySmoke.runCommand")(
     }))
 )
 
-const runJobControlCommand = Effect.fn("BinarySmoke.runJobControlCommand")(
+export const runJobControlCommand = Effect.fn("BinarySmoke.runJobControlCommand")(
   (root: string, args: ReadonlyArray<string>) => Effect.scoped(Effect.gen(function*() {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const handle = yield* spawner.spawn(jobControlCommand(args, { cwd: root })).pipe(
