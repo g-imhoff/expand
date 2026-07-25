@@ -92,28 +92,59 @@ describe("exact executable inventory architecture", () => {
         "scripts/required.ts": `export {}\n`,
         "scripts/forked.ts": `export {}\n`
       })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "scripts/effect-direct.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/effect-direct.ts", occurrence: 0 } },
+        { file: "scripts/effect-module.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/effect-module.ts", occurrence: 0 } },
+        { file: "scripts/effect-root.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/effect-root.ts", occurrence: 0 } },
+        { file: "scripts/effect.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/effect.ts", occurrence: 0 } },
+        { file: "scripts/exec-sync.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/exec-sync.ts", occurrence: 0 } },
+        { file: "scripts/exec.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/exec.ts", occurrence: 0 } },
+        { file: "scripts/forked.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/forked.ts", occurrence: 0 } },
+        { file: "scripts/import-equals.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/import-equals.ts", occurrence: 0 } },
+        { file: "scripts/imported.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/imported.ts", occurrence: 0 } },
+        { file: "scripts/imported.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/imported.ts", occurrence: 1 } },
+        { file: "scripts/local.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/local.ts", occurrence: 0 } },
+        { file: "scripts/namespace-alias.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/namespace-alias.ts", occurrence: 0 } },
+        { file: "scripts/require-destructure-alias.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/require-destructure-alias.ts", occurrence: 0 } },
+        { file: "scripts/require-namespace.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/require-namespace.ts", occurrence: 0 } },
+        { file: "scripts/require-property.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/require-property.ts", occurrence: 0 } },
+        { file: "scripts/required.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/required.ts", occurrence: 0 } },
+        { file: "scripts/spawn-sync.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/spawn-sync.ts", occurrence: 0 } }
+      ])
       const error = yield* Effect.flip(validateExecutableInventory(root))
       expect(errorDetail(error)).toContain("absent from inventory")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("discovers direct require property and element child launches", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `require("child_process").spawn("node", ["scripts/property.ts"])
+require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
+`,
+        "scripts/element.ts": `export {}\n`,
+        "scripts/property.ts": `export {}\n`
+      })
       const discovery = yield* discoverExecutableInventory(root)
-      expect([...new Set(discovery.observations.map(({ file }) => file))]).toEqual(expect.arrayContaining([
-        "scripts/effect.ts",
-        "scripts/effect-root.ts",
-        "scripts/effect-module.ts",
-        "scripts/effect-direct.ts",
-        "scripts/exec.ts",
-        "scripts/exec-sync.ts",
-        "scripts/spawn-sync.ts",
-        "scripts/require-namespace.ts",
-        "scripts/namespace-alias.ts",
-        "scripts/require-property.ts",
-        "scripts/require-destructure-alias.ts",
-        "scripts/import-equals.ts",
-        "scripts/local.ts",
-        "scripts/imported.ts",
-        "scripts/required.ts",
-        "scripts/forked.ts"
-      ]))
-      expect(discovery.observations.filter(({ file }) => file === "scripts/imported.ts")).toHaveLength(2)
+      expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "scripts/element.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/element.ts", occurrence: 0 } },
+        { file: "scripts/property.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/property.ts", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    `const target = globalThis["process"].argv[2]\nrequire("child_process").spawn("node", [target])\n`,
+    `import { spawn } from "node${":"}child_process"\nconst target = globalThis["process"].argv[2]\nspawn("tsx", [target])\n`,
+    `import { execFile } from "node${":"}child_process"\nconst args = globalThis["process"].argv.slice(2)\nexecFile("npx", args)\n`
+  ])("fails discovery for unresolved interpreter and package-runner launches", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live("fails discovery when a second tracked caller consumes the host fixture", () =>
@@ -132,14 +163,19 @@ describe("exact executable inventory architecture", () => {
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live.each([
+    `import { test } from "node${":"}test"`,
     `import "node${":"}test"`,
-    `export * from "node${":"}sqlite"`,
+    `const test = import("node${":"}test")`,
     `const test = require("node${":"}test")`,
-    `const sqlite = import("node${":"}sqlite")`,
-    `import test = require("node${":"}test/reporters")`,
-    `import "test"`,
-    `export { DatabaseSync } from "sqlite"`
-  ])("rejects exhaustive Node builtin preload form through actual discovery", (source) =>
+    `export * from "node${":"}test"`,
+    `import test = require("node${":"}test")`,
+    `import { readFile } from "fs"`,
+    `import "fs"`,
+    `const fs = import("fs")`,
+    `const fs = require("fs")`,
+    `export * from "fs"`,
+    `import fs = require("fs")`
+  ])("rejects every Node builtin preload syntax and specifier form through actual discovery", (source) =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
@@ -176,7 +212,10 @@ describe("exact executable inventory architecture", () => {
       for (const source of [
         `import { Effect } from "effect"\nEffect.${"runPromise"}(Effect.void)\n`,
         `import { Effect } from "effect"\nEffect.${"runPromise"}(Effect.void)\nEffect.${"runPromise"}(Effect.void)\n`,
-        `import { Effect as Runtime } from "effect"\nRuntime.${"runPromise"}(Runtime.void)\n`
+        `import { Effect as Runtime } from "effect"\nRuntime.${"runPromise"}(Runtime.void)\n`,
+        `import { runMain as launch } from "@effect/platform-node/NodeRuntime"\nlaunch(null)\n`,
+        `import { NodeRuntime as Runtime } from "@effect/platform-node"\nconst launch = Runtime.${"runMain"}\nlaunch(null)\n`,
+        `import * as PlatformNode from "@effect/platform-node"\nconst Runtime = PlatformNode.NodeRuntime\nconst launch = Runtime.${"runMain"}\nlaunch(null)\n`
       ]) {
         const root = yield* syntheticRepository({
           "package.json": encodeJson({ scripts: {} }),

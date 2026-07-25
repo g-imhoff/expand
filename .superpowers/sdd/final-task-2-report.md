@@ -132,3 +132,51 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: recognizes direct `require("child_process"|"node:child_process")` property and element launch calls, follows native launch aliases, fails discovery for unresolved Node/shell/npm-family executable flow while preserving resolved wrappers and inline command payloads, and parses direct, barrel, namespace, and local aliases of Effect and NodeRuntime runners.
+- `test/architecture/effect-executable-inventory.test.ts`: asserts the exact complete 17-observation child-launch sequence and occurrence vector, adds direct-require property/element discovery, unresolved interpreter/package-runner discovery failures, direct aliased runner failures, and the 12-case node-prefixed/bare builtin preload syntax cross-product.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "native, aliased, and wrapped|direct require property|unresolved interpreter|unregistered and multiple|every Node builtin" --reporter=verbose` exited 1. Direct require property/element calls returned no observations, all three unresolved interpreter/package-runner cases returned successful empty discoveries, and the direct aliased NodeRuntime runner returned a successful empty discovery.
+- GREEN: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts` passed 3 files and 94 tests, exit 0.
+- Regression RED: `npm run test` exited 1 because the initial equivalence set introduced unsupported non-Node runtime command literals forbidden by the repository's Node-only policy.
+- Regression GREEN: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts` passed 4 files and 104 tests after removing those unsupported equivalents, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+
+## Task gate
+- `npm ci`: passed with no tracked changes, exit 0.
+- `npm ci --prefix docs/architecture`: passed, exit 0.
+- `npm run agents:check`: agent definitions synchronized, exit 0.
+- `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts`: 3 files and 94 tests passed, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 280 candidates, migration-debt=0, exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-third-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: 164 files passed; 1300 tests passed and 1 expected failure, exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`, exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed, exit 0.
+- `npm run build`, `npm run cert:cli:build`, and `npm run build:desktop`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6 tests passed, exit 0.
+- `npm run cert:packages`: passed, exit 0.
+- `git ls-files -s .githooks/pre-commit scripts/fixtures/job-control.sh` and SHA-256 comparison: both modes are `100755` and both inventory hashes match, exit 0.
+- Package residue scan, added-comment scan, and production/model migration-launcher scan: no scoped residue or added comments, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: reject hidden executable launches`
+
+## Self-review
+- Direct bare and node-prefixed child-process require property/element calls and alias chains are independently discovered: satisfied.
+- Unresolved Node, TS, shell, and npm-family launch argument flow fails with `ExecutableInventoryError` during discovery, while current resolved wrappers and inline shell/Node payloads retain their intended behavior: satisfied.
+- Named/direct NodeRuntime runner imports, platform barrel/namespace aliases, and local alias chains are parsed; unregistered or multiple runners fail discovery: satisfied.
+- The actual collector asserts the exact 17 observations, imported-target `[0, 1]` occurrences, direct-require coverage, discovery-time unresolved failures, direct aliased runner failures, and all 12 preload syntax/specifier combinations: satisfied.
+- No dependencies, comments, updater/generator, migration debt, inventory drift, or unrelated tracked files were added: satisfied.
+
+## Concerns
+- None

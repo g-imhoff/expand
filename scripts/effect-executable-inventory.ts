@@ -390,33 +390,65 @@ interface ParsedRunner {
 
 const parseRunners = (sourceFile: ts.SourceFile): ReadonlyArray<ParsedRunner> => {
   const found: Array<{ readonly node: ts.Node; readonly construct: string }> = []
-  const aliases = new Map([["Effect", "Effect"], ["NodeRuntime", "NodeRuntime"]])
+  type RunnerAlias = "Effect" | "EffectModule" | "NodeRuntime" | "PlatformNode" | `runner:${string}`
+  const aliases = new Map<string, RunnerAlias>([["Effect", "Effect"], ["NodeRuntime", "NodeRuntime"]])
+  const memberName = (expression: ts.PropertyAccessExpression | ts.ElementAccessExpression) => ts.isPropertyAccessExpression(expression)
+    ? expression.name.text
+    : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
+      ? expression.argumentExpression.text
+      : undefined
+  const resolveAlias = (expression: ts.Expression): RunnerAlias | undefined => {
+    if (ts.isIdentifier(expression)) return aliases.get(expression.text)
+    if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined
+    const owner = resolveAlias(expression.expression)
+    const member = memberName(expression)
+    if (owner === "EffectModule" && member === "Effect") return "Effect"
+    if (owner === "PlatformNode" && member === "NodeRuntime") return "NodeRuntime"
+    if (owner === "NodeRuntime" && member === "runMain") return `runner:NodeRuntime.${member}`
+    if (owner === "Effect" && member !== undefined && /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/.test(member)) return `runner:Effect.${member}`
+    return undefined
+  }
   for (const statement of sourceFile.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier) || statement.importClause?.namedBindings === undefined) continue
     const moduleName = statement.moduleSpecifier.text
     const bindings = statement.importClause.namedBindings
     if (ts.isNamespaceImport(bindings)) {
-      if (moduleName === "effect") aliases.set(bindings.name.text, "Effect")
+      if (moduleName === "effect") aliases.set(bindings.name.text, "EffectModule")
+      if (moduleName === "@effect/platform-node") aliases.set(bindings.name.text, "PlatformNode")
       if (moduleName === "@effect/platform-node/NodeRuntime") aliases.set(bindings.name.text, "NodeRuntime")
     } else {
       for (const element of bindings.elements) {
         const imported = element.propertyName?.text ?? element.name.text
         if (moduleName === "effect" && imported === "Effect") aliases.set(element.name.text, "Effect")
+        if (moduleName === "effect" && /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/.test(imported)) aliases.set(element.name.text, `runner:Effect.${imported}`)
         if (moduleName === "@effect/platform-node" && imported === "NodeRuntime") aliases.set(element.name.text, "NodeRuntime")
+        if (moduleName === "@effect/platform-node/NodeRuntime" && imported === "runMain") aliases.set(element.name.text, `runner:NodeRuntime.${imported}`)
       }
     }
   }
-  const visit = (node: ts.Node) => {
-    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
-      const owner = aliases.get(node.expression.getText(sourceFile)) ?? node.expression.getText(sourceFile)
-      const method = ts.isPropertyAccessExpression(node)
-        ? node.name.text
-        : node.argumentExpression !== undefined && ts.isStringLiteralLike(node.argumentExpression)
-          ? node.argumentExpression.text
-          : ""
-      if ((owner === "NodeRuntime" && method === "runMain") || (owner === "Effect" && /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/.test(method))) {
-        found.push({ node, construct: `runner:${owner}.${method}` })
+  let changed = true
+  while (changed) {
+    changed = false
+    const collect = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && !aliases.has(node.name.text)) {
+        const alias = resolveAlias(node.initializer)
+        if (alias !== undefined) {
+          aliases.set(node.name.text, alias)
+          changed = true
+        }
       }
+      ts.forEachChild(node, collect)
+    }
+    collect(sourceFile)
+  }
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const construct = resolveAlias(node.expression)
+      if (construct?.startsWith("runner:") === true) found.push({ node, construct })
+    }
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isCallExpression(node.parent) && node.parent.arguments.includes(node)) {
+      const construct = resolveAlias(node)
+      if (construct?.startsWith("runner:") === true) found.push({ node, construct })
     }
     ts.forEachChild(node, visit)
   }
@@ -585,10 +617,15 @@ const analyzeSourceModules = (
           namespaces.set(name, namespaces.get(expression.text)!)
           changed = true
         }
-        if (ts.isPropertyAccessExpression(expression)) {
+        if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+          const member = ts.isPropertyAccessExpression(expression)
+            ? expression.name.text
+            : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
+              ? expression.argumentExpression.text
+              : undefined
           const requiredNamespace = ts.isCallExpression(expression.expression) && ts.isIdentifier(expression.expression.expression) && expression.expression.expression.text === "require" && expression.expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.expression.arguments[0]) && isChildProcessModule(expression.expression.arguments[0].text)
           const namespace = requiredNamespace ? "native" : namespaces.get(expression.expression.getText(sourceFile))
-          const api = namespace === "native" && nativeLaunchApis.has(expression.name.text) ? expression.name.text as LaunchApi : namespace === "effect" && expression.name.text === "make" ? "effect" : undefined
+          const api = namespace === "native" && member !== undefined && nativeLaunchApis.has(member) ? member as LaunchApi : namespace === "effect" && member === "make" ? "effect" : undefined
           if (api !== undefined && !launchers.has(name)) {
             launchers.set(name, api)
             changed = true
@@ -648,6 +685,32 @@ const discoverChildTargets = (
     if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && /^(?:succeed|make)$/.test(expression.expression.name.text)) return expression.arguments.flatMap((argument) => resolveValues(argument, file, scope, seen))
     return []
   }
+  const resolvedFlow = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<string>()): boolean => {
+    if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return true
+    if (ts.isTemplateExpression(expression)) return expression.templateSpans.every((span) => resolvedFlow(span.expression, file, scope, seen))
+    if (ts.isIdentifier(expression)) {
+      const scoped = scope.get(expression.text)
+      if (scoped !== undefined) return resolvedFlow(scoped.expression, scoped.file, scoped.scope, seen)
+      const key = `${file}\0${expression.text}`
+      if (seen.has(key)) return false
+      const module = modules.get(file)
+      const local = module?.constants.get(expression.text)
+      if (local !== undefined) return resolvedFlow(local, file, scope, new Set([...seen, key]))
+      const imported = module?.imports.get(expression.text)
+      if (imported !== undefined) {
+        const exported = resolveExport(imported.file, imported.imported)
+        if (exported !== undefined) return resolvedFlow(exported, imported.file, new Map(), new Set([...seen, key]))
+      }
+      return false
+    }
+    if (ts.isArrayLiteralExpression(expression)) return expression.elements.every((element) => ts.isExpression(element) && resolvedFlow(element, file, scope, seen))
+    if (ts.isSpreadElement(expression)) return resolvedFlow(expression.expression, file, scope, seen)
+    if (ts.isConditionalExpression(expression)) return resolvedFlow(expression.whenTrue, file, scope, seen) && resolvedFlow(expression.whenFalse, file, scope, seen)
+    if (ts.isPropertyAccessExpression(expression) && expression.expression.getText(modules.get(file)?.sourceFile) === "process" && expression.name.text === "execPath") return true
+    if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === "join") return expression.arguments.every((argument) => resolvedFlow(argument, file, scope, seen))
+    if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && /^(?:succeed|make)$/.test(expression.expression.name.text)) return expression.arguments.every((argument) => resolvedFlow(argument, file, scope, seen))
+    return false
+  }
   const normalizeTarget = (caller: string, value: string): string | undefined => {
     const tokens = value.split(/\s+/).map((token) => token.replace(/^['"]|['"]$/g, ""))
     for (const token of [value, ...tokens]) {
@@ -665,12 +728,18 @@ const discoverChildTargets = (
   const launchApi = (expression: ts.Expression, file: string): LaunchApi | undefined => {
     const module = modules.get(file)
     if (ts.isIdentifier(expression)) return module?.launchers.get(expression.text)
-    if (!ts.isPropertyAccessExpression(expression)) return undefined
+    if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined
+    const member = ts.isPropertyAccessExpression(expression)
+      ? expression.name.text
+      : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
+        ? expression.argumentExpression.text
+        : undefined
     const ownerText = expression.expression.getText(module?.sourceFile)
-    const namespace = module?.namespaces.get(ownerText)
-    if (namespace === "effect" && expression.name.text === "make") return "effect"
-    if (namespace === "native" && nativeLaunchApis.has(expression.name.text)) return expression.name.text as LaunchApi
-    if (ts.isPropertyAccessExpression(expression.expression) && module?.namespaces.get(expression.expression.expression.getText(module.sourceFile)) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
+    const requiredNamespace = ts.isCallExpression(expression.expression) && ts.isIdentifier(expression.expression.expression) && expression.expression.expression.text === "require" && expression.expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.expression.arguments[0]) && isChildProcessModule(expression.expression.arguments[0].text)
+    const namespace = requiredNamespace ? "native" : module?.namespaces.get(ownerText)
+    if (namespace === "effect" && member === "make") return "effect"
+    if (namespace === "native" && member !== undefined && nativeLaunchApis.has(member)) return member as LaunchApi
+    if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && module?.namespaces.get(expression.expression.expression.getText(module.sourceFile)) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
     return undefined
   }
   const wrapper = (expression: ts.Expression, file: string): WrapperBinding | undefined => {
@@ -688,15 +757,25 @@ const discoverChildTargets = (
     if (api !== undefined) {
       const command = call.arguments[0]
       const commandValues = command === undefined ? [] : resolveValues(command, file, scope)
-      const interpreter = command !== undefined && (commandValues.some((value) => /^(?:node|tsx|bash)$/.test(value)) || /process\.execPath/.test(command.getText(modules.get(file)?.sourceFile)))
+      const knownLaunchers = /^(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npm-cli|npx|pnpm|pnpx|yarn|yarnpkg)(?:\.cmd|\.exe)?$/
+      const commandText = command?.getText(modules.get(file)?.sourceFile) ?? ""
+      const interpreter = command !== undefined && (commandValues.some((value) => knownLaunchers.test(value.split(/[\\/]/).at(-1) ?? "")) || /process\.execPath/.test(commandText) || /^(?:["'`])?(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npx|pnpm|pnpx|yarn|yarnpkg)\b/.test(commandText))
+      const sourceInterpreter = commandValues.some((value) => /^(?:node|nodejs|tsx|ts-node|bash|sh|zsh)(?:\.cmd|\.exe)?$/.test(value.split(/[\\/]/).at(-1) ?? "")) || /process\.execPath/.test(commandText)
       const expressions = api === "fork" || api === "exec" || api === "execSync"
         ? call.arguments.slice(0, 1)
-        : interpreter ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
+        : sourceInterpreter ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
+      const argumentFlow = api === "exec" || api === "execSync" ? command : call.arguments[1]
+      const argumentValues = argumentFlow === undefined ? [] : resolveValues(argumentFlow, file, scope)
+      const deferredWrapper = observationCaller === file && [...(modules.get(file)?.wrappers.values() ?? [])].some(({ body }) => body.pos <= call.pos && call.end <= body.end)
       const values = expressions.flatMap((expression) => resolveValues(expression, file, scope))
       const resolved = [...new Set(values.flatMap((value) => {
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
       }))]
+      const staticTarget = values.some((value) => sourceExtension.test(value) || value === "scripts/fixtures/job-control.sh")
+      const inlineShell = commandValues.some((value) => /^(?:bash|sh|zsh)$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.includes("-c")
+      const inlineNode = commandValues.some((value) => /^(?:node|nodejs)(?:\.exe)?$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.some((value) => /^(?:-e|--eval|--print)$/.test(value))
+      if (interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && argumentFlow !== undefined && !resolvedFlow(argumentFlow, file, scope) && !deferredWrapper) throw fail(`unresolved first-party launch target: ${file}`)
       const independentlyResolved = scope.size === 0 ? new Set<string>() : new Set(expressions.flatMap((expression) => resolveValues(expression, file, new Map())).flatMap((value) => {
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
