@@ -86,13 +86,19 @@ const expectedJobCommands = {
     "npm ci",
     "npm run effect:audit",
     "npm run agents:check",
+    "npm run lint",
     "npm run typecheck:all",
     "npm run arch",
-    "npm run test"
+    "npm run knip",
+    "npm run test",
+    "npm run cert:packages",
+    "npm run bench:selfcheck",
+    "npm run bench:events -- --smoke"
   ],
   "desktop-e2e": [
     "npm ci",
     "npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64",
+    "npm run build:desktop",
     "xvfb-run -a npm run e2e:desktop"
   ],
   "binary-smoke": [
@@ -147,6 +153,10 @@ const expectedWorkflow = {
           run: "npm run agents:check"
         },
         {
+          name: "Lint",
+          run: "npm run lint"
+        },
+        {
           name: "Typecheck (root + desktop projects)",
           run: "npm run typecheck:all"
         },
@@ -155,8 +165,24 @@ const expectedWorkflow = {
           run: "npm run arch"
         },
         {
+          name: "Unused dependency and export analysis",
+          run: "npm run knip"
+        },
+        {
           name: "Unit + architecture tests",
           run: "npm run test"
+        },
+        {
+          name: "Publish package certification",
+          run: "npm run cert:packages"
+        },
+        {
+          name: "Benchmark harness self-check",
+          run: "npm run bench:selfcheck"
+        },
+        {
+          name: "Benchmark smoke",
+          run: "npm run bench:events -- --smoke"
         }
       ]
     },
@@ -185,7 +211,11 @@ const expectedWorkflow = {
           run: "npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64"
         },
         {
-          name: "Build desktop and run e2e",
+          name: "Build desktop",
+          run: "npm run build:desktop"
+        },
+        {
+          name: "Run desktop e2e",
           run: "xvfb-run -a npm run e2e:desktop"
         }
       ]

@@ -2233,6 +2233,7 @@ void buildTool
   "scripts/desktop-command.ts": bracketRunnerBoundarySource,
   "scripts/effect-audit.ts": runnerBoundarySource,
   "scripts/fold-version.ts": runnerBoundarySource,
+  "scripts/package-certification.ts": runnerBoundarySource,
   "scripts/sync-agents.test.ts": `import { Effect } from "effect"
 Effect.promise(() => import("effect"))
 `,

@@ -271,6 +271,7 @@ describe("manifest orchestration", () => {
         knip: "knip",
         build: "tsx scripts/build.ts",
         "cert:cli:build": "tsx scripts/binary-smoke.ts",
+        "cert:packages": "tsx scripts/package-certification.ts",
         "dev:cli": "tsx apps/cli/cli/main.ts",
         "dev:server": "tsx apps/server/main.ts",
         "dev:tui": "tsx apps/tui/main.tsx",

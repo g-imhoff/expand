@@ -30,12 +30,22 @@ jobs:
         run: npm run effect:audit
       - name: Agent definitions synchronized
         run: npm run agents:check
+      - name: Lint
+        run: npm run lint
       - name: Typecheck (root + desktop projects)
         run: npm run typecheck:all
       - name: Architecture invariant I-1 (dependency-cruiser, BOUNDARIES.md)
         run: npm run arch
+      - name: Unused dependency and export analysis
+        run: npm run knip
       - name: Unit + architecture tests
         run: npm run test
+      - name: Publish package certification
+        run: npm run cert:packages
+      - name: Benchmark harness self-check
+        run: npm run bench:selfcheck
+      - name: Benchmark smoke
+        run: npm run bench:events -- --smoke
 
   desktop-e2e:
     name: Desktop e2e (serialized RPC seam, ARCHITECTURE.md §5.4)
@@ -52,7 +62,9 @@ jobs:
         run: npm ci
       - name: Electron system libraries (managed by Playwright)
         run: npm exec -- playwright install-deps chromium && sudo apt-get install -y libgtk-3-0t64
-      - name: Build desktop and run e2e
+      - name: Build desktop
+        run: npm run build:desktop
+      - name: Run desktop e2e
         run: xvfb-run -a npm run e2e:desktop
 
   binary-smoke:

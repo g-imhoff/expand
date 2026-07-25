@@ -853,6 +853,13 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "scripts/package-certification.ts",
+    declaration: "module:<module>",
+    host: "Package certification entrypoint",
+    construct: scriptNodeRuntimeRunMain,
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "scripts/sync-agents.test.ts",
     declaration: "module:<module>",
     host: "Vitest controlled dynamic import",
