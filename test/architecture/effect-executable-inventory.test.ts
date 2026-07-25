@@ -333,14 +333,17 @@ launch({ target: globalThis["process"].argv[2] })
       expect(errorDetail(error)).toContain("untracked first-party launch target")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
-  it.live("resolves default-imported wrapper and re-export chains", () =>
+  it.live.each([
+    { callerImport: `import launch from "./wrapper"`, extraFiles: {} },
+    { callerImport: `import launch from "./re-export"`, extraFiles: { "scripts/re-export.ts": `export { default } from "./wrapper"\n` } }
+  ])("resolves direct and re-exported default variable wrappers", ({ callerImport, extraFiles }) =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
-        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport default function launch(target: string) { spawn("node", [target]) }\n`,
-        "scripts/re-export.ts": `export { default } from "./wrapper"\n`,
-        "scripts/caller.ts": `import launch from "./re-export"\nlaunch("scripts/default-static.ts")\n`,
-        "scripts/default-static.ts": `export {}\n`
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\nexport default launch\n`,
+        "scripts/caller.ts": `${callerImport}\nlaunch("scripts/default-static.ts")\n`,
+        "scripts/default-static.ts": `export {}\n`,
+        ...extraFiles
       })
       const discovery = yield* discoverExecutableInventory(root)
       expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
@@ -348,12 +351,42 @@ launch({ target: globalThis["process"].argv[2] })
       ])
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
-  it.live("fails closed for a dynamic default-imported wrapper chain", () =>
+  it.live.each([
+    { callerImport: `import launch from "./wrapper"`, extraFiles: {} },
+    { callerImport: `import launch from "./re-export"`, extraFiles: { "scripts/re-export.ts": `export { default } from "./wrapper"\n` } }
+  ])("fails closed for dynamic direct and re-exported default variable wrappers", ({ callerImport, extraFiles }) =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
-        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport default function launch(target: string) { spawn("node", [target]) }\n`,
-        "scripts/caller.ts": `import launch from "./wrapper"\nlaunch(globalThis["process"].argv[2])\n`
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = function(target: string) { spawn("node", [target]) }\nexport default launch\n`,
+        "scripts/caller.ts": `${callerImport}\nlaunch(globalThis["process"].argv[2])\n`,
+        ...extraFiles
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves export-equals wrappers through import-equals local aliases without leaking shadowed names", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\nexport = launch\n`,
+        "scripts/caller.ts": `import launch = require("./wrapper")\nconst alias = launch\nfunction shadow(alias: (target: string) => void) { alias("scripts/shadowed.ts") }\nvoid shadow\nalias("scripts/export-equals-static.ts")\n`,
+        "scripts/export-equals-static.ts": `export {}\n`,
+        "scripts/shadowed.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "scripts/export-equals-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/export-equals-static.ts", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for dynamic export-equals wrappers through import-equals aliases", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nconst launch = function(target: string) { spawn("node", [target]) }\nexport = launch\n`,
+        "scripts/caller.ts": `import launch = require("./wrapper")\nconst alias = launch\nalias(globalThis["process"].argv[2])\n`
       })
       const error = yield* Effect.flip(discoverExecutableInventory(root))
       expect(errorDetail(error)).toContain("unresolved first-party launch")

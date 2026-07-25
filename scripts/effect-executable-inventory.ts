@@ -609,7 +609,7 @@ const analyzeSourceModules = (
         wrappers.set(statement.name.text, binding)
         if (statement.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) === true) wrappers.set("default", binding)
       }
-      if (ts.isExportAssignment(statement) && !statement.isExportEquals) constants.set("default", statement.expression)
+      if (ts.isExportAssignment(statement)) constants.set("default", statement.expression)
       if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
         const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
         if (exportedFile !== undefined) {
@@ -724,6 +724,22 @@ const discoverChildTargets = (
     const module = modules.get(file)
     const local = module?.wrappers.get(name)
     if (local !== undefined) return local
+    const resolveExpression = (expression: ts.Expression, declarations = new Set<ts.Declaration>()): WrapperBinding | undefined => {
+      if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return { file, parameters: expression.parameters.map(({ name: parameter }) => parameter), body: expression.body }
+      if (!ts.isIdentifier(expression)) return undefined
+      const declaration = symbolDeclaration(checker, expression)
+      if (declaration === undefined || declarations.has(declaration)) return undefined
+      const declaredWrapper = module?.wrapperDeclarations.get(declaration)
+      if (declaredWrapper !== undefined) return declaredWrapper
+      return ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined
+        ? resolveExpression(declaration.initializer, new Set([...declarations, declaration]))
+        : undefined
+    }
+    const exported = module?.constants.get(name)
+    if (exported !== undefined) {
+      const exportedWrapper = resolveExpression(exported)
+      if (exportedWrapper !== undefined) return exportedWrapper
+    }
     const reExport = module?.reExports.get(name)
     return reExport === undefined ? undefined : resolveExportWrapper(reExport.file, reExport.imported, new Set([...seen, key]))
   }
