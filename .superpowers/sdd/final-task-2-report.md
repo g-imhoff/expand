@@ -296,3 +296,47 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE_WITH_CONCERNS
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: fails closed on unresolved child commands and first-party arguments, recursively evaluates zero-parameter, aliased, returned, local, and immediately invoked wrappers, validates nested registered runners while rejecting unregistered nested runners, and scope-resolves preload specifiers and require aliases.
+- `test/architecture/effect-executable-inventory.test.ts`: covers dynamic spawn/execFile/fork commands, proven external and inline commands, wrapper return and alias paths, unresolved returned flow, nested direct and point-free runners, dynamic preload fail-closed behavior, and shadowed require acceptance.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "dynamic child command paths|scope-resolved external|zero-parameter|returned or local wrapper|real runners in nested|resolved forbidden and unresolved dynamic preload|genuinely shadowed preload" --reporter=verbose` failed 12 tests and passed 3, exit 1. Dynamic child commands, returned/local wrappers, nested runners, and dynamic preload specifiers were omitted; the legitimate wrapper chain exposed an unresolved-flow failure.
+- GREEN: the same focused command passed 15 tests with 55 skipped, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts` passed 4 files and 149 tests, exit 0.
+- Full architecture rerun: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts --reporter=verbose` passed 70/70, exit 0.
+- Two consecutive `npm run effect:audit:update` executions passed with identical baseline SHA-256 `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945` and grep-inventory SHA-256 `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`, exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-sixth-fix-grep.txt` and `npm run effect:launchers`: passed; launcher gate passed 70/70, exit 0 each.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: final fresh run passed 164 files, 1346 tests, and 1 expected failure, exit 0. Two earlier runs exited 1 on unrelated, non-reproducing job-control status 147 and temporary-directory cleanup `ENOTEMPTY`; each failed test passed immediately in isolation.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, and `npm run build:desktop`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- `npm run cert:packages`: passed, exit 0.
+- Git mode and SHA-256 comparison: both host files are mode `100755` and both inventory hashes match, exit 0.
+- Package residue, added TypeScript comment, and production/model migration-launcher scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: close dynamic executable discovery` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Dynamic child command and first-party argument flow fails with `ExecutableInventoryError`; scope-proven literals, exact external backend flow, and inline shell/Node commands remain accepted: satisfied.
+- Zero-parameter wrappers, local alias chains, returned closures, local returned functions, immediately invoked wrappers, and unresolved returned flow are recursively resolved or rejected: satisfied.
+- Direct and point-free real runners in nested declarations are validated against exact registered boundaries or rejected; genuinely shadowed runner aliases remain ignored: satisfied.
+- Preload static constants, transitive aliases, dynamic import/require specifiers, and require aliases are scope-resolved; unresolved specifiers fail closed and shadowed require is ignored: satisfied.
+- Changes remain limited to the executable analyzer, its architecture tests, and this durable report; no dependencies, comments, inventory updates, or unrelated behavior were added: satisfied.
+
+## Concerns
+- The complete suite showed two unrelated timing/cleanup flakes before the final green run: job-control status 147 and temporary-directory cleanup `ENOTEMPTY`. Both passed immediately in isolation and the final complete run passed.

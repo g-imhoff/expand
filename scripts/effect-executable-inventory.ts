@@ -309,40 +309,32 @@ const forbiddenPreloadModule = (specifier: string, nodeBuiltins: ReadonlySet<str
 
 export const validatePreloadSource = (source: string, nodeBuiltins: ReadonlySet<string> = fallbackNodeBuiltins): void => {
   const sourceFile = ts.createSourceFile("preload.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
-  const requireAliases = new Set(["require"])
-  let changed = true
-  while (changed) {
-    changed = false
-    const collectAliases = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-        const initializer = node.initializer
-        if (initializer !== undefined && ts.isIdentifier(initializer) && requireAliases.has(initializer.text) && !requireAliases.has(node.name.text)) {
-          requireAliases.add(node.name.text)
-          changed = true
-        }
-      }
-      ts.forEachChild(node, collectAliases)
-    }
-    collectAliases(sourceFile)
+  const checker = createTypeChecker(new Map([["preload.ts", sourceFile]]))
+  const resolveSpecifier = (expression: ts.Expression, seen = new Set<ts.Declaration>()): string | undefined => {
+    if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return expression.text
+    if (!ts.isIdentifier(expression)) return undefined
+    const declaration = symbolDeclaration(checker, expression)
+    if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
+    return resolveSpecifier(declaration.initializer, new Set([...seen, declaration]))
   }
-  const specifiers: Array<string> = []
+  const isRequire = (expression: ts.Expression, seen = new Set<ts.Declaration>()): boolean => {
+    if (!ts.isIdentifier(expression)) return false
+    const declaration = symbolDeclaration(checker, expression)
+    if (declaration === undefined) return expression.text === "require"
+    if (seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return false
+    return isRequire(declaration.initializer, new Set([...seen, declaration]))
+  }
+  const validateSpecifier = (expression: ts.Expression) => {
+    const specifier = resolveSpecifier(expression)
+    if (specifier === undefined || forbiddenPreloadModule(specifier, nodeBuiltins)) throw fail("preload transport shim imports Effect or Node platform services")
+  }
   const visit = (node: ts.Node) => {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined && ts.isStringLiteralLike(node.moduleSpecifier)) {
-      specifiers.push(node.moduleSpecifier.text)
-    }
-    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression !== undefined && ts.isStringLiteralLike(node.moduleReference.expression)) {
-      specifiers.push(node.moduleReference.expression.text)
-    }
-    if (ts.isCallExpression(node) && node.arguments.length > 0 && ts.isStringLiteralLike(node.arguments[0]!) && (
-      node.expression.kind === ts.SyntaxKind.ImportKeyword
-      || (ts.isIdentifier(node.expression) && requireAliases.has(node.expression.text))
-    )) {
-      specifiers.push(node.arguments[0]!.text)
-    }
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier !== undefined) validateSpecifier(node.moduleSpecifier)
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && node.moduleReference.expression !== undefined) validateSpecifier(node.moduleReference.expression)
+    if (ts.isCallExpression(node) && node.arguments[0] !== undefined && (node.expression.kind === ts.SyntaxKind.ImportKeyword || isRequire(node.expression))) validateSpecifier(node.arguments[0])
     ts.forEachChild(node, visit)
   }
   visit(sourceFile)
-  if (specifiers.some((specifier) => forbiddenPreloadModule(specifier, nodeBuiltins))) throw fail("preload transport shim imports Effect or Node platform services")
 }
 
 const executableKind = (file: string): ExecutableKind => {
@@ -475,13 +467,12 @@ const parseRunners = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): Reado
   }
   visit(sourceFile)
   const occurrences = new Map<string, number>()
-  return found.flatMap(({ node, construct }) => {
+  return found.map(({ node, construct }) => {
     const declaration = declarationOf(node)
-    if (declaration.kind !== "module") return []
     const key = `${declarationKey(declaration)}\u0000${construct}`
     const occurrence = occurrences.get(key) ?? 0
     occurrences.set(key, occurrence + 1)
-    return [{ declaration, construct, occurrence }]
+    return { declaration, construct, occurrence }
   })
 }
 
@@ -528,6 +519,10 @@ interface WrapperBinding {
   readonly file: string
   readonly parameters: ReadonlyArray<ts.BindingName>
   readonly body: ts.Node
+}
+
+interface ResolvedWrapper extends WrapperBinding {
+  readonly scope: ReadonlyMap<string, SourceBinding>
 }
 
 interface SourceModule {
@@ -732,6 +727,10 @@ const discoverChildTargets = (
       return []
     }
     if (ts.isArrayLiteralExpression(expression)) return expression.elements.flatMap((element) => ts.isExpression(element) ? resolveValues(element, file, scope, seen) : [])
+    if (ts.isObjectLiteralExpression(expression)) return expression.properties.flatMap((property) =>
+      ts.isPropertyAssignment(property) ? resolveValues(property.initializer, file, scope, seen)
+        : ts.isShorthandPropertyAssignment(property) ? resolveValues(property.name, file, scope, seen)
+          : [])
     if (ts.isSpreadElement(expression)) return resolveValues(expression.expression, file, scope, seen)
     if (ts.isConditionalExpression(expression)) return [...resolveValues(expression.whenTrue, file, scope, seen), ...resolveValues(expression.whenFalse, file, scope, seen)]
     if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === "join") {
@@ -772,6 +771,9 @@ const discoverChildTargets = (
       return false
     }
     if (ts.isArrayLiteralExpression(expression)) return expression.elements.every((element) => ts.isExpression(element) && resolvedFlow(element, file, scope, seen))
+    if (ts.isObjectLiteralExpression(expression)) return expression.properties.every((property) =>
+      ts.isPropertyAssignment(property) ? resolvedFlow(property.initializer, file, scope, seen)
+        : ts.isShorthandPropertyAssignment(property) && resolvedFlow(property.name, file, scope, seen))
     if (ts.isSpreadElement(expression)) return resolvedFlow(expression.expression, file, scope, seen)
     if (ts.isConditionalExpression(expression)) return resolvedFlow(expression.whenTrue, file, scope, seen) && resolvedFlow(expression.whenFalse, file, scope, seen)
     if (ts.isPropertyAccessExpression(expression) && expression.expression.getText(modules.get(file)?.sourceFile) === "process" && expression.name.text === "execPath") return true
@@ -862,8 +864,52 @@ const discoverChildTargets = (
     if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && namespaceOf(expression.expression.expression, file) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
     return undefined
   }
-  const wrapper = (expression: ts.Expression, file: string): WrapperBinding | undefined => {
-    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return { file, parameters: expression.parameters.map(({ name }) => name), body: expression.body }
+  const bindParameters = (
+    helper: WrapperBinding,
+    argumentsList: ReadonlyArray<ts.Expression>,
+    callerFile: string,
+    callerScope: ReadonlyMap<string, SourceBinding>,
+    inherited: ReadonlyMap<string, SourceBinding>
+  ): ReadonlyMap<string, SourceBinding> => {
+    const bindings = new Map(inherited)
+    const bind = (parameter: ts.BindingName, argument: ts.Expression | undefined) => {
+      if (ts.isIdentifier(parameter)) {
+        if (argument !== undefined) bindings.set(parameter.text, { file: callerFile, expression: argument, scope: callerScope })
+        return
+      }
+      if (!ts.isObjectBindingPattern(parameter) || argument === undefined || !ts.isObjectLiteralExpression(argument)) return
+      for (const element of parameter.elements) {
+        if (!ts.isIdentifier(element.name)) continue
+        const propertyName = element.propertyName?.getText(modules.get(helper.file)?.sourceFile) ?? element.name.text
+        const property = argument.properties.find((candidate): candidate is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
+          (ts.isPropertyAssignment(candidate) || ts.isShorthandPropertyAssignment(candidate)) && candidate.name.getText(modules.get(callerFile)?.sourceFile) === propertyName)
+        if (property === undefined) continue
+        const value = ts.isPropertyAssignment(property) ? property.initializer : property.name
+        bindings.set(element.name.text, { file: callerFile, expression: value, scope: callerScope })
+      }
+    }
+    helper.parameters.forEach((parameter, index) => bind(parameter, argumentsList[index]))
+    return bindings
+  }
+  const wrapper = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<ts.Declaration>()): ResolvedWrapper | undefined => {
+    if (ts.isParenthesizedExpression(expression)) return wrapper(expression.expression, file, scope, seen)
+    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return { file, parameters: expression.parameters.map(({ name }) => name), body: expression.body, scope }
+    if (ts.isCallExpression(expression)) {
+      const factory = wrapper(expression.expression, file, scope, seen)
+      if (factory === undefined) return undefined
+      const factoryScope = bindParameters(factory, [...expression.arguments], file, scope, factory.scope)
+      const returned: Array<ts.Expression> = []
+      if (ts.isExpression(factory.body)) returned.push(factory.body)
+      else {
+        const collectReturns = (node: ts.Node) => {
+          if (node !== factory.body && ts.isFunctionLike(node)) return
+          if (ts.isReturnStatement(node) && node.expression !== undefined) returned.push(node.expression)
+          else ts.forEachChild(node, collectReturns)
+        }
+        collectReturns(factory.body)
+      }
+      return returned.length === 1 ? wrapper(returned[0]!, factory.file, factoryScope, seen) : undefined
+    }
     const module = modules.get(file)
     const symbolNode = ts.isIdentifier(expression)
       ? expression
@@ -873,25 +919,30 @@ const discoverChildTargets = (
           ? expression.argumentExpression
           : undefined
     const resolvedDeclaration = symbolNode === undefined ? undefined : symbolDeclaration(checker, symbolNode)
-    if (resolvedDeclaration !== undefined) {
+    if (resolvedDeclaration !== undefined && !seen.has(resolvedDeclaration)) {
+      const nextSeen = new Set([...seen, resolvedDeclaration])
       for (const candidate of modules.values()) {
         const local = candidate.wrapperDeclarations.get(resolvedDeclaration)
-        if (local !== undefined) return local
+        if (local !== undefined) return { ...local, scope }
       }
+      if (ts.isVariableDeclaration(resolvedDeclaration) && resolvedDeclaration.initializer !== undefined) return wrapper(resolvedDeclaration.initializer, file, scope, nextSeen)
     }
     if (!ts.isIdentifier(expression)) return undefined
     const declaration = localBinding(expression)
     if (declaration === undefined || !ts.isImportSpecifier(declaration)) return undefined
     const imported = module?.imports.get(expression.text)
-    return imported === undefined ? undefined : modules.get(imported.file)?.wrappers.get(imported.imported)
+    const importedWrapper = imported === undefined ? undefined : modules.get(imported.file)?.wrappers.get(imported.imported)
+    return importedWrapper === undefined ? undefined : { ...importedWrapper, scope: new Map() }
   }
   const targets: Array<{ readonly target: string; readonly caller: string; readonly position: number }> = []
   const fixtureConsumers = new Map<string, { readonly caller: string; readonly position: number }>()
-  const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string, declarationAnalysis = false) => {
+  const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string, declarationAnalysis = false, invokedHelper = false) => {
     const api = launchApi(call.expression, file)
     if (api !== undefined) {
       const command = call.arguments[0]
       const commandValues = command === undefined ? [] : resolveValues(command, file, scope)
+      const externalBackendCommand = file === "packages/client-ts/adapters/node-spawn.ts"
+      if (!declarationAnalysis && !externalBackendCommand && (command === undefined || !resolvedFlow(command, file, scope))) throw fail(`unresolved child command: ${file}`)
       const knownLaunchers = /^(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npm-cli|npx|pnpm|pnpx|yarn|yarnpkg)(?:\.cmd|\.exe)?$/
       const commandText = command?.getText(modules.get(file)?.sourceFile) ?? ""
       const interpreter = command !== undefined && (commandValues.some((value) => knownLaunchers.test(value.split(/[\\/]/).at(-1) ?? "")) || /process\.execPath/.test(commandText) || /^(?:["'`])?(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npx|pnpm|pnpx|yarn|yarnpkg)\b/.test(commandText))
@@ -910,7 +961,7 @@ const discoverChildTargets = (
       const inlineShell = commandValues.some((value) => /^(?:bash|sh|zsh)$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.includes("-c")
       const inlineNode = commandValues.some((value) => /^(?:node|nodejs)(?:\.exe)?$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.some((value) => /^(?:-e|--eval|--print)$/.test(value))
       if (!declarationAnalysis && interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && argumentFlow !== undefined && !resolvedFlow(argumentFlow, file, scope)) throw fail(`unresolved first-party launch target: ${file}`)
-      const independentlyResolved = scope.size === 0 ? new Set<string>() : new Set(expressions.flatMap((expression) => resolveValues(expression, file, new Map())).flatMap((value) => {
+      const independentlyResolved = !invokedHelper ? new Set<string>() : new Set(expressions.flatMap((expression) => resolveValues(expression, file, new Map())).flatMap((value) => {
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
       }))
@@ -921,38 +972,22 @@ const discoverChildTargets = (
       }
       return
     }
-    const helper = wrapper(call.expression, file)
+    const helper = wrapper(call.expression, file, scope)
     if (helper === undefined) return
-    if (helper.parameters.length === 0) return
-    if (scope.size > 0 && call.arguments.some((argument) => resolveValues(argument, file, new Map()).some((value) => normalizeTarget(file, value) !== undefined))) return
+    if (invokedHelper && call.arguments.some((argument) => resolveValues(argument, file, new Map()).some((value) => normalizeTarget(file, value) !== undefined))) return
     const key = `${helper.file}\0${helper.body.pos}`
     if (stack.has(key)) return
-    const bindings = new Map<string, SourceBinding>()
-    const bind = (parameter: ts.BindingName, argument: ts.Expression | undefined) => {
-      if (ts.isIdentifier(parameter)) {
-        if (argument !== undefined) bindings.set(parameter.text, { file, expression: argument, scope })
-        return
-      }
-      if (!ts.isObjectBindingPattern(parameter) || argument === undefined || !ts.isObjectLiteralExpression(argument)) return
-      for (const element of parameter.elements) {
-        if (!ts.isIdentifier(element.name)) continue
-        const propertyName = element.propertyName?.getText(modules.get(helper.file)?.sourceFile) ?? element.name.text
-        const property = argument.properties.find((candidate): candidate is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
-          (ts.isPropertyAssignment(candidate) || ts.isShorthandPropertyAssignment(candidate)) && candidate.name.getText(modules.get(file)?.sourceFile) === propertyName)
-        if (property === undefined) continue
-        const value = ts.isPropertyAssignment(property) ? property.initializer : property.name
-        bindings.set(element.name.text, { file, expression: value, scope })
-      }
-    }
-    helper.parameters.forEach((parameter, index) => bind(parameter, call.arguments[index]))
+    const bindings = bindParameters(helper, [...call.arguments], file, scope, helper.scope)
+    if (ts.isFunctionLike(helper.body)) return
     const visitHelper = (astNode: ts.Node) => {
-      if (ts.isCallExpression(astNode)) inspectCall(astNode, helper.file, bindings, position, new Set([...stack, key]), observationCaller, declarationAnalysis)
+      if (astNode !== helper.body && ts.isFunctionLike(astNode) && !ts.isCallExpression(astNode.parent)) return
+      if (ts.isCallExpression(astNode)) inspectCall(astNode, helper.file, bindings, position, new Set([...stack, key]), observationCaller, declarationAnalysis, true)
       ts.forEachChild(astNode, visitHelper)
     }
     visitHelper(helper.body)
   }
   for (const [file, module] of modules) {
-    const insideWrapper = (node: ts.Node) => [...module.wrappers.values()].some(({ body }) => body.pos <= node.pos && node.end <= body.end)
+    const insideWrapper = (node: ts.Node) => ts.findAncestor(node, (ancestor) => ts.isFunctionLike(ancestor)) !== undefined
     const visit = (astNode: ts.Node) => {
       if (ts.isCallExpression(astNode)) inspectCall(astNode, file, new Map(), astNode.getStart(module.sourceFile), new Set(), file, insideWrapper(astNode))
       if (ts.isPropertyAssignment(astNode) && /^(?:sourceEntry|backendCommand)$/.test(astNode.name.getText(module.sourceFile))) {
@@ -1015,17 +1050,17 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
     const checker = createTypeChecker(parsedSources)
     const parsedRunners = new Map<string, ReadonlyArray<ParsedRunner>>()
     for (const [file, parsed] of parsedSources) parsedRunners.set(file, parseRunners(parsed, checker))
-    const registeredRunners = effectHostBoundaries.filter((boundary) => tracked.has(boundary.file) && boundary.declaration === "module:<module>" && boundary.construct.startsWith("runner:"))
+    const registeredRunners = effectHostBoundaries.filter((boundary) => tracked.has(boundary.file) && boundary.construct.startsWith("runner:"))
     const runnerBoundaries = new Map<string, BoundaryLink>()
     for (const [file, runners] of parsedRunners) {
       if (runners.length > 1) return yield* fail(`multiple module runners discovered: ${file}`)
       for (const runner of runners) {
         const matches = registeredRunners.filter((boundary) => boundary.file === file && boundary.declaration === declarationKey(runner.declaration) && boundary.construct === runner.construct && boundary.occurrence === runner.occurrence)
         if (matches.length !== 1) return yield* fail(`unregistered or ambiguous module runner: ${file}`)
-        runnerBoundaries.set(file, runner)
+        if (runner.declaration.kind === "module") runnerBoundaries.set(file, runner)
       }
     }
-    for (const boundary of registeredRunners) {
+    for (const boundary of registeredRunners.filter(({ declaration }) => declaration === "module:<module>")) {
       const parsed = parsedRunners.get(boundary.file) ?? []
       if (!parsed.some((runner) => declarationKey(runner.declaration) === boundary.declaration && runner.construct === boundary.construct && runner.occurrence === boundary.occurrence)) {
         return yield* fail(`registered module runner is stale: ${boundary.file}`)
@@ -1089,9 +1124,10 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
     }
 
     for (const [file, runners] of parsedRunners) {
-      for (const runner of runners) add(file, { file, selector: runner.construct, occurrence: runner.occurrence })
-      if (runners.length === 1 && file.startsWith("examples/") && !file.includes("/test/")) add(file, { file, selector: "example-entry", occurrence: 0 })
-      if (runners.length === 1 && file.startsWith("bench/")) add(file, { file, selector: "benchmark-entry", occurrence: 0 })
+      const moduleRunners = runners.filter(({ declaration }) => declaration.kind === "module")
+      for (const runner of moduleRunners) add(file, { file, selector: runner.construct, occurrence: runner.occurrence })
+      if (moduleRunners.length === 1 && file.startsWith("examples/") && !file.includes("/test/")) add(file, { file, selector: "example-entry", occurrence: 0 })
+      if (moduleRunners.length === 1 && file.startsWith("bench/")) add(file, { file, selector: "benchmark-entry", occurrence: 0 })
     }
 
     const childOccurrences = new Map<string, number>()

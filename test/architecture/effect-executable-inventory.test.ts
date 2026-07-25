@@ -287,6 +287,84 @@ launch({ target: globalThis["process"].argv[2] })
       }
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live.each([
+    `import { spawn } from "node${":"}child_process"\nspawn(globalThis["process"].argv[2], ["status"])\n`,
+    `import { execFile } from "node${":"}child_process"\nexecFile(globalThis["process"].env.EXECUTABLE, ["--version"])\n`,
+    `import { fork } from "node${":"}child_process"\nfork(globalThis["process"].argv[2])\n`
+  ])("fails closed for dynamic child command paths", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved child command")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("accepts scope-resolved external and inline child commands without inventing entrypoints", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import { exec, execFile, spawn } from "node${":"}child_process"
+const external = "git"
+const alias = external
+const launch = (command: string) => spawn(command, ["status"])
+launch(alias)
+execFile("/usr/bin/env", ["true"])
+exec("printf ok")
+spawn("bash", ["-c", "printf ok"])
+spawn("node", ["-e", "void 0"])
+`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves zero-parameter, local-alias, returned, and immediately invoked wrapper paths", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import { spawn } from "node${":"}child_process"
+const zero = () => spawn("node", ["scripts/zero.ts"])
+const first = zero
+const second = first
+const returned = (target: string) => () => spawn("node", [target])
+const localFactory = () => {
+  const local = (target: string) => spawn("node", [target])
+  return local
+}
+second()
+returned("scripts/returned.ts")()
+localFactory()("scripts/local.ts")
+;((target: string) => spawn("node", [target]))("scripts/iife.ts")
+`,
+        "scripts/iife.ts": `export {}\n`,
+        "scripts/local.ts": `export {}\n`,
+        "scripts/returned.ts": `export {}\n`,
+        "scripts/zero.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual([
+        "scripts/iife.ts",
+        "scripts/local.ts",
+        "scripts/returned.ts",
+        "scripts/zero.ts"
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    `import { spawn } from "node${":"}child_process"\nconst returned = (target: string) => () => spawn("node", [target])\nreturned(globalThis["process"].argv[2])()\n`,
+    `import { spawn } from "node${":"}child_process"\nconst factory = () => { const local = (target: string) => spawn("node", [target]); return local }\nfactory()(globalThis["process"].env.TARGET)\n`
+  ])("fails closed when returned or local wrapper flow cannot be proven", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("discovers direct require property and element child launches", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -367,6 +445,31 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
       expect(errorDetail(error)).toContain("absent from inventory")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live.each([
+    `const builtin = "node${":"}fs"\nimport(builtin)\n`,
+    `const builtin = "fs"\nconst alias = builtin\nconst loader = require\nloader(alias)\n`,
+    `import(globalThis["process"].env.PRELOAD_MODULE)\n`,
+    `require(globalThis["process"].argv[2])\n`
+  ])("fails closed for resolved forbidden and unresolved dynamic preload specifiers", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/src/preload/index.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("preload transport shim")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("ignores a genuinely shadowed preload require", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/src/preload/index.ts": `function transport(require: (specifier: string) => unknown) { return require(globalThis["process"].argv[2]) }\nvoid transport\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("rejects preload module drift through actual repository discovery", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -375,6 +478,20 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
       })
       const error = yield* Effect.flip(discoverExecutableInventory(root))
       expect(errorDetail(error)).toContain("preload transport shim")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    `import { Effect } from "effect"\nfunction nested() { Effect.${"runPromise"}(Effect.void) }\nvoid nested\n`,
+    `import { Effect } from "effect"\nconst nested = () => Effect.void.pipe(Effect.${"runPromise"})\nvoid nested\n`,
+    `import { NodeRuntime } from "@effect/platform-node"\nconst outer = () => { const launch = NodeRuntime.${"runMain"}; return (program: never) => launch(program) }\nvoid outer\n`
+  ])("fails independently discovered real runners in nested scopes", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/runner.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toMatch(/runner/)
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live("fails independently discovered unregistered and multiple module runners", () =>
