@@ -75,3 +75,64 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/package-certification.ts`: made each workspace lifecycle interruption-safe with an uninterruptible masked Exit/Cause cleanup path, rejected pre-existing unowned staging paths, attempted every owned staging removal exactly once, retained primary and cleanup Causes, exhaustively paired contracts wildcard runtime/declaration stems, preserved the null domain-event exclusion, and derived runtime/type smoke imports from every resolved contracts subpath.
+- `scripts/package-certification.test.ts`: added real-filesystem pack/inspect interruption residue tests for both workspaces and all three staging paths, ownership preservation, cleanup-failure plus interruption Cause coverage, and paired/unpaired/duplicate/deterministic wildcard adversarial coverage.
+- `effect-grep-inventory.json`: replaced the prior package-certification test candidate with the exact five current Deferred/Fiber lexical false positives and refreshed the package runner location.
+- `.superpowers/sdd/final-task-1-report.md`: recorded this consolidated certification fix wave.
+
+## Test or validation evidence
+- Mode: TDD
+- RED command/result: `npm exec -- vitest run scripts/package-certification.test.ts` exited 1; the new JS-only, type-only, unmatched-stem, duplicate, exhaustive expansion, real residue, ownership, and interruption-plus-cleanup-Cause assertions failed because wildcard pairing was existential and cleanup was interruptible/error-only.
+- GREEN command/result: `npm exec -- vitest run scripts/package-certification.test.ts` passed 27/27, exit 0.
+- Covering test file `scripts/package-certification.test.ts`: `npm exec -- vitest run scripts/package-certification.test.ts` passed 27/27, exit 0.
+- Covering test file `test/architecture/effect-certification.test.ts`: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts` passed 29/29 in 2 files, exit 0.
+- Real certification: `npm run cert:packages` completed contracts/client build, stage, pack, exhaustive import smoke, exhaustive standalone TypeScript resolution, and cleanup, exit 0.
+- Residue scan: `{ find . -maxdepth 5 -name '*.tgz'; find . -maxdepth 5 -name 'dist-publish'; find . -maxdepth 5 -name '.dist-publish.next'; find . -maxdepth 5 -name '.dist-publish.previous'; } | sort -u` produced no output, exit 0.
+
+## Task gate
+- Command: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts`
+- Result: 29 tests passed in 2 files; exit 0.
+- Command: `npm run cert:packages`
+- Result: real package certification passed; exit 0.
+- Command: `npm run effect:audit`
+- Result: 0 blocking findings, 90 advisories, 275 exact candidates with migration-debt=0, and 2 exact launchers with migration-debt=0; exit 0.
+- Command: `npm exec -- vitest run --reporter=json --outputFile=/tmp/full-vitest-final.json`
+- Result: 400/400 suites and 1283/1283 tests passed; exit 0.
+
+## Full gate evidence
+- `npm ci`: passed with no root changes; exit 0.
+- `npm ci --prefix docs/architecture`: installed 126 packages and completed audit with two low-severity dependency advisories; exit 0.
+- `npm run agents:check`: agent definitions synchronized; exit 0.
+- `npm run lint`: passed; exit 0.
+- `npm run typecheck:all`: passed; exit 0.
+- `npm run arch`: 189 modules and 624 dependencies cruised with no violations; exit 0.
+- `npm run knip`: passed; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-1-fix-grep.txt`: wrote 268 grep output lines; exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`; exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed; exit 0.
+- `npm run build`: passed; exit 0.
+- `npm run cert:cli:build`: passed; exit 0.
+- `npm run build:desktop`: passed; exit 0.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 Playwright tests passed; exit 0.
+- `git diff --check`: passed with no whitespace errors.
+
+## Commits
+- `HEAD` `fix: complete package certification` (final SHA is returned in the completion handoff)
+
+## Self-review
+- Interruption-safe contracts/client lifecycle: satisfied; the use region is restored interruptible inside an uninterruptible mask, cleanup evaluates the actual primary and release Exits, and combined Causes retain fail/die/interrupt information.
+- Ownership boundary: satisfied; any pre-existing staging path fails before commands and is preserved, while certification-owned paths are removed once each.
+- Real residue proof: satisfied for pack and inspect interruption in both workspaces, scoped temp removal, all three staging names, exact removal count, and cleanup defect plus interrupt Cause.
+- Exhaustive wildcard pairing: satisfied; every compiled `.js` and `.d.ts` stem is bijectively paired, deterministically expanded, and duplicate/unpaired targets are rejected.
+- Null exclusion and smoke coverage: satisfied; `@expand/contracts/events/domain-event` remains excluded while every other resolved wildcard subpath feeds both runtime import and standalone TypeScript smoke sources.
+- Adversarial omission/fake-coverage detection: satisfied by nested deterministic expansion plus JS-only, type-only, unmatched-stem, and duplicate metadata cases.
+- Scope and architecture: satisfied; only certification production/test code, its exact audit inventory evidence, and this durable report changed; no comments or dependencies were added.
+
+## Concerns
+- None

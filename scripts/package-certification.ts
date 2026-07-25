@@ -137,6 +137,43 @@ const targetExists = (files: ReadonlyArray<string>, target: string): boolean => 
   return prefix !== undefined && suffix !== undefined && files.some((file) => file.startsWith(prefix) && file.endsWith(suffix))
 }
 
+export interface ContractsWildcardTarget {
+  readonly subpath: string
+  readonly runtime: string
+  readonly declaration: string
+}
+
+export const resolveContractsWildcardTargets = (files: ReadonlyArray<string>): ReadonlyArray<ContractsWildcardTarget> => {
+  const runtimes = new Map<string, number>()
+  const declarations = new Map<string, number>()
+  for (const file of files) {
+    if (file.startsWith("dist/") && file.endsWith(".d.ts")) {
+      const stem = file.slice("dist/".length, -".d.ts".length)
+      declarations.set(stem, (declarations.get(stem) ?? 0) + 1)
+    } else if (file.startsWith("dist/") && file.endsWith(".js")) {
+      const stem = file.slice("dist/".length, -".js".length)
+      runtimes.set(stem, (runtimes.get(stem) ?? 0) + 1)
+    }
+  }
+  const stems = [...new Set([...runtimes.keys(), ...declarations.keys()])].sort()
+  return stems.flatMap((stem) => stem === "events/domain-event" ? [] : [{
+    subpath: `@expand/contracts/${stem}`,
+    runtime: `dist/${stem}.js`,
+    declaration: `dist/${stem}.d.ts`
+  }])
+}
+
+const validateContractsWildcardTargets = (files: ReadonlyArray<string>) => Effect.gen(function*() {
+  const counts = new Map<string, number>()
+  for (const file of files) counts.set(file, (counts.get(file) ?? 0) + 1)
+  const duplicate = [...counts].find(([file, count]) => count > 1 && (file.endsWith(".js") || file.endsWith(".d.ts")))
+  if (duplicate !== undefined) return yield* failure("@expand/contracts", "inspect", `duplicate wildcard target: ${duplicate[0]}`)
+  const runtimes = new Set(files.filter((file) => file.startsWith("dist/") && file.endsWith(".js")).map((file) => file.slice(0, -3)))
+  const declarations = new Set(files.filter((file) => file.startsWith("dist/") && file.endsWith(".d.ts")).map((file) => file.slice(0, -5)))
+  const unmatched = [...new Set([...runtimes, ...declarations])].sort().find((stem) => !runtimes.has(stem) || !declarations.has(stem))
+  if (unmatched !== undefined) return yield* failure("@expand/contracts", "inspect", `missing paired wildcard target: ${unmatched}`)
+})
+
 export const inspectPackageArtifact = Effect.fn("PackageCertification.inspectPackageArtifact")(
   function*(input: {
     readonly workspace: Workspace
@@ -172,6 +209,7 @@ export const inspectPackageArtifact = Effect.fn("PackageCertification.inspectPac
     for (const target of exportTargets(manifest.exports)) {
       if (!targetExists(input.metadataFiles, target)) return yield* failure(input.workspace, "inspect", `missing export target: ${target}`)
     }
+    if (input.workspace === "@expand/contracts") yield* validateContractsWildcardTargets(input.metadataFiles)
     return {
       workspace: input.workspace,
       packageName: manifest.name,
@@ -225,26 +263,47 @@ const parseTarEntries = (workspace: Workspace, paths: string, verbose: string) =
   }))
 })
 
-const cleanupStage = (root: string, directory: string, workspace: Workspace) => Effect.gen(function*() {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  yield* Effect.all([
-    fs.remove(path.join(root, directory, "dist-publish"), { recursive: true, force: true }),
-    fs.remove(path.join(root, directory, ".dist-publish.next"), { recursive: true, force: true }),
-    fs.remove(path.join(root, directory, ".dist-publish.previous"), { recursive: true, force: true })
-  ]).pipe(Effect.mapError((cause) => failure(workspace, "inspect", "staging cleanup failed", cause)))
-})
+const stagePaths = (root: string, directory: string, path: Path.Path) => [
+  path.join(root, directory, "dist-publish"),
+  path.join(root, directory, ".dist-publish.next"),
+  path.join(root, directory, ".dist-publish.previous")
+]
 
 const retainCleanup = <A, E, R, E2, R2>(program: Effect.Effect<A, E, R>, cleanup: Effect.Effect<void, E2, R2>) =>
-  Effect.exit(program).pipe(Effect.flatMap((primary) => Effect.exit(cleanup).pipe(Effect.flatMap((released) => {
+  Effect.uninterruptibleMask((restore) => Effect.exit(restore(program)).pipe(Effect.flatMap((primary) => Effect.exit(cleanup).pipe(Effect.flatMap((released) => {
     if (Exit.isFailure(primary)) return Exit.isFailure(released)
       ? Effect.failCause(Cause.combine(primary.cause, released.cause))
       : Effect.failCause(primary.cause)
     return Exit.isFailure(released) ? Effect.failCause(released.cause) : Effect.succeed(primary.value)
-  }))))
+  })))))
 
-const smokeTargets = (workspace: Workspace) => workspace === "@expand/contracts"
-  ? ["@expand/contracts/process-control"]
+const cleanupStage = (root: string, directory: string, workspace: Workspace) => Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const removals = stagePaths(root, directory, path).map((target) => Effect.gen(function*() {
+    yield* fs.remove(target, { recursive: true, force: true }).pipe(
+      Effect.mapError((cause) => failure(workspace, "inspect", "staging cleanup failed", cause))
+    )
+  }))
+  return yield* retainCleanup(removals[0]!, retainCleanup(removals[1]!, removals[2]!))
+})
+
+const runWorkspaceLifecycle = <A, E, R>(
+  root: string,
+  directory: string,
+  workspace: Workspace,
+  program: Effect.Effect<A, E, R>
+) => Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const paths = stagePaths(root, directory, path)
+  const existing = yield* Effect.filter(paths, (target) => fs.exists(target))
+  if (existing.length > 0) return yield* failure(workspace, "stage", `staging path already exists: ${existing[0]}`)
+  return yield* retainCleanup(program, cleanupStage(root, directory, workspace))
+})
+
+const smokeTargets = (workspace: Workspace, files: ReadonlyArray<string>) => workspace === "@expand/contracts"
+  ? resolveContractsWildcardTargets(files).map((target) => target.subpath)
   : ["@expand/client-ts", "@expand/client-ts/project", "@expand/client-ts/server", "@expand/client-ts/adapters/node"]
 
 export const certifyPackages = Effect.fn("PackageCertification.run")(
@@ -290,7 +349,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
         })
         reports.push(report)
       })
-      yield* retainCleanup(work, cleanupStage(root, workspace.directory, workspace.name))
+      yield* runWorkspaceLifecycle(root, workspace.directory, workspace.name, work)
     }
     const consumer = path.join(temp, "consumer")
     yield* fs.makeDirectory(consumer, { recursive: true }).pipe(
@@ -306,7 +365,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
       args: ["install", "--ignore-scripts", "--no-package-lock", "--no-audit", "--no-fund", ...tarballs],
       cwd: consumer
     })
-    const targets = workspaces.flatMap((workspace) => smokeTargets(workspace.name))
+    const targets = reports.flatMap((report) => smokeTargets(report.workspace as Workspace, report.files))
     const encodedTargets = yield* Effect.forEach(targets, (target) => Schema.encodeEffect(Schema.UnknownFromJsonString)(target))
     const importSource = `${encodedTargets.map((target) => `import ${target}`).join("\n")}\n`
     yield* fs.writeFileString(path.join(consumer, "smoke.mjs"), importSource).pipe(
