@@ -199,3 +199,63 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave: typed package certification boundary
+
+Status: DONE
+
+## Changes
+- `scripts/package-certification.ts`: maps temporary directory acquisition, staging existence checks, remaining smoke/type writes, and JSON Schema encodes at their narrow workspace/phase boundary so `certifyPackages` has exactly `PackageCertificationError` in its typed error channel while defects and interruption remain Cause information.
+- `scripts/package-certification.test.ts`: adds exact compile-time error equality plus runtime regressions for temporary acquisition, staging existence, manifest read, consumer write, import-smoke write, Schema encode failure, defects, and interruption.
+- `.superpowers/sdd/final-task-1-report.md`: records the third-review typed-boundary fix evidence.
+
+## Test or validation evidence
+- Mode: TDD.
+- RED command: `npm exec -- vitest run scripts/package-certification.test.ts`; exit 1 because temporary directory acquisition and staging existence failures escaped as raw platform failures instead of `PackageCertificationError`.
+- RED command: `npm run typecheck:all`; exit 2 with `Type 'false' does not satisfy the constraint 'true'` and `Type 'true' is not assignable to type 'false'` at the exact `Effect.Error<ReturnType<typeof certifyPackages>>` equality assertion.
+- GREEN command: `npm exec -- vitest run scripts/package-certification.test.ts`; 1 file and 36 tests passed; exit 0.
+- GREEN command: `npm run typecheck:all`; TypeScript completed with no errors; exit 0.
+- Covering test file `scripts/package-certification.test.ts`: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts`; 2 files and 38 tests passed; exit 0.
+- Real certification: `npm run cert:packages`; contracts/client build-stage-pack-inspect certification passed; exit 0.
+- Residue scan: `{ find . -maxdepth 5 -name '*.tgz'; find . -maxdepth 5 -name 'dist-publish'; find . -maxdepth 5 -name '.dist-publish.next'; find . -maxdepth 5 -name '.dist-publish.previous'; } | sort -u`; no output; exit 0.
+
+## Task gate
+- Command: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts`
+- Result: 38 tests passed in 2 files; exit 0.
+- Command: `npm run cert:packages`
+- Result: real package certification passed; exit 0.
+- Command: `npm run effect:audit`
+- Result: 0 blocking findings, 90 advisories, 278 exact candidates with migration-debt=0, and 2 exact launchers with migration-debt=0; exit 0.
+- Command: `npm exec -- vitest run --reporter=json --outputFile=/tmp/full-vitest-final-task-1-third-fix.json`
+- Result: 400/400 suites and 1292/1292 tests passed; exit 0.
+
+## Full gate evidence
+- `npm ci`: passed with no root changes; exit 0.
+- `npm ci --prefix docs/architecture`: installed 126 packages and completed audit with two low-severity dependency advisories; exit 0.
+- `npm run agents:check`: agent definitions synchronized; exit 0.
+- `npm run lint`: passed; exit 0.
+- `npm run typecheck:all`: passed; exit 0.
+- `npm run arch`: 189 modules and 624 dependencies cruised with no violations; exit 0.
+- `npm run knip`: passed; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-1-third-fix-grep.txt`: completed; exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`; exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed; exit 0.
+- `npm run build`: passed; exit 0.
+- `npm run cert:cli:build`: passed; exit 0.
+- `npm run build:desktop`: passed; exit 0.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 Playwright tests passed; exit 0.
+- `git diff --check`: passed with no whitespace errors.
+
+## Commits
+- `HEAD` `fix: type package certification failures` (final SHA is returned in the completion handoff).
+
+## Self-review
+- Exact typed boundary: satisfied; compile-time equality proves the invoked exported function's error channel is exactly `PackageCertificationError`.
+- Narrow operation mapping: satisfied for global temp setup with first-operation contracts/build context, per-workspace staging existence, inspect reads/directories/writes, command operations, Schema decode, and Schema encode.
+- Cause preservation: satisfied; mapping uses `Effect.mapError`, and runtime assertions prove defects and interruption do not become typed failures.
+- Required runtime regressions: satisfied for temporary acquisition, staging existence/read/write, smoke-file write, and Schema encode.
+- Scope: satisfied; only package certification production/test code and this durable report changed, with no comments or dependencies added.
+- Full gates and residue: satisfied by the commands and exit codes above.
+
+## Concerns
+- None

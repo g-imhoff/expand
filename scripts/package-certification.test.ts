@@ -4,6 +4,7 @@ import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, Ref, Sch
 import { describe, expect } from "vitest"
 import {
   certifyPackages,
+  encodeCertificationJson,
   inspectPackageArtifact,
   PackageCertificationCommandRunner,
   PackageCertificationError,
@@ -82,6 +83,43 @@ const inspect = (kind: "contracts" | "client", mutate: (manifest: Record<string,
 
 const expectInspectFailure = (effect: Effect.Effect<unknown, PackageCertificationError, never>, detail: string) =>
   effect.pipe(Effect.flip, Effect.map((error) => expect(error).toMatchObject({ phase: "inspect", detail: expect.stringContaining(detail) })))
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2)
+  ? (<T>() => T extends B ? 1 : 2) extends (<T>() => T extends A ? 1 : 2) ? true : false
+  : false
+type Assert<T extends true> = T
+type CertifyPackagesErrorIsExact = Assert<Equal<Effect.Error<ReturnType<typeof certifyPackages>>, PackageCertificationError>>
+const certifyPackagesErrorIsExact: CertifyPackagesErrorIsExact = true
+
+const certificationRunner = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
+  run: (request) => {
+    const kind = request.workspace === "@expand/contracts" ? "contracts" : "client"
+    const files = filesFor(kind)
+    if (request.phase === "pack") {
+      return Schema.encodeEffect(Schema.UnknownFromJsonString)([{
+        id: `${kind}@0.0.0`, name: request.workspace, version: "0.0.0", size: 1, unpackedSize: 1,
+        shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
+        entryCount: files.length, bundled: []
+      }]).pipe(Effect.map((stdout) => ({ exitCode: 0, stdout, stderr: "" })), Effect.orDie)
+    }
+    if (request.command === "tar" && request.args[0] === "-tzf") {
+      return Effect.succeed({ exitCode: 0, stdout: files.map((file) => `package/${file}`).join("\n"), stderr: "" })
+    }
+    if (request.command === "tar" && request.args[0] === "-tvzf") {
+      return Effect.succeed({ exitCode: 0, stdout: files.map((file) => `-rw-r--r-- user/group 1 date package/${file}`).join("\n"), stderr: "" })
+    }
+    return Effect.succeed({ exitCode: 0, stdout: "", stderr: "" })
+  }
+}))
+
+const manifestJson = (workspace: "@expand/contracts" | "@expand/client-ts") => Schema.encodeEffect(Schema.UnknownFromJsonString)({
+  name: workspace,
+  version: "0.0.0",
+  private: false,
+  type: "module",
+  files: ["dist"],
+  exports: workspace === "@expand/contracts" ? contractsExports() : clientExports()
+}).pipe(Effect.orDie)
 
 describe("package certification model", () => {
   it.effect.each(["contracts", "client"] as const)("accepts a valid synthetic %s package", (kind) =>
@@ -186,6 +224,56 @@ describe("package certification model", () => {
 })
 
 describe("package certification resources", () => {
+  it("exposes exactly PackageCertificationError", () => {
+    expect(certifyPackagesErrorIsExact).toBe(true)
+  })
+
+  it.effect.each([
+    ["temporary directory acquisition", "@expand/contracts", "build", "temporary directory could not be created", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.fail(failure as never) })],
+    ["staging existence", "@expand/contracts", "stage", "staging paths could not be checked", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.fail(failure as never) })],
+    ["manifest read", "@expand/contracts", "inspect", "package.json could not be read", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: () => Effect.fail(failure as never) })],
+    ["consumer manifest write", "@expand/client-ts", "inspect", "consumer manifest could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(target.includes("contracts") ? "@expand/contracts" : "@expand/client-ts"), writeFileString: () => Effect.fail(failure as never) })],
+    ["import smoke write", "@expand/client-ts", "inspect", "import smoke could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(target.includes("contracts") ? "@expand/contracts" : "@expand/client-ts"), writeFileString: (target) => target.endsWith("smoke.mjs") ? Effect.fail(failure as never) : Effect.void })]
+  ] as const)("maps %s failures at the operation boundary", ([, workspace, phase, detail, fileSystem]) => {
+    const cause = { operation: detail }
+    return certifyPackages("/fixture").pipe(
+      Effect.provide(certificationRunner),
+      Effect.provide(fileSystem(cause)),
+      Effect.provide(Path.layer),
+      Effect.flip,
+      Effect.map((error) => expect(error).toEqual(new PackageCertificationError({ workspace, phase, detail, cause })))
+    )
+  })
+
+  it.effect("maps Schema encode failures at the operation boundary", () => {
+    const cyclic: { self?: unknown } = {}
+    cyclic.self = cyclic
+    return encodeCertificationJson("@expand/client-ts", "inspect", "smoke source could not be encoded", cyclic).pipe(
+      Effect.flip,
+      Effect.map((error) => {
+        expect(error).toBeInstanceOf(PackageCertificationError)
+        expect(error).toMatchObject({ workspace: "@expand/client-ts", phase: "inspect", detail: "smoke source could not be encoded" })
+        expect(error.cause).toBeDefined()
+      })
+    )
+  })
+
+  it.effect.each([
+    ["defect", Effect.die("temporary directory defect"), false],
+    ["interruption", Effect.interrupt, true]
+  ] as const)("preserves temporary directory %s as Cause information", ([, acquisition, interrupted]) => certifyPackages("/fixture").pipe(
+    Effect.provide(certificationRunner),
+    Effect.provide(FileSystem.layerNoop({ makeTempDirectoryScoped: () => acquisition })),
+    Effect.provide(Path.layer),
+    Effect.exit,
+    Effect.map((exit) => {
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isSuccess(exit)) return
+      expect(Cause.hasInterrupts(exit.cause)).toBe(interrupted)
+      expect(Cause.hasFails(exit.cause)).toBe(false)
+    })
+  ))
+
   it.effect("reports a nonzero child exit with its phase", () => {
     const layer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
       run: (request) => Effect.succeed({ exitCode: request.phase === "build" ? 9 : 0, stdout: "", stderr: "failed" })

@@ -96,6 +96,14 @@ const contractsExports = {
 const failure = (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string, cause?: unknown) =>
   new PackageCertificationError({ workspace, phase, detail, ...(cause === undefined ? {} : { cause }) })
 
+const mapCertificationError = (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.mapError((cause) => failure(workspace, phase, detail, cause)))
+
+export const encodeCertificationJson = Effect.fn("PackageCertification.encodeJson")(
+  (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string, value: unknown) =>
+    Schema.encodeEffect(Schema.UnknownFromJsonString)(value).pipe(mapCertificationError(workspace, phase, detail))
+)
+
 const sameValue = (actual: unknown, expected: unknown): boolean => {
   if (actual === expected) return true
   if (actual === null || expected === null || typeof actual !== "object" || typeof expected !== "object") return false
@@ -297,7 +305,9 @@ const runWorkspaceLifecycle = <A, E, R>(
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const paths = stagePaths(root, directory, path)
-  const existing = yield* Effect.filter(paths, (target) => fs.exists(target))
+  const existing = yield* Effect.filter(paths, (target) => fs.exists(target)).pipe(
+    mapCertificationError(workspace, "stage", "staging paths could not be checked")
+  )
   if (existing.length > 0) return yield* failure(workspace, "stage", `staging path already exists: ${existing[0]}`)
   return yield* retainCleanup(program, cleanupStage(root, directory, workspace))
 })
@@ -310,7 +320,9 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
   (root: string) => Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const temp = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-certification-" })
+    const temp = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-certification-" }).pipe(
+      mapCertificationError("@expand/contracts", "build", "temporary directory could not be created")
+    )
     const reports: Array<PackageCertificationReport> = []
     const tarballs: Array<string> = []
     for (const workspace of workspaces) {
@@ -355,8 +367,14 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
     yield* fs.makeDirectory(consumer, { recursive: true }).pipe(
       Effect.mapError((cause) => failure("@expand/client-ts", "inspect", "consumer directory could not be created", cause))
     )
-    yield* fs.writeFileString(path.join(consumer, "package.json"), yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({ private: true, type: "module" })).pipe(
-      Effect.mapError((cause) => failure("@expand/client-ts", "inspect", "consumer manifest could not be written", cause))
+    const consumerManifest = yield* encodeCertificationJson(
+      "@expand/client-ts",
+      "inspect",
+      "consumer manifest could not be encoded",
+      { private: true, type: "module" }
+    )
+    yield* fs.writeFileString(path.join(consumer, "package.json"), consumerManifest).pipe(
+      mapCertificationError("@expand/client-ts", "inspect", "consumer manifest could not be written")
     )
     yield* run({
       workspace: "@expand/client-ts",
@@ -366,18 +384,33 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
       cwd: consumer
     })
     const targets = reports.flatMap((report) => smokeTargets(report.workspace as Workspace, report.files))
-    const encodedTargets = yield* Effect.forEach(targets, (target) => Schema.encodeEffect(Schema.UnknownFromJsonString)(target))
+    const encodedTargets = yield* Effect.forEach(targets, (target) => encodeCertificationJson(
+      "@expand/client-ts",
+      "inspect",
+      "smoke target could not be encoded",
+      target
+    ))
     const importSource = `${encodedTargets.map((target) => `import ${target}`).join("\n")}\n`
     yield* fs.writeFileString(path.join(consumer, "smoke.mjs"), importSource).pipe(
       Effect.mapError((cause) => failure("@expand/client-ts", "inspect", "import smoke could not be written", cause))
     )
     yield* run({ workspace: "@expand/client-ts", phase: "inspect", command: "node", args: ["smoke.mjs"], cwd: consumer })
     const typeSource = `${encodedTargets.map((target, index) => `import type * as T${index} from ${target}\ntype V${index} = typeof T${index}`).join("\n")}\n`
-    yield* fs.writeFileString(path.join(consumer, "smoke.ts"), typeSource)
-    yield* fs.writeFileString(path.join(consumer, "tsconfig.json"), yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
-      compilerOptions: { strict: true, noEmit: true, skipLibCheck: true, module: "ESNext", moduleResolution: "Bundler", target: "ES2022" },
-      files: ["smoke.ts"]
-    }))
+    yield* fs.writeFileString(path.join(consumer, "smoke.ts"), typeSource).pipe(
+      mapCertificationError("@expand/client-ts", "inspect", "type smoke could not be written")
+    )
+    const typeScriptConfig = yield* encodeCertificationJson(
+      "@expand/client-ts",
+      "inspect",
+      "TypeScript configuration could not be encoded",
+      {
+        compilerOptions: { strict: true, noEmit: true, skipLibCheck: true, module: "ESNext", moduleResolution: "Bundler", target: "ES2022" },
+        files: ["smoke.ts"]
+      }
+    )
+    yield* fs.writeFileString(path.join(consumer, "tsconfig.json"), typeScriptConfig).pipe(
+      mapCertificationError("@expand/client-ts", "inspect", "TypeScript configuration could not be written")
+    )
     yield* run({ workspace: "@expand/client-ts", phase: "inspect", command: path.join(root, "node_modules", ".bin", "tsc"), args: ["-p", "tsconfig.json"], cwd: consumer })
     return reports
   }))
