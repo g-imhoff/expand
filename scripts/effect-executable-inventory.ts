@@ -370,6 +370,22 @@ const sourceKind = (file: string) => file.endsWith(".tsx")
 const parseSource = (file: string, source: string) =>
   ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, sourceKind(file))
 
+const createTypeChecker = (sources: ReadonlyMap<string, ts.SourceFile>): ts.TypeChecker => {
+  const options: ts.CompilerOptions = { allowJs: true, noLib: true, noResolve: true, target: ts.ScriptTarget.Latest }
+  const fallback = ts.createCompilerHost(options)
+  const host: ts.CompilerHost = {
+    ...fallback,
+    fileExists: (fileName) => sources.has(fileName),
+    getSourceFile: (fileName) => sources.get(fileName),
+    readFile: (fileName) => sources.get(fileName)?.text,
+    writeFile: () => undefined
+  }
+  return ts.createProgram({ rootNames: [...sources.keys()], options, host }).getTypeChecker()
+}
+
+const symbolDeclaration = (checker: ts.TypeChecker, node: ts.Node): ts.Declaration | undefined =>
+  checker.getSymbolAtLocation(node)?.declarations?.[0]
+
 const declarationOf = (node: ts.Node): typeof ExecutableDeclaration.Type => {
   let current: ts.Node | undefined = node
   while (current !== undefined) {
@@ -387,58 +403,64 @@ interface ParsedRunner {
   readonly occurrence: number
 }
 
-const parseRunners = (sourceFile: ts.SourceFile): ReadonlyArray<ParsedRunner> => {
+const parseRunners = (sourceFile: ts.SourceFile, checker: ts.TypeChecker): ReadonlyArray<ParsedRunner> => {
   const found: Array<{ readonly node: ts.Node; readonly construct: string }> = []
   type RunnerAlias = "Effect" | "EffectModule" | "NodeRuntime" | "PlatformNode" | `runner:${string}`
-  const aliases = new Map<string, RunnerAlias>([["Effect", "Effect"], ["NodeRuntime", "NodeRuntime"]])
+  const runnerPattern = /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/
   const memberName = (expression: ts.PropertyAccessExpression | ts.ElementAccessExpression) => ts.isPropertyAccessExpression(expression)
     ? expression.name.text
     : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
       ? expression.argumentExpression.text
       : undefined
-  const resolveAlias = (expression: ts.Expression): RunnerAlias | undefined => {
-    if (ts.isIdentifier(expression)) return aliases.get(expression.text)
+  const importModule = (declaration: ts.Declaration): string | undefined => {
+    const importDeclaration = declaration.parent === undefined ? undefined : ts.findAncestor(declaration, ts.isImportDeclaration)
+    return importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) ? importDeclaration.moduleSpecifier.text : undefined
+  }
+  const resolveAlias = (expression: ts.Expression, seen = new Set<ts.Declaration>()): RunnerAlias | undefined => {
+    if (ts.isIdentifier(expression)) {
+      const declaration = symbolDeclaration(checker, expression)
+      if (declaration === undefined || seen.has(declaration)) return undefined
+      const nextSeen = new Set([...seen, declaration])
+      const moduleName = importModule(declaration)
+      if (ts.isImportClause(declaration)) {
+        if (moduleName === "effect" || moduleName === "effect/Effect") return "Effect"
+        if (moduleName === "@effect/platform-node/NodeRuntime") return "NodeRuntime"
+      }
+      if (ts.isNamespaceImport(declaration)) {
+        if (moduleName === "effect") return "EffectModule"
+        if (moduleName === "@effect/platform-node") return "PlatformNode"
+        if (moduleName === "@effect/platform-node/NodeRuntime") return "NodeRuntime"
+      }
+      if (ts.isImportSpecifier(declaration)) {
+        const imported = declaration.propertyName?.text ?? declaration.name.text
+        if (moduleName === "effect" && imported === "Effect") return "Effect"
+        if (moduleName === "effect" && runnerPattern.test(imported)) return `runner:Effect.${imported}`
+        if (moduleName === "@effect/platform-node" && imported === "NodeRuntime") return "NodeRuntime"
+        if (moduleName === "@effect/platform-node/NodeRuntime" && imported === "runMain") return "runner:NodeRuntime.runMain"
+      }
+      if (ts.isVariableDeclaration(declaration)) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) return resolveAlias(declaration.initializer, nextSeen)
+        if (ts.isBindingElement(declaration.parent)) return undefined
+      }
+      if (ts.isBindingElement(declaration) && ts.isObjectBindingPattern(declaration.parent)) {
+        const variable = declaration.parent.parent
+        if (ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
+          const owner = resolveAlias(variable.initializer, nextSeen)
+          const member = declaration.propertyName?.getText(sourceFile) ?? declaration.name.getText(sourceFile)
+          if (owner === "NodeRuntime" && member === "runMain") return "runner:NodeRuntime.runMain"
+          if (owner === "Effect" && runnerPattern.test(member)) return `runner:Effect.${member}`
+        }
+      }
+      return undefined
+    }
     if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined
-    const owner = resolveAlias(expression.expression)
+    const owner = resolveAlias(expression.expression, seen)
     const member = memberName(expression)
     if (owner === "EffectModule" && member === "Effect") return "Effect"
     if (owner === "PlatformNode" && member === "NodeRuntime") return "NodeRuntime"
-    if (owner === "NodeRuntime" && member === "runMain") return `runner:NodeRuntime.${member}`
-    if (owner === "Effect" && member !== undefined && /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/.test(member)) return `runner:Effect.${member}`
+    if (owner === "NodeRuntime" && member === "runMain") return "runner:NodeRuntime.runMain"
+    if (owner === "Effect" && member !== undefined && runnerPattern.test(member)) return `runner:Effect.${member}`
     return undefined
-  }
-  for (const statement of sourceFile.statements) {
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier) || statement.importClause?.namedBindings === undefined) continue
-    const moduleName = statement.moduleSpecifier.text
-    const bindings = statement.importClause.namedBindings
-    if (ts.isNamespaceImport(bindings)) {
-      if (moduleName === "effect") aliases.set(bindings.name.text, "EffectModule")
-      if (moduleName === "@effect/platform-node") aliases.set(bindings.name.text, "PlatformNode")
-      if (moduleName === "@effect/platform-node/NodeRuntime") aliases.set(bindings.name.text, "NodeRuntime")
-    } else {
-      for (const element of bindings.elements) {
-        const imported = element.propertyName?.text ?? element.name.text
-        if (moduleName === "effect" && imported === "Effect") aliases.set(element.name.text, "Effect")
-        if (moduleName === "effect" && /^(?:runPromise|runPromiseExit|runSync|runSyncExit|runFork|runCallback)$/.test(imported)) aliases.set(element.name.text, `runner:Effect.${imported}`)
-        if (moduleName === "@effect/platform-node" && imported === "NodeRuntime") aliases.set(element.name.text, "NodeRuntime")
-        if (moduleName === "@effect/platform-node/NodeRuntime" && imported === "runMain") aliases.set(element.name.text, `runner:NodeRuntime.${imported}`)
-      }
-    }
-  }
-  let changed = true
-  while (changed) {
-    changed = false
-    const collect = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined && !aliases.has(node.name.text)) {
-        const alias = resolveAlias(node.initializer)
-        if (alias !== undefined) {
-          aliases.set(node.name.text, alias)
-          changed = true
-        }
-      }
-      ts.forEachChild(node, collect)
-    }
-    collect(sourceFile)
   }
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
@@ -504,7 +526,7 @@ interface SourceBinding {
 
 interface WrapperBinding {
   readonly file: string
-  readonly parameters: ReadonlyArray<string>
+  readonly parameters: ReadonlyArray<ts.BindingName>
   readonly body: ts.Node
 }
 
@@ -516,6 +538,7 @@ interface SourceModule {
   readonly launchers: ReadonlyMap<string, LaunchApi>
   readonly namespaces: ReadonlyMap<string, "effect" | "effect-root" | "native">
   readonly wrappers: ReadonlyMap<string, WrapperBinding>
+  readonly wrapperDeclarations: ReadonlyMap<ts.Declaration, WrapperBinding>
 }
 
 interface ChildDiscovery {
@@ -544,7 +567,8 @@ const wrappedFunction = (expression: ts.Expression): ts.ArrowFunction | ts.Funct
 
 const analyzeSourceModules = (
   parsedSources: ReadonlyMap<string, ts.SourceFile>,
-  tracked: ReadonlySet<string>
+  tracked: ReadonlySet<string>,
+  checker: ts.TypeChecker
 ): ReadonlyMap<string, SourceModule> => {
   const modules = new Map<string, SourceModule>()
   for (const [file, sourceFile] of parsedSources) {
@@ -553,6 +577,7 @@ const analyzeSourceModules = (
     const launchers = new Map<string, LaunchApi>()
     const namespaces = new Map<string, "effect" | "effect-root" | "native">()
     const wrappers = new Map<string, WrapperBinding>()
+    const wrapperDeclarations = new Map<ts.Declaration, WrapperBinding>()
     const namespaceDestructures: Array<{ readonly namespace: string; readonly imported: string; readonly local: string }> = []
     for (const statement of sourceFile.statements) {
       if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && statement.moduleReference.expression !== undefined && ts.isStringLiteralLike(statement.moduleReference.expression) && isChildProcessModule(statement.moduleReference.expression.text)) namespaces.set(statement.name.text, "native")
@@ -577,7 +602,7 @@ const analyzeSourceModules = (
         }
       }
       if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && statement.body !== undefined) {
-        wrappers.set(statement.name.text, { file, parameters: statement.parameters.flatMap((parameter) => ts.isIdentifier(parameter.name) ? [parameter.name.text] : []), body: statement.body })
+        wrappers.set(statement.name.text, { file, parameters: statement.parameters.map(({ name }) => name), body: statement.body })
       }
       if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
@@ -585,7 +610,7 @@ const analyzeSourceModules = (
             constants.set(declaration.name.text, declaration.initializer)
             const implementation = wrappedFunction(declaration.initializer)
             if (implementation !== undefined) {
-              wrappers.set(declaration.name.text, { file, parameters: implementation.parameters.flatMap((parameter) => ts.isIdentifier(parameter.name) ? [parameter.name.text] : []), body: implementation.body })
+              wrappers.set(declaration.name.text, { file, parameters: implementation.parameters.map(({ name }) => name), body: implementation.body })
             }
           }
           if (ts.isObjectBindingPattern(declaration.name) && declaration.initializer !== undefined) {
@@ -637,16 +662,41 @@ const analyzeSourceModules = (
         }
       }
     }
-    modules.set(file, { file, sourceFile, constants, imports, launchers, namespaces, wrappers })
+    const collectWrappers = (node: ts.Node) => {
+      let name: ts.Node | undefined
+      let implementation: ts.FunctionLikeDeclaration | undefined
+      if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined) {
+        name = node.name
+        implementation = node
+      } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer !== undefined) {
+        const wrapped = wrappedFunction(node.initializer)
+        if (wrapped !== undefined) {
+          name = node.name
+          implementation = wrapped
+        }
+      } else if (ts.isMethodDeclaration(node) && node.body !== undefined) {
+        name = node.name
+        implementation = node
+      }
+      if (name !== undefined && implementation?.body !== undefined) {
+        const binding = { file, parameters: implementation.parameters.map(({ name: parameter }) => parameter), body: implementation.body }
+        const symbol = checker.getSymbolAtLocation(name)
+        for (const declaration of symbol?.declarations ?? []) wrapperDeclarations.set(declaration, binding)
+      }
+      ts.forEachChild(node, collectWrappers)
+    }
+    collectWrappers(sourceFile)
+    modules.set(file, { file, sourceFile, constants, imports, launchers, namespaces, wrappers, wrapperDeclarations })
   }
   return modules
 }
 
 const discoverChildTargets = (
   parsedSources: ReadonlyMap<string, ts.SourceFile>,
-  tracked: ReadonlySet<string>
+  tracked: ReadonlySet<string>,
+  checker: ts.TypeChecker
 ): ChildDiscovery => {
-  const modules = analyzeSourceModules(parsedSources, tracked)
+  const modules = analyzeSourceModules(parsedSources, tracked, checker)
   const resolveExport = (file: string, name: string): ts.Expression | undefined => modules.get(file)?.constants.get(name)
   const resolveValues = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<string>()): ReadonlyArray<string> => {
     if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text]
@@ -659,10 +709,16 @@ const discoverChildTargets = (
       if (scoped !== undefined) return resolveValues(scoped.expression, scoped.file, scoped.scope, seen)
       const key = `${file}\0${expression.text}`
       if (seen.has(key)) return []
-      const binding = localBinding(expression.text, expression)
+      const binding = localBinding(expression)
       if (binding !== undefined) {
         if (ts.isParameter(binding)) return []
-        if (ts.isIdentifier(binding.name) && binding.initializer !== undefined) return resolveValues(binding.initializer, file, scope, new Set([...seen, key]))
+        if (ts.isVariableDeclaration(binding) && ts.isIdentifier(binding.name) && binding.initializer !== undefined) return resolveValues(binding.initializer, file, scope, new Set([...seen, key]))
+        if (ts.isImportSpecifier(binding)) {
+          const imported = modules.get(file)?.imports.get(expression.text)
+          if (imported === undefined) return []
+          const exported = resolveExport(imported.file, imported.imported)
+          return exported === undefined ? [] : resolveValues(exported, imported.file, new Map(), new Set([...seen, key]))
+        }
         return []
       }
       const module = modules.get(file)
@@ -693,10 +749,17 @@ const discoverChildTargets = (
       if (scoped !== undefined) return resolvedFlow(scoped.expression, scoped.file, scoped.scope, seen)
       const key = `${file}\0${expression.text}`
       if (seen.has(key)) return false
-      const binding = localBinding(expression.text, expression)
+      const binding = localBinding(expression)
       if (binding !== undefined) {
         if (ts.isParameter(binding)) return false
-        return ts.isIdentifier(binding.name) && binding.initializer !== undefined && resolvedFlow(binding.initializer, file, scope, new Set([...seen, key]))
+        if (ts.isVariableDeclaration(binding) && ts.isIdentifier(binding.name) && binding.initializer !== undefined) return resolvedFlow(binding.initializer, file, scope, new Set([...seen, key]))
+        if (ts.isImportSpecifier(binding)) {
+          const imported = modules.get(file)?.imports.get(expression.text)
+          if (imported === undefined) return false
+          const exported = resolveExport(imported.file, imported.imported)
+          return exported !== undefined && resolvedFlow(exported, imported.file, new Map(), new Set([...seen, key]))
+        }
+        return false
       }
       const module = modules.get(file)
       const local = module?.constants.get(expression.text)
@@ -730,61 +793,62 @@ const discoverChildTargets = (
     }
     return undefined
   }
-  const localBinding = (name: string, node: ts.Node): ts.VariableDeclaration | ts.ParameterDeclaration | undefined => {
-    let current: ts.Node | undefined = node
-    while (current !== undefined) {
-      if (ts.isFunctionLike(current)) {
-        const parameter = current.parameters.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
-        if (parameter !== undefined) return parameter
-      }
-      if (ts.isBlock(current) || ts.isSourceFile(current)) {
-        for (const statement of current.statements) {
-          if (!ts.isVariableStatement(statement)) continue
-          for (const declaration of statement.declarationList.declarations) {
-            if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration
-            if (ts.isObjectBindingPattern(declaration.name)) {
-              const element = declaration.name.elements.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
-              if (element !== undefined) return declaration
-            }
-          }
-        }
-      }
-      current = current.parent
+  const localBinding = (identifier: ts.Identifier): ts.Declaration | undefined => symbolDeclaration(checker, identifier)
+  const importModule = (declaration: ts.Declaration): string | undefined => {
+    const importDeclaration = ts.findAncestor(declaration, ts.isImportDeclaration)
+    return importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) ? importDeclaration.moduleSpecifier.text : undefined
+  }
+  const requireFunction = (expression: ts.Expression, seen = new Set<ts.Declaration>()): boolean => {
+    if (!ts.isIdentifier(expression)) return false
+    const declaration = localBinding(expression)
+    if (declaration === undefined) return expression.text === "require"
+    if (seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return false
+    return requireFunction(declaration.initializer, new Set([...seen, declaration]))
+  }
+  const namespaceOf = (expression: ts.Expression, file: string, seen = new Set<ts.Declaration>()): "effect" | "effect-root" | "native" | undefined => {
+    if (ts.isCallExpression(expression) && requireFunction(expression.expression) && expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.arguments[0]) && isChildProcessModule(expression.arguments[0].text)) return "native"
+    if (!ts.isIdentifier(expression)) return undefined
+    const declaration = localBinding(expression)
+    if (declaration === undefined || seen.has(declaration)) return undefined
+    const nextSeen = new Set([...seen, declaration])
+    const specifier = importModule(declaration)
+    if (ts.isImportClause(declaration) && isChildProcessModule(specifier ?? "")) return "native"
+    if (ts.isNamespaceImport(declaration)) {
+      if (isChildProcessModule(specifier ?? "")) return "native"
+      if (specifier === "effect/unstable/process") return "effect-root"
+      if (specifier === "effect/unstable/process/ChildProcess") return "effect"
     }
+    if (ts.isImportSpecifier(declaration) && specifier === "effect/unstable/process" && (declaration.propertyName?.text ?? declaration.name.text) === "ChildProcess") return "effect"
+    if (ts.isImportEqualsDeclaration(declaration) && ts.isExternalModuleReference(declaration.moduleReference) && declaration.moduleReference.expression !== undefined && ts.isStringLiteralLike(declaration.moduleReference.expression) && isChildProcessModule(declaration.moduleReference.expression.text)) return "native"
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return namespaceOf(declaration.initializer, file, nextSeen)
     return undefined
   }
-  const bindingElement = (declaration: ts.VariableDeclaration, name: string) => ts.isObjectBindingPattern(declaration.name)
-    ? declaration.name.elements.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
-    : undefined
-  const namespaceOf = (expression: ts.Expression, file: string, node: ts.Node, seen = new Set<ts.Node>()): "effect" | "effect-root" | "native" | undefined => {
-    if (seen.has(expression)) return undefined
-    seen.add(expression)
-    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === "require" && expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.arguments[0]) && isChildProcessModule(expression.arguments[0].text)) return "native"
-    if (!ts.isIdentifier(expression)) return undefined
-    const binding = localBinding(expression.text, node)
-    if (binding !== undefined) {
-      if (ts.isParameter(binding)) return undefined
-      if (ts.isIdentifier(binding.name) && binding.initializer !== undefined) return namespaceOf(binding.initializer, file, binding, seen)
-      return undefined
-    }
-    return modules.get(file)?.namespaces.get(expression.text)
-  }
-  const launchApi = (expression: ts.Expression, file: string, node: ts.Node = expression, seen = new Set<ts.Node>()): LaunchApi | undefined => {
-    if (seen.has(expression)) return undefined
-    seen.add(expression)
-    const module = modules.get(file)
+  const launchApi = (expression: ts.Expression, file: string, seen = new Set<ts.Declaration>()): LaunchApi | undefined => {
     if (ts.isIdentifier(expression)) {
-      const binding = localBinding(expression.text, node)
-      if (binding !== undefined) {
-        if (ts.isParameter(binding)) return undefined
-        const element = bindingElement(binding, expression.text)
-        if (element !== undefined && binding.initializer !== undefined) {
-          const imported = element.propertyName?.getText(module?.sourceFile) ?? element.name.getText(module?.sourceFile)
-          return namespaceOf(binding.initializer, file, binding) === "native" && nativeLaunchApis.has(imported) ? imported as LaunchApi : undefined
-        }
-        return ts.isIdentifier(binding.name) && binding.initializer !== undefined ? launchApi(binding.initializer, file, binding, seen) : undefined
+      const declaration = localBinding(expression)
+      if (declaration === undefined || seen.has(declaration)) return undefined
+      const nextSeen = new Set([...seen, declaration])
+      const specifier = importModule(declaration)
+      if (ts.isImportSpecifier(declaration)) {
+        const imported = declaration.propertyName?.text ?? declaration.name.text
+        if (specifier === "effect/unstable/process/ChildProcess" && imported === "make") return "effect"
+        if (isChildProcessModule(specifier ?? "") && nativeLaunchApis.has(imported)) return imported as LaunchApi
       }
-      return module?.launchers.get(expression.text)
+      if (ts.isBindingElement(declaration) && ts.isObjectBindingPattern(declaration.parent)) {
+        const variable = declaration.parent.parent
+        if (ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
+          const imported = declaration.propertyName?.getText(modules.get(file)?.sourceFile) ?? declaration.name.getText(modules.get(file)?.sourceFile)
+          return namespaceOf(variable.initializer, file) === "native" && nativeLaunchApis.has(imported) ? imported as LaunchApi : undefined
+        }
+      }
+      if (ts.isVariableDeclaration(declaration)) {
+        if (declaration.initializer !== undefined) return launchApi(declaration.initializer, file, nextSeen)
+        const loop = declaration.parent.parent
+        if (ts.isForOfStatement(loop) && ts.isArrayLiteralExpression(loop.expression) && loop.expression.elements.length === 1 && ts.isExpression(loop.expression.elements[0]!)) {
+          return launchApi(loop.expression.elements[0]!, file, nextSeen)
+        }
+      }
+      return undefined
     }
     if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined
     const member = ts.isPropertyAccessExpression(expression)
@@ -792,24 +856,39 @@ const discoverChildTargets = (
       : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
         ? expression.argumentExpression.text
         : undefined
-    const namespace = namespaceOf(expression.expression, file, node)
+    const namespace = namespaceOf(expression.expression, file)
     if (namespace === "effect" && member === "make") return "effect"
     if (namespace === "native" && member !== undefined && nativeLaunchApis.has(member)) return member as LaunchApi
-    if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && namespaceOf(expression.expression.expression, file, node) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
+    if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && namespaceOf(expression.expression.expression, file) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
     return undefined
   }
   const wrapper = (expression: ts.Expression, file: string): WrapperBinding | undefined => {
-    if (!ts.isIdentifier(expression)) return undefined
+    if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return { file, parameters: expression.parameters.map(({ name }) => name), body: expression.body }
     const module = modules.get(file)
-    const local = module?.wrappers.get(expression.text)
-    if (local !== undefined) return local
+    const symbolNode = ts.isIdentifier(expression)
+      ? expression
+      : ts.isPropertyAccessExpression(expression)
+        ? expression.name
+        : ts.isElementAccessExpression(expression) && expression.argumentExpression !== undefined
+          ? expression.argumentExpression
+          : undefined
+    const resolvedDeclaration = symbolNode === undefined ? undefined : symbolDeclaration(checker, symbolNode)
+    if (resolvedDeclaration !== undefined) {
+      for (const candidate of modules.values()) {
+        const local = candidate.wrapperDeclarations.get(resolvedDeclaration)
+        if (local !== undefined) return local
+      }
+    }
+    if (!ts.isIdentifier(expression)) return undefined
+    const declaration = localBinding(expression)
+    if (declaration === undefined || !ts.isImportSpecifier(declaration)) return undefined
     const imported = module?.imports.get(expression.text)
     return imported === undefined ? undefined : modules.get(imported.file)?.wrappers.get(imported.imported)
   }
   const targets: Array<{ readonly target: string; readonly caller: string; readonly position: number }> = []
   const fixtureConsumers = new Map<string, { readonly caller: string; readonly position: number }>()
   const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string, declarationAnalysis = false) => {
-    const api = launchApi(call.expression, file, call)
+    const api = launchApi(call.expression, file)
     if (api !== undefined) {
       const command = call.arguments[0]
       const commandValues = command === undefined ? [] : resolveValues(command, file, scope)
@@ -849,10 +928,23 @@ const discoverChildTargets = (
     const key = `${helper.file}\0${helper.body.pos}`
     if (stack.has(key)) return
     const bindings = new Map<string, SourceBinding>()
-    helper.parameters.forEach((parameter, index) => {
-      const expression = call.arguments[index]
-      if (expression !== undefined) bindings.set(parameter, { file, expression, scope })
-    })
+    const bind = (parameter: ts.BindingName, argument: ts.Expression | undefined) => {
+      if (ts.isIdentifier(parameter)) {
+        if (argument !== undefined) bindings.set(parameter.text, { file, expression: argument, scope })
+        return
+      }
+      if (!ts.isObjectBindingPattern(parameter) || argument === undefined || !ts.isObjectLiteralExpression(argument)) return
+      for (const element of parameter.elements) {
+        if (!ts.isIdentifier(element.name)) continue
+        const propertyName = element.propertyName?.getText(modules.get(helper.file)?.sourceFile) ?? element.name.text
+        const property = argument.properties.find((candidate): candidate is ts.PropertyAssignment | ts.ShorthandPropertyAssignment =>
+          (ts.isPropertyAssignment(candidate) || ts.isShorthandPropertyAssignment(candidate)) && candidate.name.getText(modules.get(file)?.sourceFile) === propertyName)
+        if (property === undefined) continue
+        const value = ts.isPropertyAssignment(property) ? property.initializer : property.name
+        bindings.set(element.name.text, { file, expression: value, scope })
+      }
+    }
+    helper.parameters.forEach((parameter, index) => bind(parameter, call.arguments[index]))
     const visitHelper = (astNode: ts.Node) => {
       if (ts.isCallExpression(astNode)) inspectCall(astNode, helper.file, bindings, position, new Set([...stack, key]), observationCaller, declarationAnalysis)
       ts.forEachChild(astNode, visitHelper)
@@ -917,13 +1009,12 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       sources.set(file, yield* fs.readFileString(path.join(root, file)).pipe(Effect.mapError((cause) => fail(`cannot read ${file}`, cause))))
     }
     const parsedSources = new Map<string, ts.SourceFile>()
-    const parsedRunners = new Map<string, ReadonlyArray<ParsedRunner>>()
     for (const [file, source] of sources) {
-      if (!sourceExtension.test(file)) continue
-      const parsed = parseSource(file, source)
-      parsedSources.set(file, parsed)
-      parsedRunners.set(file, parseRunners(parsed))
+      if (sourceExtension.test(file)) parsedSources.set(file, parseSource(file, source))
     }
+    const checker = createTypeChecker(parsedSources)
+    const parsedRunners = new Map<string, ReadonlyArray<ParsedRunner>>()
+    for (const [file, parsed] of parsedSources) parsedRunners.set(file, parseRunners(parsed, checker))
     const registeredRunners = effectHostBoundaries.filter((boundary) => tracked.has(boundary.file) && boundary.declaration === "module:<module>" && boundary.construct.startsWith("runner:"))
     const runnerBoundaries = new Map<string, BoundaryLink>()
     for (const [file, runners] of parsedRunners) {
@@ -942,7 +1033,7 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
     }
 
     const childDiscovery = yield* Effect.try({
-      try: () => discoverChildTargets(parsedSources, tracked),
+      try: () => discoverChildTargets(parsedSources, tracked, checker),
       catch: (cause) => cause instanceof ExecutableInventoryError ? cause : fail("child launch discovery failed", cause)
     })
     if (tracked.has("scripts/fixtures/job-control.sh") && childDiscovery.fixtureConsumers.length !== 1) {

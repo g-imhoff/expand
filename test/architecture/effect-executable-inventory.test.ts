@@ -145,6 +145,133 @@ void spawn
       expect(discovery.observations.map(({ file }) => file)).toEqual(["scripts/direct.ts", "scripts/wrapped.ts"])
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("resolves child launch bindings by exact lexical scope", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import cpDefault from "node${":"}child_process"
+import * as cpNamespace from "child_process"
+import { spawn as importedSpawn } from "node${":"}child_process"
+const namespaceAlias = cpNamespace
+const { spawn: defaultLaunch } = cpDefault
+const { spawn: namespaceLaunch } = namespaceAlias
+const namedAlias = importedSpawn
+function functionScope() {
+  const launch = namedAlias
+  launch("node", ["scripts/function.ts"])
+}
+try {
+  throw new Error("scope")
+} catch (caught) {
+  const launch = namespaceLaunch
+  launch("node", ["scripts/catch.ts"])
+  void caught
+}
+for (const launch of [defaultLaunch]) {
+  launch("node", ["scripts/loop.ts"])
+}
+{
+  const launch = defaultLaunch
+  launch("node", ["scripts/block.ts"])
+}
+const requireAlias = require
+const requiredNamespace = requireAlias("child_process")
+const { spawn: requiredLaunch } = requiredNamespace
+requiredLaunch("node", ["scripts/required.ts"])
+function shadowedRequire(require: (specifier: string) => { spawn: typeof importedSpawn }) {
+  const { spawn: falseLaunch } = require("child_process")
+  falseLaunch("node", ["scripts/shadowed-require.ts"])
+}
+try {
+  throw defaultLaunch
+} catch (defaultLaunch) {
+  defaultLaunch("node", ["scripts/shadowed-catch.ts"])
+}
+for (const namespaceLaunch of [(_: string, __: Array<string>) => undefined]) {
+  namespaceLaunch("node", ["scripts/shadowed-loop.ts"])
+}
+{
+  const importedSpawn = (_: string, __: Array<string>) => undefined
+  importedSpawn("node", ["scripts/shadowed-block.ts"])
+}
+functionScope()
+void shadowedRequire
+`,
+        "scripts/block.ts": `export {}\n`,
+        "scripts/catch.ts": `export {}\n`,
+        "scripts/function.ts": `export {}\n`,
+        "scripts/loop.ts": `export {}\n`,
+        "scripts/required.ts": `export {}\n`,
+        "scripts/shadowed-block.ts": `export {}\n`,
+        "scripts/shadowed-catch.ts": `export {}\n`,
+        "scripts/shadowed-loop.ts": `export {}\n`,
+        "scripts/shadowed-require.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual([
+        "scripts/block.ts",
+        "scripts/catch.ts",
+        "scripts/function.ts",
+        "scripts/loop.ts",
+        "scripts/required.ts"
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves recursively nested wrappers and destructured parameter flow", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import { spawn } from "node${":"}child_process"
+function outer() {
+  function declaration(target: string) {
+    spawn("node", [target])
+  }
+  const expression = function({ target }: { target: string }) {
+    spawn("node", [target])
+  }
+  const arrow = ({ target: renamed }: { target: string }) => {
+    spawn("node", [renamed])
+  }
+  const wrappers = {
+    method({ target }: { target: string }) {
+      spawn("node", [target])
+    }
+  }
+  const nested = ({ target }: { target: string }) => declaration(target)
+  expression({ target: "scripts/expression.ts" })
+  arrow({ target: "scripts/arrow.ts" })
+  wrappers.method({ target: "scripts/method.ts" })
+  nested({ target: "scripts/nested.ts" })
+}
+outer()
+`,
+        "scripts/arrow.ts": `export {}\n`,
+        "scripts/expression.ts": `export {}\n`,
+        "scripts/method.ts": `export {}\n`,
+        "scripts/nested.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual([
+        "scripts/arrow.ts",
+        "scripts/expression.ts",
+        "scripts/method.ts",
+        "scripts/nested.ts"
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for dynamic destructured wrapper arguments", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import { spawn } from "node${":"}child_process"
+const launch = ({ target }: { target: string }) => spawn("node", [target])
+launch({ target: globalThis["process"].argv[2] })
+`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("fails closed for unresolved same-file and imported wrapper arguments", () =>
     Effect.scoped(Effect.gen(function*() {
       for (const imported of [false, true]) {
@@ -273,6 +400,39 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
       }
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("resolves runner destructuring and aliases without leaking through shadows", () =>
+    Effect.scoped(Effect.gen(function*() {
+      for (const source of [
+        `import NodeRuntime from "@effect/platform-node/NodeRuntime"\nconst { runMain: launch } = NodeRuntime\nlaunch(null)\n`,
+        `import * as NodeRuntime from "@effect/platform-node/NodeRuntime"\nconst Runtime = NodeRuntime\nconst { runMain } = Runtime\nconst launch = runMain\nvoid [null].map(launch)\n`,
+        `import { NodeRuntime } from "@effect/platform-node"\nconst { runMain: launch } = NodeRuntime\nvoid [null].map(launch)\n`
+      ]) {
+        const root = yield* syntheticRepository({
+          "package.json": encodeJson({ scripts: {} }),
+          "scripts/runner.ts": source
+        })
+        const error = yield* Effect.flip(discoverExecutableInventory(root))
+        expect(errorDetail(error)).toMatch(/runner/)
+      }
+
+      const shadowedRoot = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/runner.ts": `import { runMain as launch } from "@effect/platform-node/NodeRuntime"
+function callback(launch: (value: unknown) => unknown) {
+  void [null].map(launch)
+}
+{
+  const launch = (value: unknown) => value
+  void [null].map(launch)
+}
+void callback
+void launch
+`
+      })
+      const discovery = yield* discoverExecutableInventory(shadowedRoot)
+      expect(discovery.observations).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("proves a strict live bijection across every independently discovered executable source", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -327,5 +487,5 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
       const shims = [...new Set(discovery.observations.filter(({ kind }) => kind === "effect-free-transport-shim").map(({ file }) => file))]
 
       expect(shims).toEqual(["apps/desktop/src/preload/index.ts"])
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 })
