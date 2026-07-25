@@ -203,15 +203,19 @@ describe("package certification resources", () => {
     ["@expand/contracts", "inspect"],
     ["@expand/client-ts", "pack"],
     ["@expand/client-ts", "inspect"]
-  ] as const)("removes real owned staging and temporary residue exactly once when %s is interrupted during %s", ([interruptedWorkspace, interruptedPhase]) => Effect.gen(function*() {
+  ] as const)("removes real owned staging, archive, and temporary residue exactly once when %s is interrupted during %s", ([interruptedWorkspace, interruptedPhase]) => Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-interruption-" })
     const tempCreated = yield* Deferred.make<string>()
+    const archiveCreated = yield* Deferred.make<string>()
     const phaseStarted = yield* Deferred.make<void>()
     const removals = yield* Ref.make<ReadonlyArray<string>>([])
     const stagingNames = ["dist-publish", ".dist-publish.next", ".dist-publish.previous"] as const
     const workspaceRoot = (workspace: "@expand/contracts" | "@expand/client-ts") => path.join(root, workspace === "@expand/contracts" ? "packages/contracts" : "packages/client-ts")
+    const unowned = path.join(workspaceRoot(interruptedWorkspace), "unowned-residue")
+    yield* fs.makeDirectory(unowned, { recursive: true })
+    yield* fs.writeFileString(path.join(unowned, "keep"), "keep")
     const fileSystem = FileSystem.make({
       ...fs,
       makeTempDirectoryScoped: (options) => fs.makeTempDirectoryScoped(options).pipe(Effect.tap((value) => Deferred.succeed(tempCreated, value))),
@@ -228,16 +232,24 @@ describe("package certification resources", () => {
             yield* fs.writeFileString(path.join(target, "residue"), name)
           }
         }
-        if (request.workspace === interruptedWorkspace && request.phase === interruptedPhase) {
-          yield* Deferred.succeed(phaseStarted, undefined)
-          return yield* Effect.never
-        }
         if (request.phase === "pack") {
+          const destination = request.args[request.args.indexOf("--pack-destination") + 1]!
+          const archive = path.join(destination, `${kind}.tgz`)
+          yield* fs.writeFileString(archive, "partial tar archive")
+          if (request.workspace === interruptedWorkspace) yield* Deferred.succeed(archiveCreated, archive)
+          if (request.workspace === interruptedWorkspace && request.phase === interruptedPhase) {
+            yield* Deferred.succeed(phaseStarted, undefined)
+            return yield* Effect.never
+          }
           return { exitCode: 0, stdout: yield* Schema.encodeEffect(Schema.UnknownFromJsonString)([{
             id: `${kind}@0.0.0`, name: request.workspace, version: "0.0.0", size: 1, unpackedSize: 1,
             shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
             entryCount: files.length, bundled: []
           }]), stderr: "" }
+        }
+        if (request.workspace === interruptedWorkspace && request.phase === interruptedPhase) {
+          yield* Deferred.succeed(phaseStarted, undefined)
+          return yield* Effect.never
         }
         if (request.command === "tar" && request.args[0] === "-tzf") {
           return { exitCode: 0, stdout: files.map((file) => `package/${file}`).join("\n"), stderr: "" }
@@ -273,16 +285,26 @@ describe("package certification resources", () => {
       Effect.forkChild({ startImmediately: true })
     )
     const temp = yield* Deferred.await(tempCreated)
+    const archive = yield* Effect.raceFirst(
+      Deferred.await(archiveCreated),
+      Fiber.await(fiber).pipe(Effect.map((exit) => Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "completed"))
+    )
+    expect(archive).toBe(path.join(temp, `${interruptedWorkspace === "@expand/contracts" ? "contracts" : "client"}.tgz`))
+    expect(yield* fs.exists(archive)).toBe(true)
     const readiness = yield* Effect.raceFirst(
       Deferred.await(phaseStarted).pipe(Effect.as("started")),
       Fiber.await(fiber).pipe(Effect.map((exit) => Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "completed"))
     )
     expect(readiness).toBe("started")
     yield* Fiber.interrupt(fiber)
+    yield* Fiber.await(fiber)
     const interruptedRoot = workspaceRoot(interruptedWorkspace)
-    for (const name of stagingNames) expect(yield* fs.exists(path.join(interruptedRoot, name))).toBe(false)
+    expect(yield* fs.exists(archive)).toBe(false)
     expect(yield* fs.exists(temp)).toBe(false)
+    for (const name of stagingNames) expect(yield* fs.exists(path.join(interruptedRoot, name))).toBe(false)
+    expect(yield* fs.exists(path.join(unowned, "keep"))).toBe(true)
     const removed = yield* Ref.get(removals)
+    expect(removed).not.toContain(unowned)
     for (const name of stagingNames) expect(removed.filter((target) => target === path.join(interruptedRoot, name))).toHaveLength(1)
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

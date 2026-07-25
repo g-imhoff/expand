@@ -136,3 +136,66 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave: second review archive-residue coverage
+
+Status: DONE
+
+## Changes
+- `scripts/package-certification.test.ts`: creates a physical partial tar archive at the exact scoped `--pack-destination` for contracts/client pack and inspect interruption cases, synchronizes archive acquisition with a dedicated `Deferred`, proves the archive exists before interruption, joins cleanup, and asserts archive/temp/all owned staging paths are absent, unowned residue is preserved, and owned staging removals occur once.
+- `effect-grep-inventory.json`: records the three added `Deferred.await`/`Fiber.await` lexical false positives and refreshes the changed test identities, with migration debt remaining zero.
+- `.superpowers/sdd/final-task-1-report.md`: records second-review RED/GREEN, full-gate, scope, and residual-risk evidence.
+
+## Test or validation evidence
+- Mode: TDD.
+- RED command: `npm exec -- vitest run scripts/package-certification.test.ts`; exit 1. All four interruption rows failed with `AssertionError: expected false to be true` because the synthetic pack harness returned archive metadata but created no archive at the scoped destination.
+- GREEN command: `npm exec -- vitest run scripts/package-certification.test.ts`; 1 file and 27 tests passed; exit 0.
+- Covering test file `scripts/package-certification.test.ts`: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts`; 2 files and 29 tests passed; exit 0.
+- Real certification: `npm run cert:packages`; contracts/client build-stage-pack-inspect certification passed; exit 0.
+- Residue scan: `{ find . -maxdepth 5 -name '*.tgz'; find . -maxdepth 5 -name 'dist-publish'; find . -maxdepth 5 -name '.dist-publish.next'; find . -maxdepth 5 -name '.dist-publish.previous'; } | sort -u`; no output; exit 0.
+- Audit inventory RED: `npm run effect:audit`; exit 1 with `grep inventory has 3 additions and 0 implicit reclassifications`, identifying the new synchronization expressions before exact inventory reconciliation.
+- Audit GREEN: `npm run effect:audit`; 0 blocking findings, 90 advisories, 278 candidates with migration-debt=0, and 2 launchers with migration-debt=0; exit 0.
+- Full serial Vitest: `npm exec -- vitest run --reporter=json --outputFile=/tmp/full-vitest-final-task-1-second-fix-final.json`; 400/400 suites and 1283/1283 tests passed; exit 0.
+
+## Task gate
+- Command: `npm exec -- vitest run scripts/package-certification.test.ts test/architecture/effect-certification.test.ts`
+- Result: 29 tests passed in 2 files; exit 0.
+- Command: `npm run cert:packages`
+- Result: real package certification passed; exit 0.
+- Command: `npm run effect:audit`
+- Result: 0 blocking findings, 90 advisories, 278 exact candidates with migration-debt=0, and 2 exact launchers with migration-debt=0; exit 0.
+- Command: `npm exec -- vitest run --reporter=json --outputFile=/tmp/full-vitest-final-task-1-second-fix-final.json`
+- Result: 400/400 suites and 1283/1283 tests passed; exit 0.
+
+## Full gate evidence
+- `npm ci`: installed 549 packages; root lockfile SHA-256 remained `e7dd3a5af435971242555c24123d97d0c3f76e1be6205b2e380199bda258f1dc`; exit 0.
+- `npm ci --prefix docs/architecture`: installed 126 packages; docs lockfile SHA-256 remained `a838b86b2eb505de4e8d07fc9c05c196462491189ddfbca8dfd82076c56f3e7b`; exit 0.
+- `npm run agents:check`: agent definitions synchronized; exit 0.
+- `npm run lint`: passed; exit 0.
+- `npm run typecheck:all`: passed; exit 0.
+- `npm run arch`: 189 modules and 624 dependencies cruised with no violations; exit 0.
+- `npm run knip`: passed; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-1-second-fix-grep-final.txt`: wrote 272 output lines; exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`; exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed; exit 0.
+- `npm run build`: passed; exit 0.
+- `npm run cert:cli:build`: passed; exit 0.
+- `npm run build:desktop`: passed; exit 0.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 Playwright tests passed; exit 0.
+- `git diff --check`: passed with no whitespace errors.
+
+## Commits
+- `HEAD` `test: prove package archive cleanup` (final SHA is returned in the completion handoff).
+
+## Self-review
+- Test-gap-only scope: satisfied; no production behavior, dependency, architecture, CI, or comment change was added.
+- Real partial tar residue: satisfied; the harness writes a physical file at the exact destination supplied by `--pack-destination` before either pack or inspect acquisition is signaled.
+- Synchronization: satisfied; `archiveCreated` is awaited and the archive's exact path and existence are asserted before interruption.
+- Scenario coverage: satisfied for contracts/client interruption during both pack and inspect.
+- Scoped cleanup: satisfied; after interruption joins, the exact archive and containing scoped temp directory are absent.
+- Staging cleanup: satisfied; all three owned staging paths are absent and each removal is observed exactly once.
+- Ownership preservation: satisfied; an unowned sibling residue remains and is never targeted for removal, while the existing pre-owned staging-path test remains green.
+- Audit/static/full gates: satisfied by the commands and exit codes above.
+
+## Concerns
+- None
