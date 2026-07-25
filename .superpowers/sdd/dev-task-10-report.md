@@ -332,7 +332,7 @@ Status: DONE_WITH_CONCERNS
 - Result: every required Task 10 pass/fail gate passed; React Doctor retained its accepted 83/100 diagnostic baseline and intentionally exits 1.
 
 ## Commits
-- Pending `fix: finalize binary ownership cleanup`.
+- 7713644 fix: finalize binary ownership cleanup.
 
 ## Self-review
 - Pre-evidence race/orphan cleanup: satisfied by trap-side exact job discovery, production pre-death PGID capture, post-orphan exact group verification, atomic spawn/cleanup edge, and real TERM-resistant stopped-child regression.
@@ -345,3 +345,53 @@ Status: DONE_WITH_CONCERNS
 
 ## Concerns
 - React Doctor continues to report the accepted pre-existing 83/100 baseline outside this fix wave and therefore exits 1.
+
+# Fix wave (Task 10 centralized binary cleanup policy)
+
+Status: DONE_WITH_CONCERNS
+
+## Changes
+- scripts/binary-smoke.ts: freezes the guardian before pre-evidence discovery, applies coordinator-owned bounded TERM/probe/KILL/probe cleanup to the exact discovered startup PGID, continues guardian termination/reap and final verification best-effort, and makes guardian spawn the real atomic production-core acquisition returning the handle consumed by every later stage and cleanup.
+- scripts/fixtures/job-control.sh: removes all trap and escalation policy while retaining only job-control enable/start/capture/PGID/signal/wait and STOP/CONT release facts.
+- scripts/binary-smoke.test.ts: exercises the production acquisition seam across every phase with exact-once release/reap, combined Cause, exact signal order, and a live frozen-guardian/TERM-resistant stopped-child no-survivor regression without fixture cleanup assistance.
+- effect-launchers.json: updates the exact executable fixture SHA-256 while preserving mode and host-fixture classification.
+
+## Test or validation evidence
+- Mode: TDD.
+- RED: `npm exec -- vitest run scripts/binary-smoke.test.ts --reporter=verbose`; exit 1 with nine expected failures because pre-evidence cleanup did not freeze or signal the discovered PGID, the old production core did not pass an acquired guardian to stages/cleanup, and the live no-survivor path could not complete.
+- GREEN: `npm exec -- vitest run scripts/binary-smoke.test.ts --reporter=dot`; 61/61 passed, exit 0.
+- Covering files: `scripts/binary-smoke.test.ts`, `apps/desktop/test/unit/playwright/effect-test.test.ts`, `test/architecture/effect-audit.test.ts`, `test/architecture/effect-boundary-registry.test.ts`, `test/architecture/manifest-orchestration.test.ts`, and `test/architecture/server-app-split.test.ts`.
+- Covering command: `timeout 600s npm exec -- vitest run scripts/binary-smoke.test.ts apps/desktop/test/unit/playwright/effect-test.test.ts test/architecture/effect-audit.test.ts test/architecture/effect-boundary-registry.test.ts test/architecture/manifest-orchestration.test.ts test/architecture/server-app-split.test.ts --reporter=dot`; 6 files/108 tests passed, exit 0.
+- Real certification/leak scan: `rm -rf /tmp/expand-binary-smoke-*; timeout 240s npm run cert:cli:build; ...`; exit 0 with pre/post process count 0 and temp count 0.
+- Desktop E2E/leak scan: `rm -rf /tmp/expand-e2e-home-*; timeout 600s xvfb-run -a npm run e2e:desktop; ...`; 6/6 passed, exit 0, with pre/post process count 0 and temp count 0.
+- Full suite: `timeout 700s npm run test`; 160 files passed, 1253 passed plus 1 expected failure (1254 total), exit 0.
+- Static/repository gates: `npm run lint`, `npm run typecheck:all`, `npm run typecheck:effect-audit`, `npm run typecheck:desktop`, `npm run arch`, `npm run knip`, `npm run agents:check`, and `npm run bench:selfcheck`; each exit 0; architecture covered 189 modules/624 dependencies.
+- Builds and benchmark: `npm run build`, `npm run build:desktop`, `npm run build --workspace @expand/contracts`, `npm run build --workspace @expand/client-ts`, and `npm run bench:events -- --smoke`; each exit 0 and all six benchmark scenarios passed.
+- Audit pre-correction validation: `timeout 300s npm run effect:audit:update`; exit 1 after the new fixture bytes and visible interim Effect composition changed exact inventories; no file was silently updated.
+- Audit idempotence: two final consecutive `npm run effect:audit:update` commands exited 0 with byte-identical hashes: semantic baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`, grep inventory `c326a98c7eddbe28b7ca7d68d7b1ad1fdad6a3ca63eab0f2214aeb8a74ed0ec8`, launcher inventory `917a64e3454b494a32d3b82f54c33457ce191613b79e7a20b9a8ab16abeb9888`.
+- `npm run effect:audit`; exit 0 with 0 blocking, semantic baseline `[]`, 269 grep candidates with migration-debt=0, and 2 launchers with migration-debt=0. `npm run effect:grep` exited 0.
+- Fixture proof: mode 755/100755; SHA-256 `b09ba5e6a28d30b8e28dde0c09a2c41e84fab54c1c544c0089b9d2b2ea280591`; launcher registry exact match; no trap or shell-owned cleanup policy remains.
+- Runner proof: package scripts contain exactly one `tsx scripts/binary-smoke.ts`; production retains exactly one NodeRuntime entry.
+- React Doctor: `npx react-doctor@latest --verbose --scope changed`; retained the accepted 83/100 with one existing renderer error and three existing analyzer warnings, exit 1 without regression.
+- Architecture documentation build: `npm --prefix docs/architecture run build`; exit 1 because the external Playwright `chromium_headless_shell-1228` artifact is absent; LikeC4 requested `npx playwright install`.
+- `git diff --check`; exit 0. No comments were added.
+
+## Task gate
+- Command: complete Task 10 focused/live/model, certification, six-flow E2E, full suite, audit/debt, static, repository, benchmark, build, fixture, React Doctor, leak, and whitespace matrix listed above.
+- Result: every required Task 10 pass/fail gate passed; React Doctor retained its accepted diagnostic baseline, and the architecture-document build remained externally unavailable for the same missing browser artifact.
+
+## Commits
+- Pending `fix: centralize binary cleanup policy`.
+
+## Self-review
+- Coordinator-owned pre-evidence cleanup freezes guardian before exact direct-child discovery and performs bounded group TERM/probe/KILL/probe before guardian termination/reap and final verification: satisfied.
+- Guardian already-dead and signal races continue best effort and fail closed when ownership cannot be verified: satisfied.
+- Fixture contains no cleanup function, traps, timing, or escalation policy: satisfied.
+- Actual production guardian acquisition returns the handle consumed by evidence, endpoint, locks, release, reap, and cleanup in one atomic acquisition edge: satisfied.
+- Phase failure/interruption, exact-once release/reap, exact signals, no PID/PGID/files/temp residue, combined Cause, and live no-survivor behavior: satisfied.
+- Exact hash/mode/inventories, zero semantic/grep/launcher debt, prior behavior, E2E, and comments: preserved.
+- Scope: only binary smoke production/test/fixture, exact launcher inventory, and this durable report changed; pre-existing `.pi-subagents/` was not staged.
+
+## Concerns
+- React Doctor retains the accepted pre-existing 83/100 findings outside Task 10 and exits 1.
+- The architecture-document build remains externally blocked by the missing Playwright headless-shell artifact; it is outside the named Task 10 gate.
