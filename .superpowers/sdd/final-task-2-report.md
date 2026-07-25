@@ -180,3 +180,54 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: resolves launch aliases through lexical function and block scopes with shadowing, separates wrapper declaration analysis from invoked evaluation so dynamic wrapper arguments fail closed, discovers point-free runner arguments and callbacks, and preserves canonical source/category invocation order for direct validation.
+- `effect-executable-inventory.json`: records all 93 live invocation links in canonical discovered order.
+- `scripts/effect-executable-inventory.test.ts`: rejects reordered invocation links without sorting either side.
+- `test/architecture/effect-executable-inventory.test.ts`: covers function-local destructured require aliases in direct and wrapper functions, lexical shadowing, same-file and imported dynamic wrapper failures, direct and aliased point-free runners, the complete 36-case node:test/fs/node:sqlite/sqlite preload matrix, reordered-link rejection, and exact live 93-link sequence equality.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts --reporter=verbose` exited 1. Reordered links were accepted; local aliases were missed while a shadowed launcher leaked; same-file and imported dynamic wrappers returned successful empty discovery; and point-free runner aliases returned successful empty discovery.
+- GREEN: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts --reporter=verbose` passed 2 files and 58 tests, exit 0.
+- Audit fixture correction: the first broader `npm run effect:audit` exited 1 because literal node-prefixed synthetic preload strings added grep candidates; encoding the colon in those fixture strings preserved the exact runtime matrix without widening the audit baseline. The rerun reported 0 blocking findings, 75 advisories, 280 candidates, and migration-debt=0, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts` passed 4 files and 130 tests, exit 0.
+
+## Task gate
+- `npm ci`: passed with no tracked dependency changes, exit 0.
+- `npm ci --prefix docs/architecture`: passed, exit 0.
+- `npm run agents:check`: agent definitions synchronized, exit 0.
+- `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts`: 4 files and 130 tests passed, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 280 candidates, migration-debt=0, exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-fourth-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: 164 files passed; 1326 tests passed and 1 expected failure, exit 0.
+- `npm run bench:selfcheck`: `selfcheck OK`, exit 0.
+- `npm run bench:events -- --smoke`: all six benchmark rows passed, exit 0.
+- `npm run build`, `npm run cert:cli:build`, and `npm run build:desktop`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6 tests passed, exit 0.
+- `npm run cert:packages`: passed, exit 0.
+- Git mode and SHA-256 comparison: both host files are mode `100755` and both inventory hashes match, exit 0.
+- Package residue, added TypeScript comment, and production/model migration-launcher scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: enforce executable discovery order` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Lexical namespace, destructured, and identifier launch aliases resolve within their actual scope and respect parameter/block shadowing; direct and wrapper-local destructured require cases are proven by the actual collector: satisfied.
+- Wrapper declarations retain independently resolvable discovery, while invoked same-file and imported wrappers with unresolved first-party arguments fail closed: satisfied.
+- Direct, local-alias, named-import, and platform-barrel point-free runner identities are discovered and rejected when unregistered or ambiguous: satisfied.
+- Validation compares invocation arrays directly; discovery groups sorted entrypoint records while retaining source/category collection order; reordered links fail and the live 93-link sequence matches exactly: satisfied.
+- Static default/named, side-effect, dynamic, direct/aliased require, export-from/star, and import-equals forms are covered for node:test, fs, node:sqlite, and sqlite: satisfied.
+- No comments, dependencies, update/generator path, migration debt, or unrelated tracked behavior were added: satisfied.
+
+## Concerns
+- None

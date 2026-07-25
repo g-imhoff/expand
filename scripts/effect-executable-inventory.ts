@@ -164,9 +164,8 @@ export const validateExecutableInventoryRecords = Effect.fn("ExecutableInventory
       if (new Set(links).size !== links.length) {
         return yield* fail(`duplicate invocation link: ${entrypoint.file}`)
       }
-      const expectedLinks = discovered.map(({ invocation }) => invocationKey(invocation)).sort(compareText)
-      const actualLinks = [...links].sort(compareText)
-      if (actualLinks.length !== expectedLinks.length || actualLinks.some((key, index) => key !== expectedLinks[index])) {
+      const expectedLinks = discovered.map(({ invocation }) => invocationKey(invocation))
+      if (links.length !== expectedLinks.length || links.some((key, index) => key !== expectedLinks[index])) {
         return yield* fail(`invocation bijection failed: ${entrypoint.file}`)
       }
       if (entrypoint.kind === "registered-host-launcher" && entrypoint.file !== ".githooks/pre-commit") {
@@ -445,10 +444,10 @@ const parseRunners = (sourceFile: ts.SourceFile): ReadonlyArray<ParsedRunner> =>
     if (ts.isCallExpression(node)) {
       const construct = resolveAlias(node.expression)
       if (construct?.startsWith("runner:") === true) found.push({ node, construct })
-    }
-    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && ts.isCallExpression(node.parent) && node.parent.arguments.includes(node)) {
-      const construct = resolveAlias(node)
-      if (construct?.startsWith("runner:") === true) found.push({ node, construct })
+      for (const argument of node.arguments) {
+        const pointFreeConstruct = resolveAlias(argument)
+        if (pointFreeConstruct?.startsWith("runner:") === true) found.push({ node: argument, construct: pointFreeConstruct })
+      }
     }
     ts.forEachChild(node, visit)
   }
@@ -600,11 +599,6 @@ const analyzeSourceModules = (
         }
       }
     }
-    const collectLocalConstants = (astNode: ts.Node) => {
-      if (ts.isVariableDeclaration(astNode) && ts.isIdentifier(astNode.name) && astNode.initializer !== undefined && !constants.has(astNode.name.text)) constants.set(astNode.name.text, astNode.initializer)
-      ts.forEachChild(astNode, collectLocalConstants)
-    }
-    collectLocalConstants(sourceFile)
     let changed = true
     while (changed) {
       changed = false
@@ -665,6 +659,12 @@ const discoverChildTargets = (
       if (scoped !== undefined) return resolveValues(scoped.expression, scoped.file, scoped.scope, seen)
       const key = `${file}\0${expression.text}`
       if (seen.has(key)) return []
+      const binding = localBinding(expression.text, expression)
+      if (binding !== undefined) {
+        if (ts.isParameter(binding)) return []
+        if (ts.isIdentifier(binding.name) && binding.initializer !== undefined) return resolveValues(binding.initializer, file, scope, new Set([...seen, key]))
+        return []
+      }
       const module = modules.get(file)
       const local = module?.constants.get(expression.text)
       if (local !== undefined) return resolveValues(local, file, scope, new Set([...seen, key]))
@@ -693,6 +693,11 @@ const discoverChildTargets = (
       if (scoped !== undefined) return resolvedFlow(scoped.expression, scoped.file, scoped.scope, seen)
       const key = `${file}\0${expression.text}`
       if (seen.has(key)) return false
+      const binding = localBinding(expression.text, expression)
+      if (binding !== undefined) {
+        if (ts.isParameter(binding)) return false
+        return ts.isIdentifier(binding.name) && binding.initializer !== undefined && resolvedFlow(binding.initializer, file, scope, new Set([...seen, key]))
+      }
       const module = modules.get(file)
       const local = module?.constants.get(expression.text)
       if (local !== undefined) return resolvedFlow(local, file, scope, new Set([...seen, key]))
@@ -725,21 +730,72 @@ const discoverChildTargets = (
     }
     return undefined
   }
-  const launchApi = (expression: ts.Expression, file: string): LaunchApi | undefined => {
+  const localBinding = (name: string, node: ts.Node): ts.VariableDeclaration | ts.ParameterDeclaration | undefined => {
+    let current: ts.Node | undefined = node
+    while (current !== undefined) {
+      if (ts.isFunctionLike(current)) {
+        const parameter = current.parameters.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
+        if (parameter !== undefined) return parameter
+      }
+      if (ts.isBlock(current) || ts.isSourceFile(current)) {
+        for (const statement of current.statements) {
+          if (!ts.isVariableStatement(statement)) continue
+          for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return declaration
+            if (ts.isObjectBindingPattern(declaration.name)) {
+              const element = declaration.name.elements.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
+              if (element !== undefined) return declaration
+            }
+          }
+        }
+      }
+      current = current.parent
+    }
+    return undefined
+  }
+  const bindingElement = (declaration: ts.VariableDeclaration, name: string) => ts.isObjectBindingPattern(declaration.name)
+    ? declaration.name.elements.find((candidate) => ts.isIdentifier(candidate.name) && candidate.name.text === name)
+    : undefined
+  const namespaceOf = (expression: ts.Expression, file: string, node: ts.Node, seen = new Set<ts.Node>()): "effect" | "effect-root" | "native" | undefined => {
+    if (seen.has(expression)) return undefined
+    seen.add(expression)
+    if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === "require" && expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.arguments[0]) && isChildProcessModule(expression.arguments[0].text)) return "native"
+    if (!ts.isIdentifier(expression)) return undefined
+    const binding = localBinding(expression.text, node)
+    if (binding !== undefined) {
+      if (ts.isParameter(binding)) return undefined
+      if (ts.isIdentifier(binding.name) && binding.initializer !== undefined) return namespaceOf(binding.initializer, file, binding, seen)
+      return undefined
+    }
+    return modules.get(file)?.namespaces.get(expression.text)
+  }
+  const launchApi = (expression: ts.Expression, file: string, node: ts.Node = expression, seen = new Set<ts.Node>()): LaunchApi | undefined => {
+    if (seen.has(expression)) return undefined
+    seen.add(expression)
     const module = modules.get(file)
-    if (ts.isIdentifier(expression)) return module?.launchers.get(expression.text)
+    if (ts.isIdentifier(expression)) {
+      const binding = localBinding(expression.text, node)
+      if (binding !== undefined) {
+        if (ts.isParameter(binding)) return undefined
+        const element = bindingElement(binding, expression.text)
+        if (element !== undefined && binding.initializer !== undefined) {
+          const imported = element.propertyName?.getText(module?.sourceFile) ?? element.name.getText(module?.sourceFile)
+          return namespaceOf(binding.initializer, file, binding) === "native" && nativeLaunchApis.has(imported) ? imported as LaunchApi : undefined
+        }
+        return ts.isIdentifier(binding.name) && binding.initializer !== undefined ? launchApi(binding.initializer, file, binding, seen) : undefined
+      }
+      return module?.launchers.get(expression.text)
+    }
     if (!ts.isPropertyAccessExpression(expression) && !ts.isElementAccessExpression(expression)) return undefined
     const member = ts.isPropertyAccessExpression(expression)
       ? expression.name.text
       : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
         ? expression.argumentExpression.text
         : undefined
-    const ownerText = expression.expression.getText(module?.sourceFile)
-    const requiredNamespace = ts.isCallExpression(expression.expression) && ts.isIdentifier(expression.expression.expression) && expression.expression.expression.text === "require" && expression.expression.arguments[0] !== undefined && ts.isStringLiteralLike(expression.expression.arguments[0]) && isChildProcessModule(expression.expression.arguments[0].text)
-    const namespace = requiredNamespace ? "native" : module?.namespaces.get(ownerText)
+    const namespace = namespaceOf(expression.expression, file, node)
     if (namespace === "effect" && member === "make") return "effect"
     if (namespace === "native" && member !== undefined && nativeLaunchApis.has(member)) return member as LaunchApi
-    if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && module?.namespaces.get(expression.expression.expression.getText(module.sourceFile)) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
+    if (ts.isPropertyAccessExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && namespaceOf(expression.expression.expression, file, node) === "effect-root" && expression.expression.name.text === "ChildProcess" && expression.name.text === "make") return "effect"
     return undefined
   }
   const wrapper = (expression: ts.Expression, file: string): WrapperBinding | undefined => {
@@ -752,8 +808,8 @@ const discoverChildTargets = (
   }
   const targets: Array<{ readonly target: string; readonly caller: string; readonly position: number }> = []
   const fixtureConsumers = new Map<string, { readonly caller: string; readonly position: number }>()
-  const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string) => {
-    const api = launchApi(call.expression, file)
+  const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string, declarationAnalysis = false) => {
+    const api = launchApi(call.expression, file, call)
     if (api !== undefined) {
       const command = call.arguments[0]
       const commandValues = command === undefined ? [] : resolveValues(command, file, scope)
@@ -766,7 +822,6 @@ const discoverChildTargets = (
         : sourceInterpreter ? call.arguments.slice(0, 2) : call.arguments.slice(0, 1)
       const argumentFlow = api === "exec" || api === "execSync" ? command : call.arguments[1]
       const argumentValues = argumentFlow === undefined ? [] : resolveValues(argumentFlow, file, scope)
-      const deferredWrapper = observationCaller === file && [...(modules.get(file)?.wrappers.values() ?? [])].some(({ body }) => body.pos <= call.pos && call.end <= body.end)
       const values = expressions.flatMap((expression) => resolveValues(expression, file, scope))
       const resolved = [...new Set(values.flatMap((value) => {
         const target = normalizeTarget(file, value)
@@ -775,7 +830,7 @@ const discoverChildTargets = (
       const staticTarget = values.some((value) => sourceExtension.test(value) || value === "scripts/fixtures/job-control.sh")
       const inlineShell = commandValues.some((value) => /^(?:bash|sh|zsh)$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.includes("-c")
       const inlineNode = commandValues.some((value) => /^(?:node|nodejs)(?:\.exe)?$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.some((value) => /^(?:-e|--eval|--print)$/.test(value))
-      if (interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && argumentFlow !== undefined && !resolvedFlow(argumentFlow, file, scope) && !deferredWrapper) throw fail(`unresolved first-party launch target: ${file}`)
+      if (!declarationAnalysis && interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && argumentFlow !== undefined && !resolvedFlow(argumentFlow, file, scope)) throw fail(`unresolved first-party launch target: ${file}`)
       const independentlyResolved = scope.size === 0 ? new Set<string>() : new Set(expressions.flatMap((expression) => resolveValues(expression, file, new Map())).flatMap((value) => {
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
@@ -789,6 +844,7 @@ const discoverChildTargets = (
     }
     const helper = wrapper(call.expression, file)
     if (helper === undefined) return
+    if (helper.parameters.length === 0) return
     if (scope.size > 0 && call.arguments.some((argument) => resolveValues(argument, file, new Map()).some((value) => normalizeTarget(file, value) !== undefined))) return
     const key = `${helper.file}\0${helper.body.pos}`
     if (stack.has(key)) return
@@ -798,14 +854,15 @@ const discoverChildTargets = (
       if (expression !== undefined) bindings.set(parameter, { file, expression, scope })
     })
     const visitHelper = (astNode: ts.Node) => {
-      if (ts.isCallExpression(astNode)) inspectCall(astNode, helper.file, bindings, position, new Set([...stack, key]), observationCaller)
+      if (ts.isCallExpression(astNode)) inspectCall(astNode, helper.file, bindings, position, new Set([...stack, key]), observationCaller, declarationAnalysis)
       ts.forEachChild(astNode, visitHelper)
     }
     visitHelper(helper.body)
   }
   for (const [file, module] of modules) {
+    const insideWrapper = (node: ts.Node) => [...module.wrappers.values()].some(({ body }) => body.pos <= node.pos && node.end <= body.end)
     const visit = (astNode: ts.Node) => {
-      if (ts.isCallExpression(astNode)) inspectCall(astNode, file, new Map(), astNode.getStart(module.sourceFile), new Set(), file)
+      if (ts.isCallExpression(astNode)) inspectCall(astNode, file, new Map(), astNode.getStart(module.sourceFile), new Set(), file, insideWrapper(astNode))
       if (ts.isPropertyAssignment(astNode) && /^(?:sourceEntry|backendCommand)$/.test(astNode.name.getText(module.sourceFile))) {
         for (const value of resolveValues(astNode.initializer, file, new Map())) {
           const target = normalizeTarget(file, value)
@@ -966,13 +1023,14 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
 
     const keys = observations.map(observationKey)
     if (new Set(keys).size !== keys.length) return yield* fail("discovery contains duplicate invocation identities")
-    const sorted = [...observations].sort((left, right) => compareText(left.file, right.file) || compareText(invocationKey(left.invocation), invocationKey(right.invocation)))
+    const files = [...new Set(observations.map(({ file }) => file))].sort(compareText)
+    const canonical = files.flatMap((file) => observations.filter((observation) => observation.file === file))
     return {
-      observations: sorted,
+      observations: canonical,
       trackedFiles: [...trackedFiles].sort(compareText),
       trackedModes,
       sourceHashes,
-      entrypointCount: new Set(sorted.map(({ file }) => file)).size
+      entrypointCount: files.length
     }
   }
 )

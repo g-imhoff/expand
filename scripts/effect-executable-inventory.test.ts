@@ -153,7 +153,8 @@ describe("ExecutableInventory schema", () => {
         { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: observations.slice(0, 1).map(({ invocation }) => invocation) }] },
         { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: [...inventory.entrypoints[0]!.invokedBy, { file: "other.json", selector: "scripts.other", occurrence: 0 }] }] },
         { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: [...inventory.entrypoints[0]!.invokedBy, inventory.entrypoints[0]!.invokedBy[0]!] }] },
-        { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: inventory.entrypoints[0]!.invokedBy.map((link, index) => index === 0 ? { ...link, occurrence: 1 } : link) }] }
+        { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: inventory.entrypoints[0]!.invokedBy.map((link, index) => index === 0 ? { ...link, occurrence: 1 } : link) }] },
+        { ...inventory, entrypoints: [{ ...inventory.entrypoints[0]!, invokedBy: [...inventory.entrypoints[0]!.invokedBy].reverse() }] }
       ]
       for (const changed of variants) {
         expect(yield* failureDetail(validateExecutableInventoryRecords(changed, observations, {

@@ -116,6 +116,50 @@ describe("exact executable inventory architecture", () => {
       expect(errorDetail(error)).toContain("absent from inventory")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("collects lexical local launch aliases without leaking through shadowing", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": `import { spawn } from "node${":"}child_process"
+function direct() {
+  const { spawn: launch } = require("child_process")
+  launch("node", ["scripts/direct.ts"])
+}
+const wrapped = (target: string) => {
+  const { spawn: launch } = require("node${":"}child_process")
+  launch("node", [target])
+}
+function shadowed(spawn: (command: string, args: Array<string>) => void) {
+  spawn("node", ["scripts/shadowed.ts"])
+}
+direct()
+wrapped("scripts/wrapped.ts")
+void shadowed
+void spawn
+`,
+        "scripts/direct.ts": `export {}\n`,
+        "scripts/shadowed.ts": `export {}\n`,
+        "scripts/wrapped.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual(["scripts/direct.ts", "scripts/wrapped.ts"])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for unresolved same-file and imported wrapper arguments", () =>
+    Effect.scoped(Effect.gen(function*() {
+      for (const imported of [false, true]) {
+        const root = yield* syntheticRepository({
+          "package.json": encodeJson({ scripts: {} }),
+          ...(imported ? { "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n` } : {}),
+          "scripts/caller.ts": imported
+            ? `import { launch } from "./wrapper"\nlaunch(globalThis["process"].argv[2])\n`
+            : `import { spawn } from "node${":"}child_process"\nconst launch = (target: string) => spawn("node", [target])\nlaunch(globalThis["process"].argv[2])\n`
+        })
+        const error = yield* Effect.flip(discoverExecutableInventory(root))
+        expect(errorDetail(error)).toContain("unresolved first-party launch")
+      }
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("discovers direct require property and element child launches", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -162,20 +206,19 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
       expect(errorDetail(error)).toContain("exactly one")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
-  it.live.each([
-    `import { test } from "node${":"}test"`,
-    `import "node${":"}test"`,
-    `const test = import("node${":"}test")`,
-    `const test = require("node${":"}test")`,
-    `export * from "node${":"}test"`,
-    `import test = require("node${":"}test")`,
-    `import { readFile } from "fs"`,
-    `import "fs"`,
-    `const fs = import("fs")`,
-    `const fs = require("fs")`,
-    `export * from "fs"`,
-    `import fs = require("fs")`
-  ])("rejects every Node builtin preload syntax and specifier form through actual discovery", (source) =>
+  it.live.each(
+    [`node${":"}test`, "fs", `node${":"}sqlite`, "sqlite"].flatMap((specifier) => [
+      `import value from "${specifier}"`,
+      `import { value as alias } from "${specifier}"`,
+      `import "${specifier}"`,
+      `const value = import("${specifier}")`,
+      `const value = require("${specifier}")`,
+      `const loader = require; const value = loader("${specifier}")`,
+      `export { value } from "${specifier}"`,
+      `export * from "${specifier}"`,
+      `import value = require("${specifier}")`
+    ])
+  )("rejects every Node builtin preload syntax and specifier form through actual discovery", (source) =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
@@ -215,7 +258,11 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
         `import { Effect as Runtime } from "effect"\nRuntime.${"runPromise"}(Runtime.void)\n`,
         `import { runMain as launch } from "@effect/platform-node/NodeRuntime"\nlaunch(null)\n`,
         `import { NodeRuntime as Runtime } from "@effect/platform-node"\nconst launch = Runtime.${"runMain"}\nlaunch(null)\n`,
-        `import * as PlatformNode from "@effect/platform-node"\nconst Runtime = PlatformNode.NodeRuntime\nconst launch = Runtime.${"runMain"}\nlaunch(null)\n`
+        `import * as PlatformNode from "@effect/platform-node"\nconst Runtime = PlatformNode.NodeRuntime\nconst launch = Runtime.${"runMain"}\nlaunch(null)\n`,
+        `import { Effect } from "effect"\nEffect.void.pipe(Effect.${"runPromise"})\n`,
+        `import { Effect } from "effect"\nconst launch = Effect.${"runPromise"}\nEffect.void.pipe(launch)\n`,
+        `import { runPromise as launch } from "effect"\nimport { Effect } from "effect"\nEffect.void.pipe(launch)\n`,
+        `import { Effect } from "effect"\nimport { NodeRuntime as Runtime } from "@effect/platform-node"\nconst launch = Runtime.${"runMain"}\nEffect.void.pipe(launch)\n`
       ]) {
         const root = yield* syntheticRepository({
           "package.json": encodeJson({ scripts: {} }),
@@ -252,6 +299,9 @@ require("node${":"}child_process")["execFile"]("node", ["scripts/element.ts"])
         yield* fs.readFileString(path.join(root, "effect-executable-inventory.json"))
       )
       expect(decoded.entrypoints).toHaveLength(discovery.entrypointCount)
+      const expectedSequence = decoded.entrypoints.flatMap(({ invokedBy }) => invokedBy)
+      expect(expectedSequence).toHaveLength(93)
+      expect(discovery.observations.map(({ invocation }) => invocation)).toEqual(expectedSequence)
       expect(decoded.entrypoints.map(({ file }) => file)).toContain("test/architecture/effect-executable-inventory.test.ts")
     }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 
