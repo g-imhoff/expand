@@ -164,7 +164,7 @@ describe("example: archive-stale", () => {
       expect(lines.pubsub.subscribers.size).toBe(0)
       expect(yield* Ref.get(releases)).toBe(1)
       const dataDir = yield* makeDataDir()
-      const handle = yield* spawnExample("missing-example.ts", [], dataDir)
+      const handle = yield* spawnExample("missing-example", [], dataDir)
       const startup = yield* Effect.exit(handle.waitForLine("missing", 5_000))
       expect(Exit.isFailure(startup)).toBe(true)
       if (Exit.isFailure(startup)) {

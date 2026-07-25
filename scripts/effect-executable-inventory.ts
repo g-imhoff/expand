@@ -1,4 +1,4 @@
-import { Crypto, Data, Effect, Encoding, FileSystem, Path, Schema, Stream } from "effect"
+import { Crypto, Data, Effect, Encoding, FileSystem, Option, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as ts from "typescript"
 import { effectHostBoundaries } from "../eslint-rules/effect-host-boundaries.mjs"
@@ -530,6 +530,7 @@ interface SourceModule {
   readonly sourceFile: ts.SourceFile
   readonly constants: ReadonlyMap<string, ts.Expression>
   readonly imports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
+  readonly reExports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
   readonly launchers: ReadonlyMap<string, LaunchApi>
   readonly namespaces: ReadonlyMap<string, "effect" | "effect-root" | "native">
   readonly wrappers: ReadonlyMap<string, WrapperBinding>
@@ -569,23 +570,30 @@ const analyzeSourceModules = (
   for (const [file, sourceFile] of parsedSources) {
     const constants = new Map<string, ts.Expression>()
     const imports = new Map<string, { readonly file: string; readonly imported: string }>()
+    const reExports = new Map<string, { readonly file: string; readonly imported: string }>()
     const launchers = new Map<string, LaunchApi>()
     const namespaces = new Map<string, "effect" | "effect-root" | "native">()
     const wrappers = new Map<string, WrapperBinding>()
     const wrapperDeclarations = new Map<ts.Declaration, WrapperBinding>()
     const namespaceDestructures: Array<{ readonly namespace: string; readonly imported: string; readonly local: string }> = []
     for (const statement of sourceFile.statements) {
-      if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && statement.moduleReference.expression !== undefined && ts.isStringLiteralLike(statement.moduleReference.expression) && isChildProcessModule(statement.moduleReference.expression.text)) namespaces.set(statement.name.text, "native")
-      if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.importClause?.namedBindings !== undefined) {
+      if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && statement.moduleReference.expression !== undefined && ts.isStringLiteralLike(statement.moduleReference.expression)) {
+        const specifier = statement.moduleReference.expression.text
+        if (isChildProcessModule(specifier)) namespaces.set(statement.name.text, "native")
+        const importedFile = resolveSourceImport(file, specifier, tracked)
+        if (importedFile !== undefined) imports.set(statement.name.text, { file: importedFile, imported: "default" })
+      }
+      if (ts.isImportDeclaration(statement) && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.importClause !== undefined) {
         const specifier = statement.moduleSpecifier.text
         const importedFile = resolveSourceImport(file, specifier, tracked)
+        if (statement.importClause.name !== undefined && importedFile !== undefined) imports.set(statement.importClause.name.text, { file: importedFile, imported: "default" })
         const bindings = statement.importClause.namedBindings
-        if (ts.isNamespaceImport(bindings)) {
+        if (bindings !== undefined && ts.isNamespaceImport(bindings)) {
           if (specifier === "effect/unstable/process") namespaces.set(bindings.name.text, "effect-root")
           if (specifier === "effect/unstable/process/ChildProcess") namespaces.set(bindings.name.text, "effect")
           if (isChildProcessModule(specifier)) namespaces.set(bindings.name.text, "native")
           if (importedFile !== undefined) imports.set(bindings.name.text, { file: importedFile, imported: "*" })
-        } else {
+        } else if (bindings !== undefined) {
           for (const element of bindings.elements) {
             const imported = element.propertyName?.text ?? element.name.text
             const local = element.name.text
@@ -597,7 +605,16 @@ const analyzeSourceModules = (
         }
       }
       if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && statement.body !== undefined) {
-        wrappers.set(statement.name.text, { file, parameters: statement.parameters.map(({ name }) => name), body: statement.body })
+        const binding = { file, parameters: statement.parameters.map(({ name }) => name), body: statement.body }
+        wrappers.set(statement.name.text, binding)
+        if (statement.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) === true) wrappers.set("default", binding)
+      }
+      if (ts.isExportAssignment(statement) && !statement.isExportEquals) constants.set("default", statement.expression)
+      if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+        const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
+        if (exportedFile !== undefined) {
+          for (const element of statement.exportClause.elements) reExports.set(element.name.text, { file: exportedFile, imported: element.propertyName?.text ?? element.name.text })
+        }
       }
       if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
@@ -681,7 +698,7 @@ const analyzeSourceModules = (
       ts.forEachChild(node, collectWrappers)
     }
     collectWrappers(sourceFile)
-    modules.set(file, { file, sourceFile, constants, imports, launchers, namespaces, wrappers, wrapperDeclarations })
+    modules.set(file, { file, sourceFile, constants, imports, reExports, launchers, namespaces, wrappers, wrapperDeclarations })
   }
   return modules
 }
@@ -692,7 +709,24 @@ const discoverChildTargets = (
   checker: ts.TypeChecker
 ): ChildDiscovery => {
   const modules = analyzeSourceModules(parsedSources, tracked, checker)
-  const resolveExport = (file: string, name: string): ts.Expression | undefined => modules.get(file)?.constants.get(name)
+  const resolveExport = (file: string, name: string, seen = new Set<string>()): ts.Expression | undefined => {
+    const key = `${file}\0${name}`
+    if (seen.has(key)) return undefined
+    const module = modules.get(file)
+    const local = module?.constants.get(name)
+    if (local !== undefined) return local
+    const reExport = module?.reExports.get(name)
+    return reExport === undefined ? undefined : resolveExport(reExport.file, reExport.imported, new Set([...seen, key]))
+  }
+  const resolveExportWrapper = (file: string, name: string, seen = new Set<string>()): WrapperBinding | undefined => {
+    const key = `${file}\0${name}`
+    if (seen.has(key)) return undefined
+    const module = modules.get(file)
+    const local = module?.wrappers.get(name)
+    if (local !== undefined) return local
+    const reExport = module?.reExports.get(name)
+    return reExport === undefined ? undefined : resolveExportWrapper(reExport.file, reExport.imported, new Set([...seen, key]))
+  }
   const resolveValues = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<string>()): ReadonlyArray<string> => {
     if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text]
     if (ts.isTemplateExpression(expression)) {
@@ -928,21 +962,47 @@ const discoverChildTargets = (
       if (ts.isVariableDeclaration(resolvedDeclaration) && resolvedDeclaration.initializer !== undefined) return wrapper(resolvedDeclaration.initializer, file, scope, nextSeen)
     }
     if (!ts.isIdentifier(expression)) return undefined
-    const declaration = localBinding(expression)
-    if (declaration === undefined || !ts.isImportSpecifier(declaration)) return undefined
     const imported = module?.imports.get(expression.text)
-    const importedWrapper = imported === undefined ? undefined : modules.get(imported.file)?.wrappers.get(imported.imported)
+    const importedWrapper = imported === undefined ? undefined : resolveExportWrapper(imported.file, imported.imported)
     return importedWrapper === undefined ? undefined : { ...importedWrapper, scope: new Map() }
   }
   const targets: Array<{ readonly target: string; readonly caller: string; readonly position: number }> = []
   const fixtureConsumers = new Map<string, { readonly caller: string; readonly position: number }>()
+  const unresolvedDeclarations = new Set<string>()
+  const provenDeclarations = new Set<string>()
+  const calledDeclarations = new Set<string>()
+  const declarationIdentity = (call: ts.CallExpression, file: string) => {
+    const owner = ts.findAncestor(call, (node) => ts.isFunctionLike(node) && "body" in node)
+    const body = owner !== undefined && "body" in owner ? owner.body as ts.ConciseBody | undefined : undefined
+    if (body === undefined || ![...modules.get(file)?.wrapperDeclarations.values() ?? []].some((wrapper) => wrapper.body === body)) return undefined
+    return `${file}\0${body.pos}`
+  }
+  const exactExternalBackendCommand = (call: ts.CallExpression, file: string, command: ts.Expression | undefined) => {
+    if (file !== "packages/client-ts/adapters/node-spawn.ts" || command === undefined || !ts.isIdentifier(command)) return false
+    const owner = ts.findAncestor(call, (node) => ts.isFunctionLike(node) && "body" in node)
+    if (owner === undefined) return false
+    const declaration = ts.findAncestor(owner, ts.isVariableDeclaration)
+    if (declaration === undefined || !ts.isIdentifier(declaration.name) || declaration.name.text !== "spawnResolvedBackend") return false
+    const executable = localBinding(command)
+    if (executable === undefined || !ts.isBindingElement(executable) || !ts.isArrayBindingPattern(executable.parent)) return false
+    const commandDeclaration = executable.parent.parent
+    if (!ts.isVariableDeclaration(commandDeclaration) || commandDeclaration.initializer === undefined || !ts.isIdentifier(commandDeclaration.initializer) || commandDeclaration.initializer.text !== "command") return false
+    const parameter = localBinding(commandDeclaration.initializer)
+    return parameter !== undefined && ts.isParameter(parameter) && ts.isIdentifier(parameter.name) && parameter.name.text === "command" && parameter.parent === owner
+  }
+  const sourceLikeTarget = (value: string) => value.split(/\s+/).some((token) => /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs|sh|bash|zsh)(?:["']?)$/.test(token))
   const inspectCall = (call: ts.CallExpression, file: string, scope: ReadonlyMap<string, SourceBinding>, position: number, stack: ReadonlySet<string>, observationCaller: string, declarationAnalysis = false, invokedHelper = false) => {
     const api = launchApi(call.expression, file)
     if (api !== undefined) {
       const command = call.arguments[0]
       const commandValues = command === undefined ? [] : resolveValues(command, file, scope)
-      const externalBackendCommand = file === "packages/client-ts/adapters/node-spawn.ts"
-      if (!declarationAnalysis && !externalBackendCommand && (command === undefined || !resolvedFlow(command, file, scope))) throw fail(`unresolved child command: ${file}`)
+      const externalBackendCommand = exactExternalBackendCommand(call, file, command)
+      const commandResolved = command !== undefined && resolvedFlow(command, file, scope)
+      const identity = declarationIdentity(call, file)
+      if (!externalBackendCommand && !commandResolved) {
+        if (!declarationAnalysis) throw fail(`unresolved child command: ${file}`)
+        if (identity !== undefined) unresolvedDeclarations.add(identity)
+      }
       const knownLaunchers = /^(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npm-cli|npx|pnpm|pnpx|yarn|yarnpkg)(?:\.cmd|\.exe)?$/
       const commandText = command?.getText(modules.get(file)?.sourceFile) ?? ""
       const interpreter = command !== undefined && (commandValues.some((value) => knownLaunchers.test(value.split(/[\\/]/).at(-1) ?? "")) || /process\.execPath/.test(commandText) || /^(?:["'`])?(?:node|nodejs|tsx|ts-node|bash|sh|zsh|npm|npx|pnpm|pnpx|yarn|yarnpkg)\b/.test(commandText))
@@ -957,10 +1017,15 @@ const discoverChildTargets = (
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
       }))]
+      const untrackedSource = values.find((value) => sourceLikeTarget(value) && normalizeTarget(file, value) === undefined)
+      if (untrackedSource !== undefined) throw fail(`untracked first-party launch target: ${file}: ${untrackedSource}`)
       const staticTarget = values.some((value) => sourceExtension.test(value) || value === "scripts/fixtures/job-control.sh")
       const inlineShell = commandValues.some((value) => /^(?:bash|sh|zsh)$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.includes("-c")
       const inlineNode = commandValues.some((value) => /^(?:node|nodejs)(?:\.exe)?$/.test(value.split(/[\\/]/).at(-1) ?? "")) && argumentValues.some((value) => /^(?:-e|--eval|--print)$/.test(value))
-      if (!declarationAnalysis && interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && argumentFlow !== undefined && !resolvedFlow(argumentFlow, file, scope)) throw fail(`unresolved first-party launch target: ${file}`)
+      const argumentResolved = argumentFlow === undefined || resolvedFlow(argumentFlow, file, scope)
+      if (!declarationAnalysis && interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && !argumentResolved) throw fail(`unresolved first-party launch target: ${file}`)
+      if (declarationAnalysis && interpreter && resolved.length === 0 && !staticTarget && !inlineShell && !inlineNode && !argumentResolved && identity !== undefined) unresolvedDeclarations.add(identity)
+      if (identity !== undefined && (!declarationAnalysis || scope.size > 0) && (externalBackendCommand || (commandResolved && (!interpreter || inlineShell || inlineNode || argumentResolved)))) provenDeclarations.add(identity)
       const independentlyResolved = !invokedHelper ? new Set<string>() : new Set(expressions.flatMap((expression) => resolveValues(expression, file, new Map())).flatMap((value) => {
         const target = normalizeTarget(file, value)
         return target === undefined ? [] : [target]
@@ -974,8 +1039,10 @@ const discoverChildTargets = (
     }
     const helper = wrapper(call.expression, file, scope)
     if (helper === undefined) return
+    const helperIdentity = `${helper.file}\0${helper.body.pos}`
+    calledDeclarations.add(helperIdentity)
     if (invokedHelper && call.arguments.some((argument) => resolveValues(argument, file, new Map()).some((value) => normalizeTarget(file, value) !== undefined))) return
-    const key = `${helper.file}\0${helper.body.pos}`
+    const key = helperIdentity
     if (stack.has(key)) return
     const bindings = bindParameters(helper, [...call.arguments], file, scope, helper.scope)
     if (ts.isFunctionLike(helper.body)) return
@@ -1000,6 +1067,8 @@ const discoverChildTargets = (
     }
     visit(module.sourceFile)
   }
+  const unresolved = [...unresolvedDeclarations].find((identity) => !provenDeclarations.has(identity) && !calledDeclarations.has(identity))
+  if (unresolved !== undefined) throw fail(`unresolved child command: ${unresolved.split("\0")[0]}`)
   return { targets: targets.sort((left, right) => compareText(left.caller, right.caller) || left.position - right.position), fixtureConsumers: [...fixtureConsumers.values()] }
 }
 
@@ -1039,6 +1108,15 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       trackedModes.set(file, match[1]!)
     }
     const tracked = new Set(trackedFiles)
+    const shebangFiles = new Set<string>()
+    for (const file of trackedFiles.filter((file) => trackedModes.get(file)?.startsWith("100") === true)) {
+      const prefix = yield* Effect.scoped(Effect.gen(function*() {
+        const handle = yield* fs.open(path.join(root, file), { flag: "r" })
+        const bytes = yield* handle.readAlloc(2)
+        return Option.isSome(bytes) ? bytes.value : new Uint8Array()
+      })).pipe(Effect.mapError((cause) => fail(`cannot inspect ${file}`, cause)))
+      if (prefix[0] === 35 && prefix[1] === 33) shebangFiles.add(file)
+    }
     const sources = new Map<string, string>()
     for (const file of trackedFiles.filter((file) => sourceExtension.test(file) || file.endsWith(".sh") || file.startsWith(".githooks/"))) {
       sources.set(file, yield* fs.readFileString(path.join(root, file)).pipe(Effect.mapError((cause) => fail(`cannot read ${file}`, cause))))
@@ -1081,7 +1159,7 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       if (tracked.has(file)) observations.push(makeObservation(file, invocation, runnerBoundaries.get(file), sourceHashes.get(file)))
     }
 
-    const selectedHosts = trackedFiles.filter((file) => trackedModes.get(file) === "100755" || (sources.get(file)?.startsWith("#!") ?? false)).sort(compareText)
+    const selectedHosts = trackedFiles.filter((file) => trackedModes.get(file) === "100755" || shebangFiles.has(file)).sort(compareText)
     for (const file of selectedHosts) {
       if (file !== ".githooks/pre-commit" && file !== "scripts/fixtures/job-control.sh") return yield* fail(`unregistered host executable: ${file}`)
       const source = sources.get(file) ?? ""

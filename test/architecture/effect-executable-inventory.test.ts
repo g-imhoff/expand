@@ -301,6 +301,91 @@ launch({ target: globalThis["process"].argv[2] })
       expect(errorDetail(error)).toContain("unresolved child command")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live.each([
+    {
+      file: "scripts/caller.ts",
+      source: `import { spawn } from "node${":"}child_process"\nexport function launch(target: string) { spawn(target, ["status"]) }\n`
+    },
+    {
+      file: "packages/client-ts/adapters/node-spawn.ts",
+      source: `import { spawn } from "node${":"}child_process"\nexport function unrelated(command: string) { spawn(command, ["status"]) }\n`
+    }
+  ])("fails closed for declaration-level dynamic child commands", ({ file, source }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        [file]: source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved child command")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    `import { spawn } from "node${":"}child_process"\nspawn("node", ["scripts/missing.ts"])\n`,
+    `import { spawn } from "node${":"}child_process"\nconst missing = "scripts/missing.ts"\nconst args = [missing]\nspawn("node", args)\n`
+  ])("fails closed for resolved untracked source-like child targets", (source) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/caller.ts": source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked first-party launch target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves default-imported wrapper and re-export chains", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport default function launch(target: string) { spawn("node", [target]) }\n`,
+        "scripts/re-export.ts": `export { default } from "./wrapper"\n`,
+        "scripts/caller.ts": `import launch from "./re-export"\nlaunch("scripts/default-static.ts")\n`,
+        "scripts/default-static.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "scripts/default-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/default-static.ts", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for a dynamic default-imported wrapper chain", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport default function launch(target: string) { spawn("node", [target]) }\n`,
+        "scripts/caller.ts": `import launch from "./wrapper"\nlaunch(globalThis["process"].argv[2])\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    { file: "scripts/host.bash", source: "#!/usr/bin/env bash\nprintf ok\n" },
+    { file: "scripts/host.zsh", source: "#!/usr/bin/env zsh\nprintf ok\n" },
+    { file: "scripts/host", source: "#!/bin/sh\nprintf ok\n" }
+  ])("discovers mode-100644 shebangs in every tracked regular file", ({ file, source }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        [file]: source
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain(`unregistered host executable: ${file}`)
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("excludes tracked non-shebang binary and text files from host discovery", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "assets/data.bin": `\u0000#!not-at-start`,
+        "scripts/plain.bash": `printf ok\n`,
+        "scripts/plain.zsh": `printf ok\n`,
+        "scripts/plain": `printf ok\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("accepts scope-resolved external and inline child commands without inventing entrypoints", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({

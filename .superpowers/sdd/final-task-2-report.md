@@ -340,3 +340,49 @@ Status: DONE_WITH_CONCERNS
 
 ## Concerns
 - The complete suite showed two unrelated timing/cleanup flakes before the final green run: job-control status 147 and temporary-directory cleanup `ENOTEMPTY`. Both passed immediately in isolation and the final complete run passed.
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: validates unresolved launch flow in independently declared wrappers, narrows the backend-command exemption to the exact `spawnResolvedBackend` declaration and parameter flow, rejects resolved source-like paths without one tracked target, resolves default/import-equals and default re-export wrapper chains, and probes the first two bytes of every tracked regular file for shebangs.
+- `test/architecture/effect-executable-inventory.test.ts`: covers uninvoked dynamic declarations, an unrelated dynamic launch in the adapter path, direct and aliased missing source targets, static and dynamic default-wrapper chains, `.bash`, `.zsh`, and extensionless mode-100644 shebangs, and non-shebang binary/text exclusions.
+- `examples/client-ts/test/archive-stale.smoke.test.ts`: preserves the intentional missing-program failure with an extensionless target so the live repository contains no resolved untracked source-like child target.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "declaration-level dynamic|resolved untracked source-like|default-imported wrapper|mode-100644 shebangs|non-shebang binary" --reporter=verbose` exited 1. Nine new cases failed because declaration-level dynamics and adapter-path dynamics returned empty discovery, missing `.ts` targets were accepted, default wrappers were omitted, and all three non-executable shebang files were ignored; the non-shebang exclusion case passed.
+- GREEN: the same focused command passed 10 tests with 70 skipped, exit 0.
+- Regression RED: the first full architecture reruns exposed unresolved nested-wrapper declaration accounting and the repository's intentional `missing-example.ts` runtime-failure target; the latter was changed to extensionless while preserving its test purpose.
+- Full architecture GREEN: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts --reporter=verbose` passed 80/80, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts` passed 4 files and 159 tests, exit 0.
+- Two complete `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0.
+
+## Task gate
+- `npm ci` and `npm ci --prefix docs/architecture`: passed, exit 0.
+- `npm run agents:check`: agent definitions synchronized, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-seventh-fix-grep.txt` and `npm run effect:launchers`: passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: passed, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue and added TypeScript comment scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: prove all executable source boundaries` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Declaration-level dynamic supported launches fail when the declaration is unproven; the only adapter-path exemption requires the exact `spawnResolvedBackend` declaration, destructured `executable`, and `command` parameter identity: satisfied.
+- Resolved source-like launch targets must map to one tracked path, including array and alias flow: satisfied.
+- First-party default imports, import-equals bindings, and default re-export chains resolve to exact wrapper declarations; static targets are observed and dynamic targets fail: satisfied.
+- Shebang discovery checks the first two bytes of every tracked regular file without extension or executable-mode filtering; non-shebang binary and text remain excluded: satisfied.
+- Changes are limited to the analyzer, its architecture regressions, the one existing intentional missing-program fixture spelling, and this durable report; no comments, dependencies, inventory changes, or unrelated behavior were added: satisfied.
+
+## Concerns
+- None
