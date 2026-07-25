@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Context, Crypto, Effect, Encoding, FileSystem, Layer, Path, Schema, Stream } from "effect"
+import { Context, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
 import { Command, Flag } from "effect/unstable/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import tseslint from "typescript-eslint"
@@ -13,22 +13,17 @@ import {
   findingKey
 } from "./effect-audit-model"
 import {
-  ExecutableBoundary,
   GrepCandidate,
   GrepInventoryJson,
-  LauncherInventoryJson,
-  compareLauncherInventory,
   compareGrepInventory,
-  executableBoundaryKey,
   grepCandidateKey,
-  grepInventoryValidationError,
-  launcherInventoryValidationError,
-  shrinkLauncherInventory
+  grepInventoryValidationError
 } from "./effect-inventory-model"
+import { validateExecutableInventory } from "./effect-executable-inventory"
 import { HostBoundary, NonNegativeInt, PositiveInt } from "./effect-policy-model"
 
 export interface AuditCommandRequest {
-  readonly name: "language-service" | "eslint" | "typescript-files" | "tracked-files" | "tracked-modes" | "grep-json"
+  readonly name: "language-service" | "eslint" | "typescript-files" | "tracked-files" | "grep-json"
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd: string
@@ -120,10 +115,6 @@ const EslintResult = Schema.Struct({
 
 const EslintJson = Schema.fromJsonString(Schema.Array(EslintResult))
 const HostBoundaries = Schema.Array(HostBoundary)
-const RootPackageJson = Schema.fromJsonString(Schema.Struct({
-  scripts: Schema.Record(Schema.String, Schema.String)
-}))
-
 const RipgrepEventJson = Schema.fromJsonString(Schema.Struct({
   type: Schema.Literals(["begin", "match", "end", "summary"]),
   data: Schema.Unknown
@@ -453,13 +444,6 @@ const commandRequests = (root: string): ReadonlyArray<AuditCommandRequest> => [
     acceptedExitCodes: [0]
   },
   {
-    name: "tracked-modes",
-    command: "git",
-    args: ["ls-files", "-s", "-z"],
-    cwd: root,
-    acceptedExitCodes: [0]
-  },
-  {
     name: "grep-json",
     command: "rg",
     args: ["--json", ...EFFECT_GREP_ARGS, "."],
@@ -750,207 +734,6 @@ const grepClassificationError = (evidence: ReadonlyArray<GrepCandidateEvidence>)
   return undefined
 }
 
-export interface TrackedMode {
-  readonly file: string
-  readonly mode: "100644" | "100755" | "120000" | "160000"
-}
-
-export interface LauncherObservation {
-  readonly file: string
-  readonly mode: "100644" | "100755"
-  readonly sourceSha256: string
-}
-
-const validTrackedPath = (file: string): boolean =>
-  file.length > 0
-  && !file.startsWith("/")
-  && !file.includes("\\")
-  && !file.endsWith("/")
-  && !/[*?\[\]{}]/.test(file)
-  && file.split("/").every((part) => part !== "" && part !== "." && part !== "..")
-
-const isTrackedMode = (mode: string): mode is TrackedMode["mode"] =>
-  mode === "100644" || mode === "100755" || mode === "120000" || mode === "160000"
-
-export const parseTrackedModes = Effect.fn("effect-audit.parse-tracked-modes")(
-  function*(tracked: ReadonlyArray<string>, output: string) {
-    if (tracked.some((file) => !validTrackedPath(file)) || new Set(tracked).size !== tracked.length) {
-      return yield* Effect.fail(auditError("invalid-output", "tracked manifest contains malformed or duplicate paths"))
-    }
-    const entries = output.split("\0")
-    if (entries.at(-1) === "") entries.pop()
-    if (entries.length === 0 || entries.some((entry) => entry.length === 0)) {
-      return yield* Effect.fail(auditError("invalid-output", "tracked-modes contains malformed NUL records"))
-    }
-    const records: Array<TrackedMode> = []
-    const counts = new Map<string, number>()
-    for (const entry of entries) {
-      const tab = entry.indexOf("\t")
-      const metadata = tab < 0 ? "" : entry.slice(0, tab)
-      const file = tab < 0 ? "" : entry.slice(tab + 1)
-      const match = /^(100644|100755|120000|160000) ([0-9a-f]{40}|[0-9a-f]{64}) 0$/.exec(metadata)
-      const mode = match?.[1] ?? ""
-      if (match === null || !isTrackedMode(mode) || !validTrackedPath(file)) {
-        return yield* Effect.fail(auditError("invalid-output", `tracked-modes contains an invalid record: ${entry}`))
-      }
-      records.push({ file, mode })
-      counts.set(file, (counts.get(file) ?? 0) + 1)
-    }
-    const trackedSet = new Set(tracked)
-    if (
-      records.some(({ file }) => !trackedSet.has(file) || counts.get(file) !== 1)
-      || tracked.some((file) => counts.get(file) !== 1)
-    ) return yield* Effect.fail(auditError("invalid-output", "tracked manifests are not an exact path bijection"))
-    return records.sort((left, right) => compareText(left.file, right.file))
-  }
-)
-
-const collectLaunchers = Effect.fn("effect-audit.collect-launchers")(
-  function*(root: string, trackedModes: ReadonlyArray<TrackedMode>) {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const crypto = yield* Crypto.Crypto
-    const selected = trackedModes.filter(({ file, mode }) =>
-      mode === "100755" || /\.(?:sh|bash|zsh)$/.test(file)
-    )
-    const launchers: Array<LauncherObservation> = []
-    for (const record of selected) {
-      if (record.mode !== "100644" && record.mode !== "100755") {
-        return yield* Effect.fail(auditError("invalid-output", `selected launcher is not a regular file: ${record.file}`))
-      }
-      const bytes = yield* fs.readFile(path.join(root, record.file)).pipe(
-        Effect.mapError((error) => auditError("invalid-output", `${record.file}: ${String(error)}`))
-      )
-      const digest = yield* crypto.digest("SHA-256", bytes).pipe(
-        Effect.mapError((error) => auditError("invalid-output", `${record.file}: ${String(error)}`))
-      )
-      launchers.push({
-        file: record.file,
-        mode: record.mode,
-        sourceSha256: Encoding.encodeHex(digest)
-      })
-    }
-    return launchers
-  }
-)
-
-const sourceContainsLiteral = (parsed: ParsedSource, value: string): boolean => {
-  if (!isSourceNode(parsed.ast)) return false
-  const visitorKeys = parsed.visitorKeys as Record<string, ReadonlyArray<string>> | undefined
-  const stack: Array<SourceNode> = [parsed.ast]
-  while (stack.length > 0) {
-    const node = stack.pop()
-    if (node === undefined) continue
-    if (node.type === "Literal" && node.value === value) return true
-    const keys = visitorKeys?.[node.type]
-      ?? Object.keys(node).filter((key) => !["parent", "range", "loc", "tokens", "comments"].includes(key))
-    for (const key of keys) {
-      const child = node[key]
-      if (Array.isArray(child)) {
-        for (const item of child) if (isSourceNode(item)) stack.push(item)
-      } else if (isSourceNode(child)) {
-        stack.push(child)
-      }
-    }
-  }
-  return false
-}
-
-const validHostLauncherSource = (
-  source: string,
-  scripts: Readonly<Record<string, string>>
-): boolean => {
-  const lines = source.split(/\r\n|[\n\r]/)
-  const shebang = lines.shift() ?? ""
-  if (!/^#!(?:\/usr\/bin\/env )?(?:\/bin\/|\/usr\/bin\/)?(?:sh|bash|zsh)$/.test(shebang)) return false
-  let npmRuns = 0
-  for (const rawLine of lines) {
-    const trimmed = rawLine.trim()
-    if (trimmed.length === 0 || trimmed.startsWith("#")) continue
-    if (rawLine !== trimmed) return false
-    const line = rawLine
-    if (line === "set -e") continue
-    if (/^echo (?:"[^"$`\\]*"|'[^']*')$/.test(line)) continue
-    const npmRun = /^npm run ([A-Za-z0-9:_-]+)$/.exec(line)
-    if (npmRun === null || !Object.hasOwn(scripts, npmRun[1] ?? "")) return false
-    npmRuns += 1
-  }
-  return npmRuns > 0
-}
-
-const validateLauncherClassifications = Effect.fn("effect-audit.validate-launcher-classifications")(
-  function*(options: {
-    readonly root: string
-    readonly inventory: ReadonlyArray<ExecutableBoundary>
-    readonly launchers: ReadonlyArray<LauncherObservation>
-    readonly trackedFiles: ReadonlyArray<string>
-    readonly eslintFiles: ReadonlyArray<string>
-  }) {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const currentByPath = new Map(options.launchers.map((launcher) => [launcher.file, launcher]))
-    const hostLaunchers = options.inventory.filter((record) => {
-      const current = currentByPath.get(record.file)
-      return record.classification === "host-launcher"
-        && current?.mode === record.mode
-        && current.sourceSha256 === record.sourceSha256
-    })
-    let scripts: Readonly<Record<string, string>> = {}
-    if (hostLaunchers.length > 0) {
-      scripts = (yield* decodeJson(
-        RootPackageJson,
-        yield* fs.readFileString(path.join(options.root, "package.json")).pipe(
-          Effect.mapError((error) => auditError("invalid-output", String(error)))
-        ),
-        "package.json"
-      )).scripts
-    }
-    const trackedCounts = new Map<string, number>()
-    const eslintCounts = new Map<string, number>()
-    for (const file of options.trackedFiles) trackedCounts.set(file, (trackedCounts.get(file) ?? 0) + 1)
-    for (const file of options.eslintFiles) eslintCounts.set(file, (eslintCounts.get(file) ?? 0) + 1)
-    const fixtureSources = options.trackedFiles.filter((file) =>
-      trackedCounts.get(file) === 1
-      && eslintCounts.get(file) === 1
-      && isAuditFixturePath(file)
-    )
-    const parsedFixtures = new Map<string, ParsedSource>()
-
-    for (const record of options.inventory) {
-      const current = currentByPath.get(record.file)
-      if (current === undefined || current.mode !== record.mode || current.sourceSha256 !== record.sourceSha256) continue
-      if (record.classification === "migration-debt") continue
-      if (record.classification === "host-launcher") {
-        if (record.mode !== "100755" || !/^\.githooks\/[^/]+$/.test(record.file)) {
-          return yield* Effect.fail(auditError("invalid-output", `launcher host proof failed: ${record.file}`))
-        }
-        const source = yield* fs.readFileString(path.join(options.root, record.file)).pipe(
-          Effect.mapError((error) => auditError("invalid-output", `${record.file}: ${String(error)}`))
-        )
-        if (!validHostLauncherSource(source, scripts)) {
-          return yield* Effect.fail(auditError("invalid-output", `launcher host proof failed: ${record.file}`))
-        }
-        continue
-      }
-      let proven = false
-      for (const file of fixtureSources) {
-        let parsed = parsedFixtures.get(file)
-        if (parsed === undefined) {
-          parsed = yield* parseSource(options.root, file, "invalid-output")
-          parsedFixtures.set(file, parsed)
-        }
-        if (sourceContainsLiteral(parsed, record.file)) {
-          proven = true
-          break
-        }
-      }
-      if (!proven) {
-        return yield* Effect.fail(auditError("invalid-output", `fixture host proof failed: ${record.file}`))
-      }
-    }
-  }
-)
-
 const validateBaseline = (
   baseline: ReadonlyArray<AuditFinding>
 ): Effect.Effect<ReadonlyArray<AuditFinding>, EffectAuditError> => Effect.gen(function*() {
@@ -985,8 +768,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     if (new Set(tracked).size !== tracked.length) {
       return yield* Effect.fail(auditError("invalid-output", "tracked manifest contains duplicate paths"))
     }
-    const trackedModes = yield* parseTrackedModes(tracked, output("tracked-modes"))
-    const launchers = yield* collectLaunchers(options.root, trackedModes)
     const trackedSet = new Set(tracked)
     const languageService = yield* decodeJson(LanguageServiceJson, output("language-service"), "language-service")
     const eslint = yield* decodeJson(EslintJson, output("eslint"), "eslint")
@@ -1137,47 +918,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
 
     const grepCandidates = grepEvidence.map(({ candidate }) => candidate)
     const grepComparison = compareGrepInventory(grepInventory, grepCandidates)
-    const launcherInventoryFile = path.join(options.root, "effect-launchers.json")
-    const launcherInventoryExists = yield* fs.exists(launcherInventoryFile).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error)))
-    )
-    if (!launcherInventoryExists) {
-      return yield* Effect.fail(auditError("baseline-missing", "effect-launchers.json does not exist"))
-    }
-    const launcherInventoryRaw = yield* fs.readFileString(launcherInventoryFile).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error)))
-    )
-    const launcherInventory = yield* decodeJson(LauncherInventoryJson, launcherInventoryRaw, "launcher inventory")
-    const canonicalLauncherInventory = yield* Schema.encodeEffect(LauncherInventoryJson)(launcherInventory).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error)))
-    )
-    if (launcherInventoryRaw !== canonicalLauncherInventory) {
-      return yield* Effect.fail(auditError("invalid-output", "launcher inventory is not in canonical byte form"))
-    }
-    const launcherInventoryError = launcherInventoryValidationError(launcherInventory)
-    if (launcherInventoryError !== undefined) {
-      return yield* Effect.fail(auditError("invalid-output", launcherInventoryError))
-    }
-    const launcherInventoryByPath = new Map(
-      launcherInventory.map((boundary) => [executableBoundaryKey(boundary), boundary])
-    )
-    const currentLauncherInventory = launchers.map((launcher) => {
-      const reviewed = launcherInventoryByPath.get(launcher.file)
-      return new ExecutableBoundary({
-        ...launcher,
-        classification: reviewed?.classification ?? "migration-debt",
-        host: reviewed?.host ?? "Unreviewed launcher"
-      })
-    })
-    const launcherComparison = compareLauncherInventory(launcherInventory, currentLauncherInventory)
-    yield* validateLauncherClassifications({
-      root: options.root,
-      inventory: launcherInventory,
-      launchers,
-      trackedFiles: tracked,
-      eslintFiles
-    })
-
     if (comparison.added.length > 0) {
       return yield* Effect.fail(auditError(
         options.mode === "update" ? "baseline-growth" : "new-findings",
@@ -1189,16 +929,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
       return yield* Effect.fail(auditError(
         options.mode === "update" ? "baseline-growth" : "new-findings",
         `grep inventory has ${grepComparison.added.length} additions and ${grepComparison.reclassified.length} implicit reclassifications`
-      ))
-    }
-    if (
-      launcherComparison.added.length > 0
-      || launcherComparison.modeChanged.length > 0
-      || launcherComparison.sourceChanged.length > 0
-    ) {
-      return yield* Effect.fail(auditError(
-        options.mode === "update" ? "baseline-growth" : "new-findings",
-        `launcher inventory has ${launcherComparison.added.length} additions, ${launcherComparison.modeChanged.length} mode changes, and ${launcherComparison.sourceChanged.length} source changes`
       ))
     }
     if (options.mode === "check" && comparison.removed.length > 0) {
@@ -1220,18 +950,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         `${grepComparison.removed.length} grep inventory records are stale`
       ))
     }
-    if (launcherComparison.removed.some((boundary) => boundary.classification !== "migration-debt")) {
-      return yield* Effect.fail(auditError(
-        options.mode === "update" ? "baseline-growth" : "stale-baseline",
-        "launcher inventory has a stale non-debt record"
-      ))
-    }
-    if (options.mode === "check" && launcherComparison.removed.length > 0) {
-      return yield* Effect.fail(auditError(
-        "stale-baseline",
-        `${launcherComparison.removed.length} launcher inventory records are stale`
-      ))
-    }
     const encodedBaseline = options.mode === "update"
       ? yield* Schema.encodeEffect(AuditBaselineJson)(findings).pipe(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
@@ -1245,27 +963,12 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
       )
     }
-    let encodedLauncherUpdate: string | undefined
-    if (options.mode === "update" && launcherComparison.removed.length > 0) {
-      const updatedInventory = shrinkLauncherInventory(launcherInventory, currentLauncherInventory)
-      if (updatedInventory === undefined) {
-        return yield* Effect.fail(auditError("baseline-growth", "launcher inventory update is not shrink-only debt removal"))
-      }
-      encodedLauncherUpdate = yield* Schema.encodeEffect(LauncherInventoryJson)(updatedInventory).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-    }
     if (encodedBaseline !== undefined) {
       yield* fs.writeFileString(baselineFile, encodedBaseline).pipe(
         Effect.mapError((error) => auditError("invalid-output", String(error)))
       )
       if (encodedGrepUpdate !== undefined) {
         yield* fs.writeFileString(grepInventoryFile, encodedGrepUpdate).pipe(
-          Effect.mapError((error) => auditError("invalid-output", String(error)))
-        )
-      }
-      if (encodedLauncherUpdate !== undefined) {
-        yield* fs.writeFileString(launcherInventoryFile, encodedLauncherUpdate).pipe(
           Effect.mapError((error) => auditError("invalid-output", String(error)))
         )
       }
@@ -1280,14 +983,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     yield* Effect.logInfo(
       `Effect grep inventory found ${grepCandidates.length} candidates: ${Object.entries(grepCounts).map(([classification, count]) => `${classification}=${count}`).join(", ")}`
     )
-    const launcherCounts = {
-      "host-launcher": currentLauncherInventory.filter((boundary) => boundary.classification === "host-launcher").length,
-      "host-fixture": currentLauncherInventory.filter((boundary) => boundary.classification === "host-fixture").length,
-      "migration-debt": currentLauncherInventory.filter((boundary) => boundary.classification === "migration-debt").length
-    } as const
-    yield* Effect.logInfo(
-      `Effect launcher inventory found ${launchers.length} launchers: ${Object.entries(launcherCounts).map(([classification, count]) => `${classification}=${count}`).join(", ")}`
-    )
     return {
       findings,
       messages,
@@ -1298,14 +993,6 @@ const collectAudit = Effect.fn("effect-audit.collect")(
       grepAdded: grepComparison.added,
       grepRemoved: grepComparison.removed,
       grepCounts,
-      launchers,
-      launcherAdded: launcherComparison.added,
-      launcherRemoved: launcherComparison.removed,
-      launcherModeChanged: launcherComparison.modeChanged,
-      launcherSourceChanged: launcherComparison.sourceChanged,
-      launcherReclassified: launcherComparison.reclassified,
-      launcherHostChanged: launcherComparison.hostChanged,
-      launcherCounts
     }
   }
 )
@@ -1323,6 +1010,9 @@ const auditCommand = Command.make("effect-audit", {
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
   yield* runAudit({ root, mode: update ? "update" : "check" })
+  yield* validateExecutableInventory(root).pipe(
+    Effect.mapError((error) => auditError("invalid-output", error.detail))
+  )
 }))
 
 const program = Command.run(auditCommand, { version: "0.0.0" }).pipe(
