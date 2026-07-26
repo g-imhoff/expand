@@ -533,6 +533,7 @@ interface SourceModule {
   readonly constants: ReadonlyMap<string, ts.Expression>
   readonly imports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
   readonly reExports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
+  readonly starExports: ReadonlyArray<string>
   readonly launchers: ReadonlyMap<string, LaunchApi>
   readonly namespaces: ReadonlyMap<string, "effect" | "effect-root" | "native">
   readonly wrappers: ReadonlyMap<string, WrapperBinding>
@@ -573,6 +574,7 @@ const analyzeSourceModules = (
     const constants = new Map<string, ts.Expression>()
     const imports = new Map<string, { readonly file: string; readonly imported: string }>()
     const reExports = new Map<string, { readonly file: string; readonly imported: string }>()
+    const starExports: Array<string> = []
     const launchers = new Map<string, LaunchApi>()
     const namespaces = new Map<string, "effect" | "effect-root" | "native">()
     const wrappers = new Map<string, WrapperBinding>()
@@ -612,6 +614,10 @@ const analyzeSourceModules = (
         if (statement.modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) === true) wrappers.set("default", binding)
       }
       if (ts.isExportAssignment(statement)) constants.set("default", statement.expression)
+      if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause === undefined) {
+        const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
+        if (exportedFile !== undefined) starExports.push(exportedFile)
+      }
       if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
         if (statement.moduleSpecifier === undefined) {
           for (const element of statement.exportClause.elements) reExports.set(element.name.text, { file, imported: element.propertyName?.text ?? element.name.text })
@@ -624,6 +630,24 @@ const analyzeSourceModules = (
       }
       if (ts.isVariableStatement(statement)) {
         for (const declaration of statement.declarationList.declarations) {
+          const dynamicImport = declaration.initializer === undefined
+            ? undefined
+            : ts.isAwaitExpression(declaration.initializer)
+              ? declaration.initializer.expression
+              : declaration.initializer
+          if (dynamicImport !== undefined && ts.isCallExpression(dynamicImport) && dynamicImport.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            const specifier = dynamicImport.arguments[0]
+            if (specifier === undefined || !ts.isStringLiteralLike(specifier)) throw fail(`unresolved first-party callable: dynamic module specifier: ${file}`)
+            const importedFile = resolveSourceImport(file, specifier.text, tracked)
+            if (importedFile !== undefined) {
+              if (ts.isIdentifier(declaration.name)) imports.set(declaration.name.text, { file: importedFile, imported: "*" })
+              if (ts.isObjectBindingPattern(declaration.name)) {
+                for (const element of declaration.name.elements) {
+                  if (ts.isIdentifier(element.name)) imports.set(element.name.text, { file: importedFile, imported: element.propertyName?.getText(sourceFile) ?? element.name.text })
+                }
+              }
+            }
+          }
           if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
             constants.set(declaration.name.text, declaration.initializer)
             const implementation = wrappedFunction(declaration.initializer)
@@ -704,7 +728,7 @@ const analyzeSourceModules = (
       ts.forEachChild(node, collectWrappers)
     }
     collectWrappers(sourceFile)
-    modules.set(file, { file, sourceFile, constants, imports, reExports, launchers, namespaces, wrappers, wrapperDeclarations })
+    modules.set(file, { file, sourceFile, constants, imports, reExports, starExports, launchers, namespaces, wrappers, wrapperDeclarations })
   }
   return modules
 }
@@ -763,7 +787,22 @@ const discoverChildTargets = (
       if (exportedWrapper !== undefined) return exportedWrapper
     }
     const reExport = module?.reExports.get(name)
-    return reExport === undefined ? undefined : resolveExportWrapper(reExport.file, reExport.imported, nextSeen)
+    if (reExport !== undefined) return resolveExportWrapper(reExport.file, reExport.imported, nextSeen)
+    const candidates: Array<WrapperBinding> = []
+    let cyclic = false
+    for (const exportedFile of module?.starExports ?? []) {
+      try {
+        const candidate = resolveExportWrapper(exportedFile, name, nextSeen)
+        if (candidate !== undefined && !candidates.some((existing) => existing.file === candidate.file && existing.body.pos === candidate.body.pos)) candidates.push(candidate)
+      } catch (cause) {
+        if (cause instanceof ExecutableInventoryError && cause.detail.includes("cyclic callable export flow")) cyclic = true
+        else throw cause
+      }
+    }
+    if (candidates.length > 1) throw fail(`unresolved first-party launch: ambiguous export-star callable flow: ${file}`)
+    if (candidates.length === 1) return candidates[0]
+    if (cyclic) throw fail(`unresolved first-party launch: cyclic callable export flow: ${file}`)
+    return undefined
   }
   const resolveValues = (expression: ts.Expression, file: string, scope: ReadonlyMap<string, SourceBinding>, seen = new Set<string>()): ReadonlyArray<string> => {
     if (ts.isStringLiteralLike(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) return [expression.text]
@@ -999,6 +1038,22 @@ const discoverChildTargets = (
       }
       if (ts.isVariableDeclaration(resolvedDeclaration) && resolvedDeclaration.initializer !== undefined) return wrapper(resolvedDeclaration.initializer, file, scope, nextSeen)
     }
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      const owner = expression.expression
+      const member = ts.isPropertyAccessExpression(expression)
+        ? expression.name.text
+        : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
+          ? expression.argumentExpression.text
+          : undefined
+      if (ts.isIdentifier(owner) && member !== undefined) {
+        const imported = module?.imports.get(owner.text)
+        if (imported?.imported === "*") {
+          const importedWrapper = resolveExportWrapper(imported.file, member)
+          if (importedWrapper !== undefined) return { ...importedWrapper, scope: new Map() }
+        }
+      }
+      return undefined
+    }
     if (!ts.isIdentifier(expression)) return undefined
     const imported = module?.imports.get(expression.text)
     const importedWrapper = imported === undefined ? undefined : resolveExportWrapper(imported.file, imported.imported)
@@ -1076,7 +1131,26 @@ const discoverChildTargets = (
       return
     }
     const helper = wrapper(call.expression, file, scope)
-    if (helper === undefined) return
+    if (helper === undefined) {
+      const callableFromDynamicImport = (expression: ts.Expression, seen = new Set<ts.Declaration>()): boolean => {
+        if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) return callableFromDynamicImport(expression.expression, seen)
+        if (ts.isConditionalExpression(expression)) return callableFromDynamicImport(expression.whenTrue, seen) || callableFromDynamicImport(expression.whenFalse, seen)
+        if (!ts.isIdentifier(expression)) return false
+        const declaration = localBinding(expression)
+        if (declaration === undefined || seen.has(declaration)) return false
+        const nextSeen = new Set([...seen, declaration])
+        if (ts.isBindingElement(declaration)) {
+          const variable = declaration.parent.parent
+          return ts.isVariableDeclaration(variable) && variable.initializer !== undefined && callableFromDynamicImport(variable.initializer, nextSeen)
+        }
+        if (!ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return false
+        const initializer = ts.isAwaitExpression(declaration.initializer) ? declaration.initializer.expression : declaration.initializer
+        if (ts.isCallExpression(initializer) && initializer.expression.kind === ts.SyntaxKind.ImportKeyword) return true
+        return callableFromDynamicImport(initializer, nextSeen)
+      }
+      if (callableFromDynamicImport(call.expression)) throw fail(`unresolved first-party callable: ${file}`)
+      return
+    }
     const helperIdentity = `${helper.file}\0${helper.body.pos}`
     calledDeclarations.add(helperIdentity)
     if (invokedHelper && call.arguments.some((argument) => resolveValues(argument, file, new Map()).some((value) => normalizeTarget(file, value) !== undefined))) return
@@ -1114,8 +1188,24 @@ const manifestSourceTargets = (command: string): ReadonlyArray<string> => {
   const tokens = [...command.matchAll(/"([^"]*)"|'([^']*)'|([^\s]+)/g)].map((match) => match[1] ?? match[2] ?? match[3] ?? "")
   const targets: Array<string> = []
   const isOperator = (token: string) => /^(?:&&|\|\||;)$/.test(token)
+  const shellLauncher = (token: string) => /^(?:sh|bash|zsh)(?:\.exe)?$/.test(token.split(/[\\/]/).at(-1) ?? "")
   for (let index = 0; index < tokens.length; index += 1) {
-    const launcher = tokens[index]!
+    let launcher = tokens[index]!
+    let launcherIndex = index
+    if (/^(?:env)(?:\.exe)?$/.test(launcher.split(/[\\/]/).at(-1) ?? "")) {
+      launcherIndex += 1
+      while (tokens[launcherIndex]?.startsWith("-") === true || /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[launcherIndex] ?? "")) launcherIndex += 1
+      launcher = tokens[launcherIndex] ?? ""
+    }
+    if (shellLauncher(launcher)) {
+      let targetIndex = launcherIndex + 1
+      while (tokens[targetIndex]?.startsWith("-") === true && tokens[targetIndex] !== "-c") targetIndex += 1
+      const target = tokens[targetIndex]
+      if (target === undefined || isOperator(target) || target === "-c" || /[$`]/.test(target)) throw fail("unresolved shell executable target in manifest command")
+      targets.push(target.replace(/[;,]$/, ""))
+      index = launcherIndex
+      continue
+    }
     if (launcher !== "tsx" && launcher !== "node" && launcher !== "vitest") continue
     for (let cursor = index + 1; cursor < tokens.length && !isOperator(tokens[cursor]!); cursor += 1) {
       const token = tokens[cursor]!.replace(/[;,]$/, "")
@@ -1128,6 +1218,46 @@ const manifestSourceTargets = (command: string): ReadonlyArray<string> => {
     }
   }
   return targets
+}
+
+const unwrapExpression = (expression: ts.Expression): ts.Expression =>
+  ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isParenthesizedExpression(expression)
+    ? unwrapExpression(expression.expression)
+    : expression
+
+const staticStrings = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): ReadonlyArray<string> | undefined => {
+  const unwrapped = unwrapExpression(expression)
+  if (ts.isStringLiteralLike(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) return [unwrapped.text]
+  if (ts.isArrayLiteralExpression(unwrapped)) {
+    const values: Array<string> = []
+    for (const element of unwrapped.elements) {
+      if (!ts.isExpression(element)) return undefined
+      const resolved = staticStrings(element, checker, seen)
+      if (resolved === undefined) return undefined
+      values.push(...resolved)
+    }
+    return values
+  }
+  if (!ts.isIdentifier(unwrapped)) return undefined
+  const declaration = symbolDeclaration(checker, unwrapped)
+  if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
+  return staticStrings(declaration.initializer, checker, new Set([...seen, declaration]))
+}
+
+const propertyName = (name: ts.PropertyName, sourceFile: ts.SourceFile) => ts.isIdentifier(name) || ts.isStringLiteralLike(name)
+  ? name.text
+  : name.getText(sourceFile)
+
+const executableInput = (expression: ts.Expression, checker: ts.TypeChecker): string | undefined => {
+  const unwrapped = unwrapExpression(expression)
+  if (ts.isCallExpression(unwrapped)) {
+    const last = unwrapped.arguments.at(-1)
+    if (last === undefined) return undefined
+    const values = staticStrings(last, checker)
+    return values?.length === 1 ? values[0] : undefined
+  }
+  const values = staticStrings(unwrapped, checker)
+  return values?.length === 1 ? values[0] : undefined
 }
 
 export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discover")(
@@ -1225,29 +1355,64 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
         ...(manifest.module === undefined ? [] : [{ selector: "manifest:module", target: manifest.module }]),
         ...(manifest.main === undefined || /(?:^|\/)(?:dist|out)\//.test(manifest.main) ? [] : [{ selector: "manifest:main", target: manifest.main }]),
         ...(typeof manifest.bin === "string"
-          ? sourceExtension.test(manifest.bin) ? [{ selector: "manifest:bin", target: manifest.bin }] : []
-          : Object.entries(manifest.bin ?? {}).filter(([, target]) => sourceExtension.test(target)).map(([name, target]) => ({ selector: `manifest:bin.${name}`, target })))
+          ? /(?:^|\/)(?:dist|out)\//.test(manifest.bin) ? [] : [{ selector: "manifest:bin", target: manifest.bin }]
+          : Object.entries(manifest.bin ?? {}).filter(([, target]) => !/(?:^|\/)(?:dist|out)\//.test(target)).map(([name, target]) => ({ selector: `manifest:bin.${name}`, target })))
       ]
       for (const { selector, target } of directTargets) yield* addParsedTarget(normalizeManifestPath(manifestFile, target), { file: manifestFile, selector, occurrence: 0 })
       for (const [name, command] of Object.entries(manifest.scripts ?? {})) {
         let occurrence = 0
-        for (const candidate of manifestSourceTargets(command)) {
+        const candidates = yield* Effect.try({ try: () => manifestSourceTargets(command), catch: (cause) => cause instanceof ExecutableInventoryError ? cause : fail(`cannot parse manifest command: ${manifestFile}`, cause) })
+        for (const candidate of candidates) {
           yield* addParsedTarget(normalizeManifestPath(manifestFile, candidate), { file: manifestFile, selector: `manifest:scripts.${name}`, occurrence: occurrence++ })
         }
       }
     }
 
     if (tracked.has("scripts/build.ts")) {
-      const buildSource = sources.get("scripts/build.ts") ?? ""
+      const buildFile = parsedSources.get("scripts/build.ts")!
+      const buildChecker = createTypeChecker(new Map([["scripts/build.ts", buildFile]]))
+      let entries: ts.Expression | undefined
+      const findEntries = (node: ts.Node) => {
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "BUILD_ENTRIES" && node.initializer !== undefined) entries = node.initializer
+        ts.forEachChild(node, findEntries)
+      }
+      findEntries(buildFile)
+      const unwrapped = entries === undefined ? undefined : unwrapExpression(entries)
+      if (unwrapped === undefined || !ts.isArrayLiteralExpression(unwrapped)) return yield* fail("unresolved executable input: scripts/build.ts")
       let occurrence = 0
-      for (const match of buildSource.matchAll(/\["([^"]+\.(?:ts|tsx))",\s*"dist\//g)) {
-        if (match[1] !== undefined) yield* addParsedTarget(match[1], { file: "scripts/build.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: occurrence++ })
+      for (const entry of unwrapped.elements) {
+        const tuple = ts.isExpression(entry) ? unwrapExpression(entry) : undefined
+        const input = tuple !== undefined && ts.isArrayLiteralExpression(tuple) && tuple.elements[0] !== undefined && ts.isExpression(tuple.elements[0])
+          ? staticStrings(tuple.elements[0], buildChecker)
+          : undefined
+        if (input?.length !== 1) return yield* fail("unresolved executable input: scripts/build.ts")
+        yield* addParsedTarget(input[0]!, { file: "scripts/build.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: occurrence++ })
       }
     }
     if (tracked.has("apps/desktop/electron.vite.config.ts")) {
-      const electronConfig = sources.get("apps/desktop/electron.vite.config.ts") ?? ""
-      for (const match of electronConfig.matchAll(/\b(main|preload|renderer):\s*\{[\s\S]*?input:\s*resolve\(here,\s*"([^"]+)"\)/g)) {
-        if (match[1] !== undefined && match[2] !== undefined) yield* addParsedTarget(`apps/desktop/${match[2]}`, { file: "apps/desktop/electron.vite.config.ts", selector: `electron:${match[1]}`, occurrence: 0 })
+      const configFile = parsedSources.get("apps/desktop/electron.vite.config.ts")!
+      const configChecker = createTypeChecker(new Map([["apps/desktop/electron.vite.config.ts", configFile]]))
+      const sectionInputs = new Map<string, Array<ts.Expression>>()
+      const findInputs = (node: ts.Node, section?: string) => {
+        const nextSection = ts.isPropertyAssignment(node) && /^(?:main|preload|renderer)$/.test(propertyName(node.name, configFile))
+          ? propertyName(node.name, configFile)
+          : section
+        if (nextSection !== undefined && ts.isPropertyAssignment(node) && propertyName(node.name, configFile) === "input") {
+          const existing = sectionInputs.get(nextSection) ?? []
+          existing.push(node.initializer)
+          sectionInputs.set(nextSection, existing)
+        }
+        ts.forEachChild(node, (child) => findInputs(child, nextSection))
+      }
+      findInputs(configFile)
+      if (sectionInputs.size === 0) return yield* fail("unresolved executable input: apps/desktop/electron.vite.config.ts")
+      for (const section of ["main", "preload", "renderer"]) {
+        const inputs = sectionInputs.get(section) ?? []
+        if (inputs.length === 0) continue
+        if (inputs.length !== 1) return yield* fail(`unresolved executable input: apps/desktop/electron.vite.config.ts:${section}`)
+        const input = executableInput(inputs[0]!, configChecker)
+        if (input === undefined) return yield* fail(`unresolved executable input: apps/desktop/electron.vite.config.ts:${section}`)
+        yield* addParsedTarget(normalizeManifestPath("apps/desktop/package.json", input), { file: "apps/desktop/electron.vite.config.ts", selector: `electron:${section}`, occurrence: 0 })
       }
     }
 

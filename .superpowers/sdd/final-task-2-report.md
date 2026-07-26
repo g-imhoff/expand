@@ -516,3 +516,47 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: parses shell and env manifest launchers plus direct bin aliases with tracked-file validation, structurally resolves esbuild and Electron inputs through the TypeScript AST, resolves exact export-star and static dynamic-import wrapper flow, and rejects unresolved, cyclic, or ambiguous executable boundaries.
+- `test/architecture/effect-executable-inventory.test.ts`: adds actual-collector coverage for all five shell manifests, env/options, direct bin aliases and occurrences, AST input quoting/templates/constants, export-star static/dynamic/multi-hop/cycle/ambiguity flow, and dynamic-import destructured/property/local aliases, shadowing, dynamic specifiers, and cycles.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "shell manifest|scope-resolved esbuild|unresolved structural|export-star|dynamic-import|dynamic import specifiers|cyclic dynamic-import" --reporter=verbose` exited 1. Shell targets and direct bins were omitted, AST variants returned empty discovery, export-star and dynamic-import wrappers were unresolved or omitted, and dynamic/cyclic flow did not fail closed.
+- Incremental RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "discovers shell manifest occurrences" --reporter=verbose` exited 1 with `untracked executable target: package.json: -e`, proving env assignments and shell options were not parsed.
+- GREEN: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts --reporter=dot` passed 4 files and 202 tests, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Two consecutive `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each.
+- Focused covering gate: 4 files and 202 tests passed, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-eleventh-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: 1 file and 123 tests passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm exec -- vitest run --reporter=json --outputFile=/tmp/expand-final-task-2-eleventh-vitest.json`: 402/402 suites and 1400/1400 tests passed, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue and added TypeScript comment scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: parse every executable boundary form`
+
+## Self-review
+- Shell `sh`/`bash`/`zsh`, env path/flag/assignment variants, options, exact occurrences, aliases, direct bins, untracked targets, and dynamic commands: satisfied.
+- Esbuild and Electron input discovery uses AST structure and scope-resolved single-quote, no-substitution template, array, constant, and `resolve` expressions; unresolved or non-unique inputs fail: satisfied.
+- Exact-symbol export-star traversal supports multi-hop static wrappers, rejects dynamic arguments after static proof, and fails closed for cycles and ambiguity: satisfied.
+- Static dynamic imports resolve destructured, namespace-property, and local aliases through multi-hop barrels with lexical shadowing; dynamic specifiers, unproven callable flow, and cycles fail closed: satisfied.
+- Scope remains limited to the analyzer, its actual-collector test, and this durable report; no dependencies, inventories, comments, migration debt, or neighboring behavior changed: satisfied.
+
+## Concerns
+- None
