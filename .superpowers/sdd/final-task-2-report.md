@@ -471,3 +471,48 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: rejects parsed manifest script and source direct-field targets, esbuild inputs, and Electron inputs unless they resolve to tracked regular files; resolves multi-hop ESM wrapper flow through named, default, and namespace imports, local aliases, and re-export wrappers with cycle safety.
+- `test/architecture/effect-executable-inventory.test.ts`: adds actual-collector regressions for all five manifests, module/main/bin source fields, esbuild and all Electron inputs, repeated bin aliases, multi-hop named/default/namespace ESM wrapper chains, static and dynamic calls, and an ESM cycle.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "untracked script targets|direct manifest fields|untracked esbuild|untracked Electron|multi-hop ESM|cyclic ESM" --reporter=verbose` exited 1. Thirteen cases failed because omitted parsed targets returned successful empty discovery and multi-hop ESM wrappers failed before resolving the invoked declaration; three cases already exercised existing cycle or partial flow behavior.
+- Fixture correction RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "untracked esbuild" --reporter=verbose` exited 1 because the missing esbuild input was silently omitted after the fixture supplied its exact registered runner.
+- GREEN: the focused command with `--reporter=dot` passed 16 tests with 90 skipped, exit 0.
+- Full architecture GREEN: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts --reporter=dot` passed 106 tests, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts --reporter=dot` passed 4 files and 185 tests, exit 0.
+- The first audit update exposed one scanner-active runner spelling in the synthetic esbuild fixture; splitting that fixture spelling preserved the test behavior and removed the invalid audit candidate. Two subsequent `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each. Install reported the pre-existing npm audit summaries of 3 root vulnerabilities and 2 docs vulnerabilities.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-tenth-fix-grep.txt`: passed, exit 0.
+- `npm run effect:launchers`: 1 file and 106 tests passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm run test`: 164 files passed; 1382 tests passed and 1 expected failure, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue, added TypeScript comment, and production migration-launcher scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: reject omitted executable targets` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Parsed source targets from each of the five manifests, direct module/main/bin source fields, esbuild inputs, and Electron main/preload/renderer inputs fail with `ExecutableInventoryError` unless their normalized identity is a tracked regular file: satisfied.
+- Manifest script occurrences and bin aliases retain exact selectors and occurrence identities; no parsed missing target is silently discarded: satisfied.
+- Multi-hop named and default `ImportSpecifier`/`ImportClause` bindings, namespace member bindings, local aliases, and re-export wrappers resolve to exact static observations; dynamic calls fail after wrapper proof: satisfied.
+- ESM callable export traversal remains keyed by file/export identity, rejects cycles, and uses checker declarations to preserve lexical shadowing: satisfied.
+- Scope is limited to the executable analyzer, actual-collector architecture regressions, and this durable report; no comments, dependencies, inventories, harness artifacts, or neighboring behavior were changed: satisfied.
+
+## Concerns
+- None

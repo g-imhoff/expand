@@ -236,6 +236,8 @@ const manifestFiles = [
 ] as const
 
 const Manifest = Schema.fromJsonString(Schema.Struct({
+  bin: Schema.optionalKey(Schema.Union([Schema.String, Schema.Record(Schema.String, Schema.String)])),
+  main: Schema.optionalKey(Schema.String),
   module: Schema.optionalKey(Schema.String),
   scripts: Schema.optionalKey(Schema.Record(Schema.String, Schema.String))
 }))
@@ -731,14 +733,26 @@ const discoverChildTargets = (
     if (local !== undefined) return local
     const resolveExpression = (expression: ts.Expression, declarations = new Set<ts.Declaration>()): WrapperBinding | undefined => {
       if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return { file, parameters: expression.parameters.map(({ name: parameter }) => parameter), body: expression.body }
+      if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+        const member = ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
+            ? expression.argumentExpression.text
+            : undefined
+        if (member === undefined || !ts.isIdentifier(expression.expression)) return undefined
+        const declaration = symbolDeclaration(checker, expression.expression)
+        if (declaration === undefined || declarations.has(declaration) || !ts.isNamespaceImport(declaration)) return undefined
+        const imported = module?.imports.get(expression.expression.text)
+        return imported === undefined ? undefined : resolveExportWrapper(imported.file, member, nextSeen)
+      }
       if (!ts.isIdentifier(expression)) return undefined
       const declaration = symbolDeclaration(checker, expression)
       if (declaration === undefined || declarations.has(declaration)) return undefined
       const declaredWrapper = module?.wrapperDeclarations.get(declaration)
       if (declaredWrapper !== undefined) return declaredWrapper
       if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return resolveExpression(declaration.initializer, new Set([...declarations, declaration]))
-      if (ts.isImportEqualsDeclaration(declaration)) {
-        const imported = module?.imports.get(declaration.name.text)
+      if (ts.isImportSpecifier(declaration) || ts.isImportClause(declaration) || ts.isImportEqualsDeclaration(declaration)) {
+        const imported = module?.imports.get(expression.text)
         return imported === undefined ? undefined : resolveExportWrapper(imported.file, imported.imported, nextSeen)
       }
       return undefined
@@ -1182,6 +1196,12 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
     const add = (file: string, invocation: Invocation) => {
       if (tracked.has(file)) observations.push(makeObservation(file, invocation, runnerBoundaries.get(file), sourceHashes.get(file)))
     }
+    const addParsedTarget = Effect.fn("ExecutableInventory.addParsedTarget")(function*(file: string, invocation: Invocation) {
+      if (!validPath(file) || !tracked.has(file) || trackedModes.get(file)?.startsWith("100") !== true) {
+        return yield* fail(`untracked executable target: ${invocation.file}: ${file}`)
+      }
+      add(file, invocation)
+    })
 
     const selectedHosts = trackedFiles.filter((file) => trackedModes.get(file) === "100755" || shebangFiles.has(file)).sort(compareText)
     for (const file of selectedHosts) {
@@ -1201,12 +1221,18 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
 
     for (const manifestFile of manifestFiles.filter((file) => tracked.has(file))) {
       const manifest = yield* Schema.decodeUnknownEffect(Manifest)(yield* fs.readFileString(path.join(root, manifestFile))).pipe(Effect.mapError((cause) => fail(`cannot decode ${manifestFile}`, cause)))
-      if (manifest.module !== undefined) add(normalizeManifestPath(manifestFile, manifest.module), { file: manifestFile, selector: "manifest:module", occurrence: 0 })
+      const directTargets = [
+        ...(manifest.module === undefined ? [] : [{ selector: "manifest:module", target: manifest.module }]),
+        ...(manifest.main === undefined || /(?:^|\/)(?:dist|out)\//.test(manifest.main) ? [] : [{ selector: "manifest:main", target: manifest.main }]),
+        ...(typeof manifest.bin === "string"
+          ? sourceExtension.test(manifest.bin) ? [{ selector: "manifest:bin", target: manifest.bin }] : []
+          : Object.entries(manifest.bin ?? {}).filter(([, target]) => sourceExtension.test(target)).map(([name, target]) => ({ selector: `manifest:bin.${name}`, target })))
+      ]
+      for (const { selector, target } of directTargets) yield* addParsedTarget(normalizeManifestPath(manifestFile, target), { file: manifestFile, selector, occurrence: 0 })
       for (const [name, command] of Object.entries(manifest.scripts ?? {})) {
         let occurrence = 0
         for (const candidate of manifestSourceTargets(command)) {
-          const file = normalizeManifestPath(manifestFile, candidate)
-          if (tracked.has(file)) add(file, { file: manifestFile, selector: `manifest:scripts.${name}`, occurrence: occurrence++ })
+          yield* addParsedTarget(normalizeManifestPath(manifestFile, candidate), { file: manifestFile, selector: `manifest:scripts.${name}`, occurrence: occurrence++ })
         }
       }
     }
@@ -1215,13 +1241,13 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       const buildSource = sources.get("scripts/build.ts") ?? ""
       let occurrence = 0
       for (const match of buildSource.matchAll(/\["([^"]+\.(?:ts|tsx))",\s*"dist\//g)) {
-        if (match[1] !== undefined) add(match[1], { file: "scripts/build.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: occurrence++ })
+        if (match[1] !== undefined) yield* addParsedTarget(match[1], { file: "scripts/build.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: occurrence++ })
       }
     }
     if (tracked.has("apps/desktop/electron.vite.config.ts")) {
       const electronConfig = sources.get("apps/desktop/electron.vite.config.ts") ?? ""
       for (const match of electronConfig.matchAll(/\b(main|preload|renderer):\s*\{[\s\S]*?input:\s*resolve\(here,\s*"([^"]+)"\)/g)) {
-        if (match[1] !== undefined && match[2] !== undefined) add(`apps/desktop/${match[2]}`, { file: "apps/desktop/electron.vite.config.ts", selector: `electron:${match[1]}`, occurrence: 0 })
+        if (match[1] !== undefined && match[2] !== undefined) yield* addParsedTarget(`apps/desktop/${match[2]}`, { file: "apps/desktop/electron.vite.config.ts", selector: `electron:${match[1]}`, occurrence: 0 })
       }
     }
 

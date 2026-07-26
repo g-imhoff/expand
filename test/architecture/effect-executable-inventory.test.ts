@@ -67,6 +67,55 @@ describe("exact executable inventory architecture", () => {
       expect(discovery.observations.some(({ file }) => file === "scripts/not-an-entry.ts")).toBe(false)
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live.each([
+    "package.json",
+    "apps/desktop/package.json",
+    "packages/contracts/package.json",
+    "packages/client-ts/package.json",
+    "docs/architecture/package.json"
+  ])("rejects untracked script targets from every manifest", (manifest) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        [manifest]: encodeJson({ scripts: { missing: "tsx src/missing.ts" } })
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked executable target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    { field: "module", value: "src/missing-module.ts" },
+    { field: "main", value: "src/missing-main.ts" },
+    { field: "bin", value: "src/missing-bin.ts" },
+    { field: "bin", value: { expand: "src/missing-bin-alias.ts", other: "src/missing-bin-alias.ts" } }
+  ])("rejects untracked source targets from direct manifest fields", ({ field, value }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {}, [field]: value })
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked executable target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("rejects untracked esbuild input targets", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"\nexport const BUILD_ENTRIES = [["apps/missing.ts", "dist/missing"]] as const\nNodeRuntime.${"runMain"}(null)\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked executable target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each(["main", "preload", "renderer"])("rejects untracked Electron input targets", (section) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/electron.vite.config.ts": `${section}: { build: { rollupOptions: { input: resolve(here, "src/missing.ts") } } }\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked executable target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("fails before inventory comparison for native, aliased, and wrapped launch forms", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -442,6 +491,55 @@ launch({ target: globalThis["process"].argv[2] })
           { file: "scripts/export-chain-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/export-chain-static.ts", occurrence: 0 } }
         ])
       }
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    {
+      wrapperExport: `export const launch = (target: string) => spawn("node", [target])`,
+      firstBarrel: `import { launch as imported } from "./wrapper"\nconst alias = imported\nexport { alias as start }`,
+      secondBarrel: `export { start as run } from "./barrel-one"`,
+      callerImport: `import { run as execute } from "./barrel-two"`
+    },
+    {
+      wrapperExport: `const launch = (target: string) => spawn("node", [target])\nexport default launch`,
+      firstBarrel: `import imported from "./wrapper"\nconst alias = imported\nexport { alias as start }`,
+      secondBarrel: `import * as wrappers from "./barrel-one"\nconst run = wrappers.start\nexport { run }`,
+      callerImport: `import { run as execute } from "./barrel-two"`
+    }
+  ])("resolves multi-hop ESM wrapper binding flow", ({ wrapperExport, firstBarrel, secondBarrel, callerImport }) =>
+    Effect.scoped(Effect.gen(function*() {
+      for (const dynamic of [false, true]) {
+        const root = yield* syntheticRepository({
+          "package.json": encodeJson({ scripts: {} }),
+          "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\n${wrapperExport}\n`,
+          "scripts/barrel-one.ts": `${firstBarrel}\n`,
+          "scripts/barrel-two.ts": `${secondBarrel}\n`,
+          "scripts/caller.ts": `${callerImport}\nconst local = execute\nlocal(${dynamic ? `globalThis["process"].argv[2]` : `"scripts/esm-static.ts"`})\n`,
+          "scripts/esm-static.ts": `export {}\n`
+        })
+        if (dynamic) {
+          const error = yield* Effect.flip(discoverExecutableInventory(root))
+          expect(errorDetail(error)).toContain("unresolved first-party launch")
+        } else {
+          const discovery = yield* discoverExecutableInventory(root)
+          expect(discovery.observations.map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+            { file: "scripts/esm-static.ts", invocation: { file: "scripts/caller.ts", selector: "child-process:scripts/esm-static.ts", occurrence: 0 } }
+          ])
+        }
+      }
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for cyclic ESM wrapper binding flow", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/a.ts": `import { launch as imported } from "./b"\nconst launch = imported\nexport { launch }\n`,
+        "scripts/b.ts": `import { launch as imported } from "./a"\nconst launch = imported\nexport { launch }\n`,
+        "scripts/caller.ts": `import { launch } from "./a"\nlaunch("scripts/cycle-target.ts")\n`,
+        "scripts/cycle-target.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live("fails closed for cyclic import-equals and export-equals callable flow", () =>
