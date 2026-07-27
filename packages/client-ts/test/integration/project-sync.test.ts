@@ -81,22 +81,50 @@ const awaitEndpointPid = (directory: string) => endpointPid(directory).pipe(
   })
 )
 
+const awaitReplacementPid = (directory: string, previousPid: number) => endpointPid(directory).pipe(
+  Effect.filterOrFail(
+    (pid): pid is number => typeof pid === "number" && pid !== previousPid,
+    () => "pending" as const
+  ),
+  Effect.retry(Schedule.spaced("10 millis")),
+  Effect.timeoutOrElse({
+    duration: "5 seconds",
+    orElse: () => Effect.fail(`replacement backend endpoint did not appear in ${directory}`)
+  })
+)
+
+type BackendOwnership =
+  | { readonly _tag: "Idle" }
+  | { readonly _tag: "FirstPending" }
+  | { readonly _tag: "Owned"; readonly pid: number }
+  | { readonly _tag: "ReplacementPending"; readonly previousPid: number }
+
 const ownBackend = Effect.fn("ProjectSyncIntegration.ownBackend")(function*(directory: string) {
-  let backendExpected = false
-  let ownedPid: number | undefined
+  let ownership: BackendOwnership = { _tag: "Idle" }
   yield* Effect.addFinalizer(() => Effect.gen(function*() {
-    const discoveredPid = yield* endpointPid(directory)
-    const pid = discoveredPid ?? ownedPid ?? (backendExpected ? yield* awaitEndpointPid(directory) : undefined)
+    const finalOwnership = ownership
+    const pid = yield* finalOwnership._tag === "Idle"
+      ? Effect.void
+      : finalOwnership._tag === "FirstPending"
+      ? endpointPid(directory).pipe(Effect.flatMap((pid) => pid === undefined
+        ? awaitEndpointPid(directory)
+        : Effect.succeed(pid)))
+      : finalOwnership._tag === "ReplacementPending"
+      ? awaitReplacementPid(directory, finalOwnership.previousPid)
+      : endpointPid(directory).pipe(Effect.map((pid) => pid ?? finalOwnership.pid))
     if (pid !== undefined) yield* stopEndpoint(pid)
   }).pipe(Effect.orDie))
   return {
     capture: (pid: number) => {
-      ownedPid = pid
+      ownership = { _tag: "Owned", pid }
+    },
+    replacementPending: (previousPid: number) => {
+      ownership = { _tag: "ReplacementPending", previousPid }
     },
     track: (adapter: RuntimeAdapter): RuntimeAdapter => ({
       ...adapter,
       spawnBackend: (dataDir) => Effect.sync(() => {
-        backendExpected = true
+        if (ownership._tag === "Idle") ownership = { _tag: "FirstPending" }
       }).pipe(Effect.andThen(adapter.spawnBackend(dataDir)))
     })
   }
@@ -200,6 +228,70 @@ describe.sequential("ProjectSync integration", () => {
       expect(yield* fs.exists(directory)).toBe(false)
     })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 15_000)
 
+  it.live("cleans a replacement when reacquisition is interrupted before PID capture", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const parentScope = yield* Scope.Scope
+      const fixtureScope = yield* Scope.fork(parentScope)
+      const replacementSpawned = yield* Queue.unbounded<void>()
+      let observedReplacementPid: number | undefined
+      yield* Effect.addFinalizer(() => observedReplacementPid === undefined
+        ? Effect.void
+        : stopEndpoint(observedReplacementPid).pipe(Effect.orDie))
+      const directory = yield* makeTempDirectoryScoped("expand-project-sync-replacement-").pipe(
+        Scope.provide(fixtureScope)
+      )
+      const endpoint = path.join(directory, "server.json")
+      let failNextEndpointRead = false
+      const observedFs = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: (file, options) => file === endpoint && failNextEndpointRead
+          ? Effect.sync(() => {
+            failNextEndpointRead = false
+          }).pipe(Effect.andThen(fs.readFileString(`${endpoint}.forced-missing`, options)))
+          : fs.readFileString(file, options)
+      })
+      const replacementPid = yield* Effect.gen(function*() {
+        const ownership = yield* ownBackend(directory).pipe(Scope.provide(fixtureScope))
+        const adapter = ownership.track(makeNodeAdapter({
+          backendCommand: Effect.succeed([
+            "node",
+            "--import",
+            "tsx",
+            path.resolve("apps/server/main.ts")
+          ])
+        }))
+        yield* adapter.spawnBackend(directory)
+        const firstPid = yield* awaitEndpointPid(directory)
+        ownership.capture(firstPid)
+        ownership.replacementPending(firstPid)
+        yield* stopEndpoint(firstPid)
+        const replacementAcquisition = yield* adapter.spawnBackend(directory).pipe(
+          Effect.tap(() => Queue.offer(replacementSpawned, undefined)),
+          Effect.andThen(Effect.never),
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Queue.take(replacementSpawned)
+        const replacementPid = yield* endpointPid(directory).pipe(
+          Effect.filterOrFail(
+            (pid): pid is number => typeof pid === "number" && pid !== firstPid,
+            () => "pending" as const
+          ),
+          Effect.retry(Schedule.spaced("10 millis")),
+          Effect.timeout("5 seconds")
+        )
+        observedReplacementPid = replacementPid
+        failNextEndpointRead = true
+        yield* Fiber.interrupt(replacementAcquisition)
+        yield* Scope.close(fixtureScope, Exit.fail("forced replacement read failure"))
+        return replacementPid
+      }).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
+      expect(yield* processControl.probe(replacementPid)).toBe("dead")
+      expect(yield* fs.exists(directory)).toBe(false)
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 20_000)
+
   it.live("folds a mutation from one client into another client's sink", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -300,7 +392,10 @@ describe.sequential("ProjectSync integration", () => {
         )
         const firstPid = yield* endpointPid(dir)
         expect(firstPid).toBeTypeOf("number")
-        if (firstPid !== undefined) yield* runCommand("kill", ["-TERM", String(firstPid)])
+        if (firstPid !== undefined) {
+          ownership.replacementPending(firstPid)
+          yield* runCommand("kill", ["-TERM", String(firstPid)])
+        }
         yield* waitUntil(() => statuses.includes("reconnecting"), "10 seconds")
         const finalPid = yield* endpointPid(dir).pipe(
           Effect.filterOrFail(
