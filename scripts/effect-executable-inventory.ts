@@ -193,7 +193,9 @@ export const validateExecutableInventoryRecords = Effect.fn("ExecutableInventory
         return yield* fail(`non-host entrypoint cannot carry a source hash: ${entrypoint.file}`)
       }
       const runnerLinks = entrypoint.invokedBy.filter(({ selector }) => selector.startsWith("runner:"))
-      const runnerRequired = entrypoint.kind === "effect-entrypoint" && sourceExtension.test(entrypoint.file) && entrypoint.file !== "test/architecture/effect-executable-inventory.test.ts"
+      const architectureGate = entrypoint.file === "test/architecture/effect-candidate-inventory.test.ts"
+        || entrypoint.file === "test/architecture/effect-executable-inventory.test.ts"
+      const runnerRequired = entrypoint.kind === "effect-entrypoint" && sourceExtension.test(entrypoint.file) && !architectureGate
       if ((runnerRequired && entrypoint.hostBoundary === undefined) || runnerLinks.length !== (entrypoint.hostBoundary === undefined ? 0 : 1)) {
         return yield* fail(`runner must be linked exactly once: ${entrypoint.file}`)
       }

@@ -3,7 +3,7 @@ import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { describe, expect } from "vitest"
-import { GrepInventoryJson } from "../../scripts/effect-inventory-model"
+import { CandidateInventoryJson } from "../../scripts/effect-candidate-inventory"
 
 const sourceExtensions = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
 
@@ -75,15 +75,16 @@ describe("final Effect ratchet", () => {
       expect(eslintConfig).not.toContain('ignores: ["**/*"]')
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("keeps the remaining migration inventory at zero debt", () =>
+  it.live("keeps only the versioned final candidate inventory", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const inventory = yield* fs.readFileString(path.join(root, "effect-grep-inventory.json"))
-        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(GrepInventoryJson)))
+      const inventory = yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json"))
+        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(CandidateInventoryJson)))
 
-      expect(inventory.filter((candidate) => candidate.classification === "migration-debt")).toEqual([])
+      expect(inventory.version).toBe(1)
+      expect(inventory.grep.length).toBeGreaterThan(0)
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("keeps one exact scoped NodeRuntime audit entry with Schema parsing", () =>

@@ -5,9 +5,10 @@ import { describe, expect } from "vitest"
 import { parse as parseYaml } from "yaml"
 import { AuditCommandRunner, AuditCommandRunnerLive, runAudit } from "../../scripts/effect-audit"
 import {
-  GrepInventoryJson,
-  grepCandidateKey
-} from "../../scripts/effect-inventory-model"
+  CandidateInventoryJson,
+  EFFECT_CANDIDATE_HUMAN_COMMAND,
+  candidateIdentity
+} from "../../scripts/effect-candidate-inventory"
 
 const PackageJson = Schema.fromJsonString(Schema.Struct({
   scripts: Schema.Struct({ "effect:grep": Schema.String })
@@ -317,7 +318,7 @@ const bulletItems = (source: string): ReadonlyArray<string> => markdownList(sour
 const paragraphs = (source: string): ReadonlyArray<string> =>
   source.replace(/\r\n/g, "\n").split(/\n\s*\n/).map(normalizeMarkdown).filter(Boolean)
 
-const approvedHumanCommand = String.raw`rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}' -g '!.git/**' -g '!**/node_modules/**' -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' "\\basync\\b|\\bawait\\b|new\\s+Promise\\b|\\bPromise(?:Like)?\\s*<|\\bPromise\\.(?:all|allSettled|any|race|resolve|reject)\\b|\\.(?:then|catch|finally)\\s*\\(|\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\s*\\(|new\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\s*\\(|\\b(?:console\\.\\w+|Date\\.now|performance\\.now|Math\\.random|crypto\\.randomUUID|JSON\\.(?:parse|stringify)|process\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\.)|\\bnode:[^'\"[:space:]]+|\\b[A-Za-z_$][A-Za-z0-9_$]*\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\b"`
+const approvedHumanCommand = EFFECT_CANDIDATE_HUMAN_COMMAND
 
 describe("Effect grep architecture", () => {
   it.live("keeps the approved human grep command unchanged", () =>
@@ -338,11 +339,11 @@ describe("Effect grep architecture", () => {
       const path = yield* Path.Path
       const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
       const result = yield* runAudit(root)
-      const inventory = yield* Schema.decodeUnknownEffect(GrepInventoryJson)(
-        yield* fs.readFileString(path.join(root, "effect-grep-inventory.json"))
+      const inventory = yield* Schema.decodeUnknownEffect(CandidateInventoryJson)(
+        yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json"))
       )
-      const currentKeys = result.grepCandidates.map(grepCandidateKey)
-      const inventoryKeys = inventory.map(grepCandidateKey)
+      const currentKeys = result.grepCandidates.map(candidateIdentity)
+      const inventoryKeys = inventory.grep.map(candidateIdentity)
 
       expect(result.grepAdded).toEqual([])
       expect(result.grepRemoved).toEqual([])

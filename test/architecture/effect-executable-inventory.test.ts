@@ -1277,8 +1277,9 @@ void launch
       )
       expect(decoded.entrypoints).toHaveLength(discovery.entrypointCount)
       const expectedSequence = decoded.entrypoints.flatMap(({ invokedBy }) => invokedBy)
-      expect(expectedSequence).toHaveLength(93)
+      expect(expectedSequence).toHaveLength(94)
       expect(discovery.observations.map(({ invocation }) => invocation)).toEqual(expectedSequence)
+      expect(decoded.entrypoints.map(({ file }) => file)).toContain("test/architecture/effect-candidate-inventory.test.ts")
       expect(decoded.entrypoints.map(({ file }) => file)).toContain("test/architecture/effect-executable-inventory.test.ts")
     }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 
