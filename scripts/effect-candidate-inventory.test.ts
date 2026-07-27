@@ -1,13 +1,16 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
 import {
   CandidateInventoryJson,
   type CandidateObservation,
   candidateIdentity,
+  collectCandidateGrep,
   validateCandidateRecords
 } from "./effect-candidate-inventory"
+
+const encodeJson = Schema.encodeSync(Schema.UnknownFromJsonString)
 
 const observation = (overrides: Partial<CandidateObservation> = {}): CandidateObservation => ({
   candidate: {
@@ -18,6 +21,7 @@ const observation = (overrides: Partial<CandidateObservation> = {}): CandidateOb
     occurrence: 0
   },
   construct: "lexical:.catch(",
+  lexicalProof: "effect-member",
   stringSyntax: false,
   ...overrides
 })
@@ -35,10 +39,10 @@ const lexical = (entry = observation().candidate) => ({
 
 describe("final candidate inventory model", () => {
   it("Schema-decodes the exact versioned model without line identities", () => {
-    const decoded = Schema.decodeUnknownSync(CandidateInventoryJson)(JSON.stringify(inventory([lexical()])))
+    const decoded = Schema.decodeUnknownSync(CandidateInventoryJson)(encodeJson(inventory([lexical()])))
     expect(decoded.version).toBe(1)
     expect(decoded.grep[0]).not.toHaveProperty("line")
-    expect(() => Schema.decodeUnknownSync(CandidateInventoryJson)(JSON.stringify({ ...decoded, version: 2 }))).toThrow()
+    expect(() => Schema.decodeUnknownSync(CandidateInventoryJson)(encodeJson({ ...decoded, version: 2 }))).toThrow()
   })
 
   it.effect("rejects new, stale, duplicate, moved, and duplicate-excerpt candidates", () =>
@@ -60,7 +64,25 @@ describe("final candidate inventory model", () => {
     }))
 
   it.effect("rejects bad host links, executable false positives, stale fixture rules, and stale rationales", () => {
-    const executable = observation({ messageId: "nativePromise", construct: "promise-chain:catch" })
+    const executable = observation({ messageId: "nativePromise", construct: "promise-chain:catch", lexicalProof: "executable-call" })
+    const executableWithoutMessage = observation({
+      candidate: {
+        ...observation().candidate,
+        excerpt: "const encoded = JSON.stringify(value)",
+        match: "JSON.stringify"
+      },
+      construct: "lexical:JSON.stringify",
+      lexicalProof: "executable-call"
+    })
+    const nativeTimerWithoutMessage = observation({
+      candidate: {
+        ...observation().candidate,
+        excerpt: "const handle = setTimeout(run, 1)",
+        match: "setTimeout("
+      },
+      construct: "lexical:setTimeout(",
+      lexicalProof: "executable-call"
+    })
     const fixture = observation({
       candidate: { ...observation().candidate, file: "test/example.test.ts", excerpt: "const source = \"host().catch(use)\"" },
       stringSyntax: true
@@ -68,6 +90,8 @@ describe("final candidate inventory model", () => {
     const cases = [
       [inventory([{ ...observation().candidate, classification: { kind: "host-boundary", hostBoundary: "bad" } }]), [observation()]],
       [inventory([lexical(executable.candidate)]), [executable]],
+      [inventory([{ ...executableWithoutMessage.candidate, classification: { kind: "lexical-false-positive", reason: "non-executable-syntax" } }]), [executableWithoutMessage]],
+      [inventory([{ ...nativeTimerWithoutMessage.candidate, classification: { kind: "lexical-false-positive", reason: "non-executable-syntax" } }]), [nativeTimerWithoutMessage]],
       [inventory([{ ...fixture.candidate, classification: { kind: "audit-fixture", expectedRule: "nativeAsync" } }]), [fixture]],
       [inventory([{ ...observation().candidate, classification: { kind: "lexical-false-positive", reason: "stale" } }]), [observation()]]
     ] as const
@@ -99,6 +123,48 @@ describe("final candidate inventory model", () => {
     })
   })
 })
+
+it.effect("collector positively distinguishes executable pattern calls from non-executable syntax", () =>
+  Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-candidate-proof-" })
+    const file = "fixture.js"
+    const source = [
+      "const encoded = JSON.stringify(value)",
+      "const delayed = setTimeout(run, 1)",
+      "const pending = Deferred.await",
+      ""
+    ].join("\n")
+    yield* fs.writeFileString(path.join(root, file), source)
+    const lines = source.trimEnd().split("\n")
+    let absoluteOffset = 0
+    const events = (yield* Effect.forEach(lines, (line, index) => Effect.gen(function*() {
+      const terms = index === 0 ? ["JSON.stringify"] : index === 1 ? ["setTimeout("] : ["await"]
+      const submatches = terms.map((term) => {
+        const start = line.indexOf(term)
+        return { match: { text: term }, start, end: start + term.length }
+      })
+      const event = {
+        type: "match",
+        data: {
+          path: { text: file },
+          lines: { text: `${line}\n` },
+          line_number: index + 1,
+          absolute_offset: absoluteOffset,
+          submatches
+        }
+      }
+      absoluteOffset += line.length + 1
+      return yield* Schema.encodeEffect(Schema.UnknownFromJsonString)(event)
+    }))).join("\n")
+    const observations = yield* collectCandidateGrep({ root, output: events, trackedFiles: new Set([file]) })
+
+    const byMatch = new Map(observations.map((entry) => [entry.candidate.match, entry]))
+    expect(byMatch.get("JSON.stringify")?.lexicalProof).toBe("executable-call")
+    expect(byMatch.get("setTimeout(")?.messageId).toBe("platformEffect")
+    expect(byMatch.get("await")?.lexicalProof).toBe("member-name")
+  })).pipe(Effect.provide(NodeServices.layer)))
 
 it.effect("accepts one exact analyzer-proven lexical candidate", () =>
   validateCandidateRecords(inventory([lexical()]), [observation()], []).pipe(

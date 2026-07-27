@@ -33,7 +33,9 @@ const boundaryFiles = [
 
 const boundarySource = 'import { NodeRuntime } from "@effect/platform-node"\ndeclare const program: never\nNodeRuntime.runMain(program)\n'
 
-const grepJson = () => Schema.encodeSync(Schema.UnknownFromJsonString)({ type: "summary", data: {} })
+const encodeJson = Schema.encodeSync(Schema.UnknownFromJsonString)
+
+const grepJson = () => encodeJson({ type: "summary", data: {} })
 
 interface FixtureOptions {
   readonly inventory?: string | undefined
@@ -226,7 +228,7 @@ describe("Effect audit command", () => {
 
   it.effect("normalizes a synthetic added async function as new debt", () => {
     const source = "export const sample = async () => 1\n"
-    const diagnostic = JSON.stringify({ diagnostics: [{
+    const diagnostic = encodeJson({ diagnostics: [{
       file: "src/sample.ts",
       start: source.indexOf("async"),
       length: 5,
@@ -336,7 +338,7 @@ describe("Effect audit command", () => {
     const source = "export const a = 1\r\nexport async function load() {}"
     return fixture({
             source,
-      eslint: JSON.stringify([
+      eslint: encodeJson([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
@@ -373,7 +375,7 @@ describe("Effect audit command", () => {
 
   it.effect("rejects ESLint severities outside one and two", () =>
     Effect.forEach([0, 3], (severity) => fixture({
-            eslint: JSON.stringify([
+            eslint: encodeJson([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
@@ -394,7 +396,7 @@ describe("Effect audit command", () => {
 
   it.effect("accepts the valid fatal ESLint message shape", () =>
     fixture({
-            eslint: JSON.stringify([
+            eslint: encodeJson([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",

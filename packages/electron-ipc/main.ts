@@ -81,7 +81,7 @@ export const payloadSize = (payload: unknown): number => {
   if (payload === undefined || payload === null) return 0
   if (typeof payload === "string") return payload.length
   try {
-    return JSON.stringify(payload)?.length ?? Number.MAX_SAFE_INTEGER
+    return encodePayload(payload).length
   } catch {
     return Number.MAX_SAFE_INTEGER
   }
@@ -256,6 +256,7 @@ export const bindIpc = Effect.fn("ElectronIpcMain.bindIpc")(function* bindIpc<
   return { emit: emit as IpcEmitterOf<C> }
 })
 
+const encodePayload = Schema.encodeSync(Schema.UnknownFromJsonString)
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
 
 const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>

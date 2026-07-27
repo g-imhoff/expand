@@ -51,11 +51,20 @@ export const CandidateInventoryJson = Schema.fromJsonString(CandidateInventory)
 export type CandidateIdentityValue = typeof CandidateIdentity.Type
 export type CandidateAdvisoryValue = Omit<typeof CandidateAdvisory.Type, "rationale">
 
+export type CandidateLexicalProof =
+  | "comment"
+  | "effect-member"
+  | "member-name"
+  | "regex-literal"
+  | "string-literal"
+  | "executable-call"
+
 export interface CandidateObservation {
   readonly candidate: CandidateIdentityValue
   readonly construct: string
   readonly analyzerOccurrence?: number
   readonly messageId?: string
+  readonly lexicalProof?: CandidateLexicalProof
   readonly stringSyntax: boolean
 }
 
@@ -180,6 +189,8 @@ export const validateCandidateRecords = Effect.fn("CandidateInventory.validateRe
         }
       } else if (
         observation.messageId !== undefined
+        || observation.lexicalProof === undefined
+        || observation.lexicalProof === "executable-call"
         || classification.reason !== lexicalReason(observation)
       ) return yield* fail(`lexical false positive lacks non-executable analyzer proof: ${candidateIdentity(record)}`)
     }
@@ -227,8 +238,19 @@ export const EFFECT_CANDIDATE_ARGS = [
 export const EFFECT_CANDIDATE_HUMAN_COMMAND = [
   "rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'",
   ...EFFECT_CANDIDATE_EXCLUSIONS.map((glob) => `-g '${glob}'`),
-  `"${EFFECT_CANDIDATE_PATTERN.replaceAll("\\", "\\\\").replaceAll('\"', '\\\"')}"`
+  `"${EFFECT_CANDIDATE_PATTERN.replaceAll("\\", "\\\\").replaceAll('\"', '\\\"')}"`,
+  ...EFFECT_CANDIDATE_ROOTS
 ].join(" ")
+
+export const validateCandidateGrepCommand = Effect.fn("CandidateInventory.validateGrepCommand")(
+  function*(command: string | undefined) {
+    if (command !== EFFECT_CANDIDATE_HUMAN_COMMAND) return yield* fail("effect:grep command differs from collector arguments")
+  }
+)
+
+const CandidatePackageJson = Schema.fromJsonString(Schema.Struct({
+  scripts: Schema.Record(Schema.String, Schema.String)
+}))
 
 const CandidateLanguageServiceJson = Schema.fromJsonString(Schema.Struct({
   diagnostics: Schema.Array(Schema.Struct({
@@ -367,6 +389,66 @@ const nodeAtOffset = (parsed: ParsedCandidateSource, offset: number): SourceNode
   return selected
 }
 
+const sourceChildren = (parsed: ParsedCandidateSource, node: SourceNode) => {
+  const keys = parsed.visitorKeys?.[node.type]
+    ?? Object.keys(node).filter((key) => !["parent", "range", "loc", "tokens", "comments"].includes(key))
+  return keys.flatMap((key) => {
+    const value = node[key]
+    if (Array.isArray(value)) return value.filter(isSourceNode)
+    return isSourceNode(value) ? [value] : []
+  })
+}
+
+const nodesAtRange = (parsed: ParsedCandidateSource, start: number, end: number) => {
+  const selected: Array<SourceNode> = []
+  const stack: Array<SourceNode> = [parsed.ast]
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (node === undefined) continue
+    const [nodeStart, nodeEnd] = node.range ?? []
+    if (nodeStart !== undefined && nodeEnd !== undefined && nodeStart <= start && nodeEnd >= end) selected.push(node)
+    stack.push(...sourceChildren(parsed, node))
+  }
+  return selected.sort((left, right) => {
+    const [leftStart = 0, leftEnd = Number.MAX_SAFE_INTEGER] = left.range ?? []
+    const [rightStart = 0, rightEnd = Number.MAX_SAFE_INTEGER] = right.range ?? []
+    return leftEnd - leftStart - (rightEnd - rightStart)
+  })
+}
+
+const identifierName = (node: unknown) => isSourceNode(node) && node.type === "Identifier" && typeof node.name === "string"
+  ? node.name
+  : undefined
+
+const lexicalProofAt = (
+  parsed: ParsedCandidateSource,
+  start: number,
+  end: number,
+  matchedText: string
+): CandidateLexicalProof | undefined => {
+  const comments = Array.isArray(parsed.ast.comments) ? parsed.ast.comments.filter(isSourceNode) : []
+  if (comments.some((comment) => {
+    const [commentStart, commentEnd] = comment.range ?? []
+    return commentStart !== undefined && commentEnd !== undefined && commentStart <= start && commentEnd >= end
+  })) return "comment"
+  const nodes = nodesAtRange(parsed, start, end)
+  const pointNodes = nodesAtRange(parsed, start, start + 1)
+  const literal = pointNodes.find((node) => node.type === "Literal" || node.type === "TemplateElement" || node.type === "TemplateLiteral")
+  if (literal?.type === "Literal" && literal.regex !== undefined) return "regex-literal"
+  if (literal !== undefined && (literal.type !== "Literal" || typeof literal.value === "string")) return "string-literal"
+  const member = pointNodes.find((node) => node.type === "MemberExpression" || node.type === "OptionalMemberExpression")
+  if (member !== undefined) {
+    const property = identifierName(member.property)
+    const object = identifierName(member.object)
+    if (/^\.(?:catch|then|finally)\s*\(/.test(matchedText) && object === "Effect" && property !== undefined) return "effect-member"
+    const [propertyStart, propertyEnd] = isSourceNode(member.property) ? member.property.range ?? [] : []
+    if (propertyStart !== undefined && propertyEnd !== undefined && propertyStart <= start && propertyEnd >= end) return "member-name"
+  }
+  const call = nodes.find((node) => node.type === "CallExpression" || node.type === "NewExpression")
+  if (call !== undefined) return "executable-call"
+  return undefined
+}
+
 const isStringSyntax = (node: SourceNode | undefined) =>
   node?.type === "TemplateElement"
   || node?.type === "TemplateLiteral"
@@ -435,6 +517,7 @@ export const collectCandidateGrep = Effect.fn("CandidateInventory.collectGrep")(
       readonly construct: string
       readonly analyzerOccurrence?: number
       readonly messageId?: string
+      readonly lexicalProof?: CandidateLexicalProof
       readonly stringSyntax: boolean
     }> = []
     const coordinates = new Set<string>()
@@ -475,6 +558,9 @@ export const collectCandidateGrep = Effect.fn("CandidateInventory.collectGrep")(
           : undefined
         const identity = matching?.identity ?? fallback
         if (identity === undefined) return yield* fail(`candidate declaration does not resolve: ${relative}`)
+        const lexicalProof = matching === undefined
+          ? lexicalProofAt(source, absolute, absolute + (end - start), submatch.match.text)
+          : undefined
         drafts.push({
           file: relative,
           offset: absolute,
@@ -483,6 +569,7 @@ export const collectCandidateGrep = Effect.fn("CandidateInventory.collectGrep")(
           match: submatch.match.text,
           construct: identity.construct,
           ...(matching === undefined ? {} : { analyzerOccurrence: identity.occurrence, messageId: matching.messageId }),
+          ...(lexicalProof === undefined ? {} : { lexicalProof }),
           stringSyntax: matching === undefined && isStringSyntax(nodeAtOffset(source, absolute))
         })
       }
@@ -504,6 +591,7 @@ export const collectCandidateGrep = Effect.fn("CandidateInventory.collectGrep")(
         construct: draft.construct,
         ...(draft.analyzerOccurrence === undefined ? {} : { analyzerOccurrence: draft.analyzerOccurrence }),
         ...(draft.messageId === undefined ? {} : { messageId: draft.messageId }),
+        ...(draft.lexicalProof === undefined ? {} : { lexicalProof: draft.lexicalProof }),
         stringSyntax: draft.stringSyntax
       } satisfies CandidateObservation
     }).sort((left, right) => compareText(candidateIdentity(left.candidate), candidateIdentity(right.candidate)))
@@ -607,6 +695,12 @@ export const validateCandidateInventory = Effect.fn("CandidateInventory.validate
     const raw = yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json")).pipe(
       Effect.mapError((cause) => fail("candidate inventory could not be read", cause))
     )
+    const manifest = yield* Schema.decodeUnknownEffect(CandidatePackageJson)(
+      yield* fs.readFileString(path.join(root, "package.json")).pipe(
+        Effect.mapError((cause) => fail("package manifest could not be read", cause))
+      )
+    ).pipe(Effect.mapError((cause) => fail("package manifest JSON is invalid", cause)))
+    yield* validateCandidateGrepCommand(manifest.scripts["effect:grep"])
     const inventory = yield* Schema.decodeUnknownEffect(CandidateInventoryJson)(raw).pipe(
       Effect.mapError((cause) => fail("candidate inventory JSON is invalid", cause))
     )
