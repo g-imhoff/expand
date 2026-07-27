@@ -1,17 +1,10 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Context, Effect, FileSystem, Layer, Path, Schema, Stream } from "effect"
-import { Command, Flag } from "effect/unstable/cli"
+import { Context, Effect, FileSystem, Layer, Path, Schema, Stdio, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import tseslint from "typescript-eslint"
 import { analyzeEffectBoundaryProgram } from "../eslint-rules/effect-boundary-analysis.mjs"
 import { effectHostBoundaries } from "../eslint-rules/effect-host-boundaries.mjs"
-import {
-  AuditBaselineJson,
-  AuditFinding,
-  EffectAuditError,
-  compareAudit,
-  findingKey
-} from "./effect-audit-model"
+import { AuditFinding, EffectAuditError } from "./effect-audit-model"
 import {
   GrepCandidate,
   GrepInventoryJson,
@@ -336,9 +329,15 @@ const matchingOccurrenceScore = (matchedText: string, construct: string): number
 
 const compareText = (left: string, right: string) => left < right ? -1 : left > right ? 1 : 0
 
-const deduplicateAndSort = (findings: ReadonlyArray<AuditFinding>): ReadonlyArray<AuditFinding> =>
-  [...new Map(findings.map((finding) => [findingKey(finding), finding])).values()]
-    .sort((left, right) => compareText(findingKey(left), findingKey(right)))
+const sortAuditFindings = (findings: ReadonlyArray<AuditFinding>): ReadonlyArray<AuditFinding> =>
+  [...findings].sort((left, right) =>
+    compareText(left.engine, right.engine)
+    || compareText(left.file, right.file)
+    || compareText(left.rule, right.rule)
+    || compareText(left.declaration, right.declaration)
+    || compareText(left.construct, right.construct)
+    || left.occurrence - right.occurrence
+  )
 
 const validBoundaryString = (value: string) =>
   value.length > 0 && value === value.trim() && !/[*?\[\]{}]/.test(value)
@@ -734,32 +733,12 @@ const grepClassificationError = (evidence: ReadonlyArray<GrepCandidateEvidence>)
   return undefined
 }
 
-const validateBaseline = (
-  baseline: ReadonlyArray<AuditFinding>
-): Effect.Effect<ReadonlyArray<AuditFinding>, EffectAuditError> => Effect.gen(function*() {
-  const keys = baseline.map(findingKey)
-  const sorted = [...keys].sort(compareText)
-  if (baseline.some((finding) => finding.severity !== "error")) {
-    return yield* Effect.fail(auditError("invalid-output", "baseline contains an advisory message"))
-  }
-  if (new Set(keys).size !== keys.length) {
-    return yield* Effect.fail(auditError("invalid-output", "baseline contains duplicate finding identities"))
-  }
-  if (keys.some((key, index) => key !== sorted[index])) {
-    return yield* Effect.fail(auditError("invalid-output", "baseline is not sorted by finding identity"))
-  }
-  return baseline
-})
-
 const collectAudit = Effect.fn("effect-audit.collect")(
-  function*(runner: AuditCommandRunner["Service"], options: {
-    readonly root: string
-    readonly mode: "check" | "update"
-  }) {
+  function*(runner: AuditCommandRunner["Service"], root: string) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const results = new Map<AuditCommandRequest["name"], AuditCommandResult>()
-    for (const request of commandRequests(options.root)) {
+    for (const request of commandRequests(root)) {
       results.set(request.name, yield* runCommand(runner, request))
     }
     const output = (name: AuditCommandRequest["name"]) => results.get(name)?.stdout ?? ""
@@ -774,11 +753,11 @@ const collectAudit = Effect.fn("effect-audit.collect")(
 
     const typeScriptFiles = new Set(
       output("typescript-files").split(/\r?\n/)
-        .map((file) => normalizeFile(path, options.root, file))
+        .map((file) => normalizeFile(path, root, file))
         .filter((file): file is string => file !== undefined)
     )
     const eslintFiles = eslint
-      .map((result) => normalizeFile(path, options.root, result.filePath))
+      .map((result) => normalizeFile(path, root, result.filePath))
       .filter((file): file is string => file !== undefined)
     const eslintFileSet = new Set(eslintFiles)
     const missingTypeScript = tracked.filter((file) => isTypeScriptFile(file) && !typeScriptFiles.has(file))
@@ -791,25 +770,25 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     }
 
     yield* validateHostBoundaries({
-      root: options.root,
+      root,
       trackedFiles: tracked,
       eslintFiles,
       boundaries: effectHostBoundaries
     })
 
     const initialGrepEvidence = yield* collectGrepCandidates({
-      root: options.root,
+      root,
       output: output("grep-json"),
       trackedFiles: trackedSet,
       indexedFiles: eslintFileSet
     })
 
     const relevantLanguage = languageService.diagnostics.flatMap((diagnostic) => {
-      const file = normalizeFile(path, options.root, diagnostic.file)
+      const file = normalizeFile(path, root, diagnostic.file)
       return file !== undefined && trackedSet.has(file) ? [{ file, diagnostic }] : []
     })
     const relevantEslint = eslint.flatMap((result) => {
-      const file = normalizeFile(path, options.root, result.filePath)
+      const file = normalizeFile(path, root, result.filePath)
       return file !== undefined && trackedSet.has(file)
         ? result.messages.map((message) => ({ file, message }))
         : []
@@ -819,7 +798,7 @@ const collectAudit = Effect.fn("effect-audit.collect")(
       ...relevantEslint.map(({ file }) => file)
     ])
     const sources = new Map<string, ParsedSource>()
-    for (const file of sourceFiles) sources.set(file, yield* parseSource(options.root, file, "invalid-output"))
+    for (const file of sourceFiles) sources.set(file, yield* parseSource(root, file, "invalid-output"))
 
     const languageFindings = relevantLanguage.flatMap(({ diagnostic, file }) => {
       const parsed = sources.get(file)!
@@ -871,31 +850,39 @@ const collectAudit = Effect.fn("effect-audit.collect")(
         ...(excerpt === undefined ? {} : { excerpt })
       })
     })
-    const normalized = deduplicateAndSort([...languageFindings, ...eslintFindings])
-    const findings = normalized.filter((finding) => finding.severity === "error")
-    const messages = normalized.filter((finding) => finding.severity === "message")
-    yield* Effect.logInfo(`Effect audit found ${findings.length} blocking findings and ${messages.length} advisory messages`)
-
-    const baselineFile = path.join(options.root, "effect-audit-baseline.json")
-    const exists = yield* fs.exists(baselineFile).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error)))
+    const normalized = sortAuditFindings([...languageFindings, ...eslintFindings])
+    const findings = normalized.filter((finding) => finding.severity !== "message")
+    const warnings = normalized.filter((finding) => finding.engine === "eslint" && finding.severity === "message")
+    const languageMessages = normalized.filter((finding) => finding.engine === "effect-language-service" && finding.severity === "message")
+    const nonAdvisoryLanguageMessages = new Set([
+      "effectSucceedWithVoid",
+      "schemaStructWithTag",
+      "unnecessaryEffectGen",
+      "unnecessaryFailYieldableError"
+    ])
+    const unknownMessages = languageMessages.filter((finding) =>
+      finding.rule !== "effectFnOpportunity" && !nonAdvisoryLanguageMessages.has(finding.rule)
     )
-    if (!exists) {
-      return yield* Effect.fail(auditError("baseline-missing", "effect-audit-baseline.json does not exist"))
+    if (unknownMessages.length > 0) {
+      return yield* Effect.fail(auditError(
+        "invalid-output",
+        `unknown language-service advisory: ${unknownMessages.map((finding) => finding.rule).join(", ")}`,
+        unknownMessages
+      ))
+    }
+    const messages = languageMessages.filter((finding) => finding.rule === "effectFnOpportunity")
+    const blocking = sortAuditFindings([...findings, ...warnings])
+    yield* Effect.logInfo(`Effect audit found ${blocking.length} blocking findings and ${messages.length} advisory messages`)
+    if (blocking.length > 0) {
+      return yield* Effect.fail(auditError("blocking-findings", `${blocking.length} errors or warnings were reported`, blocking))
     }
 
-    const baseline = yield* fs.readFileString(baselineFile).pipe(
-      Effect.mapError((error) => auditError("invalid-output", String(error))),
-      Effect.flatMap((contents) => decodeJson(AuditBaselineJson, contents, "baseline")),
-      Effect.flatMap(validateBaseline)
-    )
-    const comparison = compareAudit(baseline, findings)
-    const grepInventoryFile = path.join(options.root, "effect-grep-inventory.json")
+    const grepInventoryFile = path.join(root, "effect-grep-inventory.json")
     const grepInventoryExists = yield* fs.exists(grepInventoryFile).pipe(
       Effect.mapError((error) => auditError("invalid-output", String(error)))
     )
     if (!grepInventoryExists) {
-      return yield* Effect.fail(auditError("baseline-missing", "effect-grep-inventory.json does not exist"))
+      return yield* Effect.fail(auditError("invalid-output", "effect-grep-inventory.json does not exist"))
     }
     const grepInventoryRaw = yield* fs.readFileString(grepInventoryFile).pipe(
       Effect.mapError((error) => auditError("invalid-output", String(error)))
@@ -910,68 +897,18 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     const inventoryError = grepInventoryValidationError(grepInventory)
     if (inventoryError !== undefined) return yield* Effect.fail(auditError("invalid-output", inventoryError))
     const grepEvidence = hydrateGrepCandidates(initialGrepEvidence, grepInventory)
-    const currentCandidates = grepEvidence.map(({ candidate }) => candidate)
-    const currentError = grepInventoryValidationError(currentCandidates)
+    const grepCandidates = grepEvidence.map(({ candidate }) => candidate)
+    const currentError = grepInventoryValidationError(grepCandidates)
     if (currentError !== undefined) return yield* Effect.fail(auditError("invalid-output", currentError))
     const classificationError = grepClassificationError(grepEvidence)
     if (classificationError !== undefined) return yield* Effect.fail(auditError("invalid-output", classificationError))
 
-    const grepCandidates = grepEvidence.map(({ candidate }) => candidate)
     const grepComparison = compareGrepInventory(grepInventory, grepCandidates)
-    if (comparison.added.length > 0) {
+    if (grepComparison.added.length > 0 || grepComparison.removed.length > 0 || grepComparison.reclassified.length > 0) {
       return yield* Effect.fail(auditError(
-        options.mode === "update" ? "baseline-growth" : "new-findings",
-        `${comparison.added.length} finding identities were added`,
-        comparison.added
+        "invalid-output",
+        `grep inventory differs by ${grepComparison.added.length} additions, ${grepComparison.removed.length} removals, and ${grepComparison.reclassified.length} reclassifications`
       ))
-    }
-    if (grepComparison.added.length > 0 || grepComparison.reclassified.length > 0) {
-      return yield* Effect.fail(auditError(
-        options.mode === "update" ? "baseline-growth" : "new-findings",
-        `grep inventory has ${grepComparison.added.length} additions and ${grepComparison.reclassified.length} implicit reclassifications`
-      ))
-    }
-    if (options.mode === "check" && comparison.removed.length > 0) {
-      return yield* Effect.fail(auditError(
-        "stale-baseline",
-        `${comparison.removed.length} baseline identities are stale`,
-        comparison.removed
-      ))
-    }
-    if (grepComparison.removed.some((candidate) => candidate.classification !== "migration-debt")) {
-      return yield* Effect.fail(auditError(
-        options.mode === "update" ? "baseline-growth" : "stale-baseline",
-        "grep inventory has a stale non-debt record"
-      ))
-    }
-    if (options.mode === "check" && grepComparison.removed.length > 0) {
-      return yield* Effect.fail(auditError(
-        "stale-baseline",
-        `${grepComparison.removed.length} grep inventory records are stale`
-      ))
-    }
-    const encodedBaseline = options.mode === "update"
-      ? yield* Schema.encodeEffect(AuditBaselineJson)(findings).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-      : undefined
-    let encodedGrepUpdate: string | undefined
-    if (options.mode === "update" && grepComparison.removed.length > 0) {
-      const currentKeys = new Set(grepCandidates.map(grepCandidateKey))
-      const updatedInventory = grepInventory.filter((candidate) => currentKeys.has(grepCandidateKey(candidate)))
-      encodedGrepUpdate = yield* Schema.encodeEffect(GrepInventoryJson)(updatedInventory).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-    }
-    if (encodedBaseline !== undefined) {
-      yield* fs.writeFileString(baselineFile, encodedBaseline).pipe(
-        Effect.mapError((error) => auditError("invalid-output", String(error)))
-      )
-      if (encodedGrepUpdate !== undefined) {
-        yield* fs.writeFileString(grepInventoryFile, encodedGrepUpdate).pipe(
-          Effect.mapError((error) => auditError("invalid-output", String(error)))
-        )
-      }
     }
     const grepCounts = {
       "migration-debt": grepCandidates.filter((candidate) => candidate.classification === "migration-debt").length,
@@ -986,36 +923,34 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     return {
       findings,
       messages,
-      added: comparison.added,
-      removed: comparison.removed,
-      updated: options.mode === "update",
       grepCandidates,
       grepAdded: grepComparison.added,
       grepRemoved: grepComparison.removed,
-      grepCounts,
+      grepCounts
     }
   }
 )
 
 export const runAudit = Effect.fn("effect-audit.run")(
-  function* (options: { readonly root: string; readonly mode: "check" | "update" }) {
+  function* (root: string) {
     const runner = yield* AuditCommandRunner
-    return yield* collectAudit(runner, options)
+    return yield* collectAudit(runner, root)
   }
 )
 
-const auditCommand = Command.make("effect-audit", {
-  update: Flag.boolean("update")
-}, ({ update }) => Effect.gen(function*() {
+const program = Effect.gen(function*() {
+  const stdio = yield* Stdio.Stdio
+  const args = yield* stdio.args
+  if (args.length > 0) {
+    return yield* Effect.fail(auditError("invalid-output", `effect-audit does not accept arguments: ${args.join(" ")}`))
+  }
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
-  yield* runAudit({ root, mode: update ? "update" : "check" })
+  yield* runAudit(root)
   yield* validateExecutableInventory(root).pipe(
     Effect.mapError((error) => auditError("invalid-output", error instanceof ExecutableInventoryError ? error.detail : String(error)))
   )
-}))
-
-const program = Command.run(auditCommand, { version: "0.0.0" }).pipe(
+}).pipe(
   Effect.provide(AuditCommandRunnerLive),
   Effect.provide(NodeServices.layer)
 )

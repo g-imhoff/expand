@@ -57,24 +57,3 @@ export const compareGrepInventory = (
     })
   }
 }
-
-export const shrinkGrepInventory = (
-  expected: ReadonlyArray<GrepCandidate>,
-  current: ReadonlyArray<GrepCandidate>
-): ReadonlyArray<GrepCandidate> | undefined => {
-  if (grepInventoryValidationError(expected) !== undefined || grepInventoryValidationError(current) !== undefined) {
-    return undefined
-  }
-  const comparison = compareGrepInventory(expected, current)
-  if (comparison.added.length > 0 || comparison.reclassified.length > 0 || comparison.removed.length === 0) {
-    return undefined
-  }
-  if (comparison.removed.some((candidate) => candidate.classification !== "migration-debt")) return undefined
-  const expectedByKey = new Map(expected.map((candidate) => [grepCandidateKey(candidate), candidate]))
-  if (current.some((candidate) => {
-    const previous = expectedByKey.get(grepCandidateKey(candidate))
-    return previous?.classification !== "migration-debt" && previous?.rationale !== candidate.rationale
-  })) return undefined
-  const currentKeys = new Set(current.map(grepCandidateKey))
-  return expected.filter((candidate) => currentKeys.has(grepCandidateKey(candidate)))
-}

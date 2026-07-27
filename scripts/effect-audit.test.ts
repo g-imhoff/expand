@@ -2,14 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, Exit, FileSystem, Layer, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
-import {
-  AuditBaselineJson,
-  AuditFinding,
-  EffectAuditError,
-  canUpdateBaseline,
-  compareAudit,
-  findingKey
-} from "./effect-audit-model"
+import { AuditFinding, EffectAuditError } from "./effect-audit-model"
 import {
   AuditCommandRunner,
   AuditCommandRunnerLive,
@@ -40,7 +33,6 @@ const boundaryFiles = [
 const boundarySource = 'import { NodeRuntime } from "@effect/platform-node"\ndeclare const program: never\nNodeRuntime.runMain(program)\n'
 
 interface FixtureOptions {
-  readonly baseline?: ReadonlyArray<AuditFinding> | string | undefined
   readonly inventory?: ReadonlyArray<GrepCandidate> | string | undefined
   readonly omitInventory?: boolean | undefined
   readonly grepJson?: string | undefined
@@ -87,13 +79,6 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
     yield* fs.makeDirectory(path.join(root, "node_modules/electron"), { recursive: true })
     yield* fs.writeFileString(path.join(root, "node_modules/electron/package.json"), '{"types":"index.d.ts"}')
     yield* fs.writeFileString(path.join(root, "node_modules/electron/index.d.ts"), electronTypeSource)
-
-    if (options.baseline !== undefined) {
-      const encoded = typeof options.baseline === "string"
-        ? options.baseline
-        : yield* Schema.encodeEffect(AuditBaselineJson)([...options.baseline])
-      yield* fs.writeFileString(path.join(root, "effect-audit-baseline.json"), encoded)
-    }
 
     if (!options.omitInventory) {
       const inventory = options.inventory ?? []
@@ -144,44 +129,12 @@ const fixture = <A>(
   use: Parameters<typeof withAuditFixture<A>>[1]
 ) => withAuditFixture(options, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
-describe("Effect audit model", () => {
-  it("keeps identity stable across line and excerpt changes", () => {
-    const original = finding()
-    const moved = finding({ line: 400, excerpt: "async    () => value" })
-
-    expect(findingKey(original)).toBe(findingKey(moved))
-    expect(compareAudit([original], [moved])).toEqual({ added: [], removed: [] })
-  })
-
-  it("disambiguates repeated constructs by occurrence", () => {
-    expect(findingKey(finding({ occurrence: 0 }))).not.toBe(findingKey(finding({ occurrence: 1 })))
-  })
-
-  it("deduplicates semantically identical findings only within one engine", () => {
-    const language = finding()
-    const eslint = finding({ engine: "eslint" })
-
-    expect(compareAudit([], [language, finding({ line: 99 }), eslint]).added.map(findingKey)).toEqual([
-      findingKey(language),
-      findingKey(eslint)
-    ])
-  })
-
-  it("allows identical and strict-subset updates but rejects additions", () => {
-    const first = finding()
-    const second = finding({ occurrence: 1 })
-
-    expect(canUpdateBaseline([first, second], [first, second])).toBe(true)
-    expect(canUpdateBaseline([first, second], [first])).toBe(true)
-    expect(canUpdateBaseline([first], [first, second])).toBe(false)
-  })
-})
 
 describe("Effect audit command", () => {
   it.effect("runs the exact repository commands through the injectable service", () =>
-    fixture({ baseline: [] }, ({ root, requests }) =>
+    fixture({}, ({ root, requests }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
 
         expect(result.findings).toEqual([])
         expect(requests).toEqual([
@@ -216,76 +169,53 @@ describe("Effect audit command", () => {
         ])
       })))
 
-  it.effect("rejects a missing baseline in check and update modes", () =>
-    fixture({}, ({ root }) =>
-      Effect.gen(function*() {
-        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
-
-        expect(check.reason).toBe("baseline-missing")
-        expect(update.reason).toBe("baseline-missing")
-      })))
-
-  it.effect("rejects advisory and duplicate records in the blocking baseline", () =>
-    fixture({ baseline: [finding({ severity: "message" })] }, ({ root }) =>
-      Effect.gen(function*() {
-        const advisory = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        expect(advisory.reason).toBe("invalid-output")
-      })).pipe(Effect.andThen(
-        fixture({ baseline: [finding(), finding({ line: 88 })] }, ({ root }) =>
-          Effect.gen(function*() {
-            const duplicate = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-            expect(duplicate.reason).toBe("invalid-output")
-          }))
-      )))
-
   it.effect("rejects malformed and empty command JSON", () =>
-    fixture({ baseline: [], languageService: "{" }, ({ root }) =>
+    fixture({ languageService: "{" }, ({ root }) =>
       Effect.gen(function*() {
-        const malformed = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const malformed = yield* runAudit(root).pipe(Effect.flip)
         expect(malformed.reason).toBe("invalid-output")
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], eslint: "" }, ({ root }) =>
+        fixture({ eslint: "" }, ({ root }) =>
           Effect.gen(function*() {
-            const empty = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const empty = yield* runAudit(root).pipe(Effect.flip)
             expect(empty.reason).toBe("invalid-output")
           }))
       )))
 
   it.effect("rejects signals, platform failures, and unaccepted exit codes", () =>
-    fixture({ baseline: [], fail: "language-service" }, ({ root }) =>
+    fixture({ fail: "language-service" }, ({ root }) =>
       Effect.gen(function*() {
-        const signal = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const signal = yield* runAudit(root).pipe(Effect.flip)
         expect(signal).toMatchObject({ reason: "command-failed", detail: expect.stringContaining("SIGTERM") })
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], result: { eslint: { exitCode: 2 } } }, ({ root }) =>
+        fixture({ result: { eslint: { exitCode: 2 } } }, ({ root }) =>
           Effect.gen(function*() {
-            const invalid = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const invalid = yield* runAudit(root).pipe(Effect.flip)
             expect(invalid).toMatchObject({ reason: "command-failed", detail: expect.stringContaining("eslint") })
           }))
       )))
 
   it.effect("accepts diagnostic exit one only when stdout decodes", () =>
-    fixture({ baseline: [], result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
+    fixture({ result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
       Effect.gen(function*() {
-        yield* runAudit({ root, mode: "check" })
+        yield* runAudit(root)
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], languageService: "not-json", result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
+        fixture({ languageService: "not-json", result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
           Effect.gen(function*() {
-            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const error = yield* runAudit(root).pipe(Effect.flip)
             expect(error.reason).toBe("invalid-output")
           }))
       )))
 
   it.effect("fails when either semantic engine omits an indexed source", () =>
-    fixture({ baseline: [], omitTypeScript: true }, ({ root }) =>
+    fixture({ omitTypeScript: true }, ({ root }) =>
       Effect.gen(function*() {
-        const typescript = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const typescript = yield* runAudit(root).pipe(Effect.flip)
         expect(typescript).toMatchObject({ reason: "coverage-gap", detail: expect.stringContaining("src/sample.ts") })
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], omitEslint: true }, ({ root }) =>
+        fixture({ omitEslint: true }, ({ root }) =>
           Effect.gen(function*() {
-            const eslint = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const eslint = yield* runAudit(root).pipe(Effect.flip)
             expect(eslint).toMatchObject({ reason: "coverage-gap", detail: expect.stringContaining("src/sample.ts") })
           }))
       )))
@@ -302,10 +232,10 @@ describe("Effect audit command", () => {
       name: "asyncFunction",
       message: "native async"
     }] })
-    return fixture({ baseline: [], source, languageService: diagnostic }, ({ root }) =>
+    return fixture({ source, languageService: diagnostic }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        expect(error.reason).toBe("new-findings")
+        const error = yield* runAudit(root).pipe(Effect.flip)
+        expect(error.reason).toBe("blocking-findings")
         expect(error.findings).toMatchObject([{
           engine: "effect-language-service",
           file: "src/sample.ts",
@@ -317,45 +247,79 @@ describe("Effect audit command", () => {
       }))
   })
 
-  it.effect("requires shrink-only update before accepting stale debt", () =>
-    fixture({ baseline: [finding()] }, ({ root }) =>
+  it.effect("returns only exact effectFnOpportunity advisories", () => {
+    const source = "export const sample = Effect.succeed(1)\n"
+    const advisory = Schema.encodeSync(Schema.UnknownFromJsonString)({ diagnostics: [{
+      file: "src/sample.ts",
+      start: source.indexOf("Effect"),
+      length: 6,
+      line: 1,
+      column: source.indexOf("Effect") + 1,
+      severity: "message",
+      name: "effectFnOpportunity",
+      message: "Use Effect.fn"
+    }] })
+    return fixture({ source, languageService: advisory }, ({ root }) =>
       Effect.gen(function*() {
-        const stale = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        expect(stale.reason).toBe("stale-baseline")
+        const result = yield* runAudit(root)
 
-        const updated = yield* runAudit({ root, mode: "update" })
-        const fs = yield* FileSystem.FileSystem
-        expect(updated.removed).toHaveLength(1)
-        expect(yield* Schema.decodeUnknownEffect(AuditBaselineJson)(yield* fs.readFileString(`${root}/effect-audit-baseline.json`))).toEqual([])
-
-        yield* runAudit({ root, mode: "check" })
-      })))
-
-  it.effect("refuses to update a baseline when findings were added", () => {
-    const source = "export const sample = async () => 1\n"
-    return fixture({
-      baseline: [],
-      source,
-      languageService: JSON.stringify({ diagnostics: [{
-        file: "src/sample.ts",
-        start: source.indexOf("async"),
-        line: 1,
-        severity: "error",
-        name: "asyncFunction",
-        message: "native async"
-      }] })
-    }, ({ root }) =>
-      Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
-        expect(error.reason).toBe("baseline-growth")
+        expect(result.findings).toEqual([])
+        expect(result.messages).toMatchObject([{
+          engine: "effect-language-service",
+          file: "src/sample.ts",
+          rule: "effectFnOpportunity",
+          severity: "message"
+        }])
       }))
   })
+
+  it.effect("rejects unknown language-service messages", () => {
+    const source = "export const sample = 1\n"
+    const advisory = Schema.encodeSync(Schema.UnknownFromJsonString)({ diagnostics: [{
+      file: "src/sample.ts",
+      start: 0,
+      line: 1,
+      severity: "message",
+      name: "unknownOpportunity",
+      message: "unknown"
+    }] })
+    return fixture({ source, languageService: advisory }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit(root).pipe(Effect.flip)
+
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("unknownOpportunity") })
+      }))
+  })
+
+  it.effect("rejects every ESLint warning", () =>
+    fixture({
+      eslint: Schema.encodeSync(Schema.UnknownFromJsonString)([
+        ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
+        {
+          filePath: "src/sample.ts",
+          messages: [{
+            ruleId: "local/warning",
+            severity: 1,
+            message: "warning",
+            line: 1,
+            column: 1
+          }]
+        }
+      ])
+    }, ({ root }) =>
+      Effect.gen(function*() {
+        const error = yield* runAudit(root).pipe(Effect.flip)
+
+        expect(error).toMatchObject({
+          reason: "blocking-findings",
+          findings: [{ engine: "eslint", rule: "local/warning", severity: "message" }]
+        })
+      })))
 
   it.effect("preserves an ESLint identity after a CRLF line terminator", () => {
     const source = "export const a = 1\r\nexport async function load() {}"
     return fixture({
-      baseline: [],
-      source,
+            source,
       eslint: JSON.stringify([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
@@ -372,10 +336,10 @@ describe("Effect audit command", () => {
       ])
     }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
 
         expect(error).toMatchObject({
-          reason: "new-findings",
+          reason: "blocking-findings",
           findings: [{
             engine: "eslint",
             file: "src/sample.ts",
@@ -393,8 +357,7 @@ describe("Effect audit command", () => {
 
   it.effect("rejects ESLint severities outside one and two", () =>
     Effect.forEach([0, 3], (severity) => fixture({
-      baseline: [],
-      eslint: JSON.stringify([
+            eslint: JSON.stringify([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
@@ -409,14 +372,13 @@ describe("Effect audit command", () => {
       ])
     }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error).toMatchObject({ _tag: "EffectAuditError", reason: "invalid-output" })
       }))))
 
   it.effect("accepts the valid fatal ESLint message shape", () =>
     fixture({
-      baseline: [],
-      eslint: JSON.stringify([
+            eslint: JSON.stringify([
         ...allBoundaryFiles.map((filePath) => ({ filePath, messages: [] })),
         {
           filePath: "src/sample.ts",
@@ -432,9 +394,9 @@ describe("Effect audit command", () => {
       ])
     }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error).toMatchObject({
-          reason: "new-findings",
+          reason: "blocking-findings",
           findings: [{
             engine: "eslint",
             rule: "unknown",
@@ -522,7 +484,6 @@ import {
   compareGrepInventory,
   grepCandidateKey,
   grepInventoryValidationError,
-  shrinkGrepInventory
 } from "./effect-inventory-model"
 import { EFFECT_GREP_ARGS, utf8ByteOffsetToCodeUnit } from "./effect-audit"
 
@@ -607,34 +568,6 @@ describe("Effect grep inventory model", () => {
     expect(compareGrepInventory([original], [reclassified])).toMatchObject({ reclassified: [reclassified] })
   })
 
-  it("permits only strict-subset migration-debt updates and preserves non-debt records byte-for-byte", () => {
-    const debt = candidate()
-    const reviewed = candidate({
-      occurrence: 1,
-      classification: "false-positive",
-      rationale: "Effect.catch is Effect composition",
-      line: 21,
-      excerpt: "Effect.catch(program, recover)"
-    })
-    const currentReviewed = candidate({
-      occurrence: 1,
-      classification: "false-positive",
-      rationale: "Effect.catch is Effect composition",
-      line: 99,
-      excerpt: "Effect.catch(program,recover)"
-    })
-
-    expect(shrinkGrepInventory([debt, reviewed], [currentReviewed])).toEqual([reviewed])
-    expect(shrinkGrepInventory([debt, reviewed], [debt, currentReviewed])).toBeUndefined()
-    expect(shrinkGrepInventory([debt, reviewed], [debt])).toBeUndefined()
-    expect(shrinkGrepInventory([debt], [debt, candidate({ occurrence: 2 })])).toBeUndefined()
-    expect(shrinkGrepInventory([reviewed], [candidate({
-      occurrence: 1,
-      classification: "host-required-type",
-      rationale: "changed"
-    })])).toBeUndefined()
-  })
-
   it("rejects classifications outside the closed schema", () => {
     expect(() => Schema.decodeUnknownSync(GrepCandidate)({
       ...candidate(),
@@ -654,20 +587,18 @@ describe("Effect grep inventory model", () => {
 })
 
 describe("Effect grep inventory command", () => {
-  it.effect("rejects a missing grep inventory in check and update modes", () =>
-    fixture({ baseline: [], omitInventory: true }, ({ root }) =>
+  it.effect("rejects a missing grep inventory", () =>
+    fixture({ omitInventory: true }, ({ root }) =>
       Effect.gen(function*() {
-        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
 
-        expect(check).toMatchObject({ reason: "baseline-missing", detail: expect.stringContaining("effect-grep-inventory.json") })
-        expect(update).toMatchObject({ reason: "baseline-missing", detail: expect.stringContaining("effect-grep-inventory.json") })
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("effect-grep-inventory.json") })
       })))
 
   it.effect("uses the approved grep expression and globs with JSON output and an explicit machine root", () =>
-    fixture({ baseline: [], recordGrepRequest: true }, ({ root, requests }) =>
+    fixture({ recordGrepRequest: true }, ({ root, requests }) =>
       Effect.gen(function*() {
-        yield* runAudit({ root, mode: "check" })
+        yield* runAudit(root)
         expect(requests.at(-1)).toEqual({
           name: "grep-json",
           command: "rg",
@@ -691,82 +622,34 @@ describe("Effect grep inventory command", () => {
       })))
 
   it.effect("rejects malformed ripgrep events and accepts a decoded exit one summary", () =>
-    fixture({ baseline: [], grepJson: "{" }, ({ root }) =>
+    fixture({ grepJson: "{" }, ({ root }) =>
       Effect.gen(function*() {
-        const malformed = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const malformed = yield* runAudit(root).pipe(Effect.flip)
         expect(malformed.reason).toBe("invalid-output")
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], result: { "grep-json": { exitCode: 1 } } }, ({ root }) =>
-          runAudit({ root, mode: "check" }).pipe(Effect.asVoid)
+        fixture({ result: { "grep-json": { exitCode: 1 } } }, ({ root }) =>
+          runAudit(root).pipe(Effect.asVoid)
         )
       )))
 
   it.effect("filters grep output to uniquely tracked and indexed first-party source paths", () =>
     fixture({
-      baseline: [],
-      grepJson: grepJson(grepMatch("src/untracked.ts", "export const load = async () => 1\n", 1, "async"))
+            grepJson: grepJson(grepMatch("src/untracked.ts", "export const load = async () => 1\n", 1, "async"))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
         expect(result.grepCandidates).toEqual([])
       })))
 
   it.effect("fails on a new unclassified grep submatch", () => {
     const source = "export const sample = async () => 1\n"
     return fixture({
-      baseline: [],
-      source,
+            source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, "async"))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        expect(error).toMatchObject({ reason: "new-findings", detail: expect.stringContaining("grep inventory") })
-      }))
-  })
-
-  it.effect("keeps deleted grep debt stale until a shrink-only update", () => {
-    const stale = candidate({ file: "src/sample.ts", declaration: "variable:sample" })
-    return fixture({ baseline: [], inventory: [stale] }, ({ root }) =>
-      Effect.gen(function*() {
-        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        expect(check).toMatchObject({ reason: "stale-baseline", detail: expect.stringContaining("grep inventory") })
-
-        const updated = yield* runAudit({ root, mode: "update" })
-        const fs = yield* FileSystem.FileSystem
-        const decoded = yield* Schema.decodeUnknownEffect(GrepInventoryJson)(
-          yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-        )
-        expect(updated.grepRemoved).toEqual([stale])
-        expect(decoded).toEqual([])
-        yield* runAudit({ root, mode: "check" })
-      }))
-  })
-
-  it.effect("never removes or rewrites a reviewed non-debt record during automatic update", () => {
-    const source = "import { Effect } from \"effect\"\nexport const sample = Effect.catch(Effect.succeed(1), () => Effect.succeed(2))\n"
-    const lines = "export const sample = Effect.catch(Effect.succeed(1), () => Effect.succeed(2))\n"
-    const reviewed = candidate({
-      file: "src/sample.ts",
-      declaration: "variable:sample",
-      construct: "lexical:.catch(",
-      classification: "false-positive",
-      rationale: "Effect.catch is Effect composition",
-      line: 20,
-      excerpt: "preserve this reviewed display text"
-    })
-    return fixture({
-      baseline: [],
-      inventory: [reviewed],
-      source,
-      grepJson: grepJson(grepMatch("src/sample.ts", lines, 2, ".catch(", undefined, byteOffsetAtLine(source, 2)))
-    }, ({ root }) =>
-      Effect.gen(function*() {
-        yield* runAudit({ root, mode: "update" })
-        const fs = yield* FileSystem.FileSystem
-        const decoded = yield* Schema.decodeUnknownEffect(GrepInventoryJson)(
-          yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-        )
-        expect(decoded).toEqual([reviewed])
+        const error = yield* runAudit(root).pipe(Effect.flip)
+        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("grep inventory") })
       }))
   })
 
@@ -781,8 +664,7 @@ describe("Effect grep inventory command", () => {
       excerpt: "NodeRuntime.runMain(program)"
     })
     return fixture({
-      baseline: [],
-      inventory: [reviewed],
+            inventory: [reviewed],
       grepJson: grepJson(grepMatch(
         "apps/cli/cli/main.ts",
         "NodeRuntime.runMain(program)\n",
@@ -791,7 +673,7 @@ describe("Effect grep inventory command", () => {
         undefined,
         byteOffsetAtLine(boundarySource, 3)
       ))
-    }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
+    }, ({ root }) => runAudit(root).pipe(Effect.asVoid))
   })
 
   it.effect("accepts analyzer-proven host-required types, audit fixtures, and lexical false positives", () => {
@@ -826,21 +708,18 @@ describe("Effect grep inventory command", () => {
     })
 
     return fixture({
-      baseline: [],
-      inventory: [hostType],
+            inventory: [hostType],
       source: hostTypeSource,
       grepJson: grepJson(grepMatch("src/sample.ts", hostTypeSource, 1, "Promise<"))
-    }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid)).pipe(
+    }, ({ root }) => runAudit(root).pipe(Effect.asVoid)).pipe(
       Effect.andThen(fixture({
-        baseline: [],
-        inventory: [auditFixture],
+                inventory: [auditFixture],
         sampleFile: "test/sample.test.ts",
         source: fixtureSource,
         grepJson: grepJson(grepMatch("test/sample.test.ts", fixtureSource, 1, "async"))
-      }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))),
+      }, ({ root }) => runAudit(root).pipe(Effect.asVoid))),
       Effect.andThen(fixture({
-        baseline: [],
-        inventory: [falsePositive],
+                inventory: [falsePositive],
         source: falsePositiveSource,
         grepJson: grepJson(grepMatch(
           "src/sample.ts",
@@ -850,7 +729,7 @@ describe("Effect grep inventory command", () => {
           undefined,
           byteOffsetAtLine(falsePositiveSource, 2)
         ))
-      }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid)))
+      }, ({ root }) => runAudit(root).pipe(Effect.asVoid)))
     )
   })
 
@@ -866,12 +745,11 @@ describe("Effect grep inventory command", () => {
       excerpt: source.trim()
     })
     const run = (file: string) => fixture({
-      baseline: [],
-      inventory: [reviewed(file)],
+            inventory: [reviewed(file)],
       sampleFile: file,
       source,
       grepJson: grepJson(grepMatch(file, source, 1, runner))
-    }, ({ root }) => runAudit({ root, mode: "check" }))
+    }, ({ root }) => runAudit(root))
 
     return run("scripts/effect-executable-inventory.ts").pipe(
       Effect.asVoid,
@@ -905,14 +783,14 @@ describe("Effect grep inventory command", () => {
       rationale: "   "
     })
 
-    return fixture({ baseline: [], inventory: [falsePositive], source, grepJson: match }, ({ root }) =>
+    return fixture({ inventory: [falsePositive], source, grepJson: match }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("false-positive") })
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], inventory: [emptyRationale], source, grepJson: match }, ({ root }) =>
+        fixture({ inventory: [emptyRationale], source, grepJson: match }, ({ root }) =>
           Effect.gen(function*() {
-            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const error = yield* runAudit(root).pipe(Effect.flip)
             expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("rationale") })
           }))
       ))
@@ -934,8 +812,7 @@ describe("Effect grep inventory hardening", () => {
       excerpt: lines.trim()
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       grepJson: grepJson(grepMatch(
         "apps/cli/cli/main.ts",
         lines,
@@ -946,16 +823,11 @@ describe("Effect grep inventory hardening", () => {
       ))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const check = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
-        const update = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
 
-        expect(check).toMatchObject({
-          reason: "new-findings",
-          detail: expect.stringContaining("implicit reclassifications")
-        })
-        expect(update).toMatchObject({
-          reason: "baseline-growth",
-          detail: expect.stringContaining("implicit reclassifications")
+        expect(error).toMatchObject({
+          reason: "invalid-output",
+          detail: expect.stringContaining("reclassifications")
         })
       }))
   })
@@ -975,14 +847,14 @@ describe("Effect grep inventory hardening", () => {
     )
     const inconsistent = { ...valid, data: { ...valid.data, line_number: 1 } }
     const outOfRange = { ...valid, data: { ...valid.data, line_number: 3 } }
-    return fixture({ baseline: [], source, grepJson: grepJson(inconsistent) }, ({ root }) =>
+    return fixture({ source, grepJson: grepJson(inconsistent) }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error.reason).toBe("invalid-output")
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], source, grepJson: grepJson(outOfRange) }, ({ root }) =>
+        fixture({ source, grepJson: grepJson(outOfRange) }, ({ root }) =>
           Effect.gen(function*() {
-            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const error = yield* runAudit(root).pipe(Effect.flip)
             expect(error.reason).toBe("invalid-output")
           }))
       ))
@@ -1011,14 +883,14 @@ describe("Effect grep inventory hardening", () => {
       undefined,
       byteOffsetAtLine(source, 2)
     )
-    return fixture({ baseline: [], source, grepJson: grepJson(wrongOffset) }, ({ root }) =>
+    return fixture({ source, grepJson: grepJson(wrongOffset) }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error.reason).toBe("invalid-output")
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], source, grepJson: grepJson(wrongText) }, ({ root }) =>
+        fixture({ source, grepJson: grepJson(wrongText) }, ({ root }) =>
           Effect.gen(function*() {
-            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const error = yield* runAudit(root).pipe(Effect.flip)
             expect(error.reason).toBe("invalid-output")
           }))
       ))
@@ -1044,14 +916,14 @@ describe("Effect grep inventory hardening", () => {
         submatches: [{ match: { text: "" }, start: splitPoint, end: splitPoint }]
       }
     }
-    return fixture({ baseline: [], source, grepJson: grepJson(outOfRange) }, ({ root }) =>
+    return fixture({ source, grepJson: grepJson(outOfRange) }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error.reason).toBe("invalid-output")
       })).pipe(Effect.andThen(
-        fixture({ baseline: [], source, grepJson: grepJson(splitCharacter) }, ({ root }) =>
+        fixture({ source, grepJson: grepJson(splitCharacter) }, ({ root }) =>
           Effect.gen(function*() {
-            const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+            const error = yield* runAudit(root).pipe(Effect.flip)
             expect(error.reason).toBe("invalid-output")
           }))
       ))
@@ -1069,9 +941,9 @@ describe("Effect grep inventory hardening", () => {
       undefined,
       byteOffsetAtLine(source, 2)
     )
-    return fixture({ baseline: [], source, grepJson: grepJson(event, event) }, ({ root }) =>
+    return fixture({ source, grepJson: grepJson(event, event) }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error.reason).toBe("invalid-output")
       }))
   })
@@ -1091,106 +963,16 @@ describe("Effect grep inventory hardening", () => {
       excerpt: source.trim()
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
         expect(result.grepCandidates).toEqual([stored])
       }))
   })
 
-  it.effect("removes stale debt without changing reviewed record bytes", () =>
-    Effect.gen(function*() {
-      const method = [".ca", "tch("].join("")
-      const source = `import { Effect } from "effect"\nexport const sample = Effect${method}Effect.succeed(1), () => Effect.succeed(2))\n`
-      const lines = source.slice(source.indexOf("\n") + 1)
-      const stale = candidate({
-        file: "a/stale.ts",
-        declaration: "module:<module>",
-        construct: "lexical:stale",
-        occurrence: 0,
-        classification: "migration-debt",
-        rationale: ""
-      })
-      const reviewed = candidate({
-        file: "src/sample.ts",
-        declaration: "variable:sample",
-        construct: `lexical:${method}`,
-        occurrence: 0,
-        classification: "false-positive",
-        rationale: "Effect composition method",
-        line: 22,
-        excerpt: "preserve exact reviewed bytes"
-      })
-      const before = yield* Schema.encodeEffect(GrepInventoryJson)([stale, reviewed])
-      const reviewedOnly = yield* Schema.encodeEffect(GrepInventoryJson)([reviewed])
-      yield* fixture({
-        baseline: [],
-        inventory: before,
-        source,
-        grepJson: grepJson(grepMatch(
-          "src/sample.ts",
-          lines,
-          2,
-          method,
-          undefined,
-          byteOffsetAtLine(source, 2)
-        ))
-      }, ({ root }) =>
-        Effect.gen(function*() {
-          const result = yield* runAudit({ root, mode: "update" })
-          const fs = yield* FileSystem.FileSystem
-          const after = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-
-          expect(result.grepRemoved).toEqual([stale])
-          expect(after).toBe(reviewedOnly)
-          expect(before).toContain(reviewedOnly.slice(1, -1))
-        }))
-    }))
-
-  it.effect("requires canonical inventory bytes before update", () =>
-    fixture({ baseline: [], inventory: "[ ]" }, ({ root }) =>
-      Effect.gen(function*() {
-        const fs = yield* FileSystem.FileSystem
-        const baselineBefore = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
-        const inventoryBefore = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
-        const baselineAfter = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
-        const inventoryAfter = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-
-        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("canonical") })
-        expect(baselineAfter).toBe(baselineBefore)
-        expect(inventoryAfter).toBe(inventoryBefore)
-      })))
-
-  it.effect("validates both ledgers before applying a shrink update", () => {
-    const keyword = ["as", "ync"].join("")
-    const source = `export const sample = ${keyword} () => 1\n`
-    return fixture({
-      baseline: [finding()],
-      inventory: [],
-      source,
-      grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword))
-    }, ({ root }) =>
-      Effect.gen(function*() {
-        const fs = yield* FileSystem.FileSystem
-        const baselineBefore = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
-        const inventoryBefore = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-        const error = yield* runAudit({ root, mode: "update" }).pipe(Effect.flip)
-        const baselineAfter = yield* fs.readFileString(`${root}/effect-audit-baseline.json`)
-        const inventoryAfter = yield* fs.readFileString(`${root}/effect-grep-inventory.json`)
-
-        expect(error.reason).toBe("baseline-growth")
-        expect(baselineAfter).toBe(baselineBefore)
-        expect(inventoryAfter).toBe(inventoryBefore)
-      }))
-  })
-})
-
-describe("Effect grep ripgrep line model", () => {
   it.effect("resolves a match after a standalone carriage return", () => {
     const keyword = ["as", "ync"].join("")
     const construct = ["native:", keyword].join("")
@@ -1212,13 +994,12 @@ describe("Effect grep ripgrep line model", () => {
       excerpt: "stale display"
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
 
         expect(result.grepCandidates).toEqual([expected])
       }))
@@ -1247,13 +1028,12 @@ describe("Effect grep ripgrep line model", () => {
       excerpt: "stale display"
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", lines, 2, keyword, undefined, absoluteOffset))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
 
         expect(result.grepCandidates).toEqual([expected])
       }))
@@ -1280,13 +1060,12 @@ describe("Effect grep ripgrep line model", () => {
       excerpt: "stale display"
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
 
         expect(result.grepCandidates).toEqual([expected])
       }))
@@ -1313,13 +1092,12 @@ describe("Effect grep ripgrep line model", () => {
       excerpt: "stale display"
     })
     return fixture({
-      baseline: [],
-      inventory: [stored],
+            inventory: [stored],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, keyword, undefined, 0))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const result = yield* runAudit({ root, mode: "check" })
+        const result = yield* runAudit(root)
 
         expect(result.grepCandidates).toEqual([expected])
       }))
@@ -1644,8 +1422,7 @@ describe("Effect platform host-boundary classification", () => {
       excerpt: line.trim()
     })
     return fixture({
-      baseline: [],
-      inventory: [reviewed],
+            inventory: [reviewed],
       grepJson: grepJson(grepMatch(
         "apps/cli/cli/node-app-context.ts",
         line,
@@ -1654,7 +1431,7 @@ describe("Effect platform host-boundary classification", () => {
         undefined,
         byteOffsetAtLine(appContextBoundarySource, 5)
       ))
-    }, ({ root }) => runAudit({ root, mode: "check" }).pipe(Effect.asVoid))
+    }, ({ root }) => runAudit(root).pipe(Effect.asVoid))
   })
 
   it.effect("rejects a reviewed host boundary without analyzer and permanent-registry proof", () => {
@@ -1668,13 +1445,12 @@ describe("Effect platform host-boundary classification", () => {
       excerpt: source.trim()
     })
     return fixture({
-      baseline: [],
-      inventory: [reviewed],
+            inventory: [reviewed],
       source,
       grepJson: grepJson(grepMatch("src/sample.ts", source, 1, asyncKeyword))
     }, ({ root }) =>
       Effect.gen(function*() {
-        const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+        const error = yield* runAudit(root).pipe(Effect.flip)
         expect(error).toMatchObject({
           reason: "invalid-output",
           detail: expect.stringContaining("lacks an exact permanent boundary")
@@ -1698,18 +1474,17 @@ describe("registered Effect language diagnostic command", () => {
     const unregisteredStart = unregisteredSource.indexOf(`"${nodeHttp}"`)
     const unregistered = `{"diagnostics":[{"file":"src/sample.ts","start":${unregisteredStart},"length":${nodeHttp.length + 2},"line":1,"column":${unregisteredStart + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
 
-    return fixture({ baseline: [], languageService: registered }, ({ root }) =>
-      runAudit({ root, mode: "check" }).pipe(Effect.asVoid)
+    return fixture({ languageService: registered }, ({ root }) =>
+      runAudit(root).pipe(Effect.asVoid)
     ).pipe(Effect.andThen(
       fixture({
-        baseline: [],
-        source: unregisteredSource,
+                source: unregisteredSource,
         languageService: unregistered
       }, ({ root }) =>
         Effect.gen(function*() {
-          const error = yield* runAudit({ root, mode: "check" }).pipe(Effect.flip)
+          const error = yield* runAudit(root).pipe(Effect.flip)
           expect(error).toMatchObject({
-            reason: "new-findings",
+            reason: "blocking-findings",
             findings: [{
               engine: "effect-language-service",
               file: "src/sample.ts",

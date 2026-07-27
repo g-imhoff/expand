@@ -253,7 +253,6 @@ describe("manifest orchestration", () => {
       expect(rootScripts).toEqual({
         "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
         "effect:audit": "tsx scripts/effect-audit.ts",
-        "effect:audit:update": "tsx scripts/effect-audit.ts --update",
         "effect:launchers": "vitest run test/architecture/effect-executable-inventory.test.ts",
         "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
         "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",

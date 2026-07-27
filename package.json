@@ -19,7 +19,6 @@
   "scripts": {
     "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
     "effect:audit": "tsx scripts/effect-audit.ts",
-    "effect:audit:update": "tsx scripts/effect-audit.ts --update",
     "effect:launchers": "vitest run test/architecture/effect-executable-inventory.test.ts",
     "effect:grep": "rg -n --hidden -g '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}' -g '!.git/**' -g '!**/node_modules/**' -g '!**/{dist,out,build,coverage,test-results,playwright-report}/**' \"\\\\basync\\\\b|\\\\bawait\\\\b|new\\\\s+Promise\\\\b|\\\\bPromise(?:Like)?\\\\s*<|\\\\bPromise\\\\.(?:all|allSettled|any|race|resolve|reject)\\\\b|\\\\.(?:then|catch|finally)\\\\s*\\\\(|\\\\b(?:setTimeout|setInterval|setImmediate|queueMicrotask|fetch)\\\\s*\\\\(|new\\\\s+(?:Date|WebSocket|Worker|MessageChannel|BroadcastChannel)\\\\s*\\\\(|\\\\b(?:console\\\\.\\\\w+|Date\\\\.now|performance\\\\.now|Math\\\\.random|crypto\\\\.randomUUID|JSON\\\\.(?:parse|stringify)|process\\\\.[A-Za-z_$][A-Za-z0-9_$]*|(?:window|document|navigator|localStorage|sessionStorage)\\\\.)|\\\\bnode:[^'\\\"[:space:]]+|\\\\b[A-Za-z_$][A-Za-z0-9_$]*\\\\.run(?:Promise(?:Exit)?|Sync(?:Exit)?|Fork|Callback|Main)\\\\b\"",
     "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
