@@ -1,7 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schedule, Schema, Scope, Stream, SubscriptionRef } from "effect"
+import { Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { catch as catchEffect } from "effect/Effect"
+import { ChildProcess } from "effect/unstable/process"
 import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { runCommand } from "../../../../test/support/effect-process"
@@ -15,6 +16,7 @@ import {
   type ProjectSnapshot,
   type ProjectSyncSink
 } from "@expand/contracts/project-sync"
+import type { RuntimeAdapter } from "../../adapter"
 import { makeNodeAdapter } from "../../adapters/node"
 import { ClientLayer } from "../../client-layer"
 import { ClientSession } from "../../client-session"
@@ -28,6 +30,15 @@ const waitUntil = (predicate: () => boolean, timeout: Duration.Input) =>
     Effect.asVoid
   )
 
+const waitForFile = Effect.fn("ProjectSyncIntegration.waitForFile")(function*(file: string) {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.exists(file).pipe(
+    Effect.filterOrFail(Boolean, () => "pending" as const),
+    Effect.retry(Schedule.spaced("10 millis")),
+    Effect.timeout("5 seconds")
+  )
+})
+
 const endpointPid = Effect.fn("ProjectSyncIntegration.endpointPid")(function*(directory: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -40,9 +51,8 @@ const endpointPid = Effect.fn("ProjectSyncIntegration.endpointPid")(function*(di
   )
 })
 
-const stopEndpoint = Effect.fn("ProjectSyncIntegration.stopEndpoint")(function*(pid: number) {
+const awaitProcessDeath = Effect.fn("ProjectSyncIntegration.awaitProcessDeath")(function*(pid: number) {
   const processControl = yield* ProcessControl
-  yield* runCommand("kill", ["-TERM", String(pid)]).pipe(Effect.exit)
   yield* processControl.probe(pid).pipe(
     Effect.filterOrFail((status) => status === "dead", () => "pending" as const),
     Effect.retry(Schedule.spaced("10 millis")),
@@ -54,11 +64,52 @@ const stopEndpoint = Effect.fn("ProjectSyncIntegration.stopEndpoint")(function*(
   )
 })
 
-const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(directory: string) {
-  const path = yield* Path.Path
-  const adapter = makeNodeAdapter({
-    backendCommand: Effect.succeed(["node", "--import", "tsx", path.resolve("apps/server/main.ts")])
+const stopEndpoint = Effect.fn("ProjectSyncIntegration.stopEndpoint")(function*(
+  pid: number,
+  waitForDeath: (pid: number) => Effect.Effect<void, unknown, ProcessControl> = awaitProcessDeath
+) {
+  yield* runCommand("kill", ["-TERM", String(pid)]).pipe(Effect.exit)
+  yield* waitForDeath(pid)
+})
+
+const awaitEndpointPid = (directory: string) => endpointPid(directory).pipe(
+  Effect.filterOrFail((pid): pid is number => typeof pid === "number", () => "pending" as const),
+  Effect.retry(Schedule.spaced("10 millis")),
+  Effect.timeoutOrElse({
+    duration: "5 seconds",
+    orElse: () => Effect.fail(`backend endpoint did not appear in ${directory}`)
   })
+)
+
+const ownBackend = Effect.fn("ProjectSyncIntegration.ownBackend")(function*(directory: string) {
+  let backendExpected = false
+  let ownedPid: number | undefined
+  yield* Effect.addFinalizer(() => Effect.gen(function*() {
+    const discoveredPid = yield* endpointPid(directory)
+    const pid = discoveredPid ?? ownedPid ?? (backendExpected ? yield* awaitEndpointPid(directory) : undefined)
+    if (pid !== undefined) yield* stopEndpoint(pid)
+  }).pipe(Effect.orDie))
+  return {
+    capture: (pid: number) => {
+      ownedPid = pid
+    },
+    track: (adapter: RuntimeAdapter): RuntimeAdapter => ({
+      ...adapter,
+      spawnBackend: (dataDir) => Effect.sync(() => {
+        backendExpected = true
+      }).pipe(Effect.andThen(adapter.spawnBackend(dataDir)))
+    })
+  }
+})
+
+const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(
+  directory: string,
+  transformAdapter: (adapter: RuntimeAdapter) => RuntimeAdapter = (adapter) => adapter
+) {
+  const path = yield* Path.Path
+  const adapter = transformAdapter(makeNodeAdapter({
+    backendCommand: Effect.succeed(["node", "--import", "tsx", path.resolve("apps/server/main.ts")])
+  }))
   return ClientLayer(adapter).pipe(
     Layer.provide(ProcessServices.layer),
     Layer.provide(Layer.succeed(AppContext, makeAppContext(path, {
@@ -70,6 +121,85 @@ const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(direct
 })
 
 describe.sequential("ProjectSync integration", () => {
+  it.live("waits for confirmed backend death after signaling teardown", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const directory = yield* makeTempDirectoryScoped("expand-project-sync-signal-")
+      const ready = path.join(directory, "ready")
+      const signaled = path.join(directory, "signaled")
+      const release = path.join(directory, "release")
+      const script = [
+        "trap 'printf signaled > \"$2\"; while [[ ! -e \"$3\" ]]; do sleep 0.01; done; exit 0' TERM",
+        "printf ready > \"$1\"",
+        "while :; do sleep 1; done"
+      ].join("\n")
+      const handle = yield* ChildProcess.make(
+        "bash",
+        ["-c", script, "project-sync-signal", ready, signaled, release],
+        { stdin: "ignore", stdout: "ignore", stderr: "ignore" }
+      )
+      yield* Effect.addFinalizer(() => fs.writeFileString(release, "release").pipe(Effect.ignore))
+      yield* waitForFile(ready)
+      const pid = Number(handle.pid)
+      const deathWaitStarted = yield* Queue.unbounded<void>()
+      const stopFiber = yield* stopEndpoint(
+        pid,
+        () => Queue.offer(deathWaitStarted, undefined).pipe(
+          Effect.andThen(handle.exitCode),
+          Effect.asVoid
+        )
+      ).pipe(Effect.forkChild({ startImmediately: true }))
+      yield* waitForFile(signaled)
+      yield* Queue.take(deathWaitStarted).pipe(Effect.timeout("1 second"))
+      const alive = yield* processControl.probe(pid)
+      expect(alive).toBe("alive")
+      yield* fs.writeFileString(release, "release")
+      yield* Fiber.join(stopFiber)
+      yield* handle.exitCode.pipe(Effect.timeout("5 seconds"))
+      const status = yield* processControl.probe(pid)
+      expect(status).toBe("dead")
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 15_000)
+
+  it.live("cleans a backend when acquisition is interrupted before PID capture", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const parentScope = yield* Scope.Scope
+      const fixtureScope = yield* Scope.fork(parentScope)
+      const backendSpawned = yield* Queue.unbounded<void>()
+      const directory = yield* makeTempDirectoryScoped("expand-project-sync-early-").pipe(
+        Scope.provide(fixtureScope)
+      )
+      let observedPid: number | undefined
+      yield* Effect.addFinalizer(() => observedPid === undefined
+        ? Effect.void
+        : stopEndpoint(observedPid).pipe(Effect.orDie))
+      const ownership = yield* ownBackend(directory).pipe(Scope.provide(fixtureScope))
+      const layer = yield* makeLayer(directory, (adapter) => ownership.track({
+        ...adapter,
+        spawnBackend: (dataDir) => adapter.spawnBackend(dataDir).pipe(
+          Effect.tap(() => Queue.offer(backendSpawned, undefined)),
+          Effect.andThen(Effect.never)
+        )
+      }))
+      const acquisition = yield* Layer.build(layer).pipe(
+        Scope.provide(fixtureScope),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Queue.take(backendSpawned)
+      observedPid = yield* endpointPid(directory).pipe(
+        Effect.filterOrFail((pid): pid is number => typeof pid === "number", () => "pending" as const),
+        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.timeout("5 seconds")
+      )
+      yield* Fiber.interrupt(acquisition)
+      yield* Scope.close(fixtureScope, Exit.fail("forced pre-capture interruption"))
+      expect(yield* processControl.probe(observedPid)).toBe("dead")
+      expect(yield* fs.exists(directory)).toBe(false)
+    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 15_000)
+
   it.live("folds a mutation from one client into another client's sink", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -78,12 +208,11 @@ describe.sequential("ProjectSync integration", () => {
       const fixtureScope = yield* Scope.fork(parentScope)
       const fixture = yield* Effect.gen(function*() {
         const dir = yield* makeTempDirectoryScoped("expand-project-sync-")
-        let finalPid: number | undefined
-        yield* Effect.addFinalizer(() => finalPid === undefined
-          ? Effect.void
-          : stopEndpoint(finalPid).pipe(Effect.orDie))
-        const layer = yield* makeLayer(dir)
+        const ownership = yield* ownBackend(dir)
+        const layer = yield* makeLayer(dir, ownership.track)
         const contextA = yield* Layer.build(layer)
+        const pid = yield* awaitEndpointPid(dir)
+        ownership.capture(pid)
         const contextB = yield* Layer.build(layer)
         const clientA = yield* ProjectClient.pipe(Effect.provide(contextA))
         const clientB = yield* ProjectClient.pipe(Effect.provide(contextB))
@@ -102,11 +231,7 @@ describe.sequential("ProjectSync integration", () => {
         }
         const syncFiber = yield* runProjectSync(source, sink).pipe(Effect.forkScoped)
         yield* waitUntil(() => snapshots.length > 0, "10 seconds")
-        const pid = yield* endpointPid(dir).pipe(
-          Effect.filterOrFail((pid): pid is number => typeof pid === "number")
-        )
         expect(pid).toBeTypeOf("number")
-        finalPid = pid
         const baseline = snapshots.at(-1)!
         const nextEvent = yield* clientA.events({ fromSeq: baseline.seq }).pipe(
           Stream.runHead,
@@ -143,12 +268,11 @@ describe.sequential("ProjectSync integration", () => {
       const fixtureScope = yield* Scope.fork(parentScope)
       const fixture = yield* Effect.gen(function*() {
         const dir = yield* makeTempDirectoryScoped("expand-project-sync-")
-        let finalPid: number | undefined
-        yield* Effect.addFinalizer(() => finalPid === undefined
-          ? Effect.void
-          : stopEndpoint(finalPid).pipe(Effect.orDie))
-        const layer = yield* makeLayer(dir)
+        const ownership = yield* ownBackend(dir)
+        const layer = yield* makeLayer(dir, ownership.track)
         const context = yield* Layer.build(layer)
+        const firstOwnedPid = yield* awaitEndpointPid(dir)
+        ownership.capture(firstOwnedPid)
         const client = yield* ProjectClient.pipe(Effect.provide(context))
         const session = yield* ClientSession.pipe(Effect.provide(context))
         const snapshots: Array<ProjectSnapshot> = []
@@ -178,7 +302,7 @@ describe.sequential("ProjectSync integration", () => {
         expect(firstPid).toBeTypeOf("number")
         if (firstPid !== undefined) yield* runCommand("kill", ["-TERM", String(firstPid)])
         yield* waitUntil(() => statuses.includes("reconnecting"), "10 seconds")
-        finalPid = yield* endpointPid(dir).pipe(
+        const finalPid = yield* endpointPid(dir).pipe(
           Effect.filterOrFail(
             (pid): pid is number => typeof pid === "number" && pid !== firstPid,
             () => "pending" as const
@@ -186,6 +310,7 @@ describe.sequential("ProjectSync integration", () => {
           Effect.retry(Schedule.spaced("10 millis")),
           Effect.timeout("20 seconds")
         )
+        ownership.capture(finalPid)
         const after = yield* client.create({ name: "after-backend-kill", ensure: false })
         yield* waitUntil(
           () => snapshots.at(-1)?.projects.some((project) => project.id === after.project.id) === true,
