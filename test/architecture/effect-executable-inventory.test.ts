@@ -144,17 +144,41 @@ describe("exact executable inventory architecture", () => {
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
-        "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"\nexport const BUILD_ENTRIES = [["apps/missing.ts", "dist/missing"]] as const\nNodeRuntime.${"runMain"}(null)\n`
+        "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"\nimport { build } from "esbuild"\nbuild({ entryPoints: ["apps/missing.ts"] })\nNodeRuntime.${"runMain"}(null)\n`
       })
       const error = yield* Effect.flip(discoverExecutableInventory(root))
       expect(errorDetail(error)).toContain("untracked executable target")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("discovers exact esbuild API inputs repository-wide", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: { secondary: "tsx tools/secondary-builder.ts" } }),
+        "tools/secondary-builder.ts": `import { build as compile } from "esbuild"\nconst entries = ["apps/secondary.ts"]\nconst options = { entryPoints: entries }\ncompile(options)\n`,
+        "apps/secondary.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("esbuild:")).map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "apps/secondary.ts", invocation: { file: "tools/secondary-builder.ts", selector: "esbuild:build", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("fails closed for unresolved exact esbuild API inputs outside the canonical builder", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: { secondary: "tsx tools/secondary-builder.ts" } }),
+        "tools/secondary-builder.ts": `const esbuild = require("esbuild")\nconst dead = { entryPoints: ["apps/dead.ts"] }\nvoid dead\nconst options = { entryPoints: globalThis["process"].argv.slice(2) }\nesbuild.buildSync(options)\n`,
+        "apps/dead.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved executable input")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live("parses scope-resolved esbuild and Electron inputs structurally", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
         "package.json": encodeJson({ scripts: {} }),
-        "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"\nconst first = 'apps/one.ts'\nconst second = \`apps/two.ts\`\nexport const BUILD_ENTRIES = [[first, 'dist/one'], [second, \`dist/two\`]] as const\nNodeRuntime.${"runMain"}(null)\n`,
+        "scripts/build.ts": `import { NodeRuntime } from "@effect/platform-node"\nimport { build } from "esbuild"\nconst first = 'apps/one.ts'\nconst second = \`apps/two.ts\`\nconst entryPoints = [first, second]\nbuild({ entryPoints })\nNodeRuntime.${"runMain"}(null)\n`,
         "apps/one.ts": `export {}\n`,
         "apps/two.ts": `export {}\n`,
         "apps/desktop/electron.vite.config.ts": `import { resolve } from 'node${":"}path'\nconst here = import.meta.dirname\nconst mainInput = 'src/main/index.ts'\nconst preloadInput = \`src/preload/index.ts\`\nconst rendererInput = 'src/renderer/index.html'\nexport default { main: { build: { rollupOptions: { input: resolve(here, mainInput) } } }, preload: { build: { rollupOptions: { input: resolve(here, preloadInput) } } }, renderer: { build: { rollupOptions: { input: resolve(here, rendererInput) } } } }\n`,
@@ -167,17 +191,44 @@ describe("exact executable inventory architecture", () => {
         { file: "apps/desktop/src/main/index.ts", selector: "electron:main", occurrence: 0 },
         { file: "apps/desktop/src/preload/index.ts", selector: "electron:preload", occurrence: 0 },
         { file: "apps/desktop/src/renderer/index.html", selector: "electron:renderer", occurrence: 0 },
-        { file: "apps/one.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: 0 },
-        { file: "apps/two.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: 1 }
+        { file: "apps/one.ts", selector: "esbuild:build", occurrence: 0 },
+        { file: "apps/two.ts", selector: "esbuild:build", occurrence: 1 }
       ])
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live.each([
-    { file: "scripts/build.ts", source: `import { NodeRuntime } from "@effect/platform-node"\nexport const BUILD_ENTRIES = [[globalThis["process"].argv[2], "dist/out"]] as const\nNodeRuntime.${"runMain"}(null)\n` },
+    { file: "scripts/build.ts", source: `import { NodeRuntime } from "@effect/platform-node"\nimport { build } from "esbuild"\nbuild({ entryPoints: globalThis["process"].argv.slice(2) })\nNodeRuntime.${"runMain"}(null)\n` },
     { file: "apps/desktop/electron.vite.config.ts", source: `const input = globalThis["process"].argv[2]\nexport default { main: { build: { rollupOptions: { input } } } }\n` }
   ])("fails closed for unresolved structural build inputs", ({ file, source }) =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({ "package.json": encodeJson({ scripts: {} }), [file]: source })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved executable input")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves only the exported Electron config through aliases, shorthand, and spreads", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/electron.vite.config.ts": `const mainInput = "src/main/index.ts"\nconst preloadInput = "src/preload/index.ts"\nconst rendererInput = "src/renderer/index.html"\nconst mainRollup = { rollupOptions: { input: mainInput } }\nconst preloadRollup = { rollupOptions: { input: preloadInput } }\nconst rendererRollup = { rollupOptions: { input: rendererInput } }\nconst mainBuild = { build: mainRollup }\nconst main = mainBuild\nconst preload = { ...mainBuild, build: preloadRollup }\nconst rendererBase = { build: rendererRollup }\nconst renderer = { ...rendererBase }\nconst config = ({ main, ...{ preload, renderer } }) satisfies Record<string, unknown>\nexport default config\n`,
+        "apps/desktop/src/main/index.ts": `import { NodeRuntime } from "@effect/platform-node"\nNodeRuntime.${"runMain"}(null)\n`,
+        "apps/desktop/src/preload/index.ts": `export {}\n`,
+        "apps/desktop/src/renderer/index.html": `<main></main>\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("electron:")).map(({ file, invocation }) => ({ file, selector: invocation.selector }))).toEqual([
+        { file: "apps/desktop/src/main/index.ts", selector: "electron:main" },
+        { file: "apps/desktop/src/preload/index.ts", selector: "electron:preload" },
+        { file: "apps/desktop/src/renderer/index.html", selector: "electron:renderer" }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("does not accept an unresolved exported Electron section because a dead section is resolvable", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/electron.vite.config.ts": `const dead = { main: { build: { rollupOptions: { input: "src/dead-main.ts" } } } }\nvoid dead\nconst renderer = { build: { rollupOptions: { input: globalThis["process"].argv[2] } } }\nexport default { renderer }\n`
+      })
       const error = yield* Effect.flip(discoverExecutableInventory(root))
       expect(errorDetail(error)).toContain("unresolved executable input")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
@@ -659,6 +710,22 @@ launch({ target: globalThis["process"].argv[2] })
       expect(errorDetail(error)).toContain(detail)
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("resolves function-local dynamic-import bindings in exported declarations", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/caller.ts": `export as${"ync"} function execute() {\n  const namespace = (a${"wait"} (import("./wrapper")))\n  const { launch: destructured } = namespace\n  const property = namespace["launch"]\n  const local = property\n  destructured("scripts/function-dynamic-one.ts")\n  local("scripts/function-dynamic-two.ts")\n}\n`,
+        "scripts/function-dynamic-one.ts": `export {}\n`,
+        "scripts/function-dynamic-two.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.map(({ file }) => file)).toEqual([
+        "scripts/function-dynamic-one.ts",
+        "scripts/function-dynamic-two.ts"
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("resolves static dynamic-import wrapper aliases and preserves shadowing", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -705,6 +772,68 @@ launch({ target: globalThis["process"].argv[2] })
       })
       const error = yield* Effect.flip(discoverExecutableInventory(root))
       expect(errorDetail(error)).toContain("cyclic")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves namespace export-star wrapper flow and rejects dynamic calls after static proof", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const staticRoot = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/barrel.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/caller.ts": `import { tools } from "./barrel"\nconst namespace = tools\nconst execute = namespace.launch\nexecute("scripts/namespace-star-static.ts")\n`,
+        "scripts/namespace-star-static.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(staticRoot)
+      expect(discovery.observations.map(({ file }) => file)).toEqual(["scripts/namespace-star-static.ts"])
+
+      const dynamicRoot = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/barrel.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/caller.ts": `import { tools } from "./barrel"\ntools.launch("scripts/namespace-star-static.ts")\ntools.launch(globalThis["process"].argv[2])\n`,
+        "scripts/namespace-star-static.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(dynamicRoot))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    {
+      files: {
+        "scripts/barrel.ts": `export * as tools from "./left"\nexport { tools } from "./right"\n`,
+        "scripts/left.ts": `export { launch } from "./wrapper"\n`,
+        "scripts/right.ts": `export * as tools from "./other"\n`,
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/other.ts": `export const launch = (_target: string) => undefined\n`
+      },
+      detail: "ambiguous"
+    },
+    {
+      files: {
+        "scripts/barrel.ts": `export * as tools from "./cycle"\nexport * from "./cycle"\n`,
+        "scripts/cycle.ts": `export * from "./barrel"\n`
+      },
+      detail: "cyclic"
+    }
+  ])("fails closed for ambiguous and cyclic namespace export flow", ({ files, detail }) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        ...files,
+        "scripts/caller.ts": `import { tools } from "./barrel"\ntools.launch("scripts/namespace-star-target.ts")\n`,
+        "scripts/namespace-star-target.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain(detail)
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("rejects dot-segment paths before generated-output filtering", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {}, main: "dist/../scripts/missing.ts" })
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("untracked executable target")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
   it.live("fails closed for cyclic ESM wrapper binding flow", () =>

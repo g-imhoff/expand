@@ -560,3 +560,50 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: recursively resolves lexical dynamic-import bindings, structurally evaluates the exported Electron config, discovers exact esbuild API inputs repository-wide, normalizes manifest targets before generated-output filtering, and resolves namespace export-star wrapper flow with ambiguity and cycle rejection.
+- `test/architecture/effect-executable-inventory.test.ts`: adds actual-collector regressions for exported function-local dynamic imports, Electron aliases/shorthand/spreads and dead sections, secondary esbuild builders and dead-config fail-closed behavior, dot-segment generated-path bypasses, and namespace export-star static/dynamic/ambiguity/cycle flow.
+- `effect-executable-inventory.json`: replaces the two variable-name esbuild selectors with exact `esbuild:build` API selectors.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "exact esbuild API|exported Electron|dead section|function-local dynamic-import|namespace export|dot-segment" --reporter=verbose` exited 1 because repository-wide esbuild callers were omitted, exported Electron aliases/spreads were unresolved while dead sections were accepted, function-local dynamic-import aliases were unresolved, namespace exports were omitted, and `dist/../scripts/missing.ts` was filtered as generated output.
+- Incremental RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "unresolved exact esbuild" --reporter=verbose` exited 1 because an unrelated dead `entryPoints` object masked the unresolved exact `buildSync` call.
+- GREEN: the focused reproduced command passed 9 tests with 123 skipped, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts --reporter=dot` passed 4 files and 211 tests, exit 0.
+- Two consecutive `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each.
+- Focused covering gate: 4 files and 211 tests passed, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-twelfth-fix-grep.txt`: passed with 277 output lines, exit 0.
+- `npm run effect:launchers`: 1 file and 132 tests passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm exec -- vitest run --reporter=json --outputFile=/tmp/expand-final-task-2-twelfth-vitest.json`: 402/402 suites and 1409/1409 tests passed, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue and added TypeScript comment scans: no matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: close executable configuration gaps`
+
+## Self-review
+- Function-local dynamic imports are recursively catalogued through await/parentheses, destructuring, property/element access, and local aliases; static exported declarations observe targets and unresolved flows remain fail-closed: satisfied.
+- Electron discovery evaluates only the actual default export through IIFEs, `defineConfig`, aliases, shorthand, spreads, `satisfies`/`as`/parentheses, and requires every configured section input to resolve: satisfied.
+- Esbuild discovery is triggered by exact `build`, `buildSync`, or `context` import/require bindings in every tracked source, resolves array/object/constant and adapter parameter flow, and rejects unresolved or untracked inputs without dead-config masking: satisfied.
+- Manifest targets are normalized before `dist`/`out` generated classification, so dot-segment paths cannot bypass tracked-file validation: satisfied.
+- Namespace exports and namespace import/property/local chains resolve exact wrapper symbols; static flow observes targets while dynamic flow, ambiguity, and cycles fail closed: satisfied.
+- Scope is limited to the executable analyzer, its architecture regressions, the exact inventory selector correction, and this report; no dependencies, comments, migration debt, or neighboring behavior changed: satisfied.
+
+## Concerns
+- None

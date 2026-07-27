@@ -378,7 +378,9 @@ const createTypeChecker = (sources: ReadonlyMap<string, ts.SourceFile>): ts.Type
 }
 
 const symbolDeclaration = (checker: ts.TypeChecker, node: ts.Node): ts.Declaration | undefined =>
-  checker.getSymbolAtLocation(node)?.declarations?.[0]
+  ts.isIdentifier(node) && ts.isShorthandPropertyAssignment(node.parent)
+    ? checker.getShorthandAssignmentValueSymbol(node.parent)?.declarations?.[0]
+    : checker.getSymbolAtLocation(node)?.declarations?.[0]
 
 const declarationOf = (node: ts.Node): typeof ExecutableDeclaration.Type => {
   let current: ts.Node | undefined = node
@@ -533,6 +535,7 @@ interface SourceModule {
   readonly constants: ReadonlyMap<string, ts.Expression>
   readonly imports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
   readonly reExports: ReadonlyMap<string, { readonly file: string; readonly imported: string }>
+  readonly namespaceExports: ReadonlyMap<string, ReadonlyArray<string>>
   readonly starExports: ReadonlyArray<string>
   readonly launchers: ReadonlyMap<string, LaunchApi>
   readonly namespaces: ReadonlyMap<string, "effect" | "effect-root" | "native">
@@ -574,6 +577,7 @@ const analyzeSourceModules = (
     const constants = new Map<string, ts.Expression>()
     const imports = new Map<string, { readonly file: string; readonly imported: string }>()
     const reExports = new Map<string, { readonly file: string; readonly imported: string }>()
+    const namespaceExports = new Map<string, Array<string>>()
     const starExports: Array<string> = []
     const launchers = new Map<string, LaunchApi>()
     const namespaces = new Map<string, "effect" | "effect-root" | "native">()
@@ -617,6 +621,14 @@ const analyzeSourceModules = (
       if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause === undefined) {
         const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
         if (exportedFile !== undefined) starExports.push(exportedFile)
+      }
+      if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier) && statement.exportClause !== undefined && ts.isNamespaceExport(statement.exportClause)) {
+        const exportedFile = resolveSourceImport(file, statement.moduleSpecifier.text, tracked)
+        if (exportedFile !== undefined) {
+          const existing = namespaceExports.get(statement.exportClause.name.text) ?? []
+          existing.push(exportedFile)
+          namespaceExports.set(statement.exportClause.name.text, existing)
+        }
       }
       if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
         if (statement.moduleSpecifier === undefined) {
@@ -705,6 +717,13 @@ const analyzeSourceModules = (
       }
     }
     const collectWrappers = (node: ts.Node) => {
+      if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
+        let initializer = node.initializer
+        while (ts.isAwaitExpression(initializer) || ts.isParenthesizedExpression(initializer) || ts.isAsExpression(initializer) || ts.isTypeAssertionExpression(initializer) || ts.isSatisfiesExpression(initializer)) initializer = initializer.expression
+        if (ts.isCallExpression(initializer) && initializer.expression.kind === ts.SyntaxKind.ImportKeyword && (initializer.arguments[0] === undefined || !ts.isStringLiteralLike(initializer.arguments[0]))) {
+          throw fail(`unresolved first-party callable: dynamic module specifier: ${file}`)
+        }
+      }
       let name: ts.Node | undefined
       let implementation: ts.FunctionLikeDeclaration | undefined
       if (ts.isFunctionDeclaration(node) && node.name !== undefined && node.body !== undefined) {
@@ -728,7 +747,7 @@ const analyzeSourceModules = (
       ts.forEachChild(node, collectWrappers)
     }
     collectWrappers(sourceFile)
-    modules.set(file, { file, sourceFile, constants, imports, reExports, starExports, launchers, namespaces, wrappers, wrapperDeclarations })
+    modules.set(file, { file, sourceFile, constants, imports, reExports, namespaceExports, starExports, launchers, namespaces, wrappers, wrapperDeclarations })
   }
   return modules
 }
@@ -747,6 +766,29 @@ const discoverChildTargets = (
     if (local !== undefined) return local
     const reExport = module?.reExports.get(name)
     return reExport === undefined ? undefined : resolveExport(reExport.file, reExport.imported, new Set([...seen, key]))
+  }
+  const resolveNamespaceExport = (file: string, name: string, seen = new Set<string>()): string | undefined => {
+    const key = `${file}\0namespace:${name}`
+    if (seen.has(key)) throw fail(`unresolved first-party launch: cyclic namespace export flow: ${file}`)
+    const nextSeen = new Set([...seen, key])
+    const module = modules.get(file)
+    const candidates = [...module?.namespaceExports.get(name) ?? []]
+    const reExport = module?.reExports.get(name)
+    if (reExport !== undefined) {
+      const candidate = resolveNamespaceExport(reExport.file, reExport.imported, nextSeen)
+      if (candidate !== undefined) candidates.push(candidate)
+    }
+    const unique = [...new Set(candidates)]
+    if (unique.length > 1) throw fail(`unresolved first-party launch: ambiguous namespace export flow: ${file}`)
+    return unique[0]
+  }
+  const dynamicImportTarget = (expression: ts.Expression, file: string): string | undefined => {
+    let current = expression
+    while (ts.isAwaitExpression(current) || ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isTypeAssertionExpression(current) || ts.isSatisfiesExpression(current)) current = current.expression
+    if (!ts.isCallExpression(current) || current.expression.kind !== ts.SyntaxKind.ImportKeyword) return undefined
+    const specifier = current.arguments[0]
+    if (specifier === undefined || !ts.isStringLiteralLike(specifier)) throw fail(`unresolved first-party callable: dynamic module specifier: ${file}`)
+    return resolveSourceImport(file, specifier.text, tracked)
   }
   const resolveExportWrapper = (file: string, name: string, seen = new Set<string>()): WrapperBinding | undefined => {
     const key = `${file}\0${name}`
@@ -1022,6 +1064,22 @@ const discoverChildTargets = (
       return returned.length === 1 ? wrapper(returned[0]!, factory.file, factoryScope, seen) : undefined
     }
     const module = modules.get(file)
+    const namespaceFile = (candidate: ts.Expression, declarations = new Set<ts.Declaration>()): string | undefined => {
+      const direct = dynamicImportTarget(candidate, file)
+      if (direct !== undefined) return direct
+      if (!ts.isIdentifier(candidate)) return undefined
+      const declaration = symbolDeclaration(checker, candidate)
+      if (declaration === undefined || declarations.has(declaration)) return undefined
+      const nextDeclarations = new Set([...declarations, declaration])
+      if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return namespaceFile(declaration.initializer, nextDeclarations)
+      if (ts.isImportSpecifier(declaration) || ts.isImportClause(declaration) || ts.isImportEqualsDeclaration(declaration) || ts.isNamespaceImport(declaration)) {
+        const imported = module?.imports.get(candidate.text)
+        if (imported === undefined) return undefined
+        if (imported.imported === "*") return imported.file
+        return resolveNamespaceExport(imported.file, imported.imported)
+      }
+      return undefined
+    }
     const symbolNode = ts.isIdentifier(expression)
       ? expression
       : ts.isPropertyAccessExpression(expression)
@@ -1036,6 +1094,15 @@ const discoverChildTargets = (
         const local = candidate.wrapperDeclarations.get(resolvedDeclaration)
         if (local !== undefined) return { ...local, scope }
       }
+      if (ts.isBindingElement(resolvedDeclaration) && ts.isObjectBindingPattern(resolvedDeclaration.parent)) {
+        const variable = resolvedDeclaration.parent.parent
+        const importedFile = ts.isVariableDeclaration(variable) && variable.initializer !== undefined ? namespaceFile(variable.initializer) : undefined
+        const imported = resolvedDeclaration.propertyName?.getText(module?.sourceFile) ?? resolvedDeclaration.name.getText(module?.sourceFile)
+        if (importedFile !== undefined) {
+          const importedWrapper = resolveExportWrapper(importedFile, imported)
+          if (importedWrapper !== undefined) return { ...importedWrapper, scope: new Map() }
+        }
+      }
       if (ts.isVariableDeclaration(resolvedDeclaration) && resolvedDeclaration.initializer !== undefined) return wrapper(resolvedDeclaration.initializer, file, scope, nextSeen)
     }
     if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
@@ -1045,10 +1112,10 @@ const discoverChildTargets = (
         : expression.argumentExpression !== undefined && ts.isStringLiteralLike(expression.argumentExpression)
           ? expression.argumentExpression.text
           : undefined
-      if (ts.isIdentifier(owner) && member !== undefined) {
-        const imported = module?.imports.get(owner.text)
-        if (imported?.imported === "*") {
-          const importedWrapper = resolveExportWrapper(imported.file, member)
+      if (member !== undefined) {
+        const importedFile = namespaceFile(owner)
+        if (importedFile !== undefined) {
+          const importedWrapper = resolveExportWrapper(importedFile, member)
           if (importedWrapper !== undefined) return { ...importedWrapper, scope: new Map() }
         }
       }
@@ -1238,15 +1305,192 @@ const staticStrings = (expression: ts.Expression, checker: ts.TypeChecker, seen 
     }
     return values
   }
+  if (ts.isCallExpression(unwrapped) && (ts.isPropertyAccessExpression(unwrapped.expression) || ts.isElementAccessExpression(unwrapped.expression))) {
+    const member = ts.isPropertyAccessExpression(unwrapped.expression) ? unwrapped.expression.name.text : unwrapped.expression.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.expression.argumentExpression) ? unwrapped.expression.argumentExpression.text : undefined
+    const last = unwrapped.arguments.at(-1)
+    if (/^(?:join|resolve)$/.test(member ?? "") && last !== undefined) return staticStrings(last, checker, seen)
+  }
   if (!ts.isIdentifier(unwrapped)) return undefined
   const declaration = symbolDeclaration(checker, unwrapped)
-  if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
-  return staticStrings(declaration.initializer, checker, new Set([...seen, declaration]))
+  if (declaration === undefined || seen.has(declaration)) return undefined
+  const nextSeen = new Set([...seen, declaration])
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return staticStrings(declaration.initializer, checker, nextSeen)
+  if (ts.isParameter(declaration)) {
+    const owner = declaration.parent
+    const parameterIndex = owner.parameters.indexOf(declaration)
+    if (parameterIndex < 0) return undefined
+    const ownerName = ts.isFunctionDeclaration(owner) || ts.isFunctionExpression(owner) ? owner.name : ts.isArrowFunction(owner) && ts.isVariableDeclaration(owner.parent) ? owner.parent.name : undefined
+    if (ownerName === undefined) return undefined
+    const ownerSymbol = checker.getSymbolAtLocation(ownerName)
+    const sourceFile = owner.getSourceFile()
+    const values: Array<string> = []
+    let found = false
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && checker.getSymbolAtLocation(node.expression) === ownerSymbol) {
+        found = true
+        const argument = node.arguments[parameterIndex]
+        const resolved = argument === undefined ? undefined : staticStrings(argument, checker, nextSeen)
+        if (resolved !== undefined) values.push(...resolved)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sourceFile)
+    return found && values.length > 0 ? values : undefined
+  }
+  if (ts.isBindingElement(declaration) && ts.isArrayBindingPattern(declaration.parent)) {
+    const index = declaration.parent.elements.indexOf(declaration)
+    const variable = declaration.parent.parent
+    const loop = variable.parent.parent
+    if (index < 0 || !ts.isForOfStatement(loop)) return undefined
+    const collectionExpression = unwrapExpression(loop.expression)
+    const collectionDeclaration = ts.isIdentifier(collectionExpression) ? symbolDeclaration(checker, collectionExpression) : undefined
+    let initializer: ts.Expression = collectionExpression
+    if (collectionDeclaration !== undefined && ts.isVariableDeclaration(collectionDeclaration)) {
+      if (collectionDeclaration.initializer === undefined) return undefined
+      initializer = collectionDeclaration.initializer
+    }
+    const array = unwrapExpression(initializer)
+    if (!ts.isArrayLiteralExpression(array)) return undefined
+    const values: Array<string> = []
+    for (const element of array.elements) {
+      const tuple = ts.isExpression(element) ? unwrapExpression(element) : undefined
+      const selected = tuple !== undefined && ts.isArrayLiteralExpression(tuple) ? tuple.elements[index] : undefined
+      if (selected === undefined || !ts.isExpression(selected)) return undefined
+      const resolved = staticStrings(selected, checker, nextSeen)
+      if (resolved === undefined) return undefined
+      values.push(...resolved)
+    }
+    return values
+  }
+  return undefined
 }
 
 const propertyName = (name: ts.PropertyName, sourceFile: ts.SourceFile) => ts.isIdentifier(name) || ts.isStringLiteralLike(name)
   ? name.text
   : name.getText(sourceFile)
+
+const staticObjectProperties = (
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  seen = new Set<ts.Declaration>()
+): ReadonlyMap<string, ts.Expression> | undefined => {
+  const unwrapped = unwrapExpression(expression)
+  if (ts.isIdentifier(unwrapped)) {
+    const declaration = symbolDeclaration(checker, unwrapped)
+    if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
+    return staticObjectProperties(declaration.initializer, checker, new Set([...seen, declaration]))
+  }
+  if (ts.isCallExpression(unwrapped)) {
+    const callable = unwrapExpression(unwrapped.expression)
+    if (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable)) {
+      const body = callable.body
+      if (ts.isExpression(body)) return staticObjectProperties(body, checker, seen)
+      const returns: Array<ts.Expression> = []
+      const visit = (node: ts.Node) => {
+        if (node !== body && ts.isFunctionLike(node)) return
+        if (ts.isReturnStatement(node) && node.expression !== undefined) returns.push(node.expression)
+        else ts.forEachChild(node, visit)
+      }
+      visit(body)
+      return returns.length === 1 ? staticObjectProperties(returns[0]!, checker, seen) : undefined
+    }
+    if (!ts.isIdentifier(callable)) return undefined
+    const declaration = symbolDeclaration(checker, callable)
+    const importDeclaration = declaration === undefined ? undefined : ts.findAncestor(declaration, ts.isImportDeclaration)
+    const imported = declaration !== undefined && ts.isImportSpecifier(declaration) ? declaration.propertyName?.text ?? declaration.name.text : undefined
+    const isElectronConfig = imported === "defineConfig" && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "electron-vite"
+    return !isElectronConfig || unwrapped.arguments[0] === undefined ? undefined : staticObjectProperties(unwrapped.arguments[0], checker, seen)
+  }
+  if (!ts.isObjectLiteralExpression(unwrapped)) return undefined
+  const properties = new Map<string, ts.Expression>()
+  for (const property of unwrapped.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const spread = staticObjectProperties(property.expression, checker, seen)
+      if (spread === undefined) return undefined
+      for (const [name, value] of spread) properties.set(name, value)
+      continue
+    }
+    if (ts.isPropertyAssignment(property)) {
+      const name = propertyName(property.name, property.getSourceFile())
+      properties.set(name, property.initializer)
+      continue
+    }
+    if (ts.isShorthandPropertyAssignment(property)) {
+      properties.set(property.name.text, property.name)
+      continue
+    }
+    return undefined
+  }
+  return properties
+}
+
+const staticEntryPoints = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): ReadonlyArray<string> | undefined => {
+  const unwrapped = unwrapExpression(expression)
+  const strings = staticStrings(unwrapped, checker, seen)
+  if (strings !== undefined) return strings
+  if (ts.isIdentifier(unwrapped)) {
+    const declaration = symbolDeclaration(checker, unwrapped)
+    if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
+    return staticEntryPoints(declaration.initializer, checker, new Set([...seen, declaration]))
+  }
+  if (!ts.isObjectLiteralExpression(unwrapped)) return undefined
+  const values: Array<string> = []
+  for (const property of unwrapped.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const spread = staticEntryPoints(property.expression, checker, seen)
+      if (spread === undefined) return undefined
+      values.push(...spread)
+    } else if (ts.isPropertyAssignment(property)) {
+      const resolved = staticStrings(property.initializer, checker, seen)
+      if (resolved === undefined) return undefined
+      values.push(...resolved)
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      const resolved = staticStrings(property.name, checker, seen)
+      if (resolved === undefined) return undefined
+      values.push(...resolved)
+    } else return undefined
+  }
+  return values
+}
+
+const esbuildApi = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): "build" | "buildSync" | "context" | undefined => {
+  const unwrapped = unwrapExpression(expression)
+  if (ts.isIdentifier(unwrapped)) {
+    const declaration = symbolDeclaration(checker, unwrapped)
+    if (declaration === undefined || seen.has(declaration)) return undefined
+    const nextSeen = new Set([...seen, declaration])
+    const importDeclaration = ts.findAncestor(declaration, ts.isImportDeclaration)
+    if (ts.isImportSpecifier(declaration) && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "esbuild") {
+      const imported = declaration.propertyName?.text ?? declaration.name.text
+      return /^(?:build|buildSync|context)$/.test(imported) ? imported as "build" | "buildSync" | "context" : undefined
+    }
+    if (ts.isBindingElement(declaration) && ts.isObjectBindingPattern(declaration.parent)) {
+      const variable = declaration.parent.parent
+      if (ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
+        const imported = declaration.propertyName?.getText() ?? declaration.name.getText()
+        const namespace = unwrapExpression(variable.initializer)
+        if (ts.isCallExpression(namespace) && ts.isIdentifier(namespace.expression) && namespace.expression.text === "require" && namespace.arguments[0] !== undefined && ts.isStringLiteralLike(namespace.arguments[0]) && namespace.arguments[0].text === "esbuild" && /^(?:build|buildSync|context)$/.test(imported)) return imported as "build" | "buildSync" | "context"
+      }
+    }
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return esbuildApi(declaration.initializer, checker, nextSeen)
+    return undefined
+  }
+  if (!ts.isPropertyAccessExpression(unwrapped) && !ts.isElementAccessExpression(unwrapped)) return undefined
+  const member = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name.text : unwrapped.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.argumentExpression) ? unwrapped.argumentExpression.text : undefined
+  if (member === undefined || !/^(?:build|buildSync|context)$/.test(member)) return undefined
+  const owner = unwrapExpression(unwrapped.expression)
+  if (ts.isCallExpression(owner) && ts.isIdentifier(owner.expression) && owner.expression.text === "require" && owner.arguments[0] !== undefined && ts.isStringLiteralLike(owner.arguments[0]) && owner.arguments[0].text === "esbuild") return member as "build" | "buildSync" | "context"
+  if (ts.isIdentifier(owner)) {
+    const declaration = symbolDeclaration(checker, owner)
+    const importDeclaration = declaration === undefined ? undefined : ts.findAncestor(declaration, ts.isImportDeclaration)
+    if (declaration !== undefined && (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "esbuild") return member as "build" | "buildSync" | "context"
+    if (declaration !== undefined && ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+      const initializer = unwrapExpression(declaration.initializer)
+      if (ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression) && initializer.expression.text === "require" && initializer.arguments[0] !== undefined && ts.isStringLiteralLike(initializer.arguments[0]) && initializer.arguments[0].text === "esbuild") return member as "build" | "buildSync" | "context"
+    }
+  }
+  return undefined
+}
 
 const executableInput = (expression: ts.Expression, checker: ts.TypeChecker): string | undefined => {
   const unwrapped = unwrapExpression(expression)
@@ -1353,12 +1597,13 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       const manifest = yield* Schema.decodeUnknownEffect(Manifest)(yield* fs.readFileString(path.join(root, manifestFile))).pipe(Effect.mapError((cause) => fail(`cannot decode ${manifestFile}`, cause)))
       const directTargets = [
         ...(manifest.module === undefined ? [] : [{ selector: "manifest:module", target: manifest.module }]),
-        ...(manifest.main === undefined || /(?:^|\/)(?:dist|out)\//.test(manifest.main) ? [] : [{ selector: "manifest:main", target: manifest.main }]),
+        ...(manifest.main === undefined ? [] : [{ selector: "manifest:main", target: manifest.main }]),
         ...(typeof manifest.bin === "string"
-          ? /(?:^|\/)(?:dist|out)\//.test(manifest.bin) ? [] : [{ selector: "manifest:bin", target: manifest.bin }]
-          : Object.entries(manifest.bin ?? {}).filter(([, target]) => !/(?:^|\/)(?:dist|out)\//.test(target)).map(([name, target]) => ({ selector: `manifest:bin.${name}`, target })))
-      ]
-      for (const { selector, target } of directTargets) yield* addParsedTarget(normalizeManifestPath(manifestFile, target), { file: manifestFile, selector, occurrence: 0 })
+          ? [{ selector: "manifest:bin", target: manifest.bin }]
+          : Object.entries(manifest.bin ?? {}).map(([name, target]) => ({ selector: `manifest:bin.${name}`, target })))
+      ].map(({ selector, target }) => ({ selector, target: normalizeManifestPath(manifestFile, target) }))
+        .filter(({ target }) => !/(?:^|\/)(?:dist|out)\//.test(target))
+      for (const { selector, target } of directTargets) yield* addParsedTarget(target, { file: manifestFile, selector, occurrence: 0 })
       for (const [name, command] of Object.entries(manifest.scripts ?? {})) {
         let occurrence = 0
         const candidates = yield* Effect.try({ try: () => manifestSourceTargets(command), catch: (cause) => cause instanceof ExecutableInventoryError ? cause : fail(`cannot parse manifest command: ${manifestFile}`, cause) })
@@ -1368,52 +1613,67 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
       }
     }
 
-    if (tracked.has("scripts/build.ts")) {
-      const buildFile = parsedSources.get("scripts/build.ts")!
-      const buildChecker = createTypeChecker(new Map([["scripts/build.ts", buildFile]]))
-      let entries: ts.Expression | undefined
-      const findEntries = (node: ts.Node) => {
-        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "BUILD_ENTRIES" && node.initializer !== undefined) entries = node.initializer
-        ts.forEachChild(node, findEntries)
+    for (const [file, sourceFile] of parsedSources) {
+      const occurrences = new Map<string, number>()
+      const visitEsbuild = (node: ts.Node) => {
+        if (ts.isCallExpression(node)) {
+          const api = esbuildApi(node.expression, checker)
+          if (api !== undefined) {
+            const options = node.arguments[0] === undefined ? undefined : staticObjectProperties(node.arguments[0], checker)
+            const entryPoints = options?.get("entryPoints")
+            let inputs = entryPoints === undefined ? undefined : staticEntryPoints(entryPoints, checker)
+            if (inputs === undefined) {
+              const argument = node.arguments[0] === undefined ? undefined : unwrapExpression(node.arguments[0])
+              const declaration = argument !== undefined && ts.isIdentifier(argument) ? symbolDeclaration(checker, argument) : undefined
+              if (declaration === undefined || !ts.isParameter(declaration)) throw fail(`unresolved executable input: ${file}:esbuild:${api}`)
+              const structuralInputs: Array<string> = []
+              const findEntryPoints = (candidate: ts.Node) => {
+                if (ts.isPropertyAssignment(candidate) && propertyName(candidate.name, sourceFile) === "entryPoints") {
+                  const resolved = staticEntryPoints(candidate.initializer, checker)
+                  if (resolved !== undefined) structuralInputs.push(...resolved)
+                }
+                ts.forEachChild(candidate, findEntryPoints)
+              }
+              findEntryPoints(sourceFile)
+              inputs = structuralInputs.length === 0 ? undefined : structuralInputs
+            }
+            if (inputs === undefined || inputs.length === 0) throw fail(`unresolved executable input: ${file}:esbuild:${api}`)
+            inputs.forEach((input) => {
+              const occurrence = occurrences.get(api) ?? 0
+              occurrences.set(api, occurrence + 1)
+              if (!validPath(input) || !tracked.has(input) || trackedModes.get(input)?.startsWith("100") !== true) throw fail(`untracked executable target: ${file}: ${input}`)
+              add(input, { file, selector: `esbuild:${api}`, occurrence })
+            })
+          }
+        }
+        ts.forEachChild(node, visitEsbuild)
       }
-      findEntries(buildFile)
-      const unwrapped = entries === undefined ? undefined : unwrapExpression(entries)
-      if (unwrapped === undefined || !ts.isArrayLiteralExpression(unwrapped)) return yield* fail("unresolved executable input: scripts/build.ts")
-      let occurrence = 0
-      for (const entry of unwrapped.elements) {
-        const tuple = ts.isExpression(entry) ? unwrapExpression(entry) : undefined
-        const input = tuple !== undefined && ts.isArrayLiteralExpression(tuple) && tuple.elements[0] !== undefined && ts.isExpression(tuple.elements[0])
-          ? staticStrings(tuple.elements[0], buildChecker)
-          : undefined
-        if (input?.length !== 1) return yield* fail("unresolved executable input: scripts/build.ts")
-        yield* addParsedTarget(input[0]!, { file: "scripts/build.ts", selector: "esbuild:BUILD_ENTRIES", occurrence: occurrence++ })
-      }
+      yield* Effect.try({ try: () => visitEsbuild(sourceFile), catch: (cause) => cause instanceof ExecutableInventoryError ? cause : fail(`esbuild discovery failed: ${file}`, cause) })
     }
+
     if (tracked.has("apps/desktop/electron.vite.config.ts")) {
       const configFile = parsedSources.get("apps/desktop/electron.vite.config.ts")!
       const configChecker = createTypeChecker(new Map([["apps/desktop/electron.vite.config.ts", configFile]]))
-      const sectionInputs = new Map<string, Array<ts.Expression>>()
-      const findInputs = (node: ts.Node, section?: string) => {
-        const nextSection = ts.isPropertyAssignment(node) && /^(?:main|preload|renderer)$/.test(propertyName(node.name, configFile))
-          ? propertyName(node.name, configFile)
-          : section
-        if (nextSection !== undefined && ts.isPropertyAssignment(node) && propertyName(node.name, configFile) === "input") {
-          const existing = sectionInputs.get(nextSection) ?? []
-          existing.push(node.initializer)
-          sectionInputs.set(nextSection, existing)
-        }
-        ts.forEachChild(node, (child) => findInputs(child, nextSection))
-      }
-      findInputs(configFile)
-      if (sectionInputs.size === 0) return yield* fail("unresolved executable input: apps/desktop/electron.vite.config.ts")
+      const exports = configFile.statements.filter(ts.isExportAssignment)
+      if (exports.length !== 1 || exports[0]!.isExportEquals) return yield* fail("unresolved executable input: apps/desktop/electron.vite.config.ts")
+      const config = staticObjectProperties(exports[0]!.expression, configChecker)
+      if (config === undefined) return yield* fail("unresolved executable input: apps/desktop/electron.vite.config.ts")
+      let configured = 0
       for (const section of ["main", "preload", "renderer"]) {
-        const inputs = sectionInputs.get(section) ?? []
-        if (inputs.length === 0) continue
-        if (inputs.length !== 1) return yield* fail(`unresolved executable input: apps/desktop/electron.vite.config.ts:${section}`)
-        const input = executableInput(inputs[0]!, configChecker)
+        const sectionExpression = config.get(section)
+        if (sectionExpression === undefined) continue
+        configured += 1
+        const sectionProperties = staticObjectProperties(sectionExpression, configChecker)
+        const buildExpression = sectionProperties?.get("build")
+        const buildProperties = buildExpression === undefined ? undefined : staticObjectProperties(buildExpression, configChecker)
+        const rollupExpression = buildProperties?.get("rollupOptions")
+        const rollupProperties = rollupExpression === undefined ? undefined : staticObjectProperties(rollupExpression, configChecker)
+        const inputExpression = rollupProperties?.get("input")
+        const input = inputExpression === undefined ? undefined : executableInput(inputExpression, configChecker)
         if (input === undefined) return yield* fail(`unresolved executable input: apps/desktop/electron.vite.config.ts:${section}`)
         yield* addParsedTarget(normalizeManifestPath("apps/desktop/package.json", input), { file: "apps/desktop/electron.vite.config.ts", selector: `electron:${section}`, occurrence: 0 })
       }
+      if (configured === 0) return yield* fail("unresolved executable input: apps/desktop/electron.vite.config.ts")
     }
 
     for (const [file, runners] of parsedRunners) {
