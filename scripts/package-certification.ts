@@ -289,9 +289,10 @@ const cleanupStage = (root: string, directory: string, workspace: Workspace) => 
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const removals = stagePaths(root, directory, path).map((target) => Effect.gen(function*() {
-    yield* fs.remove(target, { recursive: true, force: true }).pipe(
+    const removed = yield* fs.remove(target, { recursive: true, force: true }).pipe(
       Effect.mapError((cause) => failure(workspace, "inspect", "staging cleanup failed", cause))
     )
+    return removed
   }))
   return yield* retainCleanup(removals[0]!, retainCleanup(removals[1]!, removals[2]!))
 })

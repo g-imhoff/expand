@@ -35,7 +35,7 @@ const endpointPid = Effect.fn("ProjectSyncIntegration.endpointPid")(function*(di
   return yield* fs.readFileString(endpoint).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(EndpointFromJson)),
     Effect.map((value) => value.pid),
-    catchEffect(() => Effect.succeed(undefined))
+    catchEffect(() => Effect.void)
   )
 })
 

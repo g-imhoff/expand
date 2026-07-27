@@ -34,15 +34,14 @@ const withDb = <A, E>(body: (dbPath: string) => Effect.Effect<A, E>) =>
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
 describe("ProjectProjection — boot catch-up", () => {
-  it.live("boots empty when the log is empty",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("boots empty when the log is empty",  () =>
+    withDb((db) => Effect.gen(function*() {
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap).toEqual({ projects: [], seq: 0 })
-    }))
-  }))
+    })))
 
-  it.live("rebuilds from zero when there is a log but no snapshot yet",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("rebuilds from zero when there is a log but no snapshot yet",  () =>
+    withDb((db) => Effect.gen(function*() {
       // Seed events with an events-only build (no projection → no snapshot written).
       yield* (Effect.provide(
           Effect.flatMap(ProjectEventStore, (events) =>
@@ -54,11 +53,10 @@ describe("ProjectProjection — boot catch-up", () => {
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap.seq).toBe(1)
       expect(snap.projects.map((p) => p.name)).toEqual(["a"])
-    }))
-  }))
+    })))
 
-  it.live("folds only the tail after a stale snapshot, and advances it",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("folds only the tail after a stale snapshot, and advances it",  () =>
+    withDb((db) => Effect.gen(function*() {
       // First boot over one event → writes snapshot at seq 1.
       yield* on(db, Effect.flatMap(ProjectEventStore, (events) =>
         events.append(ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
@@ -76,11 +74,10 @@ describe("ProjectProjection — boot catch-up", () => {
       expect(snap.projects.map((p) => p.name).sort()).toEqual(["a", "b"])
       const persisted = yield* on(db, Effect.flatMap(ProjectionStateStore, (s) => s.load(PROJECTION_NAME)))
       expect(persisted?.lastSeq).toBe(2)
-    }))
-  }))
+    })))
 
-  it.live("ignores a foldVersion-mismatched snapshot and rebuilds from zero",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("ignores a foldVersion-mismatched snapshot and rebuilds from zero",  () =>
+    withDb((db) => Effect.gen(function*() {
       // Seed a real event, then save a bogus snapshot with a wrong foldVersion + wrong state.
       yield* on(db, Effect.gen(function* () {
         const events = yield* ProjectEventStore
@@ -92,11 +89,10 @@ describe("ProjectProjection — boot catch-up", () => {
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap.seq).toBe(1)
       expect(snap.projects.map((p) => p.name)).toEqual(["real"])
-    }))
-  }))
+    })))
 
-  it.live("ignores an undecodable persisted state and rebuilds from zero",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("ignores an undecodable persisted state and rebuilds from zero",  () =>
+    withDb((db) => Effect.gen(function*() {
       yield* on(db, Effect.gen(function* () {
         const events = yield* ProjectEventStore
         const snapshots = yield* ProjectionStateStore
@@ -106,11 +102,10 @@ describe("ProjectProjection — boot catch-up", () => {
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
       expect(snap.seq).toBe(1)
       expect(snap.projects.map((p) => p.name)).toEqual(["real"])
-    }))
-  }))
+    })))
 
-  it.live("apply advances the live model and is idempotent for non-advancing seqs",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("apply advances the live model and is idempotent for non-advancing seqs",  () =>
+    withDb((db) => Effect.gen(function*() {
       const out = yield* on(db, Effect.gen(function* () {
         const p = yield* ProjectProjection
         const first = yield* p.apply({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "x", occurredAt: "t1" }) })
@@ -124,13 +119,12 @@ describe("ProjectProjection — boot catch-up", () => {
       expect(out.stale).toBe(false) // seq 2 not ahead of current 2 → no-op
       expect(out.snap.seq).toBe(2)
       expect(out.snap.projects[0]?.name).toBe("y")
-    }))
-  }))
+    })))
 })
 
 describe("ProjectProjection — checkpoint cadence", () => {
-  it.effect("a debounced checkpoint advances projection_state without a reboot",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.effect("a debounced checkpoint advances projection_state without a reboot",  () =>
+    withDb((db) => Effect.gen(function*() {
       const persisted = yield* on(db, Effect.gen(function* () {
         const p = yield* ProjectProjection
         const snapshots = yield* ProjectionStateStore
@@ -141,11 +135,10 @@ describe("ProjectProjection — checkpoint cadence", () => {
         return yield* snapshots.load(PROJECTION_NAME)
       }))
       expect(persisted?.lastSeq).toBe(1)
-    }))
-  }))
+    })))
 
-  it.live("a final checkpoint is written on scope close (I-4 shutdown), even inside the debounce window",  () => Effect.gen(function*() {
-    yield* withDb((db) => Effect.gen(function*() {
+  it.live("a final checkpoint is written on scope close (I-4 shutdown), even inside the debounce window",  () =>
+    withDb((db) => Effect.gen(function*() {
       // apply then IMMEDIATELY close the scope — the debounce fiber never fires;
       // only the shutdown finalizer can have persisted seq 1.
       yield* on(db, Effect.flatMap(ProjectProjection, (p) =>
@@ -156,6 +149,5 @@ describe("ProjectProjection — checkpoint cadence", () => {
         ProjectionStateStoreLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: db })))
       ))
       expect(persisted?.lastSeq).toBe(1)
-    }))
-  }))
+    })))
 })

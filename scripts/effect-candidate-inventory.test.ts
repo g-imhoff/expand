@@ -3,9 +3,11 @@ import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
 import {
+  CandidateInventoryError,
   CandidateInventoryJson,
   type CandidateObservation,
   candidateIdentity,
+  collectCandidateAdvisories,
   collectCandidateGrep,
   validateCandidateRecords
 } from "./effect-candidate-inventory"
@@ -123,6 +125,36 @@ describe("final candidate inventory model", () => {
     })
   })
 })
+
+it.effect("candidate advisory collector rejects every non-opportunity message", () =>
+  Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-candidate-advisory-" })
+    const file = "fixture.js"
+    yield* fs.writeFileString(path.join(root, file), "export const sample = 1\n")
+    const messages = [
+      "effectSucceedWithVoid",
+      "schemaStructWithTag",
+      "unnecessaryEffectGen",
+      "unnecessaryFailYieldableError",
+      "nodeBuiltinImport",
+      "arbitraryUnknownMessage"
+    ]
+    for (const name of messages) {
+      const output = yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({ diagnostics: [{
+        file,
+        start: 0,
+        line: 1,
+        severity: "message",
+        name,
+        message: name
+      }] })
+      const error = yield* collectCandidateAdvisories({ root, output }).pipe(Effect.flip)
+      expect(error).toBeInstanceOf(CandidateInventoryError)
+      expect(error.detail).toContain(name)
+    }
+  })).pipe(Effect.provide(NodeServices.layer)))
 
 it.effect("collector positively distinguishes executable pattern calls from non-executable syntax", () =>
   Effect.scoped(Effect.gen(function*() {

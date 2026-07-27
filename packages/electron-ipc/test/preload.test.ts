@@ -9,7 +9,7 @@ const Sample = IpcContract.make("sample", {
   add: IpcChannel.invoke({
     payload: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
     success: Schema.Number,
-    error: Schema.Struct({ _tag: Schema.Literal("AddFailed") })
+    error: Schema.TaggedStruct("AddFailed", {})
   }),
   tick: IpcChannel.event({ payload: Schema.Struct({ seq: Schema.Number }) }),
   rpcPort: IpcChannel.portExchange()

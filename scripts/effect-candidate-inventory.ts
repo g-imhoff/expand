@@ -623,57 +623,30 @@ export const collectLiveCandidateGrep = Effect.fn("CandidateInventory.collectLiv
   }
 )
 
-export const collectLiveCandidateAdvisories = Effect.fn("CandidateInventory.collectLiveAdvisories")(
-  function*(root: string) {
-    const output = yield* runChild(root, "effect-language-service", [
-      "diagnostics",
-      "--project",
-      "tsconfig.effect-audit.json",
-      "--format",
-      "json",
-      "--severity",
-      "error,message"
-    ], [0, 1])
-    const diagnostics = yield* Schema.decodeUnknownEffect(CandidateLanguageServiceJson)(output).pipe(
+export const collectCandidateAdvisories = Effect.fn("CandidateInventory.collectAdvisories")(
+  function*(options: { readonly root: string; readonly output: string }) {
+    const diagnostics = yield* Schema.decodeUnknownEffect(CandidateLanguageServiceJson)(options.output).pipe(
       Effect.mapError((cause) => fail("official language-service output is invalid", cause))
     )
     const path = yield* Path.Path
     const parsed = new Map<string, ParsedCandidateSource>()
     const counts = new Map<string, number>()
-    const advisories: Array<CandidateAdvisoryValue | (Omit<CandidateAdvisoryValue, "rule"> & { readonly rule: string })> = []
+    const advisories: Array<CandidateAdvisoryValue> = []
     for (const diagnostic of diagnostics.diagnostics) {
       if (diagnostic.severity !== "message") continue
-      const file = path.relative(root, path.isAbsolute(diagnostic.file) ? diagnostic.file : path.resolve(root, diagnostic.file)).split(path.sep).join("/")
+      if (diagnostic.name !== "effectFnOpportunity") {
+        return yield* fail(`unsupported language-service message: ${diagnostic.name}`)
+      }
+      const file = path.relative(
+        options.root,
+        path.isAbsolute(diagnostic.file) ? diagnostic.file : path.resolve(options.root, diagnostic.file)
+      ).split(path.sep).join("/")
       let source = parsed.get(file)
       if (source === undefined) {
-        source = yield* parseCandidateSource(root, file)
+        source = yield* parseCandidateSource(options.root, file)
         parsed.set(file, source)
       }
       const identity = source.analysis.identityAtOffset(diagnostic.start, `diagnostic:${diagnostic.name}`)
-      const recognized = new Set([
-        "effectSucceedWithVoid",
-        "schemaStructWithTag",
-        "unnecessaryEffectGen",
-        "unnecessaryFailYieldableError"
-      ])
-      if (recognized.has(diagnostic.name)) continue
-      if (diagnostic.name === "nodeBuiltinImport") {
-        const occurrence = source.analysis.occurrences.find((entry) => {
-          const range = occurrenceRange(entry)
-          return entry.identity.construct.startsWith("platform:import:node:")
-            && range !== undefined
-            && range.start <= diagnostic.start
-            && range.end >= diagnostic.start
-        })
-        const boundary = occurrence === undefined ? undefined : effectHostBoundaries.find((entry) =>
-          entry.file === occurrence.identity.file
-          && entry.declaration === occurrence.identity.declaration
-          && entry.construct === occurrence.identity.construct
-          && entry.occurrence === occurrence.identity.occurrence
-        )
-        if (boundary === undefined) return yield* fail(`unregistered node builtin diagnostic: ${file}`)
-        continue
-      }
       const separator = identity.declaration.indexOf(":")
       const declaration = separator < 0
         ? { kind: "unknown", name: identity.declaration }
@@ -685,6 +658,21 @@ export const collectLiveCandidateAdvisories = Effect.fn("CandidateInventory.coll
       advisories.push({ file, declaration, rule: diagnostic.name, excerpt, occurrence })
     }
     return advisories.sort((left, right) => compareText(candidateIdentity(left), candidateIdentity(right)))
+  }
+)
+
+export const collectLiveCandidateAdvisories = Effect.fn("CandidateInventory.collectLiveAdvisories")(
+  function*(root: string) {
+    const output = yield* runChild(root, "effect-language-service", [
+      "diagnostics",
+      "--project",
+      "tsconfig.effect-audit.json",
+      "--format",
+      "json",
+      "--severity",
+      "error,message"
+    ], [0, 1])
+    return yield* collectCandidateAdvisories({ root, output })
   }
 )
 

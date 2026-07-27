@@ -122,15 +122,15 @@ const acquireLease = Effect.fn("StateRootLock.acquireLease")(function*(
   const staleOwner = yield* readOwner(lockPath, dataDir)
   const processControl = yield* ProcessControl
   const status = yield* processControl.probe(staleOwner.pid)
-  if (status !== "dead") return yield* Effect.fail(liveOwnerError(dataDir, staleOwner.pid))
+  if (status !== "dead") return yield* liveOwnerError(dataDir, staleOwner.pid)
   if (options.afterObservation !== undefined) yield* options.afterObservation
   if (!(yield* removeOwner(lockPath, dataDir, staleOwner, options.afterClaim))) {
-    return yield* Effect.fail(ownershipChangedError(dataDir))
+    return yield* ownershipChangedError(dataDir)
   }
 
   const retry = yield* publishLease(lockPath, options.beforePublish)
   if (retry !== undefined) return retry
-  return yield* Effect.fail(ownershipChangedError(dataDir))
+  return yield* ownershipChangedError(dataDir)
 })
 
 const acquireStartupLease: (
@@ -174,12 +174,12 @@ const retryLiveOwner: (
   error: StateRootLockError
 ) {
   const ownerPid = error.ownerPid
-  if (ownerPid === undefined) return yield* Effect.fail(error)
+  if (ownerPid === undefined) return yield* error
   if (yield* endpointAdvertised(endpointFile)) {
-    return yield* Effect.fail(endpointAdvertisedError(dataDir))
+    return yield* endpointAdvertisedError(dataDir)
   }
   if ((yield* Clock.currentTimeMillis) >= deadline) {
-    return yield* Effect.fail(handoffTimeoutError(dataDir, ownerPid))
+    return yield* handoffTimeoutError(dataDir, ownerPid)
   }
   yield* Effect.sleep(HANDOFF_RETRY_INTERVAL)
   return yield* acquireStartupLease(dataDir, endpointFile, deadline, options)
@@ -273,7 +273,7 @@ const readOwnerIfPresent = Effect.fn("StateRootLock.readOwnerIfPresent")(functio
   const text = yield* fs.readFileString(lockPath).pipe(
     Effect.matchEffect({
       onFailure: (cause) => hasSystemReason(cause, "NotFound")
-        ? Effect.succeed(undefined)
+        ? Effect.void
         : Effect.fail(cause),
       onSuccess: (value) => Effect.succeed(value)
     })
@@ -327,7 +327,7 @@ const statIfPresent = Effect.fn("StateRootLock.statIfPresent")(function*(path: s
   return yield* fs.stat(path).pipe(
     Effect.matchEffect({
       onFailure: (cause) => hasSystemReason(cause, "NotFound")
-        ? Effect.succeed(undefined)
+        ? Effect.void
         : Effect.fail(cause),
       onSuccess: (info) => Effect.succeed(info)
     })

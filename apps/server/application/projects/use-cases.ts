@@ -68,20 +68,20 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       selfId?: string
     ) {
       if (directory.length > DIRECTORY_MAX_LENGTH) {
-        return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "too-long" }))
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "too-long" })
       }
       if (!path.isAbsolute(directory)) {
-        return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "not-absolute" })
       }
       const info = yield* fs.stat(directory).pipe(
         Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
       )
       if (info.type !== "Directory") {
-        return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" }))
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" })
       }
       const canonical = yield* fs.realPath(directory).pipe(Effect.orDie)
       if (projects.some((p) => p.id !== selfId && (p.directory === directory || p.directory === canonical))) {
-        return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
+        return yield* new ProjectDirectoryConflict({ directory })
       }
     })
 
@@ -97,7 +97,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = all.find((p) => p.name === project.name)
         if (existing !== undefined) {
           if (ensure) return { created: false, project: existing } as const
-          return yield* Effect.fail(new ProjectAlreadyExists({ name: project.name }))
+          return yield* new ProjectAlreadyExists({ name: project.name })
         }
         if (typeof directory === "string") {
           yield* validateDirectory(directory, all)
@@ -112,12 +112,12 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const target = all.find((p) => p.id === id)
-        if (target === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (target === undefined) return yield* new ProjectNotFound({ id })
         const occurredAt = yield* nowIso
         const renamed = yield* Schema.decodeUnknownEffect(Project)({ ...target, name, updatedAt: occurredAt })
           .pipe(Effect.mapError(toInvalidInput))
         if (all.some((p) => p.id !== id && p.name === renamed.name)) {
-          return yield* Effect.fail(new ProjectNameConflict({ name: renamed.name }))
+          return yield* new ProjectNameConflict({ name: renamed.name })
         }
         const event = ProjectRenamed.make({ projectId: id, name: renamed.name, occurredAt })
         yield* commit(event)
@@ -129,7 +129,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         yield* validateDirectory(directory, all, id)
         const occurredAt = yield* nowIso
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
@@ -145,7 +145,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         const event = makeEvent(yield* nowIso)
         yield* commit(event)
         return Project.applyEvent(existing, event)
@@ -163,7 +163,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         const next = yield* Schema.decodeUnknownEffect(Project)({
           ...existing,
           ...(patch.description !== undefined ? { description: patch.description } : {}),
@@ -184,7 +184,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
     const deleteProject = Effect.fn("ProjectUseCases.deleteProject")(function*(id: string) {
       return yield* mutex.withPermit(Effect.gen(function*() {
         const existing = (yield* projection.list).find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         const event = ProjectDeleted.make({ projectId: id, occurredAt: yield* nowIso })
         yield* commit(event)
         return { id, deleted: true } as const

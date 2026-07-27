@@ -10,9 +10,7 @@ import {
 
 describe("ProcessControl", () => {
   it("requires ProcessControl in the Effect environment", () => {
-    const processControlProgram = Effect.gen(function*() {
-      return yield* ProcessControl
-    })
+    const processControlProgram = ProcessControl
 
     expectTypeOf(processControlProgram).toMatchTypeOf<
       Effect.Effect<ProcessControlShape, never, ProcessControl>

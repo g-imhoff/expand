@@ -12,8 +12,7 @@ const tagAlpha = "alpha"
 const tagBeta = "beta"
 const tagX = "x"
 
-const LegacyProjectCreatedFromJson = Schema.fromJsonString(Schema.Struct({
-  _tag: Schema.Literal("ProjectCreated"),
+const LegacyProjectCreatedFromJson = Schema.fromJsonString(Schema.TaggedStruct("ProjectCreated", {
   projectId: Schema.String,
   name: Schema.String,
   occurredAt: Schema.String

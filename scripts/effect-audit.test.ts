@@ -203,9 +203,7 @@ describe("Effect audit command", () => {
 
   it.effect("accepts diagnostic exit one only when stdout decodes", () =>
     fixture({ result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
-      Effect.gen(function*() {
-        yield* runAudit(root)
-      })).pipe(Effect.andThen(
+      runAudit(root)).pipe(Effect.andThen(
         fixture({ languageService: "not-json", result: { "language-service": { exitCode: 1 } } }, ({ root }) =>
           Effect.gen(function*() {
             const error = yield* runAudit(root).pipe(Effect.flip)
@@ -291,22 +289,33 @@ describe("Effect audit command", () => {
       }))
   })
 
-  it.effect("rejects unknown language-service messages", () => {
+  it.effect("rejects every non-opportunity language-service message", () => {
     const source = "export const sample = 1\n"
-    const advisory = Schema.encodeSync(Schema.UnknownFromJsonString)({ diagnostics: [{
-      file: "src/sample.ts",
-      start: 0,
-      line: 1,
-      severity: "message",
-      name: "unknownOpportunity",
-      message: "unknown"
-    }] })
-    return fixture({ source, languageService: advisory }, ({ root }) =>
-      Effect.gen(function*() {
-        const error = yield* runAudit(root).pipe(Effect.flip)
-
-        expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining("unknownOpportunity") })
-      }))
+    const messages = [
+      "effectSucceedWithVoid",
+      "schemaStructWithTag",
+      "unnecessaryEffectGen",
+      "unnecessaryFailYieldableError",
+      "arbitraryUnknownMessage"
+    ]
+    const diagnostics = messages.map((name) => ({
+      name,
+      output: Schema.encodeSync(Schema.UnknownFromJsonString)({ diagnostics: [{
+        file: "src/sample.ts",
+        start: 0,
+        line: 1,
+        severity: "message",
+        name,
+        message: name
+      }] })
+    }))
+    return Effect.forEach(diagnostics, ({ name, output }) =>
+      fixture({ source, languageService: output }, ({ root }) =>
+        Effect.gen(function*() {
+          const error = yield* runAudit(root).pipe(Effect.flip)
+          expect(error).toBeInstanceOf(EffectAuditError)
+          expect(error).toMatchObject({ reason: "invalid-output", detail: expect.stringContaining(name) })
+        })))
   })
 
   it.effect("rejects every ESLint warning", () =>

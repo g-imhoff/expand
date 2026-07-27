@@ -47,10 +47,10 @@ export const resolveBackendCommand = (() => {
     if (options.binaryArgs !== undefined && options.binaryArgs.length > 0) {
       return options.binaryArgs
     }
-    return yield* Effect.fail(new BackendCommandError({
+    return yield* new BackendCommandError({
       reason: "not-configured",
       detail: "no backend command configured"
-    }))
+    })
   })
 })()
 

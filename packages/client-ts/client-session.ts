@@ -133,7 +133,7 @@ const makeSession = Effect.fn("ClientSession.make")(function*(
       const { client } = yield* acquireClient(hooked.adapter)
       const attempt = hooked.currentAttempt()
       if (attempt === undefined) {
-        return yield* Effect.fail(new BackendUnavailable({ reason: "connection attempt missing" }))
+        return yield* new BackendUnavailable({ reason: "connection attempt missing" })
       }
       const published = yield* attempt.lifecycle.withPermit(
         Deferred.isDone(attempt.disconnected).pipe(
@@ -150,10 +150,10 @@ const makeSession = Effect.fn("ClientSession.make")(function*(
         )
       )
       if (!published) {
-        return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
+        return yield* new BackendUnavailable({ reason: "connection lost" })
       }
       yield* Deferred.await(attempt.disconnected)
-      return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
+      return yield* new BackendUnavailable({ reason: "connection lost" })
     })
   )
 

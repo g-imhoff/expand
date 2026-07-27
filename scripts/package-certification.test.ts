@@ -425,7 +425,10 @@ describe("package certification resources", () => {
       remove: (candidate, options) => candidate === target
         ? Ref.update(removals, (count) => count + 1).pipe(Effect.andThen(fs.remove(candidate, options)))
         : candidate === cleanupFailurePath
-          ? Effect.gen(function*() { return yield* Effect.die(cleanupDefect) })
+          ? Effect.gen(function*() {
+            const result = yield* Effect.die(cleanupDefect)
+            return result
+          })
           : fs.remove(candidate, options)
     })
     const layer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({

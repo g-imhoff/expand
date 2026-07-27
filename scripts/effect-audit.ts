@@ -240,16 +240,16 @@ export const validateHostBoundaries = Effect.fn("effect-audit.validate-host-boun
     for (const boundary of boundaries) {
       const key = boundaryIdentityKey(boundary)
       if (!validBoundary(path, boundary)) {
-        return yield* Effect.fail(auditError("invalid-boundary", `malformed boundary: ${key}`))
+        return yield* auditError("invalid-boundary", `malformed boundary: ${key}`)
       }
       if (trackedCounts.get(boundary.file) !== 1) {
-        return yield* Effect.fail(auditError("invalid-boundary", `boundary file is not exactly tracked once: ${boundary.file}`))
+        return yield* auditError("invalid-boundary", `boundary file is not exactly tracked once: ${boundary.file}`)
       }
       if (eslintCounts.get(boundary.file) !== 1) {
-        return yield* Effect.fail(auditError("invalid-boundary", `boundary file has no unique ESLint consumer: ${boundary.file}`))
+        return yield* auditError("invalid-boundary", `boundary file has no unique ESLint consumer: ${boundary.file}`)
       }
       if (identityCounts.get(key) !== 1) {
-        return yield* Effect.fail(auditError("invalid-boundary", `boundary identity is duplicated: ${key}`))
+        return yield* auditError("invalid-boundary", `boundary identity is duplicated: ${key}`)
       }
     }
 
@@ -267,7 +267,7 @@ export const validateHostBoundaries = Effect.fn("effect-audit.validate-host-boun
         && occurrence.identity.occurrence === boundary.occurrence
       )
       if (!source.analysis.declarations.has(boundary.declaration) || matches.length !== 1) {
-        return yield* Effect.fail(auditError("invalid-boundary", `boundary is unconsumed or ambiguous: ${boundaryIdentityKey(boundary)}`))
+        return yield* auditError("invalid-boundary", `boundary is unconsumed or ambiguous: ${boundaryIdentityKey(boundary)}`)
       }
     }
   }
@@ -315,13 +315,13 @@ const runCommand = Effect.fn("effect-audit.run-command")(
   function*(runner: AuditCommandRunner["Service"], request: AuditCommandRequest) {
     const result = yield* runner.run(request)
     if (!request.acceptedExitCodes.includes(result.exitCode)) {
-      return yield* Effect.fail(auditError(
+      return yield* auditError(
         "command-failed",
         `${request.name} exited with ${result.exitCode}${result.stderr.length > 0 ? `: ${result.stderr}` : ""}`
-      ))
+      )
     }
     if (result.stdout.length === 0) {
-      return yield* Effect.fail(auditError("invalid-output", `${request.name} produced empty stdout`))
+      return yield* auditError("invalid-output", `${request.name} produced empty stdout`)
     }
     return result
   }
@@ -396,7 +396,7 @@ const collectAudit = Effect.fn("effect-audit.collect")(
 
     const tracked = output("tracked-files").split("\0").filter(Boolean)
     if (new Set(tracked).size !== tracked.length) {
-      return yield* Effect.fail(auditError("invalid-output", "tracked manifest contains duplicate paths"))
+      return yield* auditError("invalid-output", "tracked manifest contains duplicate paths")
     }
     const trackedSet = new Set(tracked)
     const languageService = yield* decodeJson(LanguageServiceJson, output("language-service"), "language-service")
@@ -414,10 +414,10 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     const missingTypeScript = tracked.filter((file) => isTypeScriptFile(file) && !typeScriptFiles.has(file))
     const missingEslint = tracked.filter((file) => isEslintFile(file) && !eslintFileSet.has(file))
     if (missingTypeScript.length > 0 || missingEslint.length > 0) {
-      return yield* Effect.fail(auditError(
+      return yield* auditError(
         "coverage-gap",
         [...missingTypeScript.map((file) => `typescript:${file}`), ...missingEslint.map((file) => `eslint:${file}`)].join(", ")
-      ))
+      )
     }
 
     yield* validateHostBoundaries({
@@ -504,27 +504,19 @@ const collectAudit = Effect.fn("effect-audit.collect")(
     const findings = normalized.filter((finding) => finding.severity !== "message")
     const warnings = normalized.filter((finding) => finding.engine === "eslint" && finding.severity === "message")
     const languageMessages = normalized.filter((finding) => finding.engine === "effect-language-service" && finding.severity === "message")
-    const nonAdvisoryLanguageMessages = new Set([
-      "effectSucceedWithVoid",
-      "schemaStructWithTag",
-      "unnecessaryEffectGen",
-      "unnecessaryFailYieldableError"
-    ])
-    const unknownMessages = languageMessages.filter((finding) =>
-      finding.rule !== "effectFnOpportunity" && !nonAdvisoryLanguageMessages.has(finding.rule)
-    )
+    const unknownMessages = languageMessages.filter((finding) => finding.rule !== "effectFnOpportunity")
     if (unknownMessages.length > 0) {
-      return yield* Effect.fail(auditError(
+      return yield* auditError(
         "invalid-output",
         `unknown language-service advisory: ${unknownMessages.map((finding) => finding.rule).join(", ")}`,
         unknownMessages
-      ))
+      )
     }
     const messages = languageMessages.filter((finding) => finding.rule === "effectFnOpportunity")
     const blocking = sortAuditFindings([...findings, ...warnings])
     yield* Effect.logInfo(`Effect audit found ${blocking.length} blocking findings and ${messages.length} advisory messages`)
     if (blocking.length > 0) {
-      return yield* Effect.fail(auditError("blocking-findings", `${blocking.length} errors or warnings were reported`, blocking))
+      return yield* auditError("blocking-findings", `${blocking.length} errors or warnings were reported`, blocking)
     }
 
     const candidateInventoryRaw = yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json")).pipe(
@@ -535,7 +527,7 @@ const collectAudit = Effect.fn("effect-audit.collect")(
       Effect.mapError((error) => auditError("invalid-output", String(error)))
     )
     if (candidateInventoryRaw !== canonicalCandidateInventory) {
-      return yield* Effect.fail(auditError("invalid-output", "candidate inventory is not in canonical byte form"))
+      return yield* auditError("invalid-output", "candidate inventory is not in canonical byte form")
     }
     const advisoryCounts = new Map<string, number>()
     const advisories = messages.map((message) => {
@@ -587,7 +579,7 @@ const program = Effect.gen(function*() {
   const stdio = yield* Stdio.Stdio
   const args = yield* stdio.args
   if (args.length > 0) {
-    return yield* Effect.fail(auditError("invalid-output", `effect-audit does not accept arguments: ${args.join(" ")}`))
+    return yield* auditError("invalid-output", `effect-audit does not accept arguments: ${args.join(" ")}`)
   }
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))

@@ -100,9 +100,7 @@ describe("AppContext", () => {
   })
 
   it("requires AppContext in the Effect environment", () => {
-    const appContextProgram = Effect.gen(function*() {
-      return yield* AppContext
-    })
+    const appContextProgram = AppContext
 
     expectTypeOf(appContextProgram).toMatchTypeOf<
       Effect.Effect<AppContextShape, never, AppContext>

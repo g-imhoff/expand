@@ -14,7 +14,7 @@ const Sample = IpcContract.make("sample", {
   add: IpcChannel.invoke({
     payload: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
     success: Schema.Number,
-    error: Schema.Struct({ _tag: Schema.Literal("AddFailed") })
+    error: Schema.TaggedStruct("AddFailed", {})
   }),
   // `tick` likewise carries a transform payload so the split is observable on the event leg.
   tick: IpcChannel.event({ payload: Schema.Struct({ seq: Schema.FiniteFromString }) }),

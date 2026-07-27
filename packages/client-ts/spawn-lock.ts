@@ -162,7 +162,7 @@ const readObservedRecord = Effect.fn("SpawnLock.readObservedRecord")(function*(
   const text = yield* fs.readFileString(path).pipe(
     Effect.matchEffect({
       onFailure: (cause) => hasSystemReason(cause, "NotFound")
-        ? Effect.succeed(undefined)
+        ? Effect.void
         : Effect.fail(spawnLockError("filesystem", "readFileString", path, cause)),
       onSuccess: (value) => Effect.succeed(value)
     })
@@ -250,7 +250,7 @@ const statIfPresent = Effect.fn("SpawnLock.statIfPresent")(function*(path: strin
   return yield* fs.stat(path).pipe(
     Effect.matchEffect({
       onFailure: (cause) => hasSystemReason(cause, "NotFound")
-        ? Effect.succeed(undefined)
+        ? Effect.void
         : Effect.fail(spawnLockError("filesystem", "stat", path, cause)),
       onSuccess: (info) => Effect.succeed(info)
     })
