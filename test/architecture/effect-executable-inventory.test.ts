@@ -174,6 +174,73 @@ describe("exact executable inventory architecture", () => {
       expect(errorDetail(error)).toContain("unresolved executable input")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("resolves esbuild API ownership through recursive aliases in lexical scopes", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "tools/build-aliases.ts": `import esbuild, { build as importedBuild } from "esbuild"\nimport * as namespaceImport from "esbuild"\nconst defaultAlias = esbuild\ndefaultAlias.context({ entryPoints: ["apps/default.ts"] })\nconst namespaceAlias = namespaceImport\nnamespaceAlias.build({ entryPoints: ["apps/namespace.ts"] })\nconst { buildSync: namespaceSync } = namespaceAlias\nnamespaceSync({ entryPoints: ["apps/namespace-destructured.ts"] })\nconst namedAlias = importedBuild\nnamedAlias({ entryPoints: ["apps/named.ts"] })\nconst required = require("esbuild")\nconst requiredAlias = required\nrequiredAlias.build({ entryPoints: ["apps/require-namespace.ts"] })\nconst { context: requiredContext } = requiredAlias\nrequiredContext({ entryPoints: ["apps/require-destructured.ts"] })\n{ const scoped = requiredAlias; const { build: scopedBuild } = scoped; scopedBuild({ entryPoints: ["apps/scoped.ts"] }) }\nfunction shadow(esbuild: { build: (value: unknown) => void }) { esbuild.build(globalThis["process"].argv) }\nvoid shadow\n`,
+        "apps/default.ts": `export {}\n`,
+        "apps/namespace.ts": `export {}\n`,
+        "apps/namespace-destructured.ts": `export {}\n`,
+        "apps/named.ts": `export {}\n`,
+        "apps/require-namespace.ts": `export {}\n`,
+        "apps/require-destructured.ts": `export {}\n`,
+        "apps/scoped.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("esbuild:")).map(({ file, invocation }) => ({ file, selector: invocation.selector }))).toEqual([
+        { file: "apps/default.ts", selector: "esbuild:context" },
+        { file: "apps/named.ts", selector: "esbuild:build" },
+        { file: "apps/namespace-destructured.ts", selector: "esbuild:buildSync" },
+        { file: "apps/namespace.ts", selector: "esbuild:build" },
+        { file: "apps/require-destructured.ts", selector: "esbuild:context" },
+        { file: "apps/require-namespace.ts", selector: "esbuild:build" },
+        { file: "apps/scoped.ts", selector: "esbuild:build" }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves esbuild wrapper parameters only from exact call sites", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "tools/build-wrapper.ts": `import { build } from "esbuild"\nconst invoke = (options: unknown) => build(options)\nconst forward = ({ entries }: { entries: ReadonlyArray<string> }) => invoke({ entryPoints: entries })\nconst alias = forward\nalias({ entries: ["apps/exact.ts"] })\nconst dead = { entryPoints: ["apps/missing-dead.ts"] }\nvoid dead\n`,
+        "apps/exact.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("esbuild:")).map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "apps/exact.ts", invocation: { file: "tools/build-wrapper.ts", selector: "esbuild:build", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live("resolves exported esbuild wrapper parameters from exact import call sites", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "tools/build-wrapper.ts": `import { build } from "esbuild"\nexport const invoke = (options: unknown) => build(options)\nconst dead = { entryPoints: ["apps/missing-dead.ts"] }\nvoid dead\n`,
+        "tools/caller.ts": `import { invoke as compile } from "./build-wrapper"\ncompile({ entryPoints: ["apps/exported-exact.ts"] })\n`,
+        "apps/exported-exact.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("esbuild:")).map(({ file, invocation }) => ({ file, invocation }))).toEqual([
+        { file: "apps/exported-exact.ts", invocation: { file: "tools/build-wrapper.ts", selector: "esbuild:build", occurrence: 0 } }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
+  it.live.each([
+    `export const invoke = (options: unknown) => build(options)\n`,
+    `const invoke = (options: unknown) => build(options)\ninvoke({ entryPoints: globalThis["process"].argv })\n`,
+    `const invoke = (options: unknown) => build(options)\nconst other = (_options: unknown) => undefined\nconst selected = globalThis["process"].argv[2] ? invoke : other\nselected({ entryPoints: ["apps/static.ts"] })\n`
+  ])("fails closed for uninvoked, dynamic, and ambiguous esbuild wrapper flow", (flow) =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "tools/build-wrapper.ts": `import { build } from "esbuild"\n${flow}const dead = { entryPoints: ["apps/static.ts"] }\nvoid dead\n`,
+        "apps/static.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved executable input")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("parses scope-resolved esbuild and Electron inputs structurally", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({
@@ -797,6 +864,32 @@ launch({ target: globalThis["process"].argv[2] })
       expect(errorDetail(error)).toContain("unresolved first-party launch")
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("propagates namespace exports through ordinary export-star barrels", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const staticRoot = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/namespace.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/middle.ts": `export * from "./namespace"\n`,
+        "scripts/barrel.ts": `export * from "./middle"\n`,
+        "scripts/caller.ts": `import { tools } from "./barrel"\ntools.launch("scripts/propagated-namespace.ts")\n`,
+        "scripts/propagated-namespace.ts": `export {}\n`
+      })
+      const discovery = yield* discoverExecutableInventory(staticRoot)
+      expect(discovery.observations.map(({ file }) => file)).toEqual(["scripts/propagated-namespace.ts"])
+
+      const dynamicRoot = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/namespace.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/barrel.ts": `export * from "./namespace"\n`,
+        "scripts/caller.ts": `import { tools } from "./barrel"\ntools.launch("scripts/propagated-namespace.ts")\ntools.launch(globalThis["process"].argv[2])\n`,
+        "scripts/propagated-namespace.ts": `export {}\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(dynamicRoot))
+      expect(errorDetail(error)).toContain("unresolved first-party launch")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live.each([
     {
       files: {
@@ -812,6 +905,25 @@ launch({ target: globalThis["process"].argv[2] })
       files: {
         "scripts/barrel.ts": `export * as tools from "./cycle"\nexport * from "./cycle"\n`,
         "scripts/cycle.ts": `export * from "./barrel"\n`
+      },
+      detail: "cyclic"
+    },
+    {
+      files: {
+        "scripts/barrel.ts": `export * from "./left"\nexport * from "./right"\n`,
+        "scripts/left.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/right.ts": `export * as tools from "./other"\n`,
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`,
+        "scripts/other.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`
+      },
+      detail: "ambiguous"
+    },
+    {
+      files: {
+        "scripts/barrel.ts": `export * from "./cycle"\n`,
+        "scripts/cycle.ts": `export * from "./barrel"\nexport * from "./namespace"\n`,
+        "scripts/namespace.ts": `export * as tools from "./wrapper"\n`,
+        "scripts/wrapper.ts": `import { spawn } from "node${":"}child_process"\nexport const launch = (target: string) => spawn("node", [target])\n`
       },
       detail: "cyclic"
     }

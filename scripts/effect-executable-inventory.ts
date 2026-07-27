@@ -773,13 +773,22 @@ const discoverChildTargets = (
     const nextSeen = new Set([...seen, key])
     const module = modules.get(file)
     const candidates = [...module?.namespaceExports.get(name) ?? []]
-    const reExport = module?.reExports.get(name)
-    if (reExport !== undefined) {
-      const candidate = resolveNamespaceExport(reExport.file, reExport.imported, nextSeen)
-      if (candidate !== undefined) candidates.push(candidate)
+    let cyclic = false
+    const gather = (exportedFile: string, exportedName: string) => {
+      try {
+        const candidate = resolveNamespaceExport(exportedFile, exportedName, nextSeen)
+        if (candidate !== undefined) candidates.push(candidate)
+      } catch (cause) {
+        if (cause instanceof ExecutableInventoryError && cause.detail.includes("cyclic namespace export flow")) cyclic = true
+        else throw cause
+      }
     }
+    const reExport = module?.reExports.get(name)
+    if (reExport !== undefined) gather(reExport.file, reExport.imported)
+    for (const exportedFile of module?.starExports ?? []) gather(exportedFile, name)
     const unique = [...new Set(candidates)]
     if (unique.length > 1) throw fail(`unresolved first-party launch: ambiguous namespace export flow: ${file}`)
+    if (cyclic) throw fail(`unresolved first-party launch: cyclic namespace export flow: ${file}`)
     return unique[0]
   }
   const dynamicImportTarget = (expression: ts.Expression, file: string): string | undefined => {
@@ -1424,72 +1433,328 @@ const staticObjectProperties = (
   return properties
 }
 
-const staticEntryPoints = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): ReadonlyArray<string> | undefined => {
-  const unwrapped = unwrapExpression(expression)
-  const strings = staticStrings(unwrapped, checker, seen)
-  if (strings !== undefined) return strings
-  if (ts.isIdentifier(unwrapped)) {
-    const declaration = symbolDeclaration(checker, unwrapped)
-    if (declaration === undefined || seen.has(declaration) || !ts.isVariableDeclaration(declaration) || declaration.initializer === undefined) return undefined
-    return staticEntryPoints(declaration.initializer, checker, new Set([...seen, declaration]))
-  }
-  if (!ts.isObjectLiteralExpression(unwrapped)) return undefined
-  const values: Array<string> = []
-  for (const property of unwrapped.properties) {
-    if (ts.isSpreadAssignment(property)) {
-      const spread = staticEntryPoints(property.expression, checker, seen)
-      if (spread === undefined) return undefined
-      values.push(...spread)
-    } else if (ts.isPropertyAssignment(property)) {
-      const resolved = staticStrings(property.initializer, checker, seen)
-      if (resolved === undefined) return undefined
-      values.push(...resolved)
-    } else if (ts.isShorthandPropertyAssignment(property)) {
-      const resolved = staticStrings(property.name, checker, seen)
-      if (resolved === undefined) return undefined
-      values.push(...resolved)
-    } else return undefined
-  }
-  return values
-}
+type EsbuildApi = "build" | "buildSync" | "context"
+type EsbuildBinding = EsbuildApi | "namespace"
 
-const esbuildApi = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): "build" | "buildSync" | "context" | undefined => {
+const esbuildBinding = (expression: ts.Expression, checker: ts.TypeChecker, seen = new Set<ts.Declaration>()): EsbuildBinding | undefined => {
   const unwrapped = unwrapExpression(expression)
-  if (ts.isIdentifier(unwrapped)) {
-    const declaration = symbolDeclaration(checker, unwrapped)
-    if (declaration === undefined || seen.has(declaration)) return undefined
-    const nextSeen = new Set([...seen, declaration])
-    const importDeclaration = ts.findAncestor(declaration, ts.isImportDeclaration)
-    if (ts.isImportSpecifier(declaration) && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "esbuild") {
-      const imported = declaration.propertyName?.text ?? declaration.name.text
-      return /^(?:build|buildSync|context)$/.test(imported) ? imported as "build" | "buildSync" | "context" : undefined
-    }
-    if (ts.isBindingElement(declaration) && ts.isObjectBindingPattern(declaration.parent)) {
-      const variable = declaration.parent.parent
-      if (ts.isVariableDeclaration(variable) && variable.initializer !== undefined) {
-        const imported = declaration.propertyName?.getText() ?? declaration.name.getText()
-        const namespace = unwrapExpression(variable.initializer)
-        if (ts.isCallExpression(namespace) && ts.isIdentifier(namespace.expression) && namespace.expression.text === "require" && namespace.arguments[0] !== undefined && ts.isStringLiteralLike(namespace.arguments[0]) && namespace.arguments[0].text === "esbuild" && /^(?:build|buildSync|context)$/.test(imported)) return imported as "build" | "buildSync" | "context"
-      }
-    }
-    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return esbuildApi(declaration.initializer, checker, nextSeen)
-    return undefined
+  if (ts.isCallExpression(unwrapped)) {
+    const callable = unwrapExpression(unwrapped.expression)
+    const specifier = unwrapped.arguments[0]
+    return ts.isIdentifier(callable) && callable.text === "require" && symbolDeclaration(checker, callable) === undefined && specifier !== undefined && ts.isStringLiteralLike(specifier) && specifier.text === "esbuild"
+      ? "namespace"
+      : undefined
   }
-  if (!ts.isPropertyAccessExpression(unwrapped) && !ts.isElementAccessExpression(unwrapped)) return undefined
-  const member = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name.text : unwrapped.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.argumentExpression) ? unwrapped.argumentExpression.text : undefined
-  if (member === undefined || !/^(?:build|buildSync|context)$/.test(member)) return undefined
-  const owner = unwrapExpression(unwrapped.expression)
-  if (ts.isCallExpression(owner) && ts.isIdentifier(owner.expression) && owner.expression.text === "require" && owner.arguments[0] !== undefined && ts.isStringLiteralLike(owner.arguments[0]) && owner.arguments[0].text === "esbuild") return member as "build" | "buildSync" | "context"
-  if (ts.isIdentifier(owner)) {
-    const declaration = symbolDeclaration(checker, owner)
-    const importDeclaration = declaration === undefined ? undefined : ts.findAncestor(declaration, ts.isImportDeclaration)
-    if (declaration !== undefined && (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "esbuild") return member as "build" | "buildSync" | "context"
-    if (declaration !== undefined && ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
-      const initializer = unwrapExpression(declaration.initializer)
-      if (ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression) && initializer.expression.text === "require" && initializer.arguments[0] !== undefined && ts.isStringLiteralLike(initializer.arguments[0]) && initializer.arguments[0].text === "esbuild") return member as "build" | "buildSync" | "context"
+  if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+    const member = ts.isPropertyAccessExpression(unwrapped)
+      ? unwrapped.name.text
+      : unwrapped.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.argumentExpression)
+        ? unwrapped.argumentExpression.text
+        : undefined
+    return /^(?:build|buildSync|context)$/.test(member ?? "") && esbuildBinding(unwrapped.expression, checker, seen) === "namespace" ? member as EsbuildApi : undefined
+  }
+  if (!ts.isIdentifier(unwrapped)) return undefined
+  const declaration = symbolDeclaration(checker, unwrapped)
+  if (declaration === undefined || seen.has(declaration)) return undefined
+  const nextSeen = new Set([...seen, declaration])
+  const importDeclaration = ts.findAncestor(declaration, ts.isImportDeclaration)
+  if (importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier) && importDeclaration.moduleSpecifier.text === "esbuild") {
+    if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return "namespace"
+    if (ts.isImportSpecifier(declaration)) {
+      const imported = declaration.propertyName?.text ?? declaration.name.text
+      return /^(?:build|buildSync|context)$/.test(imported) ? imported as EsbuildApi : undefined
     }
+  }
+  if (ts.isImportEqualsDeclaration(declaration) && ts.isExternalModuleReference(declaration.moduleReference) && declaration.moduleReference.expression !== undefined && ts.isStringLiteralLike(declaration.moduleReference.expression) && declaration.moduleReference.expression.text === "esbuild") return "namespace"
+  if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return esbuildBinding(declaration.initializer, checker, nextSeen)
+  if (ts.isBindingElement(declaration) && ts.isObjectBindingPattern(declaration.parent)) {
+    const variable = declaration.parent.parent
+    if (!ts.isVariableDeclaration(variable) || variable.initializer === undefined) return undefined
+    const member = declaration.propertyName?.getText(declaration.getSourceFile()) ?? declaration.name.getText(declaration.getSourceFile())
+    return /^(?:build|buildSync|context)$/.test(member) && esbuildBinding(variable.initializer, checker, nextSeen) === "namespace" ? member as EsbuildApi : undefined
   }
   return undefined
+}
+
+const esbuildApi = (expression: ts.Expression, checker: ts.TypeChecker): EsbuildApi | undefined => {
+  const binding = esbuildBinding(expression, checker)
+  return binding === "namespace" ? undefined : binding
+}
+
+const esbuildEntryPoints = (
+  expression: ts.Expression,
+  checker: ts.TypeChecker,
+  sourceFiles: ReadonlyArray<ts.SourceFile>
+): ReadonlyArray<string> | undefined => {
+  const sourceMap = new Map(sourceFiles.map((sourceFile) => [sourceFile.fileName, sourceFile]))
+  const sourcePaths = new Set(sourceMap.keys())
+  let callableFunction: (candidate: ts.Expression, seen?: Set<ts.Declaration>) => ts.FunctionLikeDeclaration | undefined
+  const exportedFunction = (file: string, name: string, seen = new Set<string>()): ts.FunctionLikeDeclaration | undefined => {
+    const key = `${file}\0${name}`
+    if (seen.has(key)) return undefined
+    const sourceFile = sourceMap.get(file)
+    if (sourceFile === undefined) return undefined
+    const nextSeen = new Set([...seen, key])
+    const local = (localName: string) => {
+      for (const statement of sourceFile.statements) {
+        if (ts.isFunctionDeclaration(statement) && statement.name?.text === localName) return statement
+        if (ts.isVariableStatement(statement)) {
+          for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === localName && declaration.initializer !== undefined) {
+              const resolved = callableFunction(declaration.initializer)
+              if (resolved !== undefined) return resolved
+            }
+          }
+        }
+      }
+      return undefined
+    }
+    const candidates: Array<ts.FunctionLikeDeclaration> = []
+    const add = (candidate: ts.FunctionLikeDeclaration | undefined) => {
+      if (candidate !== undefined && !candidates.includes(candidate)) candidates.push(candidate)
+    }
+    for (const statement of sourceFile.statements) {
+      const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+      const exported = modifiers?.some(({ kind }) => kind === ts.SyntaxKind.ExportKeyword) === true
+      const defaulted = modifiers?.some(({ kind }) => kind === ts.SyntaxKind.DefaultKeyword) === true
+      if (exported && ts.isFunctionDeclaration(statement) && ((defaulted && name === "default") || statement.name?.text === name)) add(statement)
+      if (exported && ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) {
+          if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer !== undefined) add(callableFunction(declaration.initializer))
+        }
+      }
+      if (name === "default" && ts.isExportAssignment(statement) && !statement.isExportEquals) add(callableFunction(statement.expression))
+      if (ts.isExportDeclaration(statement) && statement.exportClause !== undefined && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          if (element.name.text !== name) continue
+          const imported = element.propertyName?.text ?? element.name.text
+          if (statement.moduleSpecifier === undefined) add(local(imported))
+          else if (ts.isStringLiteralLike(statement.moduleSpecifier)) {
+            const importedFile = resolveSourceImport(file, statement.moduleSpecifier.text, sourcePaths)
+            if (importedFile !== undefined) add(exportedFunction(importedFile, imported, nextSeen))
+          }
+        }
+      }
+      if (ts.isExportDeclaration(statement) && statement.exportClause === undefined && statement.moduleSpecifier !== undefined && ts.isStringLiteralLike(statement.moduleSpecifier)) {
+        const importedFile = resolveSourceImport(file, statement.moduleSpecifier.text, sourcePaths)
+        if (importedFile !== undefined) add(exportedFunction(importedFile, name, nextSeen))
+      }
+    }
+    return candidates.length === 1 ? candidates[0] : undefined
+  }
+  callableFunction = (candidate: ts.Expression, seen = new Set<ts.Declaration>()): ts.FunctionLikeDeclaration | undefined => {
+    const unwrapped = unwrapExpression(candidate)
+    if (ts.isArrowFunction(unwrapped) || ts.isFunctionExpression(unwrapped)) return unwrapped
+    if (ts.isPropertyAccessExpression(unwrapped) || ts.isElementAccessExpression(unwrapped)) {
+      const owner = unwrapExpression(unwrapped.expression)
+      const member = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name.text : unwrapped.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.argumentExpression) ? unwrapped.argumentExpression.text : undefined
+      const ownerDeclaration = ts.isIdentifier(owner) ? symbolDeclaration(checker, owner) : undefined
+      const importDeclaration = ownerDeclaration !== undefined && ts.isNamespaceImport(ownerDeclaration) ? ts.findAncestor(ownerDeclaration, ts.isImportDeclaration) : undefined
+      if (member !== undefined && importDeclaration !== undefined && ts.isStringLiteralLike(importDeclaration.moduleSpecifier)) {
+        const importedFile = resolveSourceImport(unwrapped.getSourceFile().fileName, importDeclaration.moduleSpecifier.text, sourcePaths)
+        if (importedFile !== undefined) return exportedFunction(importedFile, member)
+      }
+    }
+    const symbolNode = ts.isIdentifier(unwrapped)
+      ? unwrapped
+      : ts.isPropertyAccessExpression(unwrapped)
+        ? unwrapped.name
+        : ts.isElementAccessExpression(unwrapped) && unwrapped.argumentExpression !== undefined
+          ? unwrapped.argumentExpression
+          : undefined
+    if (symbolNode === undefined) return undefined
+    const declaration = symbolDeclaration(checker, symbolNode)
+    if (declaration === undefined || seen.has(declaration)) return undefined
+    const nextSeen = new Set([...seen, declaration])
+    if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) return declaration
+    if (ts.isPropertyAssignment(declaration)) return callableFunction(declaration.initializer, nextSeen)
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return callableFunction(declaration.initializer, nextSeen)
+    if (ts.isImportSpecifier(declaration) || ts.isImportClause(declaration)) {
+      const importDeclaration = ts.findAncestor(declaration, ts.isImportDeclaration)
+      if (importDeclaration === undefined || !ts.isStringLiteralLike(importDeclaration.moduleSpecifier)) return undefined
+      const importedFile = resolveSourceImport(unwrapped.getSourceFile().fileName, importDeclaration.moduleSpecifier.text, sourcePaths)
+      const imported = ts.isImportSpecifier(declaration) ? declaration.propertyName?.text ?? declaration.name.text : "default"
+      return importedFile === undefined ? undefined : exportedFunction(importedFile, imported)
+    }
+    return undefined
+  }
+  const interfaceMember = (typeNode: ts.TypeNode | undefined, member: string): ts.Declaration | undefined => {
+    if (typeNode === undefined || !ts.isTypeReferenceNode(typeNode)) return undefined
+    const declaration = symbolDeclaration(checker, typeNode.typeName)
+    return declaration !== undefined && ts.isInterfaceDeclaration(declaration)
+      ? declaration.members.find((candidate) => candidate.name !== undefined && propertyName(candidate.name, candidate.getSourceFile()) === member)
+      : undefined
+  }
+  const propertyContract = (owner: ts.SignatureDeclaration): ts.Declaration | undefined => {
+    const property = ts.findAncestor(owner, ts.isPropertyAssignment)
+    if (property === undefined || wrappedFunction(property.initializer) !== owner) return undefined
+    const object = property.parent
+    const variable = ts.isObjectLiteralExpression(object) && ts.isVariableDeclaration(object.parent) ? object.parent : undefined
+    return interfaceMember(variable?.type, propertyName(property.name, property.getSourceFile())) ?? property
+  }
+  const callContract = (expression: ts.Expression): ts.Declaration | undefined => {
+    const unwrapped = unwrapExpression(expression)
+    if (!ts.isPropertyAccessExpression(unwrapped) && !ts.isElementAccessExpression(unwrapped)) return undefined
+    const memberNode = ts.isPropertyAccessExpression(unwrapped) ? unwrapped.name : unwrapped.argumentExpression
+    const member = memberNode !== undefined && (ts.isIdentifier(memberNode) || ts.isStringLiteralLike(memberNode)) ? memberNode.text : undefined
+    if (memberNode === undefined || member === undefined) return undefined
+    const direct = symbolDeclaration(checker, memberNode)
+    if (direct !== undefined) return direct
+    const receiver = unwrapExpression(unwrapped.expression)
+    if (!ts.isIdentifier(receiver)) return undefined
+    const receiverDeclaration = symbolDeclaration(checker, receiver)
+    const initializer = receiverDeclaration !== undefined && ts.isVariableDeclaration(receiverDeclaration) ? receiverDeclaration.initializer : undefined
+    const service = initializer !== undefined && ts.isYieldExpression(initializer) && initializer.expression !== undefined ? unwrapExpression(initializer.expression) : undefined
+    const serviceDeclaration = service !== undefined && ts.isIdentifier(service) ? symbolDeclaration(checker, service) : undefined
+    if (serviceDeclaration === undefined || !ts.isClassDeclaration(serviceDeclaration)) return undefined
+    let contract: ts.Declaration | undefined
+    const visit = (node: ts.Node) => {
+      if (contract !== undefined) return
+      if (ts.isCallExpression(node)) {
+        for (const typeArgument of node.typeArguments ?? []) {
+          contract = interfaceMember(typeArgument, member)
+          if (contract !== undefined) return
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    for (const clause of serviceDeclaration.heritageClauses ?? []) visit(clause)
+    return contract
+  }
+  const callsOf = (owner: ts.SignatureDeclaration): ReadonlyArray<ts.CallExpression> => {
+    const calls: Array<ts.CallExpression> = []
+    const contract = propertyContract(owner)
+    const visit = (node: ts.Node) => {
+      if (ts.isCallExpression(node) && (callableFunction(node.expression) === owner || (contract !== undefined && callContract(node.expression) === contract))) calls.push(node)
+      ts.forEachChild(node, visit)
+    }
+    sourceFiles.forEach(visit)
+    return calls
+  }
+  const parameterOwner = (declaration: ts.Declaration): { readonly parameter: ts.ParameterDeclaration; readonly owner: ts.SignatureDeclaration } | undefined => {
+    const parameter = ts.isParameter(declaration) ? declaration : ts.findAncestor(declaration, ts.isParameter)
+    return parameter === undefined || !ts.isFunctionLike(parameter.parent) ? undefined : { parameter, owner: parameter.parent }
+  }
+  const bindingExpressions = (declaration: ts.Declaration, seen: ReadonlySet<ts.Declaration>): ReadonlyArray<ts.Expression> | undefined => {
+    const owned = parameterOwner(declaration)
+    if (owned !== undefined) {
+      const index = owned.owner.parameters.indexOf(owned.parameter)
+      const calls = callsOf(owned.owner)
+      if (index < 0 || calls.length === 0) return undefined
+      let argumentsList = calls.map((call) => call.arguments[index]).filter((argument): argument is ts.Expression => argument !== undefined)
+      if (argumentsList.length !== calls.length) return undefined
+      if (ts.isBindingElement(declaration)) {
+        const path: Array<string | number> = []
+        let current: ts.BindingElement = declaration
+        while (true) {
+          const pattern = current.parent
+          if (ts.isObjectBindingPattern(pattern)) path.unshift(current.propertyName?.getText(current.getSourceFile()) ?? current.name.getText(current.getSourceFile()))
+          else if (ts.isArrayBindingPattern(pattern)) path.unshift(pattern.elements.indexOf(current))
+          else return undefined
+          if (!ts.isBindingElement(pattern.parent)) break
+          current = pattern.parent
+        }
+        for (const segment of path) {
+          const selected = argumentsList.map((argument) => {
+            if (typeof segment === "string") return staticObjectProperties(argument, checker)?.get(segment)
+            const array = unwrapExpression(argument)
+            return ts.isArrayLiteralExpression(array) && array.elements[segment] !== undefined && ts.isExpression(array.elements[segment]!) ? array.elements[segment] as ts.Expression : undefined
+          })
+          if (!selected.every((value): value is ts.Expression => value !== undefined)) return undefined
+          argumentsList = selected
+        }
+      }
+      return argumentsList
+    }
+    if (ts.isBindingElement(declaration) && ts.isArrayBindingPattern(declaration.parent)) {
+      const index = declaration.parent.elements.indexOf(declaration)
+      const variable = declaration.parent.parent
+      const loop = variable.parent.parent
+      if (index < 0 || !ts.isForOfStatement(loop)) return undefined
+      const collection = unwrapExpression(loop.expression)
+      const collectionDeclaration = ts.isIdentifier(collection) ? symbolDeclaration(checker, collection) : undefined
+      const initializer = collectionDeclaration !== undefined && ts.isVariableDeclaration(collectionDeclaration) && collectionDeclaration.initializer !== undefined
+        ? unwrapExpression(collectionDeclaration.initializer)
+        : collection
+      if (!ts.isArrayLiteralExpression(initializer)) return undefined
+      const selected: Array<ts.Expression> = []
+      for (const element of initializer.elements) {
+        const tuple = ts.isExpression(element) ? unwrapExpression(element) : undefined
+        const value = tuple !== undefined && ts.isArrayLiteralExpression(tuple) ? tuple.elements[index] : undefined
+        if (value === undefined || !ts.isExpression(value)) return undefined
+        selected.push(value)
+      }
+      return selected
+    }
+    if (ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) return [declaration.initializer]
+    return undefined
+  }
+  const resolveExpressions = (candidate: ts.Expression, seen = new Set<ts.Declaration>()): ReadonlyArray<ts.Expression> | undefined => {
+    const unwrapped = unwrapExpression(candidate)
+    if (ts.isIdentifier(unwrapped)) {
+      const declaration = symbolDeclaration(checker, unwrapped)
+      if (declaration === undefined || seen.has(declaration)) return undefined
+      const expressions = bindingExpressions(declaration, seen)
+      if (expressions === undefined) return undefined
+      const nextSeen = new Set([...seen, declaration])
+      const resolved = expressions.map((value) => resolveExpressions(value, nextSeen))
+      return resolved.every((value): value is ReadonlyArray<ts.Expression> => value !== undefined) ? resolved.flat() : undefined
+    }
+    if (ts.isCallExpression(unwrapped)) {
+      const owner = callableFunction(unwrapped.expression)
+      if (owner === undefined || owner.body === undefined) return [unwrapped]
+      const returns: Array<ts.Expression> = []
+      if (ts.isExpression(owner.body)) returns.push(owner.body)
+      else {
+        const visit = (node: ts.Node) => {
+          if (node !== owner.body && ts.isFunctionLike(node)) return
+          if (ts.isReturnStatement(node) && node.expression !== undefined) returns.push(node.expression)
+          else ts.forEachChild(node, visit)
+        }
+        visit(owner.body)
+      }
+      return returns.length === 1 ? resolveExpressions(returns[0]!, seen) : undefined
+    }
+    return [unwrapped]
+  }
+  const strings = (candidate: ts.Expression, seen = new Set<ts.Declaration>()): ReadonlyArray<string> | undefined => {
+    const unwrapped = unwrapExpression(candidate)
+    if (ts.isStringLiteralLike(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) return [unwrapped.text]
+    if (ts.isTemplateExpression(unwrapped)) {
+      const values = unwrapped.templateSpans.map((span) => strings(span.expression, seen))
+      if (!values.every((value): value is ReadonlyArray<string> => value !== undefined && value.length === 1)) return undefined
+      return [[unwrapped.head.text, ...unwrapped.templateSpans.flatMap((span, index) => [values[index]![0]!, span.literal.text])].join("")]
+    }
+    if (ts.isArrayLiteralExpression(unwrapped)) {
+      const values = unwrapped.elements.map((element) => ts.isExpression(element) ? strings(element, seen) : undefined)
+      return values.every((value): value is ReadonlyArray<string> => value !== undefined) ? values.flat() : undefined
+    }
+    if (ts.isCallExpression(unwrapped) && (ts.isPropertyAccessExpression(unwrapped.expression) || ts.isElementAccessExpression(unwrapped.expression))) {
+      const member = ts.isPropertyAccessExpression(unwrapped.expression) ? unwrapped.expression.name.text : unwrapped.expression.argumentExpression !== undefined && ts.isStringLiteralLike(unwrapped.expression.argumentExpression) ? unwrapped.expression.argumentExpression.text : undefined
+      const last = unwrapped.arguments.at(-1)
+      return /^(?:join|resolve)$/.test(member ?? "") && last !== undefined ? strings(last, seen) : undefined
+    }
+    if (!ts.isIdentifier(unwrapped)) return undefined
+    const declaration = symbolDeclaration(checker, unwrapped)
+    if (declaration === undefined || seen.has(declaration)) return undefined
+    const expressions = bindingExpressions(declaration, seen)
+    if (expressions === undefined) return undefined
+    const nextSeen = new Set([...seen, declaration])
+    const values = expressions.map((value) => strings(value, nextSeen))
+    return values.every((value): value is ReadonlyArray<string> => value !== undefined) ? values.flat() : undefined
+  }
+  const resolvedOptions = resolveExpressions(expression)
+  if (resolvedOptions === undefined || resolvedOptions.length === 0) return undefined
+  const inputs: Array<string> = []
+  for (const option of resolvedOptions) {
+    const properties = staticObjectProperties(option, checker)
+    const entryPoints = properties?.get("entryPoints")
+    if (entryPoints === undefined) return undefined
+    const values = strings(entryPoints)
+    if (values === undefined || values.length === 0) return undefined
+    inputs.push(...values)
+  }
+  return inputs
 }
 
 const executableInput = (expression: ts.Expression, checker: ts.TypeChecker): string | undefined => {
@@ -1619,24 +1884,8 @@ export const discoverExecutableInventory = Effect.fn("ExecutableInventory.discov
         if (ts.isCallExpression(node)) {
           const api = esbuildApi(node.expression, checker)
           if (api !== undefined) {
-            const options = node.arguments[0] === undefined ? undefined : staticObjectProperties(node.arguments[0], checker)
-            const entryPoints = options?.get("entryPoints")
-            let inputs = entryPoints === undefined ? undefined : staticEntryPoints(entryPoints, checker)
-            if (inputs === undefined) {
-              const argument = node.arguments[0] === undefined ? undefined : unwrapExpression(node.arguments[0])
-              const declaration = argument !== undefined && ts.isIdentifier(argument) ? symbolDeclaration(checker, argument) : undefined
-              if (declaration === undefined || !ts.isParameter(declaration)) throw fail(`unresolved executable input: ${file}:esbuild:${api}`)
-              const structuralInputs: Array<string> = []
-              const findEntryPoints = (candidate: ts.Node) => {
-                if (ts.isPropertyAssignment(candidate) && propertyName(candidate.name, sourceFile) === "entryPoints") {
-                  const resolved = staticEntryPoints(candidate.initializer, checker)
-                  if (resolved !== undefined) structuralInputs.push(...resolved)
-                }
-                ts.forEachChild(candidate, findEntryPoints)
-              }
-              findEntryPoints(sourceFile)
-              inputs = structuralInputs.length === 0 ? undefined : structuralInputs
-            }
+            const argument = node.arguments[0]
+            const inputs = argument === undefined ? undefined : esbuildEntryPoints(argument, checker, [...parsedSources.values()])
             if (inputs === undefined || inputs.length === 0) throw fail(`unresolved executable input: ${file}:esbuild:${api}`)
             inputs.forEach((input) => {
               const occurrence = occurrences.get(api) ?? 0

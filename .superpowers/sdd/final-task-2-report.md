@@ -607,3 +607,48 @@ Status: DONE
 
 ## Concerns
 - None
+
+# Fix wave
+
+Status: DONE
+
+## Changes
+- `scripts/effect-executable-inventory.ts`: recursively resolves exact esbuild namespace/API ownership through import, require, alias, and destructuring symbols; evaluates wrapper parameters from exact scoped call sites without file-wide `entryPoints` fallback; and propagates namespace exports through ordinary export-star barrels with ambiguity and cycle rejection.
+- `test/architecture/effect-executable-inventory.test.ts`: adds actual-collector regressions for esbuild ownership aliases and shadowing, exact nested/destructured wrapper call flow, dead-property exclusion, dynamic/ambiguous/uninvoked failure, and namespace export-star static/dynamic/ambiguity/cycle behavior.
+
+## Test or validation evidence
+- Mode: TDD
+- RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "esbuild API ownership|esbuild wrapper parameters|uninvoked, dynamic, and ambiguous esbuild|propagates namespace exports|ambiguous and cyclic namespace" --reporter=verbose` exited 1. Eight reproduced cases failed: recursive esbuild ownership found only the direct named alias, exact wrapper flow consumed the unrelated dead `entryPoints`, uninvoked/dynamic/ambiguous wrappers were accepted from file-wide fallback, propagated namespace exports were unresolved, and propagated ambiguity/cycles did not report their exact failure.
+- GREEN: the same focused command passed 10 tests with 130 skipped, exit 0.
+- Incremental RED: `npm exec -- vitest run test/architecture/effect-executable-inventory.test.ts -t "exported esbuild wrapper parameters" --reporter=verbose` exited 1 with `unresolved executable input`, proving a static imported call site was not connected to its exported wrapper parameter.
+- Incremental GREEN: the same command passed 1 test with 140 skipped, exit 0.
+- Covering test files: `scripts/effect-executable-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, `scripts/binary-smoke.test.ts`, and `test/architecture/node-only.test.ts`.
+- Covering rerun: `npm exec -- vitest run scripts/effect-executable-inventory.test.ts test/architecture/effect-executable-inventory.test.ts scripts/binary-smoke.test.ts test/architecture/node-only.test.ts --reporter=dot` passed 4 files and 220 tests, exit 0.
+- Two consecutive `npm run effect:audit:update` executions produced identical hashes: audit baseline `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`; grep inventory `71cbec84dcf6d715758f98f8a9a34db9d4448e9f34ff0bbad44bc2144706389a`; exit 0 each.
+
+## Task gate
+- `npm ci`, `npm ci --prefix docs/architecture`, and `npm run agents:check`: passed; agent definitions synchronized, exit 0 each.
+- Focused covering gate: 4 files and 220 tests passed, exit 0.
+- `npm run effect:audit`: 0 blocking findings, 75 advisories, 283 candidates, migration-debt=0; exit 0.
+- `npm run effect:grep > /tmp/expand-effect-final-task-2-thirteenth-fix-grep.txt`: passed with 277 output lines, exit 0.
+- `npm run effect:launchers`: 1 file and 141 tests passed, exit 0.
+- `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`: passed; architecture checked 189 modules and 624 dependencies, exit 0 each.
+- `npm exec -- vitest run --reporter=json --outputFile=/tmp/expand-final-task-2-thirteenth-vitest.json`: 402/402 suites and 1418/1418 tests passed, exit 0.
+- `npm run bench:selfcheck` and `npm run bench:events -- --smoke`: selfcheck and all six benchmark rows passed, exit 0 each.
+- `npm run build`, `npm run cert:cli:build`, `npm run build:desktop`, and `npm run cert:packages`: passed, exit 0 each.
+- `xvfb-run -a npm run e2e:desktop`: 6/6 passed, exit 0.
+- Git mode and SHA-256 comparison: both registered host files remain mode `100755` and both inventory hashes match, exit 0.
+- Package residue, added TypeScript comment, and production/model migration-launcher scans: no scoped matches, exit 0.
+- `git diff --check`: passed, exit 0.
+
+## Commits
+- `HEAD` `fix: resolve executable API aliases` (exact SHA returned in the completion handoff)
+
+## Self-review
+- Esbuild namespace and API ownership follows exact checker declarations through default/namespace/named imports, direct and destructured require, recursive local aliases/destructuring, nested lexical scopes, and shadowing: satisfied.
+- Esbuild option flow is derived only from exact callable declarations, aliases, destructured parameters, return flow, and exact service-interface property contracts; static calls validate exact targets while dynamic, ambiguous, and uninvoked flow fails closed and dead properties are ignored: satisfied.
+- Namespace exports propagate recursively through ordinary export-star barrels; unique symbols resolve while ambiguity and cycles fail, and static/dynamic calls retain fail-closed wrapper validation: satisfied.
+- Scope is limited to the executable analyzer, its actual-collector architecture regressions, and this durable report; no dependencies, comments, inventories, migration debt, or neighboring behavior changed: satisfied.
+
+## Concerns
+- None
