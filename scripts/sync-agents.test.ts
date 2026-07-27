@@ -4,6 +4,7 @@ import { it } from "@effect/vitest"
 import { Cause, Effect, Exit, FileSystem, Fiber, Path, PlatformError } from "effect"
 import { describe, expect, vi } from "vitest"
 import { parse as parseToml } from "smol-toml"
+import { runCommand } from "../test/support/effect-process"
 import {
   AGENT_NAMES,
   AGENT_POLICY,
@@ -63,6 +64,95 @@ const seedRoster = Effect.fn("scripts.sync-agents.test.seedRoster")(
 
 const live = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   Effect.scoped(effect).pipe(Effect.provide(NodeServices.layer))
+
+const standingClientHarness = String.raw`set -euo pipefail
+ROOT="$1"
+CLIENT_SCRIPT="$2"
+MODE="$3"
+DATA_DIR="$(mktemp -d)"
+SERVER_PID=""
+CLIENT_PID=""
+BACKEND_PID=""
+process_active() {
+  local state
+  state="$(ps -o stat= -p "$1" 2>/dev/null | tr -d '[:space:]')"
+  [[ -n "$state" && "$(printf %.1s "$state")" != "Z" ]]
+}
+stop_exact() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 0
+  if process_active "$pid"; then
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in {1..50}; do
+      process_active "$pid" || break
+      sleep .1
+    done
+  fi
+  if process_active "$pid"; then
+    kill -KILL "$pid" 2>/dev/null || true
+    for _ in {1..50}; do
+      process_active "$pid" || break
+      sleep .1
+    done
+  fi
+}
+cleanup() {
+  local status="$?"
+  set +e
+  stop_exact "$CLIENT_PID"
+  stop_exact "$BACKEND_PID"
+  if [[ "$SERVER_PID" != "$BACKEND_PID" ]]; then stop_exact "$SERVER_PID"; fi
+  [[ -n "$CLIENT_PID" ]] && wait "$CLIENT_PID" 2>/dev/null
+  [[ -n "$SERVER_PID" ]] && wait "$SERVER_PID" 2>/dev/null
+  [[ -n "$DATA_DIR" ]] && rm -rf -- "$DATA_DIR"
+  exit "$status"
+}
+trap cleanup EXIT
+if [[ "$MODE" == "prestarted" ]]; then
+  "$ROOT/dist/expand-server" --data-dir "$DATA_DIR" >"$DATA_DIR/server.log" 2>&1 &
+  SERVER_PID="$!"
+  for _ in {1..50}; do
+    [[ -f "$DATA_DIR/server.json" ]] && break
+    process_active "$SERVER_PID" || { cat "$DATA_DIR/server.log"; exit 1; }
+    sleep .1
+  done
+  [[ -f "$DATA_DIR/server.json" ]]
+fi
+node --import tsx --input-type=module -e "$CLIENT_SCRIPT" "$DATA_DIR" "$ROOT/dist/expand-server" >"$DATA_DIR/client.log" 2>&1 &
+CLIENT_PID="$!"
+for _ in {1..50}; do
+  grep -Fxq open "$DATA_DIR/client.log" && break
+  process_active "$CLIENT_PID" || { cat "$DATA_DIR/client.log"; exit 1; }
+  sleep .1
+done
+grep -Fxq open "$DATA_DIR/client.log"
+BACKEND_PID="$(sed -n 's/.*"pid":\([0-9]*\).*/\1/p' "$DATA_DIR/server.json")"
+[[ "$BACKEND_PID" =~ ^[1-9][0-9]*$ ]]
+if [[ "$MODE" == "prestarted" ]]; then [[ "$BACKEND_PID" == "$SERVER_PID" ]]; fi
+kill -TERM "$CLIENT_PID"
+for _ in {1..50}; do
+  process_active "$CLIENT_PID" || break
+  sleep .1
+done
+process_active "$CLIENT_PID" && exit 1
+wait "$CLIENT_PID" 2>/dev/null || true
+CLIENT_PID=""
+for _ in {1..50}; do
+  if ! process_active "$BACKEND_PID" && [[ ! -e "$DATA_DIR/server.json" ]]; then break; fi
+  sleep .1
+done
+process_active "$BACKEND_PID" && exit 1
+[[ ! -e "$DATA_DIR/server.json" ]]
+if [[ -n "$SERVER_PID" ]]; then
+  wait "$SERVER_PID"
+  SERVER_PID=""
+fi
+BACKEND_PID=""
+rm -rf -- "$DATA_DIR"
+[[ ! -e "$DATA_DIR" ]]
+DATA_DIR=""
+printf '%s open natural-shutdown cleanup\n' "$MODE"
+`
 
 describe("AGENT_POLICY", () => {
   it("pins the approved Claude and Codex model, effort, and sandbox map", () => {
@@ -564,6 +654,35 @@ describe("syncAgents", () => {
     })
   })
 
+  it.live("executes the generated standing client against prestarted and spawned compiled backends", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
+      const canonical = parseClaudeAgent(
+        "manual-tester.md",
+        yield* fs.readFileString(path.join(root, ".claude", "agents", "manual-tester.md"))
+      )
+      const generated = parseToml(
+        yield* fs.readFileString(path.join(root, ".codex", "agents", "manual-tester.toml"))
+      )
+      expect(generated.developer_instructions).toBe(canonical.instructions)
+      const command = canonical.instructions.split("\n").find((line) => line.startsWith("node --import tsx --input-type=module -e"))
+      expect(command).toBeDefined()
+      const prefix = "node --import tsx --input-type=module -e '"
+      const suffix = "' \"$DATA_DIR\" \"$REPO_ROOT/dist/expand-server\" >\"$DATA_DIR/standing-client.log\" 2>&1 &"
+      expect(command?.startsWith(prefix)).toBe(true)
+      expect(command?.endsWith(suffix)).toBe(true)
+      const script = command?.slice(prefix.length, -suffix.length) ?? ""
+      const build = yield* runCommand("npm", ["run", "build"], { cwd: root })
+      expect(build.exitCode, build.stderr).toBe(0)
+      for (const mode of ["prestarted", "spawn"] as const) {
+        const result = yield* runCommand("bash", ["-c", standingClientHarness, "--", root, script, mode], { cwd: root })
+        expect(result.exitCode, result.stderr || result.stdout).toBe(0)
+        expect(result.stdout).toContain(`${mode} open natural-shutdown cleanup`)
+      }
+    }).pipe(Effect.provide(NodeServices.layer))), 30_000)
+
   it.effect("builds the manual standing-client AppContext from explicit host inputs", () =>
     live(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -578,7 +697,9 @@ describe("syncAgents", () => {
       expect(command).toContain(`import { homedir } from "${nodeOs}"`)
       expect(command).toContain("const path=yield* Path.Path")
       expect(command).toContain(`AppContext.make(path,{homeDir:homedir(),cwd:${processApi}cwd(),dataDir:${processApi}argv[1]})`)
-      expect(command).toContain("hold.pipe(Effect.provide(appContext), Effect.provide(NodeServices.layer))")
+      expect(command).toContain('import { makeNodeAdapter, ProcessServices } from "@expand/client-ts/adapters/node"')
+      expect(command).toContain(`backendCommand:Effect.succeed([${processApi}argv[2]])`)
+      expect(command).toContain("hold.pipe(Effect.provide(appContext), Effect.provide(ProcessServices.layer))")
       expect(command).not.toContain(`makeAppContext(${processApi}argv[1])`)
     })))
 })
