@@ -344,6 +344,7 @@ export const isRegisteredNodeBuiltinDiagnostic = (options: {
     readonly name: string
     readonly start: number
     readonly length?: number | undefined
+    readonly severity: "error" | "message"
   }
   readonly occurrences: ReadonlyArray<{
     readonly identity: {
@@ -361,7 +362,7 @@ export const isRegisteredNodeBuiltinDiagnostic = (options: {
     readonly occurrence: number
   }>
 }): boolean => {
-  if (options.diagnostic.name !== "nodeBuiltinImport") return false
+  if (options.diagnostic.name !== "nodeBuiltinImport" || options.diagnostic.severity !== "error") return false
   const length = options.diagnostic.length
   if (length === undefined || length <= 0) return false
   const end = options.diagnostic.start + length

@@ -41,7 +41,7 @@ const nodeHttpOccurrence = (
 
 const nodeBuiltinDiagnostic = (
   overrides: Partial<NodeBuiltinDiagnosticMatcherOptions["diagnostic"]> = {}
-) => ({ name: "nodeBuiltinImport", start: 25, length: 11, ...overrides })
+) => ({ name: "nodeBuiltinImport", start: 25, length: 11, severity: "error" as const, ...overrides })
 
 const withRegistryFixture = Effect.fn("EffectBoundaryRegistryTest.withFixture")(
   function* <A>(

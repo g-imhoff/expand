@@ -821,15 +821,31 @@ describe("registered Effect language diagnostic command", () => {
 
     const start = serverHttpBoundarySource.indexOf(`"${nodeHttp}"`)
     const registered = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
+    const registeredMessage = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"message","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
     const unregisteredSource = `import { createServer } from "${nodeHttp}"\n`
     const unregisteredStart = unregisteredSource.indexOf(`"${nodeHttp}"`)
     const unregistered = `{"diagnostics":[{"file":"src/sample.ts","start":${unregisteredStart},"length":${nodeHttp.length + 2},"line":1,"column":${unregisteredStart + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
 
     return fixture({ languageService: registered }, ({ root }) =>
       runAudit(root).pipe(Effect.asVoid)
-    ).pipe(Effect.andThen(
-      fixture({
-                source: unregisteredSource,
+    ).pipe(
+      Effect.andThen(fixture({ languageService: registeredMessage }, ({ root }) =>
+        Effect.gen(function*() {
+          const error = yield* runAudit(root).pipe(Effect.flip)
+          expect(error).toBeInstanceOf(EffectAuditError)
+          expect(error).toMatchObject({
+            reason: "invalid-output",
+            findings: [{
+              engine: "effect-language-service",
+              file: "apps/server/http.ts",
+              rule: "nodeBuiltinImport",
+              severity: "message"
+            }]
+          })
+        })
+      )),
+      Effect.andThen(fixture({
+        source: unregisteredSource,
         languageService: unregistered
       }, ({ root }) =>
         Effect.gen(function*() {
@@ -843,8 +859,8 @@ describe("registered Effect language diagnostic command", () => {
             }]
           })
         })
-      )
-    ))
+      ))
+    )
   })
 })
 
