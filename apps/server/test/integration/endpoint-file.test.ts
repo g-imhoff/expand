@@ -1,14 +1,33 @@
 import { it } from "@effect/vitest"
-import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Scope } from "effect"
+import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schedule, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
+import * as NodeSocket from "@effect/platform-node/NodeSocket"
+import * as Socket from "effect/unstable/socket/Socket"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
 import { readEndpoint } from "@expand/client-ts"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
-import { runServer, type RunServerOptions } from "@expand/server/composition/app"
+import { runServer, type RunServerOptions, ServerComposition } from "@expand/server/composition/app"
+
+const coreLifecycle = {
+  nextId: 0,
+  releaseDelay: 0,
+  releases: [] as Array<number>
+}
+
+const observedCoreLayer = Layer.effectDiscard(Effect.acquireRelease(
+  Effect.sync(() => ++coreLifecycle.nextId),
+  (id) => Effect.sleep(coreLifecycle.releaseDelay).pipe(
+    Effect.andThen(Effect.sync(() => coreLifecycle.releases.push(id)))
+  )
+))
+
+const runObservedServer = (options: RunServerOptions) => runServer(options).pipe(
+  Effect.provideService(ServerComposition, { coreLayer: observedCoreLayer })
+)
 
 describe("endpoint file (I-3)", () => {
   it.live("writes the file inside the scope and removes it when the scope closes", () =>
@@ -120,8 +139,9 @@ describe("endpoint file (I-3)", () => {
       expect(pidReads).toBe(0)
     }))
 
-  it.live("releases the HTTP transport when interrupted while awaiting shutdown", () =>
+  it.live("releases the HTTP transport and owned core when interrupted while awaiting shutdown", () =>
     Effect.gen(function*() {
+      resetCoreLifecycle()
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-interrupt-" })
@@ -131,18 +151,56 @@ describe("endpoint file (I-3)", () => {
         Effect.retry(Schedule.spaced("25 millis")),
         Effect.timeout("5 seconds")
       )
-      const server = yield* runServer({ dbPath: path.join(directory, "interrupt.db") }).pipe(
+      const server = yield* runObservedServer({ dbPath: path.join(directory, "interrupt.db") }).pipe(
         Effect.provideService(AppContext, appContext),
         Effect.forkChild
       )
       const endpoint = yield* endpointUp.pipe(Effect.provideService(AppContext, appContext))
       const port = Number(new URL(endpoint.url).port)
       yield* Fiber.interrupt(server)
+      expect(coreLifecycle.releases).toEqual([1])
       expect(yield* bindThenFail(port, path.join(directory, "interrupt-rebind.db"), appContext, fs)).toBe(true)
     }).pipe(Effect.provide(TestServices)))
 
-  it.live("releases the HTTP transport when startup fails after acquisition", () =>
+  it.live("bounds abnormal transport close with an active authenticated connection and releases the owned core", () =>
     Effect.gen(function*() {
+      resetCoreLifecycle()
+      const path = yield* Path.Path
+      const directory = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "expand-ep-active-interrupt-" }))
+      )
+      const appContext = makeTestAppContext(directory, path)
+      const endpointUp = readEndpoint.pipe(
+        Effect.flatMap((endpoint) => Option.isSome(endpoint) ? Effect.succeed(endpoint.value) : Effect.fail("pending" as const)),
+        Effect.retry(Schedule.spaced("25 millis")),
+        Effect.timeout("5 seconds")
+      )
+      const server = yield* runObservedServer({ dbPath: path.join(directory, "active-interrupt.db") }).pipe(
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      const endpoint = yield* endpointUp.pipe(Effect.provideService(AppContext, appContext))
+      const opened = yield* Queue.unbounded<void>()
+      const socket = yield* Socket.makeWebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`).pipe(
+        Effect.provide(NodeSocket.layerWebSocketConstructorWS)
+      )
+      const socketFiber = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
+        Effect.forkChild
+      )
+      yield* Queue.take(opened).pipe(Effect.timeout("5 seconds"))
+      const interruption = yield* Fiber.interrupt(server).pipe(Effect.forkChild)
+      const completed = yield* Fiber.join(interruption).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed(false) })
+      )
+      yield* Fiber.interrupt(socketFiber)
+      expect(completed).toBe(true)
+      expect(coreLifecycle.releases).toEqual([1])
+    }).pipe(Effect.provide(TestServices)), 10_000)
+
+  it.live("preserves the startup failure Cause and releases the HTTP transport and owned core", () =>
+    Effect.gen(function*() {
+      resetCoreLifecycle()
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-failure-" })
@@ -158,14 +216,41 @@ describe("endpoint file (I-3)", () => {
         ...fs,
         chmod: () => Effect.fail(denied)
       })
-      const exit = yield* runServer({ dbPath: path.join(directory, "failure.db"), port }).pipe(
+      const exit = yield* runObservedServer({ dbPath: path.join(directory, "failure.db"), port }).pipe(
         Effect.provideService(AppContext, appContext),
         Effect.provideService(FileSystem.FileSystem, failingFs),
         Effect.exit
       )
       expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.some((reason) => Cause.isFailReason(reason) && reason.error === denied)).toBe(true)
+      }
+      expect(coreLifecycle.releases).toEqual([1])
       expect(yield* bindThenFail(port, path.join(directory, "failure-rebind.db"), appContext, fs)).toBe(true)
     }).pipe(Effect.provide(TestServices)))
+
+  it.live("does not abandon a delayed abnormal child finalizer at the normal shutdown deadline", () =>
+    Effect.gen(function*() {
+      resetCoreLifecycle()
+      coreLifecycle.releaseDelay = 1_100
+      const path = yield* Path.Path
+      const directory = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "expand-ep-delayed-release-" }))
+      )
+      const appContext = makeTestAppContext(directory, path)
+      const endpointUp = readEndpoint.pipe(
+        Effect.flatMap((endpoint) => Option.isSome(endpoint) ? Effect.succeed(endpoint.value) : Effect.fail("pending" as const)),
+        Effect.retry(Schedule.spaced("25 millis")),
+        Effect.timeout("5 seconds")
+      )
+      const server = yield* runObservedServer({ dbPath: path.join(directory, "delayed.db") }).pipe(
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      yield* endpointUp.pipe(Effect.provideService(AppContext, appContext))
+      yield* Fiber.interrupt(server)
+      expect(coreLifecycle.releases).toEqual([1])
+    }).pipe(Effect.provide(TestServices)), 10_000)
 
   it.live("advertises the injected identity and pid", () => {
     let randomByteReads = 0
@@ -186,6 +271,7 @@ describe("endpoint file (I-3)", () => {
     }
 
     return Effect.gen(function*() {
+      resetCoreLifecycle()
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-injected-" })
@@ -218,6 +304,12 @@ describe("endpoint file (I-3)", () => {
 })
 
 const TestServices = Layer.mergeAll(ProcessServices.layer, NodeServices.layer)
+
+const resetCoreLifecycle = () => {
+  coreLifecycle.nextId = 0
+  coreLifecycle.releaseDelay = 0
+  coreLifecycle.releases = []
+}
 
 const bindThenFail = Effect.fn("EndpointFileTest.bindThenFail")(function*(
   port: number,

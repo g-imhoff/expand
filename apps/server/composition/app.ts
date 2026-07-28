@@ -1,4 +1,4 @@
-import { Effect, Exit, FileSystem, Layer, Path, Scope } from "effect"
+import { Context, Effect, Exit, FileSystem, Layer, Path, Scope } from "effect"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
@@ -20,6 +20,10 @@ export interface RunServerOptions {
   readonly port?: number
 }
 
+export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.Layer<never> }>("expand/ServerComposition", {
+  defaultValue: () => ({ coreLayer: Layer.empty })
+})
+
 export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
   const dbPath = options.dbPath
   const portHint = options.port ?? 0
@@ -27,51 +31,57 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
   const processControl = yield* ProcessControl
   const pid = processControl.currentPid
   const path = yield* Path.Path
-  const core = coreLayer(dbPath)
-
-  const transportLayer = httpServerLayer(portHint, token).pipe(Layer.provide(core))
+  const composition = yield* ServerComposition
+  const coreLayerDefinition = Layer.merge(coreLayer(dbPath), composition.coreLayer)
 
   const program = Effect.gen(function*() {
-    const tracker = yield* ConnectionTracker
-    const fs = yield* FileSystem.FileSystem
-
     const parentScope = yield* Scope.Scope
+    const coreScope = yield* Scope.make()
+    yield* Scope.addFinalizerExit(parentScope, (exit) => Scope.close(coreScope, exit))
+    const core = yield* Layer.buildWithScope(coreLayerDefinition, coreScope)
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
-    const transport = yield* Layer.buildWithScope(transportLayer, httpScope)
-    const address = HttpServer.HttpServer.pipe(
-      Effect.map((server) => server.address),
-      Effect.provide(transport)
+    const transport = yield* Layer.buildWithScope(
+      httpServerLayer(portHint, token).pipe(Layer.provide(Layer.succeedContext(core))),
+      httpScope
     )
-    const addr = yield* address
-    const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
-    const url = `ws://127.0.0.1:${boundPort}/rpc`
 
-    yield* fs.chmod(path.dirname(dbPath), 0o700)
-    yield* fs.chmod(dbPath, 0o600)
-    yield* secureIfPresent(fs, `${dbPath}-wal`)
-    yield* secureIfPresent(fs, `${dbPath}-shm`)
+    const lifecycle = Effect.gen(function*() {
+      const tracker = yield* ConnectionTracker
+      const fs = yield* FileSystem.FileSystem
+      const address = HttpServer.HttpServer.pipe(
+        Effect.map((server) => server.address),
+        Effect.provide(transport)
+      )
+      const addr = yield* address
+      const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
+      const url = `ws://127.0.0.1:${boundPort}/rpc`
 
-    const endpointFile = yield* writeEndpointFile({
-      url,
-      token,
-      pid,
-      protocolVersion: PROTOCOL_VERSION
+      yield* fs.chmod(path.dirname(dbPath), 0o700)
+      yield* fs.chmod(dbPath, 0o600)
+      yield* secureIfPresent(fs, `${dbPath}-wal`)
+      yield* secureIfPresent(fs, `${dbPath}-shm`)
+
+      const endpointFile = yield* writeEndpointFile({
+        url,
+        token,
+        pid,
+        protocolVersion: PROTOCOL_VERSION
+      })
+      yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
+
+      yield* tracker.awaitShutdown
+      yield* Effect.logInfo("last connection closed — shutting down")
+
+      yield* removeEndpointFile(fs, endpointFile)
+
+      yield* closeHttpScope(httpScope, Exit.void)
     })
-    yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
-    yield* tracker.awaitShutdown
-    yield* Effect.logInfo("last connection closed — shutting down")
-
-    yield* removeEndpointFile(fs, endpointFile)
-
-    yield* closeHttpScope(httpScope, Exit.void)
+    return yield* lifecycle.pipe(Effect.provide(core))
   })
 
-  return yield* program.pipe(
-    Effect.provide(core),
-    Effect.scoped
-  )
+  return yield* program.pipe(Effect.scoped)
 })
 
 const HTTP_SHUTDOWN_GRACE = "1 second"

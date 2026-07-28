@@ -290,26 +290,42 @@ const expectedHostRules = [
 ] as const
 
 const expectedBoundaryEnforcement = {
-  "I-1. Frontend isolation": [
+  "I-1": [
     ".dependency-cruiser.cjs",
     "test/architecture/i1-cli-isolation.test.ts",
-    "test/architecture/ipc-boundary.test.ts"
+    "test/architecture/ipc-boundary.test.ts",
+    "test/architecture/depcruise-exclude.test.ts",
+    "test/architecture/server-app-split.test.ts"
   ],
-  "I-2. One AppLayer per state root": [
+  "I-2": [
     "test/architecture/backend-ownership.test.ts",
-    "backend.lock"
+    "apps/server/test/integration/state-root-lock.test.ts"
   ],
-  "I-3. One discovery file per state root": [
+  "I-3": [
     "apps/server/test/integration/endpoint-file.test.ts",
     "packages/client-ts/test/integration/find-or-spawn.test.ts",
-    "spawn lock"
+    "packages/client-ts/test/integration/spawn-lock.test.ts"
   ],
-  "I-4. Server lifetime: zero-connection shutdown": [
+  "I-4": [
     "apps/server/connection-tracker.ts",
     "apps/server/composition/app.ts",
+    "apps/server/test/unit/connection-tracker.test.ts",
+    "apps/server/test/integration/endpoint-file.test.ts",
     "apps/server/test/unit/harness.test.ts"
   ]
 } as const
+
+const expectedBoundaryPolicyLink = "This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-audit.test.ts` plus the invariant-specific architecture tests below."
+
+const parseBoundaryEnforcementMap = (source: string): Record<string, ReadonlyArray<string>> => {
+  const section = markdownSection(source, "### Enforcement path map")
+  return Object.fromEntries(section.split(/\r?\n/).flatMap((line) => {
+    const match = /^\| (I-[1-4]) \| ((?:`[^`]+`(?:, )?)+) \|$/.exec(line)
+    return match === null
+      ? []
+      : [[match[1] ?? "", [...(match[2] ?? "").matchAll(/`([^`]+)`/g)].map((path) => path[1] ?? "")]]
+  }))
+}
 
 const normalizeMarkdown = (source: string): string =>
   source.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
@@ -473,7 +489,8 @@ describe("Effect-only enforcement policy", () => {
       const referenceSources = yield* Effect.all([
         fs.readFileString(path.join(root, "CODEOWNERS")),
         fs.readFileString(path.join(root, "REVIEW.md")),
-        fs.readFileString(path.join(root, "docs/architecture/expand.c4"))
+        fs.readFileString(path.join(root, "docs/architecture/expand.c4")),
+        fs.readFileString(path.join(root, ".dependency-cruiser.cjs"))
       ])
       for (const source of referenceSources) expect(source).toContain("BOUNDARIES.md")
       const referencedPolicies = [...new Set(referenceSources.flatMap((source) =>
@@ -489,12 +506,25 @@ describe("Effect-only enforcement policy", () => {
         "docs/architecture/BOUNDARIES.md",
         "docs/architecture/EFFECT_ONLY.md"
       ])
-      const enforcementEntries = Object.entries(expectedBoundaryEnforcement)
-      expect(invariantHeadings).toEqual(enforcementEntries.map(([heading]) => heading))
-      for (const [index, [heading, enforcement]] of enforcementEntries.entries()) {
-        const nextHeading = enforcementEntries[index + 1]?.[0] ?? "Modifying these invariants"
-        const section = markdownSection(boundaries, `## ${heading}`, `## ${nextHeading}`)
-        for (const reference of enforcement) expect(section).toContain(reference)
+      expect(invariantHeadings).toEqual([
+        "I-1. Frontend isolation",
+        "I-2. One AppLayer per state root",
+        "I-3. One discovery file per state root",
+        "I-4. Server lifetime: zero-connection shutdown"
+      ])
+      const enforcementMap = parseBoundaryEnforcementMap(boundaries)
+      expect(enforcementMap).toEqual(expectedBoundaryEnforcement)
+      const linkSection = markdownSection(boundaries, "### Enforcement path map")
+      expect(paragraphs(linkSection)[0]).toBe(expectedBoundaryPolicyLink)
+      const enforcementPaths = [...new Set([
+        "CODEOWNERS",
+        "REVIEW.md",
+        "docs/architecture/expand.c4",
+        "test/architecture/effect-audit.test.ts",
+        ...Object.values(enforcementMap).flat()
+      ])]
+      for (const enforcementPath of enforcementPaths) {
+        expect(yield* fs.exists(path.join(root, enforcementPath)), `missing ${enforcementPath}`).toBe(true)
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 

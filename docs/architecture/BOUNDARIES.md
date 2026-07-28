@@ -236,6 +236,17 @@ runs through `npm run cert:cli:build`.
 
 ---
 
+### Enforcement path map
+
+This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-audit.test.ts` plus the invariant-specific architecture tests below.
+
+| Invariant | Repository paths |
+|---|---|
+| I-1 | `.dependency-cruiser.cjs`, `test/architecture/i1-cli-isolation.test.ts`, `test/architecture/ipc-boundary.test.ts`, `test/architecture/depcruise-exclude.test.ts`, `test/architecture/server-app-split.test.ts` |
+| I-2 | `test/architecture/backend-ownership.test.ts`, `apps/server/test/integration/state-root-lock.test.ts` |
+| I-3 | `apps/server/test/integration/endpoint-file.test.ts`, `packages/client-ts/test/integration/find-or-spawn.test.ts`, `packages/client-ts/test/integration/spawn-lock.test.ts` |
+| I-4 | `apps/server/connection-tracker.ts`, `apps/server/composition/app.ts`, `apps/server/test/unit/connection-tracker.test.ts`, `apps/server/test/integration/endpoint-file.test.ts`, `apps/server/test/unit/harness.test.ts` |
+
 ## Modifying these invariants
 
 Each invariant is a constraint other parts of the system depend on. An
