@@ -73,14 +73,24 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
       if (!path.isAbsolute(directory)) {
         return yield* new ProjectDirectoryInvalid({ directory, reason: "not-absolute" })
       }
+      const others = projects.filter((project) => project.id !== selfId)
+      if (others.some((project) => project.directory === directory)) {
+        return yield* new ProjectDirectoryConflict({ directory })
+      }
       const info = yield* fs.stat(directory).pipe(
         Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
       )
       if (info.type !== "Directory") {
         return yield* new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" })
       }
-      const canonical = yield* fs.realPath(directory).pipe(Effect.orDie)
-      if (projects.some((p) => p.id !== selfId && (p.directory === directory || p.directory === canonical))) {
+      const canonical = yield* fs.realPath(directory).pipe(
+        Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+      )
+      const existingIdentities = yield* Effect.forEach(
+        others.flatMap((project) => project.directory === null ? [] : [project.directory]),
+        (existingDirectory) => fs.realPath(existingDirectory).pipe(Effect.option)
+      )
+      if (existingIdentities.some((identity) => identity._tag === "Some" && identity.value === canonical)) {
         return yield* new ProjectDirectoryConflict({ directory })
       }
     })

@@ -35,7 +35,9 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     const tracker = yield* ConnectionTracker
     const fs = yield* FileSystem.FileSystem
 
+    const parentScope = yield* Scope.Scope
     const httpScope = yield* Scope.make()
+    yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
     const transport = yield* Layer.buildWithScope(transportLayer, httpScope)
     const address = HttpServer.HttpServer.pipe(
       Effect.map((server) => server.address),
@@ -63,13 +65,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
 
     yield* removeEndpointFile(fs, endpointFile)
 
-    yield* Scope.close(httpScope, Exit.void).pipe(
-      Effect.timeoutOrElse({
-        duration: HTTP_SHUTDOWN_GRACE,
-        orElse: () =>
-          Effect.logInfo("http server did not stop within grace window — abandoning")
-      })
-    )
+    yield* closeHttpScope(httpScope, Exit.void)
   })
 
   return yield* program.pipe(
@@ -79,6 +75,15 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
 })
 
 const HTTP_SHUTDOWN_GRACE = "1 second"
+
+const closeHttpScope = Effect.fn("Server.closeHttpScope")((scope: Scope.Closeable, exit: Exit.Exit<unknown, unknown>) =>
+  Scope.close(scope, exit).pipe(
+    Effect.timeoutOrElse({
+      duration: HTTP_SHUTDOWN_GRACE,
+      orElse: () => Effect.logInfo("http server did not stop within grace window — abandoning")
+    })
+  )
+)
 
 const secureIfPresent = Effect.fn("Server.secureIfPresent")((fs: FileSystem.FileSystem, path: string) =>
   Effect.flatMap(fs.exists(path), (present) => (present ? fs.chmod(path, 0o600) : Effect.void))

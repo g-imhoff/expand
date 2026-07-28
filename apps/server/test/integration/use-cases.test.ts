@@ -161,6 +161,38 @@ describe("ProjectUseCases.changeDirectory", () => {
     const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
   }))
+
+  it.live("fails ProjectDirectoryConflict when the existing project stored the symlink first", () => Effect.gen(function*() {
+    const real = yield* makeTestDirectory("expand-cd-reverse-real-")
+    const linkParent = yield* makeTestDirectory("expand-cd-reverse-link-")
+    const link = `${linkParent}/alias`
+    yield* makeTestSymlink(real, link)
+    const exit = yield* Effect.gen(function*() {
+      const u = yield* ProjectUseCases
+      const a = (yield* u.createProject("cdreversea", false)).project
+      const b = (yield* u.createProject("cdreverseb", false)).project
+      yield* u.changeDirectory(a.id, link)
+      return yield* u.changeDirectory(b.id, real).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    expect(exit).toMatchObject({ _tag: "Failure", failure: { _tag: "ProjectDirectoryConflict" } })
+  }))
+
+  it.live("fails ProjectDirectoryConflict for two distinct symlinks to the same directory", () => Effect.gen(function*() {
+    const real = yield* makeTestDirectory("expand-cd-links-real-")
+    const linkParent = yield* makeTestDirectory("expand-cd-links-")
+    const first = `${linkParent}/first`
+    const second = `${linkParent}/second`
+    yield* makeTestSymlink(real, first)
+    yield* makeTestSymlink(real, second)
+    const exit = yield* Effect.gen(function*() {
+      const u = yield* ProjectUseCases
+      const a = (yield* u.createProject("cdlinksa", false)).project
+      const b = (yield* u.createProject("cdlinksb", false)).project
+      yield* u.changeDirectory(a.id, first)
+      return yield* u.changeDirectory(b.id, second).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    expect(exit).toMatchObject({ _tag: "Failure", failure: { _tag: "ProjectDirectoryConflict" } })
+  }))
 })
 
 describe("ProjectUseCases.createProject with directory", () => {
@@ -214,6 +246,34 @@ describe("ProjectUseCases.createProject with directory", () => {
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
     const exit = yield* (program)
     expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectDirectoryConflict")
+  }))
+
+  it.live("fails ProjectDirectoryConflict when the existing project stored the symlink first", () => Effect.gen(function*() {
+    const real = yield* makeTestDirectory("expand-cr-reverse-real-")
+    const linkParent = yield* makeTestDirectory("expand-cr-reverse-link-")
+    const link = `${linkParent}/alias`
+    yield* makeTestSymlink(real, link)
+    const exit = yield* Effect.gen(function*() {
+      const u = yield* ProjectUseCases
+      yield* u.createProject("crreversea", false, link)
+      return yield* u.createProject("crreverseb", false, real).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    expect(exit).toMatchObject({ _tag: "Failure", failure: { _tag: "ProjectDirectoryConflict" } })
+  }))
+
+  it.live("fails ProjectDirectoryConflict for two distinct symlinks to the same directory", () => Effect.gen(function*() {
+    const real = yield* makeTestDirectory("expand-cr-links-real-")
+    const linkParent = yield* makeTestDirectory("expand-cr-links-")
+    const first = `${linkParent}/first`
+    const second = `${linkParent}/second`
+    yield* makeTestSymlink(real, first)
+    yield* makeTestSymlink(real, second)
+    const exit = yield* Effect.gen(function*() {
+      const u = yield* ProjectUseCases
+      yield* u.createProject("crlinksa", false, first)
+      return yield* u.createProject("crlinksb", false, second).pipe(Effect.result)
+    }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
+    expect(exit).toMatchObject({ _tag: "Failure", failure: { _tag: "ProjectDirectoryConflict" } })
   }))
 })
 

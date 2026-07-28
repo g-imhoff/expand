@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Scope } from "effect"
+import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/endpoint-file"
@@ -7,6 +7,7 @@ import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
 import { readEndpoint } from "@expand/client-ts"
+import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { runServer, type RunServerOptions } from "@expand/server/composition/app"
 
 describe("endpoint file (I-3)", () => {
@@ -119,6 +120,53 @@ describe("endpoint file (I-3)", () => {
       expect(pidReads).toBe(0)
     }))
 
+  it.live("releases the HTTP transport when interrupted while awaiting shutdown", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-interrupt-" })
+      const appContext = makeTestAppContext(directory, path)
+      const endpointUp = readEndpoint.pipe(
+        Effect.flatMap((endpoint) => Option.isSome(endpoint) ? Effect.succeed(endpoint.value) : Effect.fail("pending" as const)),
+        Effect.retry(Schedule.spaced("25 millis")),
+        Effect.timeout("5 seconds")
+      )
+      const server = yield* runServer({ dbPath: path.join(directory, "interrupt.db") }).pipe(
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      const endpoint = yield* endpointUp.pipe(Effect.provideService(AppContext, appContext))
+      const port = Number(new URL(endpoint.url).port)
+      yield* Fiber.interrupt(server)
+      expect(yield* bindThenFail(port, path.join(directory, "interrupt-rebind.db"), appContext, fs)).toBe(true)
+    }).pipe(Effect.provide(TestServices)))
+
+  it.live("releases the HTTP transport when startup fails after acquisition", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-failure-" })
+      const appContext = makeTestAppContext(directory, path)
+      const port = 51987
+      const denied = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "chmod",
+        pathOrDescriptor: directory
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        chmod: () => Effect.fail(denied)
+      })
+      const exit = yield* runServer({ dbPath: path.join(directory, "failure.db"), port }).pipe(
+        Effect.provideService(AppContext, appContext),
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.exit
+      )
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* bindThenFail(port, path.join(directory, "failure-rebind.db"), appContext, fs)).toBe(true)
+    }).pipe(Effect.provide(TestServices)))
+
   it.live("advertises the injected identity and pid", () => {
     let randomByteReads = 0
     let pidReads = 0
@@ -167,6 +215,33 @@ describe("endpoint file (I-3)", () => {
       )
     }).pipe(Effect.provide(NodeServices.layer))
   })
+})
+
+const TestServices = Layer.mergeAll(ProcessServices.layer, NodeServices.layer)
+
+const bindThenFail = Effect.fn("EndpointFileTest.bindThenFail")(function*(
+  port: number,
+  dbPath: string,
+  appContext: ReturnType<typeof makeTestAppContext>,
+  fs: FileSystem.FileSystem
+) {
+  const denied = PlatformError.systemError({
+    _tag: "PermissionDenied",
+    module: "FileSystem",
+    method: "chmod",
+    pathOrDescriptor: dbPath
+  })
+  const exit = yield* runServer({ dbPath, port }).pipe(
+    Effect.provideService(AppContext, appContext),
+    Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+      ...fs,
+      chmod: () => Effect.fail(denied)
+    })),
+    Effect.exit
+  )
+  return Exit.isFailure(exit) && exit.cause.reasons.some(
+    (reason) => Cause.isFailReason(reason) && reason.error === denied
+  )
 })
 
 const makeTestAppContext = (dataDir: string, path: Path.Path) =>

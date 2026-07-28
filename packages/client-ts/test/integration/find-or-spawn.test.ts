@@ -10,7 +10,7 @@ import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { ProcessControl } from "@expand/contracts/process-control"
-import type { BackendUnavailable } from "../../errors"
+import { BackendUnavailable } from "../../errors"
 
 class TestDirectory extends Context.Service<TestDirectory, string>()("expand/FindOrSpawnTest/Directory") {}
 
@@ -89,6 +89,66 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
       ).pipe(Effect.provideService(AppContext, appContext))
       expect(spawnCount).toBe(1)
       expect(endpoints).toEqual([endpoint, endpoint])
+    }))
+
+  it.effect("re-elects a contender after the elected spawner fails without advertising", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("failed-owner-takeover")
+      const releaseOwner = yield* Queue.unbounded<void>()
+      const contenderObserved = yield* Queue.unbounded<void>()
+      let spawnAttempts = 0
+      let takeoverSpawns = 0
+      const endpoint = {
+        url: "ws://127.0.0.1:51796/rpc",
+        token: "takeover",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.gen(function*() {
+          spawnAttempts += 1
+          if (spawnAttempts === 1) {
+            yield* Queue.take(releaseOwner)
+            return yield* new BackendUnavailable({ reason: "elected spawner failed" })
+          }
+          takeoverSpawns += 1
+          const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)(endpoint).pipe(Effect.orDie)
+          yield* fs.writeFileString(appContext.paths.endpointFile, advertisedEndpoint).pipe(Effect.orDie)
+        })
+      }
+      const observedFs = FileSystem.FileSystem.of({
+        ...fs,
+        link: (existingPath, newPath) => fs.link(existingPath, newPath).pipe(
+          Effect.tapError(() => spawnAttempts === 1 && newPath === appContext.paths.spawnLockFile
+            ? Queue.offer(contenderObserved, undefined)
+            : Effect.void)
+        )
+      })
+      const owner = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, observedFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      while (spawnAttempts === 0) yield* Effect.yieldNow
+      const contender = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, observedFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      yield* Queue.take(contenderObserved)
+      yield* Queue.offer(releaseOwner, undefined)
+      const ownerExit = yield* Fiber.join(owner).pipe(Effect.result)
+      const contenderResult = yield* Fiber.join(contender).pipe(Effect.timeout("2 seconds"))
+      expect(spawnAttempts).toBe(2)
+      expect(ownerExit).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "BackendUnavailable", reason: "elected spawner failed" }
+      })
+      expect(contenderResult).toEqual(endpoint)
+      expect(takeoverSpawns).toBe(1)
     }))
 
   it.effect("holds the default external lease without creating the nested target before spawn", () =>

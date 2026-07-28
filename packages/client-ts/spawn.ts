@@ -6,18 +6,26 @@ import { readEndpoint } from "./discovery"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawn-lock"
 
 export const findOrSpawnBackend = Effect.fn("Spawn.findOrSpawnBackend")(function*(adapter: RuntimeAdapter) {
+  const { paths } = yield* AppContext
   return yield* Effect.gen(function*() {
-    const { paths } = yield* AppContext
     const existing = yield* readEndpoint
     if (Option.isSome(existing)) return existing.value
     const lease = yield* acquireSpawnLock(paths.spawnLockFile)
-    if (lease === undefined) return yield* awaitEndpoint
+    if (lease === undefined) return yield* Effect.fail("pending" as const)
     return yield* Effect.acquireUseRelease(
       Effect.succeed(lease),
       () => adapter.spawnBackend(paths.dataDir).pipe(Effect.andThen(awaitEndpoint)),
       (heldLease) => releaseSpawnLock(heldLease)
     )
   }).pipe(
+    Effect.retry({
+      schedule: Schedule.spaced("100 millis"),
+      while: (error) => error === "pending"
+    }),
+    Effect.timeoutOrElse({
+      duration: BACKEND_START_DEADLINE,
+      orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))
+    }),
     Effect.catchTag("SpawnLockError", (error) =>
       Effect.fail(spawnLockUnavailable(error))
     )
@@ -35,9 +43,5 @@ const awaitEndpoint = readEndpoint.pipe(
   Effect.retry({
     schedule: Schedule.spaced("100 millis"),
     while: (error) => error === "pending"
-  }),
-  Effect.timeoutOrElse({
-    duration: BACKEND_START_DEADLINE,
-    orElse: () => Effect.fail(new BackendUnavailable({ reason: "backend did not start in time" }))
   })
 )

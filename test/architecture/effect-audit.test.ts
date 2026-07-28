@@ -289,6 +289,28 @@ const expectedHostRules = [
   "A launcher delegates immediately to the Effect entry program or repository gate and contains only the commands required by that host."
 ] as const
 
+const expectedBoundaryEnforcement = {
+  "I-1. Frontend isolation": [
+    ".dependency-cruiser.cjs",
+    "test/architecture/i1-cli-isolation.test.ts",
+    "test/architecture/ipc-boundary.test.ts"
+  ],
+  "I-2. One AppLayer per state root": [
+    "test/architecture/backend-ownership.test.ts",
+    "backend.lock"
+  ],
+  "I-3. One discovery file per state root": [
+    "apps/server/test/integration/endpoint-file.test.ts",
+    "packages/client-ts/test/integration/find-or-spawn.test.ts",
+    "spawn lock"
+  ],
+  "I-4. Server lifetime: zero-connection shutdown": [
+    "apps/server/connection-tracker.ts",
+    "apps/server/composition/app.ts",
+    "apps/server/test/unit/harness.test.ts"
+  ]
+} as const
+
 const normalizeMarkdown = (source: string): string =>
   source.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim()).filter(Boolean).join(" ")
 
@@ -441,6 +463,39 @@ describe("Effect-only enforcement policy", () => {
         .map((line) => line.split(/\s+/))
 
       expect(records).toEqual(expectedCodeOwners)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("keeps referenced architecture policies present and pins I-1 through I-4 to enforcement", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
+      const referenceSources = yield* Effect.all([
+        fs.readFileString(path.join(root, "CODEOWNERS")),
+        fs.readFileString(path.join(root, "REVIEW.md")),
+        fs.readFileString(path.join(root, "docs/architecture/expand.c4"))
+      ])
+      for (const source of referenceSources) expect(source).toContain("BOUNDARIES.md")
+      const referencedPolicies = [...new Set(referenceSources.flatMap((source) =>
+        [...source.matchAll(/docs\/architecture\/[A-Z_]+\.md/g)].map((match) => match[0])
+      ))].sort()
+      const policies = yield* Effect.all(referencedPolicies.map((policy) =>
+        fs.readFileString(path.join(root, policy)).pipe(Effect.map((source) => [policy, source] as const))
+      ))
+      const boundaries = policies.find(([policy]) => policy === "docs/architecture/BOUNDARIES.md")?.[1] ?? ""
+      const invariantHeadings = [...boundaries.matchAll(/^## (I-[1-4]\. .+)$/gm)].map((match) => match[1] ?? "")
+
+      expect(referencedPolicies).toEqual([
+        "docs/architecture/BOUNDARIES.md",
+        "docs/architecture/EFFECT_ONLY.md"
+      ])
+      const enforcementEntries = Object.entries(expectedBoundaryEnforcement)
+      expect(invariantHeadings).toEqual(enforcementEntries.map(([heading]) => heading))
+      for (const [index, [heading, enforcement]] of enforcementEntries.entries()) {
+        const nextHeading = enforcementEntries[index + 1]?.[0] ?? "Modifying these invariants"
+        const section = markdownSection(boundaries, `## ${heading}`, `## ${nextHeading}`)
+        for (const reference of enforcement) expect(section).toContain(reference)
+      }
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("publishes the approved invariant and cumulative completion contract", () =>
