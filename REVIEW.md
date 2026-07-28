@@ -1,6 +1,6 @@
-# Reviewing `feat/architectural-foundation`
+# Reviewing `feature/effect-only-migration`
 
-A guided reading path for reviewing this branch. It is large — **478 commits, 368 files, ~26,400 insertions and only 60 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large — **649 commits, 467 files, 75,833 insertions and 363 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
@@ -9,6 +9,33 @@ This guide orders the review by the **dependency graph**: you read each layer on
 > - The module-order migration touched 55 configured TypeScript files across the graph. When an earlier stage shows a move-only diff, verify that the declaration body and owned comments stayed intact; Stage 7b explains the rule and the few non-mechanical transformations.
 > - Time estimates are for a careful human review. The full path is ~10–12 hours. If you can't spend that, jump to **[The fast path](#the-fast-path-4-5-hours)**.
 > - The whole branch is built to satisfy four load-bearing invariants (**I-1 … I-4**). Stage 0 explains them; every later stage references them.
+
+## Effect-only migration certification
+
+The implementation was reviewed and certified at `e7d9fc62cc0460d1a402a1bff654c8a75ab24743` relative to merge base `9a5fa7830d9445b1ef0b9c7682481a5b45acb57d`.
+
+### Permanent guarantees
+
+- The Effect language-service gate collects `error`, `warning`, and `message`. Live warnings and messages are zero; the only diagnostics are the exact registered `nodeBuiltinImport` errors.
+- `npm run effect:audit` is a permanent zero-finding gate. The migration baseline, updater command, and comparison APIs are removed.
+- `effect-candidate-inventory.json` closes the lexical search with 261 exact candidates and zero advisories: 60 host boundaries, 61 analyzer-proven lexical false positives, 133 audit fixtures, and 7 host-required types.
+- `effect-executable-inventory.json` closes executable discovery with 28 entrypoints and 94 invocation links across manifests, runners, child APIs, wrappers, exports, Electron, esbuild, and shebangs.
+- HTTP transport teardown is bounded while its separately owned core scope closes without abandonment. Failed backend spawners release election ownership so a contender can take over within the original deadline.
+- Packaged renderer loading, navigation, and IPC admission share one exact canonical file identity. MessagePort, callback, synchronization, mutation, process, and cleanup lifecycles are scoped and supervised, with cleanup failure, defect, and interruption Causes preserved.
+- `docs/architecture/BOUNDARIES.md` and `docs/architecture/EFFECT_ONLY.md` are complementary load-bearing policies. Architecture tests require the complete I-1 through I-4 enforcement map and every mapped path to exist.
+
+### Fresh final evidence
+
+- Clean root and architecture-doc installs preserved lockfiles at SHA-256 `e7dd3a5af435971242555c24123d97d0c3f76e1be6205b2e380199bda258f1dc` and `a838b86b2eb505de4e8d07fc9c05c196462491189ddfbca8dfd82076c56f3e7b`.
+- Agent synchronization, diagnostics, audit, raw grep, candidate and executable inventories, ESLint, all TypeScript projects, dependency-cruiser, root/docs Knip, and the five-manifest policy passed.
+- Full Vitest passed 167 files and 1,423 tests plus one expected failure. Benchmark self-check and all six smoke scenarios passed.
+- Root, contracts, client SDK, CLI/server binary, and desktop builds passed. Package certification, compiled-binary certification, and Electron E2E passed 6/6.
+- Named manual runtime certification passed 20/20: all 16 CLI rows plus endpoint advertisement, wrong-token rejection, backend reuse, and final-client shutdown.
+- Named desktop runtime certification passed all 9 exposed flows, with zero failures and the one planned `SKIP_NOT_EXPOSED`; every mutation converged in both the renderer and the compiled CLI against the same isolated data directory.
+- React Doctor remained at the accepted 83/100 changed-scope baseline. Final whole-branch review reported no Critical or Important findings.
+- Package, tarball, staging, temporary-directory, process, CDP, whitespace, comment, and clean-tree checks passed.
+
+The supplemental architecture-document build exported all seven LikeC4 PNG views and generated all seven D2 sources, then stopped at the unavailable external `d2` executable (`spawn d2 ENOENT`). The required architecture behavior gate passed independently.
 
 ---
 
