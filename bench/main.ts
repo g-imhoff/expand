@@ -138,6 +138,5 @@ const benchmarkHostLayer = makeBenchmarkHostLayer({
 
 NodeRuntime.runMain(main().pipe(
   Effect.scoped,
-  Effect.provide(benchmarkHostLayer),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(Layer.mergeAll(benchmarkHostLayer, NodeServices.layer))
 ), { disableErrorReporting: true })

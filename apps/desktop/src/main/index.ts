@@ -17,6 +17,7 @@ import { Effect } from "effect"
 import { electronBindDeps } from "@expand/electron-ipc/main-electron"
 import { makeRuntime } from "@expand/desktop/main/runtime"
 import {
+  DesktopMainError,
   mainProgram,
   type CspHost,
   type DesktopAppHost,
@@ -26,7 +27,9 @@ import {
 
 const appHost: DesktopAppHost = {
   isPackaged: app.isPackaged,
-  ready: Effect.tryPromise(() => app.whenReady()),
+  ready: Effect.tryPromise(() => app.whenReady()).pipe(
+    Effect.mapError((cause) => new DesktopMainError({ reason: "host", cause }))
+  ),
   appendSwitch: (name, value) => app.commandLine.appendSwitch(name, value),
   disableHardwareAcceleration: () => app.disableHardwareAcceleration(),
   onBeforeQuit: (listener) => {
@@ -103,8 +106,12 @@ const createWindow = (options: ConstructorParameters<typeof BrowserWindow>[0]): 
       }
     },
     setWindowOpenHandler: (handler) => webContents.setWindowOpenHandler(handler),
-    loadUrl: (url) => Effect.tryPromise(() => browserWindow.loadURL(url)),
-    loadFile: (path) => Effect.tryPromise(() => browserWindow.loadFile(path)),
+    loadUrl: (url) => Effect.tryPromise(() => browserWindow.loadURL(url)).pipe(
+      Effect.mapError((cause) => new DesktopMainError({ reason: "host", cause }))
+    ),
+    loadFile: (path) => Effect.tryPromise(() => browserWindow.loadFile(path)).pipe(
+      Effect.mapError((cause) => new DesktopMainError({ reason: "host", cause }))
+    ),
     isDestroyed: () => browserWindow.isDestroyed(),
     destroy: () => browserWindow.destroy()
   }

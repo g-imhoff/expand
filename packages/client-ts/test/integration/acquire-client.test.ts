@@ -21,8 +21,7 @@ describe("acquireClient", () => {
       const dir = yield* makeTempDirectoryScoped("expand-acquire-")
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const { client, endpoint } = yield* acquireClient(nodeAdapter).pipe(
-        Effect.provide(ProcessServices.layer),
-        Effect.provide(Layer.succeed(AppContext, context))
+        Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context)))
       )
       const health = yield* client.Health()
       expect(health).toBe("ok")
@@ -81,5 +80,5 @@ describe("acquireClient", () => {
         fixture.client.Health().pipe(Effect.timeout("1 second"))
       ))).toBe(true)
       expect(yield* fs.exists(fixture.directory)).toBe(false)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)))
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))))
 })

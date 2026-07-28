@@ -14,8 +14,10 @@
 // ============================================================================
 import { createRequire } from "node:module"
 import { it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import { describe, expect } from "vitest"
+
+class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{ readonly cause: unknown }> {}
 
 const loadPatterns = Effect.try({
   try: () => {
@@ -26,7 +28,7 @@ const loadPatterns = Effect.try({
     const raw = config.options.exclude.path
     return (typeof raw === "string" ? [raw] : raw).map((pattern) => new RegExp(pattern))
   },
-  catch: (cause) => cause
+  catch: (cause) => new ConfigLoadError({ cause })
 })
 
 const MUST_STAY_CRUISED = [

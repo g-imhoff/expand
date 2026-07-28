@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, Exit, FileSystem, Path } from "effect"
+import { Cause, Console, Data, Effect, Exit, FileSystem, Path } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 export class ArchitectureBuildError extends Data.TaggedError("ArchitectureBuildError")<{
@@ -106,8 +106,17 @@ export const buildArchitecture = Effect.fn("ArchitectureBuild.build")(
       yield* Console.log("✓ built png in ./out and svg in ./out-svg")
     })
 
-    yield* workflow.pipe(
-      Effect.onExit((exit) => Exit.isFailure(exit) ? cleanOutputs(root).pipe(Effect.ignore) : Effect.void)
+    return yield* Effect.uninterruptibleMask((restore) =>
+      Effect.exit(restore(workflow)).pipe(
+        Effect.flatMap((primary) => {
+          if (Exit.isSuccess(primary)) return Effect.succeed(primary.value)
+          return Effect.exit(cleanOutputs(root)).pipe(
+            Effect.flatMap((cleanup) => Exit.isFailure(cleanup)
+              ? Effect.failCause(Cause.combine(primary.cause, cleanup.cause))
+              : Effect.failCause(primary.cause))
+          )
+        })
+      )
     )
   }
 )

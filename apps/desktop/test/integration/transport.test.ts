@@ -54,9 +54,11 @@ const makePort = (started: Queue.Queue<void>, closed?: Deferred.Deferred<void>) 
   return {
     port: {
       postMessage: (_message: unknown) => {},
-      on: (_event: "message", callback: Listener) => { listener = callback },
-      off: (_event: "message", callback: Listener) => {
-        if (listener === callback) listener = undefined
+      on: (event: "message" | "close", callback: Listener | (() => void)) => {
+        if (event === "message") listener = callback as Listener
+      },
+      off: (event: "message" | "close", callback: Listener | (() => void)) => {
+        if (event === "message" && listener === callback) listener = undefined
       },
       start: () => { Queue.offerUnsafe(started, undefined) },
       close: () => {

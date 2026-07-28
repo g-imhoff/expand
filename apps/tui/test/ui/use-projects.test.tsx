@@ -9,7 +9,7 @@ import { ProjectRenamed } from "@expand/contracts/events/project"
 import { runProjectSync } from "@expand/contracts/project-sync"
 import { App } from "@expand/tui/components/app"
 import { makeEffectRunner } from "@expand/tui/effect-runner"
-import { tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
+import { TuiHostError, tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
 import { useProjects } from "@expand/tui/use-projects"
 import {
   fakeProject,
@@ -377,7 +377,10 @@ describe("tuiProgram", () => {
       }))
 
       expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(failure)
+      if (Exit.isFailure(exit)) {
+        expect(Cause.squash(exit.cause)).toBeInstanceOf(TuiHostError)
+        expect(Cause.squash(exit.cause)).toMatchObject({ operation: "render", cause: failure })
+      }
       expect(disposals).toBe(1)
     }))
 })

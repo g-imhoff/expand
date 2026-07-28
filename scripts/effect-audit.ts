@@ -65,7 +65,7 @@ const LanguageDiagnostic = Schema.Struct({
   length: Schema.optionalKey(NonNegativeInt),
   line: PositiveInt,
   column: Schema.optionalKey(PositiveInt),
-  severity: Schema.Literals(["error", "message"]),
+  severity: Schema.Literals(["error", "warning", "message"]),
   name: Schema.String,
   message: Schema.String
 })
@@ -277,7 +277,7 @@ const commandRequests = (root: string): ReadonlyArray<AuditCommandRequest> => [
   {
     name: "language-service",
     command: "effect-language-service",
-    args: ["diagnostics", "--project", "tsconfig.effect-audit.json", "--format", "json", "--severity", "error,message"],
+    args: ["diagnostics", "--project", "tsconfig.effect-audit.json", "--format", "json", "--severity", "error,warning,message"],
     cwd: root,
     acceptedExitCodes: [0, 1]
   },
@@ -344,7 +344,7 @@ export const isRegisteredNodeBuiltinDiagnostic = (options: {
     readonly name: string
     readonly start: number
     readonly length?: number | undefined
-    readonly severity: "error" | "message"
+    readonly severity: "error" | "warning" | "message"
   }
   readonly occurrences: ReadonlyArray<{
     readonly identity: {
@@ -589,8 +589,7 @@ const program = Effect.gen(function*() {
     Effect.mapError((error) => auditError("invalid-output", error instanceof ExecutableInventoryError ? error.detail : String(error)))
   )
 }).pipe(
-  Effect.provide(AuditCommandRunnerLive),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

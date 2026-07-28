@@ -120,8 +120,8 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
       sleep: (duration) => clock.sleep(Duration.min(duration, Duration.millis(500)))
     })
     const node = NodeHttpServer.layerTest
-    const serverLayer = Layer.mergeAll(HttpRouter.serve(rpc, { disableLogger: true }), node).pipe(
-      Layer.provide(node)
+    const serverLayer = HttpRouter.serve(rpc, { disableLogger: true }).pipe(
+      Layer.provideMerge(node)
     )
     const serverScope = yield* Scope.fork(serverOwnerScope)
     yield* Scope.addFinalizer(serverScope, Effect.suspend(() => serverCloseDefect === undefined
@@ -483,7 +483,7 @@ describe("ClientSession", () => {
         )
       ).pipe(Effect.result)
       expect(Result.isFailure(result)).toBe(true)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)))
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))))
 
   it.live("publishes connected, reconnecting, connected across reacquisition", () =>
     runReconnectScenario((session) => SubscriptionRef.changes(session.status).pipe(
@@ -493,7 +493,7 @@ describe("ClientSession", () => {
       Effect.tap((observed) => Effect.sync(() =>
         expect(Array.from(observed)).toEqual(["connected", "reconnecting", "connected"])
       )),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("invalidates the stale epoch before publishing reconnecting", () =>
@@ -501,25 +501,25 @@ describe("ClientSession", () => {
       Effect.tap((result) => Effect.sync(() =>
         expect(result.currentResolvedWhileReconnecting).toBe(false)
       )),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("does not publish an epoch that disconnects after acquisition", () =>
     runAcquireDisconnectRaceScenario().pipe(
       Effect.tap((result) => Effect.sync(() => expect(result).toBe("retrying"))),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("closes an owned acquisition scope when acquisition is interrupted", () =>
     runInterruptedAcquireScopeScenario().pipe(
       Effect.tap((closed) => Effect.sync(() => expect(closed).toBe(true))),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("consumes an acquisition pause only once", () =>
     runOneShotAcquirePauseScenario().pipe(
       Effect.tap((completed) => Effect.sync(() => expect(completed).toBe(true))),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("closes and clears the server while preserving direct cleanup failures", () =>
@@ -536,7 +536,7 @@ describe("ClientSession", () => {
         expect(Exit.isSuccess(ownerExit)).toBe(true)
         expect(backend.hasCurrentServer()).toBe(false)
       })),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("preserves endpoint cleanup failures as scope-finalizer defects", () =>
@@ -552,7 +552,7 @@ describe("ClientSession", () => {
         }
         expect(backend.hasCurrentServer()).toBe(false)
       })),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("publishes a healthy internal acquire retry after a stale transport disconnects", () =>
@@ -563,7 +563,7 @@ describe("ClientSession", () => {
         expect(result.health).toBe("ok")
         expect(result.status).toBe("connected")
       })),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ), 10_000)
 
   it.live("current waits for and returns the next epoch", () =>
@@ -572,7 +572,7 @@ describe("ClientSession", () => {
         expect(result.second).not.toBe(result.first)
         expect(result.health).toBe("ok")
       })),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 
   it.live("scope closure publishes disconnected and interrupts retry", () =>
@@ -581,7 +581,7 @@ describe("ClientSession", () => {
         expect(result.status).toBe("disconnected")
         expect(result.retryFiberInterrupted).toBe(true)
       })),
-      Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ))
 })
 

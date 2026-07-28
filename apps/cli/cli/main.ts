@@ -46,8 +46,7 @@ export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand: b
 
 if (import.meta.main) {
   renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(
-    Effect.provide(CliOutput.layer(jsonCliErrorFormatter)),
-    Effect.provide(ProcessServices.layer),
+    Effect.provide(Layer.mergeAll(CliOutput.layer(jsonCliErrorFormatter), ProcessServices.layer)),
     NodeRuntime.runMain
   )
 }

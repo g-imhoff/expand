@@ -1,7 +1,7 @@
 // Renderer interpreter: Effect-based typed client over the preload bridge.
 // Encodes outbound payloads, decodes everything inbound (decode-for-fidelity:
 // structured clone flattens branded types/Dates). MUST NOT import "electron".
-import { Data, Effect, Option, Queue, Schema, Stream } from "effect"
+import { Crypto, Data, Effect, Option, PlatformError, Queue, Schema, Stream } from "effect"
 import type {
   AnyIpcChannel,
   EventChannel,
@@ -34,7 +34,7 @@ export interface MakeIpcClientOptions {
   readonly bridge: () => unknown
   /** The window object — used both to listen for port grants and as the trusted event.source identity. */
   readonly win: RendererWindowLike
-  readonly nonce?: () => string
+  readonly nonce?: Effect.Effect<string, unknown, Crypto.Crypto>
   readonly timeoutMillis?: number
 }
 
@@ -50,6 +50,19 @@ export type IpcClientOf<C extends IpcContract> = {
           : never
 }
 
+export const browserCrypto = Crypto.make({
+  randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
+  digest: (algorithm, data) => Effect.tryPromise({
+    try: () => crypto.subtle.digest(algorithm, data.slice().buffer),
+    catch: (cause) => PlatformError.systemError({
+      _tag: "Unknown",
+      module: "Crypto",
+      method: "digest",
+      cause
+    })
+  }).pipe(Effect.map((value) => new Uint8Array(value)))
+})
+
 export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeIpcClientOptions): IpcClientOf<C> => {
   type InvokeBridgeMember = IpcBridgeOf<IpcContract<string, { readonly invoke: InvokeChannel }>>["invoke"]
   type SendBridgeMember = (payload: unknown) => void
@@ -57,7 +70,9 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
   type PortBridgeMember = (nonce: string) => void
 
   const timeoutMillis = options.timeoutMillis ?? 10_000
-  const makeNonce = options.nonce ?? (() => crypto.randomUUID.call(crypto))
+  const makeNonce: Effect.Effect<string, unknown, Crypto.Crypto> = options.nonce ?? Crypto.Crypto.pipe(
+    Effect.flatMap((cryptoService) => cryptoService.randomUUIDv4)
+  )
 
   const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
     schema as unknown as Schema.Codec<unknown, unknown>
@@ -109,10 +124,11 @@ export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeI
   })
 
   const acquireNonce = Effect.fn("ElectronIpcRenderer.acquireNonce")(() =>
-    Effect.try({
-      try: makeNonce,
-      catch: (error) => new IpcTransportError({ reason: "transport", message: `nonce acquisition failed: ${error}` })
-    }))
+    makeNonce.pipe(
+      Effect.mapError(
+        (error) => new IpcTransportError({ reason: "transport", message: `nonce acquisition failed: ${error}` })
+      )
+    ))
 
   const client: Record<string, unknown> = {}
 

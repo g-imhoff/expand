@@ -188,7 +188,7 @@ describe.sequential("ProjectSync integration", () => {
       yield* handle.exitCode.pipe(Effect.timeout("5 seconds"))
       const status = yield* processControl.probe(pid)
       expect(status).toBe("dead")
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 15_000)
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))), 15_000)
 
   it.live("cleans a backend when acquisition is interrupted before PID capture", () =>
     Effect.scoped(Effect.gen(function*() {
@@ -226,7 +226,7 @@ describe.sequential("ProjectSync integration", () => {
       yield* Scope.close(fixtureScope, Exit.fail("forced pre-capture interruption"))
       expect(yield* processControl.probe(observedPid)).toBe("dead")
       expect(yield* fs.exists(directory)).toBe(false)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 15_000)
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))), 15_000)
 
   it.live("cleans a replacement when reacquisition is interrupted before PID capture", () =>
     Effect.scoped(Effect.gen(function*() {
@@ -290,7 +290,7 @@ describe.sequential("ProjectSync integration", () => {
       }).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
       expect(yield* processControl.probe(replacementPid)).toBe("dead")
       expect(yield* fs.exists(directory)).toBe(false)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 20_000)
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))), 20_000)
 
   it.live("folds a mutation from one client into another client's sink", () =>
     Effect.scoped(Effect.gen(function*() {
@@ -350,7 +350,7 @@ describe.sequential("ProjectSync integration", () => {
       yield* Scope.close(fixtureScope, Exit.void)
       expect(yield* processControl.probe(fixture.pid)).toBe("dead")
       expect(yield* fs.exists(fixture.dir)).toBe(false)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 30_000)
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))), 30_000)
 
   it.live("resnapshots after ClientLayer kills and reacquires the backend", () =>
     Effect.scoped(Effect.gen(function*() {
@@ -423,5 +423,5 @@ describe.sequential("ProjectSync integration", () => {
       yield* Scope.close(fixtureScope, Exit.void)
       expect(yield* processControl.probe(fixture.pid)).toBe("dead")
       expect(yield* fs.exists(fixture.dir)).toBe(false)
-    })).pipe(Effect.provide(ProcessServices.layer), Effect.provide(NodeServices.layer)), 60_000)
+    })).pipe(Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))), 60_000)
 })

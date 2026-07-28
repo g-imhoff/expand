@@ -2,7 +2,7 @@ import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 import { it } from "@effect/vitest"
-import { Crypto, Effect, FileSystem, Path } from "effect"
+import { Layer, Crypto, Effect, FileSystem, Path } from "effect"
 import * as TypeScript from "typescript"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import {
@@ -25,10 +25,9 @@ describe("FOLD_VERSIONS generation", () => {
 
   it.effect("reports a missing fold node in the typed error channel", () =>
     computeFoldHashes("/repo").pipe(
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
         readFileString: () => Effect.succeed("export const Different = 1\n")
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.provideService(Crypto.Crypto, Crypto.make({
         randomBytes: (size) => new Uint8Array(size),
         digest: (_algorithm, bytes) => Effect.succeed(bytes)

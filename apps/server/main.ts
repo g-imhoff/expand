@@ -42,12 +42,11 @@ process.umask(0o077)
 NodeRuntime.runMain(
   program.pipe(
     Effect.provideServiceEffect(References.MinimumLogLevel, minimumLogLevel),
-    Effect.provide(nodeAppContextLayer),
-    Effect.provide(
-      NodeProcessControl.ProcessServices.layer satisfies Layer.Layer<
+    Effect.provide(nodeAppContextLayer.pipe(
+      Layer.provideMerge(NodeProcessControl.ProcessServices.layer satisfies Layer.Layer<
         NodeServices.NodeServices | import("@expand/contracts/process-control").ProcessControl
-      >
-    )
+      >)
+    ))
   ),
   {
     teardown: (exit, onExit) =>

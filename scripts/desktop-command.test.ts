@@ -1,6 +1,6 @@
 import * as NodePlatform from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, Fiber, Path } from "effect"
+import { Layer, Effect, Fiber, Path } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
 import { DesktopCommandError, runDesktopCommand } from "./desktop-command"
@@ -16,8 +16,7 @@ describe("desktop command", () => {
   it.effect("runs dev with the exact electron-vite arguments and desktop cwd", () => {
     const fixture = processSpawnerFixture([0])
     return runDesktopCommand("/repo", "dev").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(Path.layer),
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([{
           command: "electron-vite",
@@ -35,8 +34,7 @@ describe("desktop command", () => {
   it.effect("runs build with the exact electron-vite arguments and desktop cwd", () => {
     const fixture = processSpawnerFixture([0])
     return runDesktopCommand("/repo", "build").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(Path.layer),
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([{
           command: "electron-vite",
@@ -53,8 +51,7 @@ describe("desktop command", () => {
   it.effect("runs e2e as build followed by Playwright with exact arguments", () => {
     const fixture = processSpawnerFixture([0, 0])
     return runDesktopCommand("/repo", "e2e").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(Path.layer),
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([
           {
@@ -81,8 +78,7 @@ describe("desktop command", () => {
   it.effect("tags nonzero exits and does not continue e2e", () => {
     const fixture = processSpawnerFixture([6])
     return runDesktopCommand("/repo", "e2e").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(Path.layer),
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toEqual(new DesktopCommandError({ command: "electron-vite", exitCode: 6 }))
@@ -95,8 +91,7 @@ describe("desktop command", () => {
     const fixture = processSpawnerFixture([], { neverExitAt: 0 })
     return Effect.gen(function*() {
       const fiber = yield* runDesktopCommand("/repo", "dev").pipe(
-        Effect.provide(fixture.layer),
-        Effect.provide(Path.layer),
+        Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
         Effect.forkChild({ startImmediately: true })
       )
       yield* Effect.yieldNow

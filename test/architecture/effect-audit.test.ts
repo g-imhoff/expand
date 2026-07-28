@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema } from "effect"
+import { Layer, Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
 import { parse as parseYaml } from "yaml"
 import { AuditCommandRunner, AuditCommandRunnerLive, runAudit } from "../../scripts/effect-audit"
@@ -266,8 +266,7 @@ const expectedPolicyHeadings = [
   "Required Effect shapes",
   "Host adapters and launchers",
   "Commands",
-  "Migration inventories",
-  "Changing an exception",
+  "Permanent ratchets",
   "Completion"
 ] as const
 
@@ -351,8 +350,7 @@ describe("Effect grep architecture", () => {
       expect(new Set(currentKeys).size).toBe(currentKeys.length)
       expect(currentKeys).toEqual(inventoryKeys)
     }).pipe(
-      Effect.provide(AuditCommandRunnerLive),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
     ), 120_000)
 
 })
@@ -464,16 +462,12 @@ describe("Effect-only enforcement policy", () => {
         "## Repository-Wide Invariants",
         "## Scope"
       )
-      const designCompletion = markdownSection(
-        design,
-        "## Completion Evidence",
-        "## Delivery and Review"
-      )
       const policyBoundary = markdownSection(policy, "# Effect-only boundary", "## Pure code stays pure")
       const policyPure = markdownSection(policy, "## Pure code stays pure", "## Required Effect shapes")
       const policyEffects = markdownSection(policy, "## Required Effect shapes", "## Host adapters and launchers")
       const policyHosts = markdownSection(policy, "## Host adapters and launchers", "## Commands")
-      const policyCommands = markdownSection(policy, "## Commands", "## Migration inventories")
+      const policyCommands = markdownSection(policy, "## Commands", "## Permanent ratchets")
+      const policyRatchets = markdownSection(policy, "## Permanent ratchets", "## Completion")
       const policyCompletion = markdownSection(policy, "## Completion")
       const headings = [...policy.matchAll(/^#{1,6} (.+)$/gm)].map((match) => match[1] ?? "")
 
@@ -489,11 +483,14 @@ describe("Effect-only enforcement policy", () => {
       expect(bulletItems(policyHosts)).toEqual(expectedHostRules)
       expect(policyCommands).toContain("npm run effect:grep")
       expect(policyCommands).toContain("npm run effect:audit")
-      expect(numberedItems(designCompletion)).toHaveLength(10)
-      expect(numberedItems(policyCompletion)).toEqual(numberedItems(designCompletion))
-      expect(normalizeMarkdown(policyCompletion).startsWith(normalizeMarkdown(designCompletion))).toBe(true)
+      expect(policyCommands).toContain("npm run effect:candidates")
+      expect(policyCommands).toContain("npm run effect:launchers")
+      expect(policyRatchets).toContain("zero warnings")
+      expect(policyRatchets).toContain("zero unregistered candidates")
+      expect(policyRatchets).toContain("zero unregistered executables")
+      expect(numberedItems(policyCompletion)).toHaveLength(10)
       expect(paragraphs(policyCompletion).at(-1)).toBe(
-        "Semantic, grep, and launcher migration debt must all reach zero before temporary ledgers or migration-only validation are deleted."
+        "Search output, a narrow test, or the absence of obvious Promise syntax is not sufficient. The permanent audit, candidate gate, executable gate, behavior tests, runtime certification, and review evidence are cumulative."
       )
     }).pipe(Effect.provide(NodeServices.layer)))
 })

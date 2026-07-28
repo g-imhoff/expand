@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, FileSystem, Path, Schedule, Stdio } from "effect"
+import { Layer, Console, Data, Effect, FileSystem, Path, Schedule, Stdio } from "effect"
 import { dataDirFromArgs } from "@expand/contracts/app-context"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
@@ -81,8 +81,7 @@ export const archiveStaleProgram = Effect.scoped(Effect.gen(function*() {
   }
   yield* archiveMissingProjects()
 })).pipe(
-  Effect.provide(clientLayer(adapter)),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(clientLayer(adapter).pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

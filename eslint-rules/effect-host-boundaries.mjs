@@ -3,7 +3,6 @@ const nodeHttpImport = "platform:import:node:http"
 const nodeOsImport = "platform:import:node:os"
 const nodePathImport = "platform:import:node:path"
 const nodeUrlImport = "platform:import:node:url"
-const cryptoRandomUUID = "platform:crypto.randomUUID"
 const processCwd = "platform:process.cwd"
 const processExecPath = "platform:process.execPath"
 const processArgv = "platform:process.argv"
@@ -714,9 +713,23 @@ export const effectHostBoundaries = Object.freeze([
   }),
   Object.freeze({
     file: "packages/electron-ipc/renderer.ts",
-    declaration: "variable:makeNonce",
-    host: "Browser renderer nonce acquisition",
-    construct: cryptoRandomUUID,
+    declaration: "member:browserCrypto.randomBytes",
+    host: "Browser Crypto random-byte adapter",
+    construct: "platform:crypto.getRandomValues",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/renderer.ts",
+    declaration: "member:browserCrypto.try",
+    host: "Browser SubtleCrypto digest adapter",
+    construct: "platform:crypto.subtle",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/renderer.ts",
+    declaration: "member:browserCrypto.try",
+    host: "Browser SubtleCrypto digest Promise ABI",
+    construct: "signature:PromiseLike",
     occurrence: 0
   }),
   Object.freeze({

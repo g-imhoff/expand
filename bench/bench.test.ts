@@ -42,8 +42,7 @@ const testHost = Layer.succeed(BenchmarkHost, BenchmarkHost.of({
 }))
 
 const benchmarkServices = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
-  Effect.provide(testHost),
-  Effect.provide(NodeServices.layer),
+  Effect.provide(Layer.mergeAll(testHost, NodeServices.layer)),
   Effect.scoped
 )
 
@@ -68,12 +67,11 @@ describe("benchmark host and reporting", () => {
       expect(report.replaceAll(" ", "·")).toMatchSnapshot()
       expect(toJsonReport([measurement], metadata)).toMatchSnapshot()
     }).pipe(
-      Effect.provide(Layer.succeed(BenchmarkHost, BenchmarkHost.of({
+      Effect.provide(Layer.mergeAll(Layer.succeed(BenchmarkHost, BenchmarkHost.of({
         rss: Effect.succeed(0),
         gc: Effect.void,
         machineInfo: Effect.succeed(machine)
-      }))),
-      Effect.provide(TestClock.layer())
+      })), TestClock.layer()))
     ))
 
   it.effect("handles an unavailable host GC and samples without native intervals", () =>

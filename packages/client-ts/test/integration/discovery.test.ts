@@ -1,10 +1,10 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer as effectLayer } from "@effect/vitest"
-import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
 import { expect } from "vitest"
 import { ProcessServices } from "../process-services"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
-import { readEndpoint } from "../../discovery"
+import { deleteEndpoint, readEndpoint } from "../../discovery"
 import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
@@ -81,6 +81,33 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
       const context = yield* appContext("malformed")
       yield* fs.writeFileString(context.paths.endpointFile, "{ not json")
       expect(Option.isNone(yield* run("malformed", readEndpoint))).toBe(true)
+    }))
+
+  it.effect("deleteEndpoint ignores NotFound and propagates permission failure", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const context = yield* appContext("delete")
+      const notFound = PlatformError.systemError({
+        _tag: "NotFound",
+        module: "FileSystem",
+        method: "remove",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const permission = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "remove",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const withRemove = (error: PlatformError.PlatformError) => deleteEndpoint.pipe(
+        Effect.provideService(AppContext, context),
+        Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+          ...fs,
+          remove: () => Effect.fail(error)
+        }))
+      )
+      yield* withRemove(notFound)
+      expect(yield* Effect.flip(withRemove(permission))).toBe(permission)
     }))
 
   it.effect("resolves a relative AppContext root from the supplied current directory", () =>

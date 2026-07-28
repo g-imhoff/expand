@@ -54,7 +54,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const listed = (yield* (program)) as {
       projects: ReadonlyArray<{
@@ -102,7 +102,7 @@ describe.sequential("durability across a backend restart", () => {
       )
       const listed = yield* boot((client) => client.ProjectList({ includeArchived: true }))
       return { ids, listed }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const r = (yield* (program)) as {
       ids: { keepId: string; doomedId: string }
@@ -142,7 +142,7 @@ describe.sequential("durability across a backend restart", () => {
         })
       )
       return yield* boot((client) => client.ProjectList({ includeArchived: true }))
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const listed = (yield* (program)) as { seq: number; projects: ReadonlyArray<{ name: string }> }
     expect(listed.seq).toBe(3)

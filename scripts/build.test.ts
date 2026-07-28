@@ -1,6 +1,6 @@
 import * as NodePlatform from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path } from "effect"
+import { Layer, Effect, FileSystem, Path } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import { BuildTool, buildBinaries, type BuildError } from "./build"
 
@@ -24,12 +24,11 @@ describe("buildBinaries", () => {
           operations.push(`build:${String(options.outfile)}:${typeof firstEntry === "string" ? firstEntry : ""}`)
         })
       }),
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
         remove: (target) => Effect.sync(() => operations.push(`remove:${target}`)),
         makeDirectory: (target) => Effect.sync(() => operations.push(`mkdir:${target}`)),
         chmod: (target, mode) => Effect.sync(() => operations.push(`chmod:${target}:${mode.toString(8)}`))
-      })),
-      Effect.provide(pathLayer),
+      }), pathLayer)),
       Effect.tap(() => Effect.sync(() => {
         expect(operations).toEqual([
           "remove:/repo/dist",
@@ -59,15 +58,13 @@ describe("buildBinaries", () => {
 
       let chmodCalls = 0
       const error = yield* module.buildBinaries("/repo").pipe(
-        Effect.provide(module.BuildToolLive),
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(module.BuildToolLive, FileSystem.layerNoop({
           remove: () => Effect.void,
           makeDirectory: () => Effect.void,
           chmod: () => Effect.sync(() => {
             chmodCalls += 1
           })
-        })),
-        Effect.provide(pathLayer),
+        }), pathLayer)),
         Effect.flip
       )
       expect(error).toEqual(new module.BuildError({ operation: "esbuild", cause }))

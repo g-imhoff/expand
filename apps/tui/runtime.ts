@@ -1,5 +1,5 @@
 import { createContext } from "react"
-import { Layer, ManagedRuntime } from "effect"
+import { Data, Layer, ManagedRuntime } from "effect"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
@@ -15,6 +15,11 @@ import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { nodeAppContextLayer } from "@expand/tui/node-app-context"
+
+export class TuiHostError extends Data.TaggedError("TuiHostError")<{
+  readonly operation: "render" | "wait"
+  readonly cause: unknown
+}> {}
 
 export interface TuiProgramDeps {
   readonly makeRuntime: () => ExpandRuntime
@@ -43,10 +48,15 @@ export const tuiProgram = Effect.fn("Tui.tuiProgram")(function* (deps: TuiProgra
         (ownedRuntime) => ownedRuntime.disposeEffect
       )
       const ink = yield* Effect.acquireRelease(
-        Effect.try({ try: () => deps.render(runtime), catch: (cause) => cause }),
+        Effect.try({
+          try: () => deps.render(runtime),
+          catch: (cause) => new TuiHostError({ operation: "render", cause })
+        }),
         (rendered) => Effect.sync(rendered.unmount)
       )
-      yield* Effect.tryPromise(() => ink.waitUntilExit())
+      yield* Effect.tryPromise(() => ink.waitUntilExit()).pipe(
+        Effect.mapError((cause) => new TuiHostError({ operation: "wait", cause }))
+      )
     })
   )
 })

@@ -8,7 +8,7 @@ export class AuditFinding extends Schema.Class<AuditFinding>("AuditFinding")({
   declaration: Schema.String,
   construct: Schema.String,
   occurrence: NonNegativeInt,
-  severity: Schema.Literals(["error", "message"]),
+  severity: Schema.Literals(["error", "warning", "message"]),
   line: Schema.optionalKey(PositiveInt),
   excerpt: Schema.optionalKey(Schema.String)
 }) {}

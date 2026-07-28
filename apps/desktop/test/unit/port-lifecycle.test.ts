@@ -15,8 +15,14 @@ const makeEndpoint = (name: string, events: Array<string>) => {
   return {
     name,
     postMessage: (_message: unknown) => {},
-    on: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
-    off: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
+    on: (
+      _event: "message" | "close",
+      _listener: ((event: { data: unknown }) => void) | (() => void)
+    ) => {},
+    off: (
+      _event: "message" | "close",
+      _listener: ((event: { data: unknown }) => void) | (() => void)
+    ) => {},
     start: () => {},
     close: () => {
       closes += 1
@@ -41,7 +47,7 @@ const makeHarness = Effect.fn("DesktopPortLifecycleTest.makeHarness")(function* 
   const windowScope = yield* Scope.make()
   const callbacks = yield* FiberSet.make()
   const dispatchEffect = yield* FiberSet.runtime(callbacks)<never>()
-  const lifecycle = yield* wirePortLifecycle({
+  const lifecycle = yield* wirePortLifecycle<ReturnType<typeof makeEndpoint>, never>({
     onNavigation: (listener) => {
       navigation = listener
       return () => {

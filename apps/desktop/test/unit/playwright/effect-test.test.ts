@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { NodeServices } from "@effect/platform-node"
 import type { TestInfo } from "@playwright/test"
-import { Cause, Effect, Exit, FileSystem, Path, type Scope } from "effect"
+import { Cause, Data, Effect, Exit, FileSystem, Path, type Scope } from "effect"
 import { describe, expect, vi } from "vitest"
 import {
   makeTestEffect,
@@ -35,6 +35,10 @@ const registrationHarness = () => {
   }
 }
 
+class PlaywrightCallbackError extends Data.TaggedError("PlaywrightCallbackError")<{
+  readonly cause: unknown
+}> {}
+
 const invoke = (
   callback: RegisteredCallback,
   testInfo = fakeTestInfo(),
@@ -44,9 +48,9 @@ const invoke = (
     try: () => callback(fakeFixtures, testInfo) as never,
     catch: (cause) => {
       onPropagation?.()
-      return cause
+      return new PlaywrightCallbackError({ cause })
     }
-  })
+  }).pipe(Effect.mapError((error) => error.cause))
 
 const observeCause = <E, R>(
   effect: Effect.Effect<void, E, R>,

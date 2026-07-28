@@ -165,8 +165,7 @@ describe.sequential("trust boundary", () => {
         orElse: () => Effect.fail("early exit was not surfaced" as const)
       }),
       Effect.flip,
-      Effect.provide(ProcessServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir))))
     )
     expect(error).toBe(
       "trust boundary fixture exited with nonzero code 9: stdout= stderr=node: bad option: --definitely-invalid-expand-option\n"
@@ -186,7 +185,7 @@ describe.sequential("trust boundary", () => {
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
       return addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const hostname = yield* (program)
     expect(hostname).toBe("127.0.0.1")
@@ -210,7 +209,7 @@ describe.sequential("trust boundary", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return { advertisedHost, loopback, offLoopback }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const r = yield* (program)
     expect(r.advertisedHost).toBe("127.0.0.1")
@@ -241,7 +240,7 @@ describe.sequential("trust boundary", () => {
         })
       )
       return { noToken, wrongToken, health }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const r = yield* (program)
     expect(r.noToken).toBe("closed")
@@ -265,7 +264,7 @@ describe.sequential("trust boundary", () => {
       const fileInfo = yield* fs.stat(file)
       const dirInfo = yield* fs.stat(home)
       return { fileMode: Number(fileInfo.mode & 0o777), dirMode: Number(dirInfo.mode & 0o777) }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, home))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, home)))))
 
     const r = yield* (program)
     expect(r.fileMode).toBe(0o600)
@@ -286,8 +285,7 @@ describe.sequential("trust boundary", () => {
       return yield* Effect.fail("forced endpoint setup failure" as const)
     }).pipe(
       Effect.scoped,
-      Effect.provide(ProcessServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir))))
     ))
     expect(Exit.isFailure(exit)).toBe(true)
     expect(yield* FileSystem.FileSystem.pipe(
@@ -314,7 +312,7 @@ describe.sequential("trust boundary", () => {
       })
       const info = yield* fs.stat(file)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     expect(yield* (program)).toBe(0o600)
   }))
@@ -330,7 +328,7 @@ describe.sequential("trust boundary", () => {
       const info = yield* fs.stat(dbPath)
       yield* Fiber.interrupt(serverFiber)
       return Number(info.mode & 0o777)
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     expect(yield* (program)).toBe(0o600)
   }))
@@ -358,7 +356,7 @@ describe.sequential("trust boundary", () => {
       const shm = yield* mode(`${dbPath}-shm`)
       const dirMode = yield* mode(dataDir)
       return { db, wal, shm, dirMode }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dataDir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dataDir)))))
 
     const r = yield* program
     expect(r.db, "events.db must be owner-only").toBe(0o600)
@@ -380,7 +378,7 @@ describe.sequential("trust boundary", () => {
       const realToken = yield* probeWs(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
       yield* Fiber.interrupt(serverFiber)
       return { sameLengthWrong, realToken }
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const r = yield* (program)
     expect(r.sameLengthWrong).toBe("closed")

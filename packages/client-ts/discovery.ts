@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Option, Schema } from "effect"
+import { Effect, FileSystem, Option, PlatformError, Schema } from "effect"
 import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessProbeError } from "@expand/contracts/process-control"
@@ -24,9 +24,14 @@ export const readEndpoint: Effect.Effect<
     return Option.some(endpoint)
   })
 
-export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem | AppContext> =
+export const deleteEndpoint: Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem | AppContext> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext
-    yield* fs.remove(paths.endpointFile).pipe(Effect.ignore)
+    yield* fs.remove(paths.endpointFile).pipe(
+      Effect.catchIf(
+        (error) => error instanceof PlatformError.PlatformError && error.reason._tag === "NotFound",
+        () => Effect.void
+      )
+    )
   })

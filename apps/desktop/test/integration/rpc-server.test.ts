@@ -93,7 +93,12 @@ const makePortPair = Effect.fn("DesktopRpcServerTest.makePortPair")(function* ()
   ))
   const server: MainPortLike = {
     postMessage: (message) => { Queue.offerUnsafe(toRenderer, message) },
-    on: (_event, callback) => { serverListener = callback },
+    on: (event, callback) => {
+      if (event === "message") serverListener = callback as (event: { data: unknown }) => void
+    },
+    off: (event, callback) => {
+      if (event === "message" && serverListener === callback) serverListener = null
+    },
     start: () => { Queue.offerUnsafe(serverStarted, undefined) }
   }
   const renderer: RendererPortLike = {

@@ -86,7 +86,7 @@ describe("acquireRpcPort", () => {
           (owned) => Effect.sync(() => owned.close())
         )
         const fiber = yield* Effect.forkChild(
-          acquireRpcPort({ bridge: () => bridge, win, nonce: () => "n-1", timeoutMillis: 200 })
+          acquireRpcPort({ bridge: () => bridge, win, nonce: Effect.succeed("n-1"), timeoutMillis: 200 })
         )
         expect(yield* waitForDeferred(requested)).toBe("n-1")
         win.fire({

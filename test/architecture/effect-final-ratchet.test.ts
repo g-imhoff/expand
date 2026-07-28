@@ -34,9 +34,23 @@ describe("final Effect ratchet", () => {
         ["canUpdate", "Baseline"].join(""),
         ["Audit", "Baseline", "Json"].join(""),
         ["compare", "Audit"].join(""),
-        ["shrinkGrep", "Inventory"].join("")
+        ["shrinkGrep", "Inventory"].join(""),
+        ["migration", " ledger"].join(""),
+        ["migration", " inventories"].join("")
       ]
-      const roots = ["package.json", "scripts", "test", "eslint-rules", ".github", ".githooks"]
+      const roots = [
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.effect-audit.json",
+        "eslint.effect.config.mjs",
+        ".dependency-cruiser.cjs",
+        "docs/architecture",
+        "scripts",
+        "test",
+        "eslint-rules",
+        ".github",
+        ".githooks"
+      ]
       const files = [] as Array<string>
       for (const entry of roots) {
         const absolute = path.join(root, entry)
@@ -53,6 +67,21 @@ describe("final Effect ratchet", () => {
 
       expect(yield* fs.exists(path.join(root, baselineName))).toBe(false)
       expect(references).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("documents only permanent zero-drift Effect gates", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const policy = yield* fs.readFileString("docs/architecture/EFFECT_ONLY.md")
+      expect(policy).toContain("npm run effect:audit")
+      expect(policy).toContain("npm run effect:candidates")
+      expect(policy).toContain("npm run effect:launchers")
+      expect(policy).toContain("zero warnings")
+      expect(policy).toContain("zero unregistered candidates")
+      expect(policy).toContain("zero unregistered executables")
+      expect(policy).not.toContain(["effect:audit", ":update"].join(""))
+      expect(policy).not.toContain(["migration", " ledger"].join(""))
+      expect(policy).not.toContain(["migration", " inventories"].join(""))
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("keeps source coverage free of inline disables and broad Effect exemptions", () =>

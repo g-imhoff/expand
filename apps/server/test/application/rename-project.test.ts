@@ -41,8 +41,7 @@ describe("ProjectUseCases.renameProject", () => {
       expect(renamed.updatedAt).toBe("2025-01-01T01:00:00.000Z")
     }).pipe(
       Effect.provideService(Crypto.Crypto, crypto),
-      Effect.provide(layer()),
-      Effect.provide(TestClock.layer())
+      Effect.provide(Layer.mergeAll(layer(), TestClock.layer()))
     )
   })
 

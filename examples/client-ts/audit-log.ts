@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Cause, Console, Data, Deferred, Effect, Exit, Fiber, FileSystem, Option, Ref, Schema, Stdio, Stream, SubscriptionRef } from "effect"
+import { Layer, Cause, Console, Data, Deferred, Effect, Exit, Fiber, FileSystem, Option, Ref, Schema, Stdio, Stream, SubscriptionRef } from "effect"
 import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
@@ -116,8 +116,7 @@ export const auditLogProgram = Effect.scoped(Effect.gen(function*() {
   const args = yield* (yield* Stdio.Stdio).args
   yield* runAuditLog(args[0] ?? "")
 })).pipe(
-  Effect.provide(clientLayer(adapter)),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(clientLayer(adapter).pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

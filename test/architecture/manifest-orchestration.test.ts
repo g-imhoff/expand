@@ -251,12 +251,12 @@ describe("manifest orchestration", () => {
       expect(effectGrep).toBeTypeOf("string")
       expect(commandViolations(effectGrep ?? "")).toEqual([])
       expect(rootScripts).toEqual({
-        "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
+        "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,warning,message",
         "effect:audit": "tsx scripts/effect-audit.ts",
         "effect:candidates": "vitest run test/architecture/effect-candidate-inventory.test.ts",
         "effect:launchers": "vitest run test/architecture/effect-executable-inventory.test.ts",
-        "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
-        "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
+        "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,warning,message",
+        "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,warning,message",
         "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json",
         typecheck: "tsc --noEmit",
         "gen:fold-version": "tsx scripts/fold-version.ts",

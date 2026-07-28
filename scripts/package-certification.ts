@@ -420,8 +420,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
 const program = Path.Path.pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))),
   Effect.flatMap(certifyPackages),
-  Effect.provide(PackageCertificationCommandRunnerLive),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(PackageCertificationCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

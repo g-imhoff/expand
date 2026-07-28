@@ -38,8 +38,7 @@ describe("example: archive-stale", () => {
       list: () => Effect.fail({ reason: "rpc" })
     } as unknown as ProjectClientApi
     return archiveStale.pipe(
-      Effect.provide(FileSystem.layerNoop({})),
-      Effect.provide(clientLayer(client)),
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({}), clientLayer(client))),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toBeInstanceOf(ArchiveRpcError)

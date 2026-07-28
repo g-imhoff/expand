@@ -1,4 +1,4 @@
-import { Effect, Queue, type Scope, Stream } from "effect"
+import { Deferred, Effect, Exit, Queue, Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
@@ -9,8 +9,14 @@ import { supervised } from "@expand/desktop/main/lib/supervised"
 
 export interface MainPortLike {
   postMessage: (message: unknown) => void
-  on: (event: "message", cb: (e: { data: unknown }) => void) => void
-  off?: (event: "message", cb: (e: { data: unknown }) => void) => void
+  on: {
+    (event: "message", cb: (event: { data: unknown }) => void): void
+    (event: "close", cb: () => void): void
+  }
+  off: {
+    (event: "message", cb: (event: { data: unknown }) => void): void
+    (event: "close", cb: () => void): void
+  }
   start: () => void
   close?: () => void
 }
@@ -30,20 +36,37 @@ const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPo
     Effect.fnUntraced(function* (writeRequest) {
       const serialization = yield* RpcSerialization.RpcSerialization
       const parser = serialization.makeUnsafe()
+      const ownerScope = yield* Scope.Scope
+      const protocolScope = yield* Scope.fork(ownerScope)
       const inbound = yield* Queue.make<string | Uint8Array>()
       const disconnects = yield* Queue.make<number>()
-      yield* Effect.addFinalizer(() =>
+      const remoteClosed = yield* Deferred.make<void>()
+      yield* Scope.addFinalizer(protocolScope,
         Effect.all([Queue.shutdown(inbound), Queue.shutdown(disconnects)], { discard: true })
       )
       const listener = (e: { data: unknown }) => {
         Queue.offerUnsafe(inbound, e.data as string | Uint8Array)
       }
+      const closeListener = () => {
+        Queue.offerUnsafe(disconnects, 0)
+        Deferred.doneUnsafe(remoteClosed, Effect.void)
+      }
       yield* Effect.acquireRelease(
-        Effect.sync(() => port.on("message", listener)),
+        Effect.sync(() => {
+          port.on("message", listener)
+          port.on("close", closeListener)
+        }),
         () =>
-          Effect.sync(() => port.off?.("message", listener)).pipe(
+          Effect.sync(() => {
+            port.off("message", listener)
+            port.off("close", closeListener)
+          }).pipe(
             Effect.ensuring(Effect.sync(() => port.close?.()))
           )
+      ).pipe(Scope.provide(protocolScope))
+      yield* Deferred.await(remoteClosed).pipe(
+        Effect.andThen(Scope.close(protocolScope, Exit.void)),
+        Effect.forkScoped
       )
       yield* Effect.sync(() => port.start())
       yield* Stream.fromQueue(inbound).pipe(
@@ -52,7 +75,8 @@ const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPo
           return Effect.forEach(requests, (request) => writeRequest(0, request), { discard: true })
         }),
         (eff) => supervised("desktop-main rpc inbound", eff),
-        Effect.forkScoped
+        Effect.forkScoped,
+        Scope.provide(protocolScope)
       )
       return {
         disconnects,

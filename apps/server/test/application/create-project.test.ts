@@ -93,8 +93,7 @@ describe("ProjectUseCases.createProject", () => {
     }).pipe(
       Effect.scoped,
       Effect.provideService(Crypto.Crypto, deterministic.crypto),
-      Effect.provide(layer()),
-      Effect.provide(TestClock.layer())
+      Effect.provide(Layer.mergeAll(layer(), TestClock.layer()))
     )
   })
 
@@ -109,8 +108,7 @@ describe("ProjectUseCases.createProject", () => {
       expect(deterministic.reads()).toBe(2)
     }).pipe(
       Effect.provideService(Crypto.Crypto, deterministic.crypto),
-      Effect.provide(layer()),
-      Effect.provide(TestClock.layer())
+      Effect.provide(Layer.mergeAll(layer(), TestClock.layer()))
     )
   })
 })

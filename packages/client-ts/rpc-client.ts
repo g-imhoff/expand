@@ -65,6 +65,11 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
         reason: `process probe failed for pid ${error.pid}: ${String(error.cause)}`
       }))
     ),
+    Effect.catchTag("PlatformError", (error) =>
+      Effect.fail(new BackendUnavailable({
+        reason: `stale endpoint cleanup failed: ${String(error)}`
+      }))
+    ),
     Effect.catchTag("StaleEndpoint", (e) => Effect.fail(new BackendUnavailable({ reason: e.reason })))
   )
 })

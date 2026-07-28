@@ -47,16 +47,13 @@ const normalizedRepositoryFiles = Effect.fn("EffectAuditTest.normalizedRepositor
   }
 )
 
-const trackedTypeScriptFiles = Effect.fn("EffectAuditTest.trackedTypeScriptFiles")(
-  function*() {
+const trackedTypeScriptFiles = Effect.gen(function*() {
     const report = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     expect(report.exitCode, report.stderr).toBe(0)
     return yield* normalizedRepositoryFiles(report.stdout.split("\0").filter(isTypeScriptFile))
-  }
-)()
+})
 
-const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
-  function*() {
+const resolvedAuditFiles = Effect.gen(function*() {
     const report = yield* runCommand("npm", [
       "exec",
       "--",
@@ -76,13 +73,12 @@ const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
         !relative.split(path.sep).includes("node_modules")
     })
     return yield* normalizedRepositoryFiles(files)
-  }
-)()
+})
 
 const expectedScripts = {
-  "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
-  "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
-  "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
+  "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,warning,message",
+  "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,warning,message",
+  "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,warning,message",
   "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json"
 }
 

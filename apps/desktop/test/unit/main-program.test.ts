@@ -3,7 +3,7 @@ import { NodePath } from "@effect/platform-node"
 import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
 import { describe, expect } from "vitest"
 import type { IpcMainLike } from "@expand/electron-ipc/main"
-import { mainProgram, type CspHost, type MainProgramDeps } from "@expand/desktop/main/program"
+import { DesktopMainError, mainProgram, type CspHost, type MainProgramDeps } from "@expand/desktop/main/program"
 
 const waitFor = Deferred.await
 const fiberExit = Fiber.await
@@ -17,6 +17,8 @@ interface HarnessOptions {
   readonly disposalDefect?: Error
   readonly blockDisposal?: boolean
   readonly blockPortFinalizer?: boolean
+  readonly portFinalizerDefect?: Error
+  readonly portFinalizerInterrupt?: boolean
   readonly windowDisposalDefect?: Error
 }
 
@@ -53,6 +55,9 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   let portFinalizerStarts = 0
   let portFinalizerCompletions = 0
   let portCloseCalls = 0
+  const loadedUrls: Array<string> = []
+  const loadedFiles: Array<string> = []
+  let portGrants = 0
   const ipcListeners = new Map<string, Parameters<IpcMainLike["on"]>[1]>()
   const ipcHandlers = new Map<string, Parameters<IpcMainLike["handle"]>[1]>()
   const frame = { url: "file:///app/index.html", detached: false }
@@ -86,7 +91,11 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
               Effect.andThen(Deferred.succeed(portFinalizationStarted, undefined)),
               Effect.andThen(waitFor(releasePortFinalization)),
               Effect.tap(() => Effect.sync(() => { portFinalizerCompletions += 1 })),
-              Effect.tap(() => Deferred.succeed(portFinalizationDone, undefined))
+              Effect.tap(() => Deferred.succeed(portFinalizationDone, undefined)),
+              Effect.andThen(options.portFinalizerInterrupt === true ? Effect.interrupt : Effect.void),
+              Effect.andThen(options.portFinalizerDefect === undefined
+                ? Effect.void
+                : Effect.die(options.portFinalizerDefect))
             )
           ).pipe(Effect.andThen(Effect.never))
         )
@@ -141,7 +150,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       target: {
         webContents,
         mainFrame: frame,
-        postToRenderer: (_channel: string, _payload: unknown, _transfer: ReadonlyArray<unknown>) => {}
+        postToRenderer: (_channel: string, _payload: unknown, _transfer: ReadonlyArray<unknown>) => { portGrants += 1 }
       }
     },
     onClosed: (listener: () => void) => {
@@ -167,12 +176,14 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       }
     },
     setWindowOpenHandler: (_handler: (details: { url: string }) => { action: "deny" }) => {},
-    loadUrl: (_url: string) => Deferred.succeed(loadStarted, undefined).pipe(
+    loadUrl: (url: string) => Effect.sync(() => { loadedUrls.push(url) }).pipe(
+      Effect.andThen(Deferred.succeed(loadStarted, undefined)),
       Effect.andThen(waitFor(loadResult)),
       Effect.flatten,
       Effect.tap(() => Deferred.succeed(windowLoaded, undefined))
     ),
-    loadFile: (_path: string) => Deferred.succeed(loadStarted, undefined).pipe(
+    loadFile: (path: string) => Effect.sync(() => { loadedFiles.push(path) }).pipe(
+      Effect.andThen(Deferred.succeed(loadStarted, undefined)),
       Effect.andThen(waitFor(loadResult)),
       Effect.flatten,
       Effect.tap(() => Deferred.succeed(windowLoaded, undefined))
@@ -199,8 +210,14 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     makeMessageChannel: () => {
       const endpoint = () => ({
         postMessage: (_message: unknown) => {},
-        on: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
-        off: (_event: "message", _listener: (event: { data: unknown }) => void) => {},
+        on: (
+          _event: "message" | "close",
+          _listener: ((event: { data: unknown }) => void) | (() => void)
+        ) => {},
+        off: (
+          _event: "message" | "close",
+          _listener: ((event: { data: unknown }) => void) | (() => void)
+        ) => {},
         start: () => {},
         close: () => { portCloseCalls += 1 }
       })
@@ -256,7 +273,9 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       destroyed = true
       closed?.()
     },
-    fireRpcPortRequest: () => {
+    fireNavigation: () => { navigation?.({ isSameDocument: false }) },
+    fireRpcPortRequest: (url = frame.url) => {
+      frame.url = url
       ipcListeners.get("expand:rpcPort:request")?.(
         { sender: webContents, senderFrame: frame },
         { nonce: "test" }
@@ -268,6 +287,9 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     portFinalizerStarts: () => portFinalizerStarts,
     portFinalizerCompletions: () => portFinalizerCompletions,
     portCloseCalls: () => portCloseCalls,
+    loadedUrls,
+    loadedFiles,
+    portGrants: () => portGrants,
     isCspInstalled: () => cspListener !== undefined,
     hasIpcListener: () => ipcListeners.size > 0,
     hasNavigationListener: () => navigation !== undefined || willNavigate !== undefined
@@ -278,6 +300,39 @@ const start = (harness: Effect.Success<ReturnType<typeof makeHarness>>) =>
   harness.program.pipe(Effect.forkChild({ startImmediately: true }))
 
 describe("mainProgram startup and shutdown", () => {
+  it.effect("ignores a hostile renderer URL in packaged mode for loading and IPC authorization", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          packaged: true,
+          environment: { ELECTRON_RENDERER_URL: "https://attacker.example/app" }
+        })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        expect(harness.loadedUrls).toEqual([])
+        expect(harness.loadedFiles).toHaveLength(1)
+        harness.fireRpcPortRequest("https://attacker.example/app")
+        yield* Effect.yieldNow
+        expect(harness.portGrants()).toBe(0)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("rejects an invalid development renderer URL with DesktopMainError", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({ environment: { ELECTRON_RENDERER_URL: "not a url" } })
+      const error = yield* Effect.flip(harness.program)
+      expect(error).toBeInstanceOf(DesktopMainError)
+      expect(error).toMatchObject({ reason: "invalid-renderer-url", value: "not a url" })
+      expect(harness.loadedUrls).toEqual([])
+      expect(harness.loadedFiles).toEqual([])
+    }))
+
   it.effect("configures host switches before readiness and keeps backend acquisition lazy through renderer load", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -527,6 +582,54 @@ describe("mainProgram window ownership", () => {
         expect(harness.portFinalizerStarts()).toBe(1)
         expect(harness.portFinalizerCompletions()).toBe(1)
         expect(harness.portCloseCalls()).toBe(1)
+      })
+    ))
+
+  it.effect("fails the application when a callback-owned cleanup defects", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const callbackDefect = new Error("callback cleanup failed")
+        const harness = yield* makeHarness({
+          packaged: true,
+          windowDisposalDefect: callbackDefect
+        })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireClosed()
+        const exit = yield* fiberExit(fiber)
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(callbackDefect)
+        expect(harness.finalQuitCalls()).toBe(1)
+      })
+    ))
+
+  it.effect("keeps callback interruption from failing the application lifecycle", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({
+          packaged: true,
+          blockPortFinalizer: true,
+          portFinalizerInterrupt: true
+        })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireRpcPortRequest()
+        yield* waitFor(harness.contextStarted)
+        harness.fireNavigation()
+        yield* waitFor(harness.portFinalizationStarted)
+        yield* harness.releasePortFinalization
+        yield* waitFor(harness.portFinalizationDone)
+        expect(fiber.pollUnsafe()).toBeUndefined()
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
       })
     ))
 

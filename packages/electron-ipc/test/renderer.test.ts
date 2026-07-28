@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Cause, Effect, Exit, Fiber, FiberSet, Option, Queue, Ref, Schema, Stream } from "effect"
+import { Cause, Crypto, Effect, Exit, Fiber, FiberSet, Option, Queue, Ref, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, expect } from "vitest"
 import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
@@ -151,12 +151,12 @@ const makeFakeBridge = Effect.fn("ElectronIpcRendererTest.makeBridge")(function*
 const makeClient = (
   bridge: FakeBridge,
   win: FakeWindow,
-  options: { readonly nonce?: () => string; readonly timeoutMillis?: number } = {}
+  options: { readonly nonce?: Effect.Effect<string, unknown, Crypto.Crypto>; readonly timeoutMillis?: number } = {}
 ) =>
   makeIpcClient(Sample, {
     bridge: () => bridge.api,
     win,
-    nonce: options.nonce ?? (() => "fixed-nonce"),
+    nonce: options.nonce ?? Effect.succeed("fixed-nonce"),
     ...(options.timeoutMillis === undefined ? {} : { timeoutMillis: options.timeoutMillis })
   })
 
@@ -361,6 +361,44 @@ describe("renderer event ownership", () => {
 })
 
 describe("renderer port exchange ownership", () => {
+  it.effect("uses the Effect Crypto service for the default nonce and accepts an Effect-valued override", () =>
+    Effect.gen(function* () {
+      const defaultBridge = yield* makeFakeBridge()
+      const defaultWindow = makeFakeWindow()
+      const crypto = Crypto.Crypto.of({
+        randomUUIDv4: Effect.succeed("crypto-nonce")
+      } as unknown as Crypto.Crypto)
+      const defaultFiber = yield* makeIpcClient(Sample, {
+        bridge: () => defaultBridge.api,
+        win: defaultWindow
+      }).rpcPort.pipe(
+        Effect.provideService(Crypto.Crypto, crypto),
+        Effect.forkChild({ startImmediately: true })
+      )
+      yield* Effect.yieldNow
+      expect(defaultBridge.portRequests).toEqual(["crypto-nonce"])
+      grant(defaultWindow, defaultWindow, {
+        _tag: "IpcPortGrant",
+        channel: "sample:rpcPort",
+        nonce: "crypto-nonce"
+      })
+      yield* Fiber.join(defaultFiber)
+
+      const overrideBridge = yield* makeFakeBridge()
+      const overrideWindow = makeFakeWindow()
+      const overrideFiber = yield* makeClient(overrideBridge, overrideWindow, {
+        nonce: Effect.succeed("effect-nonce")
+      }).rpcPort.pipe(Effect.forkChild({ startImmediately: true }))
+      yield* Effect.yieldNow
+      expect(overrideBridge.portRequests).toEqual(["effect-nonce"])
+      grant(overrideWindow, overrideWindow, {
+        _tag: "IpcPortGrant",
+        channel: "sample:rpcPort",
+        nonce: "effect-nonce"
+      })
+      yield* Fiber.join(overrideFiber)
+    }))
+
   it.effect("installs the exact listener before requesting and removes it once after a matching grant", () =>
     Effect.gen(function* () {
       const events: Array<string> = []
@@ -404,9 +442,7 @@ describe("renderer port exchange ownership", () => {
       const nonceWin = makeFakeWindow()
       const nonceError = yield* transportFailure(
         makeClient(nonceBridge, nonceWin, {
-          nonce: () => {
-            throw new Error("nonce defect")
-          }
+          nonce: Effect.fail(new IpcTransportError({ reason: "transport", message: "nonce defect" }))
         }).rpcPort
       )
       expect(nonceError.reason).toBe("transport")

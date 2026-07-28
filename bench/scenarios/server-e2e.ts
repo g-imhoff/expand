@@ -64,8 +64,7 @@ export const withServer = Effect.fn("Benchmark.withServer")(function*<A>(
     return { wallMs: Duration.toMillis(elapsed), result: out.result }
   }).pipe(
     Effect.scoped,
-    Effect.provide(ProcessServices.layer),
-    Effect.provide(Layer.succeed(AppContext, makeBenchAppContext(path, dir)))
+    Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeBenchAppContext(path, dir))))
   )
   // no cast: if the environment is not fully provided, runPromise must fail to typecheck
   return yield* program

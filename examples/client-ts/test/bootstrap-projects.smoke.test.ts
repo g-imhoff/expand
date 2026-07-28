@@ -20,8 +20,7 @@ describe("example: bootstrap-projects", () => {
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toEqual(new BootstrapInvalidInputError({ root: "" }))
       })),
-      Effect.provide(clientLayer({} as ProjectClientApi)),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(Layer.mergeAll(clientLayer({} as ProjectClientApi), NodeServices.layer))
     ))
 
   it.effect("reports list RPC failures through the typed channel", () => {
@@ -29,9 +28,7 @@ describe("example: bootstrap-projects", () => {
       list: () => Effect.fail({ reason: "rpc" })
     } as unknown as ProjectClientApi
     return bootstrapProjects("/root").pipe(
-      Effect.provide(FileSystem.layerNoop({ readDirectory: () => Effect.succeed([]) })),
-      Effect.provide(Path.layer),
-      Effect.provide(clientLayer(client)),
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({ readDirectory: () => Effect.succeed([]) }), Path.layer, clientLayer(client))),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toBeInstanceOf(BootstrapRpcError)

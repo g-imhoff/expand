@@ -1,7 +1,7 @@
 import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Cause, Effect, Exit, FileSystem, Fiber, Path, PlatformError } from "effect"
+import { Layer, Cause, Effect, Exit, FileSystem, Fiber, Path, PlatformError } from "effect"
 import { describe, expect, vi } from "vitest"
 import { parse as parseToml } from "smol-toml"
 import { runCommand } from "../test/support/effect-process"
@@ -385,7 +385,7 @@ describe("syncAgents", () => {
       .map((file) => file.slice(directory.length + 1))
 
     return syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
         exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
         readDirectory: (directory) => Effect.succeed(entries(directory)),
         readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
@@ -405,8 +405,7 @@ describe("syncAgents", () => {
         remove: (target) => Effect.sync(() => {
           files.delete(target)
         })
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         const writes = operations.filter((operation) => operation.startsWith("write:"))
         const renames = operations.filter((operation) => operation.startsWith("rename:"))
@@ -435,7 +434,7 @@ describe("syncAgents", () => {
     })
 
     return syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
         exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
         readDirectory: (directory) => Effect.succeed(entries(directory)),
         readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
@@ -455,8 +454,7 @@ describe("syncAgents", () => {
         remove: (target) => Effect.sync(() => {
           files.delete(target)
         })
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.flip,
       Effect.tap(() => Effect.sync(() => {
         expect(renames).toBe(0)
@@ -490,7 +488,7 @@ describe("syncAgents", () => {
     })
 
     return syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
         exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
         readDirectory: (directory) => Effect.succeed(entries(directory)),
         readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
@@ -513,8 +511,7 @@ describe("syncAgents", () => {
         remove: (target) => Effect.sync(() => {
           files.delete(target)
         })
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toMatchObject({
@@ -555,7 +552,7 @@ describe("syncAgents", () => {
 
     return Effect.gen(function*() {
       const exit = yield* Effect.exit(syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
           readDirectory: (directory) => Effect.succeed(entries(directory)),
           readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
@@ -580,8 +577,7 @@ describe("syncAgents", () => {
             : Effect.sync(() => {
               files.delete(target)
             })
-        })),
-        Effect.provide(Path.layer)
+        }), Path.layer))
       ))
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isSuccess(exit)) return
@@ -618,7 +614,7 @@ describe("syncAgents", () => {
 
     return Effect.gen(function*() {
       const program = syncAgents({ rootDir: "/repo", mode: "write" }).pipe(
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           exists: (target) => Effect.succeed(directories.has(target) || files.has(target)),
           readDirectory: (directory) => Effect.succeed(entries(directory)),
           readFileString: (target) => Effect.succeed(files.get(target) ?? ""),
@@ -642,8 +638,7 @@ describe("syncAgents", () => {
           remove: (target) => Effect.sync(() => {
             files.delete(target)
           })
-        })),
-        Effect.provide(Path.layer)
+        }), Path.layer))
       )
       const fiber = yield* Effect.forkChild(program)
       yield* Effect.yieldNow

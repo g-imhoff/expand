@@ -136,8 +136,7 @@ const runSharedLayerScenario = () => {
       serverHealthEpoch: serverHealth
     }
   }).pipe(
-    Effect.provide(clientLayer(adapter)),
-    Effect.provide(ProcessServices.layer)
+    Effect.provide(clientLayer(adapter).pipe(Layer.provideMerge(ProcessServices.layer)))
   )
 }
 

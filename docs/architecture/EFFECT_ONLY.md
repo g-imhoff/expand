@@ -69,70 +69,71 @@ whole file, directory, or source tree is never an exception.
 
 ## Commands
 
-Use the broad discovery command for fast human feedback:
-
-```text
-npm run effect:grep
-```
-
 Run the authoritative cumulative gate locally:
 
 ```text
 npm run effect:audit
 ```
 
-Shrink inventories after removing measured debt:
+Validate every broad-search observation against its exact reviewed proof:
 
 ```text
-npm run effect:audit:update
+npm run effect:candidates
 ```
 
-Search output is intentionally broad. It helps discovery, but it neither proves
+Validate every executable entrypoint and invocation against its exact reviewed
+host, mode, and source fingerprint:
+
+```text
+npm run effect:launchers
+```
+
+`npm run effect:grep` remains a fast discovery aid. Its output neither proves
 compliance nor authorizes an exception.
 
-## Migration inventories
+## Permanent ratchets
 
-The semantic ledger records existing blocking diagnostics. The grep inventory
-classifies every broad-search candidate, and the launcher inventory records
-every executable host path, mode, classification, host, and source fingerprint.
-These inventories are exact migration ratchets rather than permanent allowances.
+The audit executes the official language service once for errors, warnings, and
+messages, the repository semantic rule, exact host-boundary validation, tracked
+source coverage, candidate validation, and executable validation. It requires
+zero warnings, rejects every unrecognized message, and permits only exact
+registered host diagnostics.
 
-The update command may preserve an inventory or remove migration debt after the
-corresponding source has changed. It cannot create a missing inventory or infer
-a new classification. Non-debt classifications and fingerprints remain
-reviewed registry data.
+The candidate gate requires zero unregistered candidates. Each retained search
+observation has one exact source identity and reviewed proof. The executable
+gate requires zero unregistered executables and exact entrypoint, invocation,
+mode, host, and fingerprint agreement.
 
-## Changing an exception
-
-The update command is shrink-only. It cannot initialize a missing ledger, add debt, reclassify records, refresh reviewed non-debt fingerprints, or broaden an exception.
-
-A legitimate permanent change requires an explicit reviewed registry edit with exact analyzer or fingerprint proof.
+There is no command that rewrites these records. A legitimate permanent change
+requires an explicit reviewed registry edit backed by current analyzer or
+fingerprint evidence.
 
 ## Completion
 
-The project is complete only when all of the following evidence exists from a
-fresh current checkout:
+The project remains compliant only when all of the following evidence exists
+from a fresh current checkout:
 
-1. `npm run effect:audit` passes the dedicated semantic project and repository
-   gates with zero unapproved diagnostics.
-2. Every `npm run effect:grep` match has one exact, validated candidate
-   classification; executable exceptions are registered host boundaries only.
-3. Architecture tests prove the audit is enabled, covers all tracked
-   first-party source and executable launcher roots, and has no broad
+1. `npm run effect:audit` passes with no blocking findings, zero warnings, and
+   no unrecognized language-service messages.
+2. `npm run effect:candidates` passes with zero unregistered candidates and an
+   exact classification for every discovery observation.
+3. `npm run effect:launchers` passes with zero unregistered executables and an
+   exact fingerprinted invocation for every executable boundary.
+4. Architecture tests prove coverage of every tracked first-party source,
+   canonical policy/configuration root, and executable entrypoint without broad
    exclusion.
-4. No native asynchronous control flow, ambient platform read, direct I/O, or
+5. No native asynchronous control flow, ambient platform read, direct I/O, or
    unowned resource remains outside an approved adapter.
-5. `npm run lint`, both TypeScript projects, dependency-cruiser, Knip, agent
-   synchronization checks, and the full Vitest suite pass.
-6. CLI and server builds pass compiled lifecycle certification.
-7. Electron builds and the complete Playwright suite pass.
-8. Library builds and publish-staging workflows pass.
-9. The project-scoped manual and desktop testers certify their runtime scopes.
-10. A broad final code review finds no policy gap, exemption drift, resource
-    leak, typed-error regression, or behavioral incompatibility.
+6. Static analysis, all TypeScript projects, dependency-cruiser, Knip, agent
+   synchronization, and the complete test suite pass.
+7. CLI, server, library, package, Electron, benchmark, and documentation builds
+   and certifications pass.
+8. Runtime CLI/backend and desktop lifecycle certification passes.
+9. Candidate and executable registries remain canonical and byte-stable under
+   validation.
+10. Review finds no policy gap, exemption drift, resource leak, typed-error
+    regression, or behavioral incompatibility.
 
-Search output, a green narrow test, or the absence of obvious Promise syntax is
-not sufficient by itself. The semantic audit, repository rule, behavior tests,
-runtime certification, and manual completion audit are cumulative evidence.
-
-Semantic, grep, and launcher migration debt must all reach zero before temporary ledgers or migration-only validation are deleted.
+Search output, a narrow test, or the absence of obvious Promise syntax is not
+sufficient. The permanent audit, candidate gate, executable gate, behavior
+tests, runtime certification, and review evidence are cumulative.

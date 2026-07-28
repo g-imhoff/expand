@@ -258,7 +258,7 @@ describe("renderer root ownership", () => {
         unmount: () => { rootUnmounts += 1 }
       }
       const rootEffect = Effect.scoped(Effect.acquireRelease(
-        acquireRpcPort({ bridge: () => bridge, win }),
+        acquireRpcPort({ bridge: () => bridge, win, nonce: Effect.succeed("nonce") }),
         (owned) => Effect.sync(() => owned.close())
       ).pipe(
         Effect.tap((owned) => Effect.sync(() => {

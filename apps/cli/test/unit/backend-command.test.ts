@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { ConfigProvider, Effect, FileSystem } from "effect"
+import { Layer, ConfigProvider, Effect, FileSystem } from "effect"
 import { describe, expect, expectTypeOf } from "vitest"
 import { type BackendCommandError } from "@expand/client-ts"
 import { backendCommand } from "@expand/cli/main"
@@ -18,11 +18,10 @@ describe("backendCommand", () => {
   it.effect("decodes the module URL and selects the source command", () => {
     const paths: Array<string> = []
     return backendCommand(moduleUrl).pipe(
-      Effect.provide(configLayer()),
-      Effect.provide(fileSystemLayer((path) => Effect.sync(() => {
+      Effect.provide(Layer.mergeAll(configLayer(), fileSystemLayer((path) => Effect.sync(() => {
         paths.push(path)
         return true
-      }))),
+      })))),
       Effect.tap((command) => Effect.sync(() => {
         expect(paths).toEqual([sourceEntry])
         expect(command).toEqual([expect.any(String), "--import", "tsx", sourceEntry])
@@ -32,8 +31,7 @@ describe("backendCommand", () => {
 
   it.effect("decodes the module URL and selects the adjacent compiled command", () =>
     backendCommand(moduleUrl).pipe(
-      Effect.provide(configLayer()),
-      Effect.provide(fileSystemLayer(() => Effect.succeed(false))),
+      Effect.provide(Layer.mergeAll(configLayer(), fileSystemLayer(() => Effect.succeed(false)))),
       Effect.tap((command) => Effect.sync(() => {
         expect(command).toEqual([expect.any(String), compiledEntry])
       }))
@@ -42,11 +40,10 @@ describe("backendCommand", () => {
   it.effect("uses a non-empty override without reading the filesystem", () => {
     let fileSystemReads = 0
     return backendCommand(moduleUrl).pipe(
-      Effect.provide(configLayer({ EXPAND_BACKEND_CMD: '["custom-server","--flag","snow-雪"]' })),
-      Effect.provide(fileSystemLayer(() => Effect.sync(() => {
+      Effect.provide(Layer.mergeAll(configLayer({ EXPAND_BACKEND_CMD: '["custom-server","--flag","snow-雪"]' }), fileSystemLayer(() => Effect.sync(() => {
         fileSystemReads += 1
         return true
-      }))),
+      })))),
       Effect.tap((command) => Effect.sync(() => {
         expect(command).toEqual(["custom-server", "--flag", "snow-雪"])
         expect(fileSystemReads).toBe(0)
@@ -59,11 +56,10 @@ describe("backendCommand", () => {
     const command = backendCommand(moduleUrl)
     expect(fileSystemReads).toBe(0)
     return command.pipe(
-      Effect.provide(configLayer()),
-      Effect.provide(fileSystemLayer(() => Effect.sync(() => {
+      Effect.provide(Layer.mergeAll(configLayer(), fileSystemLayer(() => Effect.sync(() => {
         fileSystemReads += 1
         return true
-      }))),
+      })))),
       Effect.tap(() => Effect.sync(() => {
         expect(fileSystemReads).toBe(1)
       }))

@@ -62,20 +62,33 @@ const makeMainPort = (
 ) => {
   const attached: Array<MessageListener> = []
   const detached: Array<MessageListener> = []
+  const closeAttached: Array<() => void> = []
+  const closeDetached: Array<() => void> = []
   let active: MessageListener | null = null
   let retained: MessageListener | null = null
+  let activeClose: (() => void) | null = null
   let starts = 0
   let closes = 0
   const port = {
     postMessage: (message: unknown) => { options?.postMessage?.(message) },
-    on: (_event: "message", listener: MessageListener) => {
-      attached.push(listener)
-      active = listener
-      retained = listener
+    on: (event: "message" | "close", listener: MessageListener | (() => void)) => {
+      if (event === "close") {
+        closeAttached.push(listener as () => void)
+        activeClose = listener as () => void
+      } else {
+        attached.push(listener as MessageListener)
+        active = listener as MessageListener
+        retained = listener as MessageListener
+      }
     },
-    off: (_event: "message", listener: MessageListener) => {
-      detached.push(listener)
-      if (active === listener) active = null
+    off: (event: "message" | "close", listener: MessageListener | (() => void)) => {
+      if (event === "close") {
+        closeDetached.push(listener as () => void)
+        if (activeClose === listener) activeClose = null
+      } else {
+        detached.push(listener as MessageListener)
+        if (active === listener) active = null
+      }
     },
     start: () => {
       starts += 1
@@ -88,7 +101,11 @@ const makeMainPort = (
     port,
     attached,
     detached,
+    closeAttached,
+    closeDetached,
     active: () => active,
+    activeClose: () => activeClose,
+    fireClose: () => { activeClose?.() },
     retained: () => retained,
     starts: () => starts,
     closes: () => closes
@@ -198,6 +215,32 @@ describe("desktop RPC port protocol lifecycle", () => {
       })
     ))
 
+  it.effect("main closes protocol resources when the remote port closes", () =>
+    Effect.gen(function* () {
+      const started = yield* Queue.unbounded<void>()
+      const mainLayer = yield* makeMainLayer()
+      const scope = yield* Scope.make()
+      const fake = makeMainPort(started)
+      const fiber = yield* runRpcServer(fake.port).pipe(
+        Effect.provide(mainLayer),
+        Scope.provide(scope),
+        Effect.forkChild({ startImmediately: true })
+      )
+
+      yield* Queue.take(started)
+      expect(fake.closeAttached).toHaveLength(1)
+      fake.fireClose()
+      yield* Effect.yieldNow
+      expect(fake.detached).toEqual([fake.attached[0]])
+      expect(fake.closeDetached).toEqual([fake.closeAttached[0]])
+      expect(fake.active()).toBeNull()
+      expect(fake.activeClose()).toBeNull()
+      expect(fake.closes()).toBe(1)
+      yield* Scope.close(scope, Exit.void)
+      yield* Fiber.interrupt(fiber)
+    })
+  )
+
   it.effect("main owns one stable listener and closes it with the scope", () =>
     Effect.gen(function* () {
       const started = yield* Queue.unbounded<void>()
@@ -214,13 +257,17 @@ describe("desktop RPC port protocol lifecycle", () => {
 
       yield* Queue.take(started)
       expect(fake.attached).toHaveLength(1)
+      expect(fake.closeAttached).toHaveLength(1)
       expect(fake.starts()).toBe(1)
       expect(fake.active()).toBe(fake.attached[0])
+      expect(fake.activeClose()).toBe(fake.closeAttached[0])
       expect(fake.closes()).toBe(0)
 
       yield* Scope.close(scope, Exit.void)
       expect(fake.detached).toEqual([fake.attached[0]])
+      expect(fake.closeDetached).toEqual([fake.closeAttached[0]])
       expect(fake.active()).toBeNull()
+      expect(fake.activeClose()).toBeNull()
       expect(fake.closes()).toBe(1)
       expect(() => fake.retained()?.({ data: "late" })).not.toThrow()
       yield* Fiber.interrupt(fiber)

@@ -31,8 +31,7 @@ const program = Effect.gen(function*() {
   const path = yield* Path.Path
   const context = makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })
   yield* runServer({ dbPath: path.join(dataDir, "events.db") }).pipe(
-    Effect.provide(ProcessServices.layer),
-    Effect.provide(Layer.succeed(AppContext, context))
+    Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context)))
   )
 })
 

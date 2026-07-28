@@ -1,5 +1,7 @@
 import {
+  Cause,
   Config,
+  Data,
   Deferred,
   Effect,
   Exit,
@@ -8,7 +10,6 @@ import {
   Path,
   Scope
 } from "effect"
-import type { Cause } from "effect"
 import type { IpcMainLike, WindowTargetLike } from "@expand/electron-ipc/main"
 import { bindIpc } from "@expand/electron-ipc/main"
 import type { MainPortLike } from "@expand/desktop/main/rpc/server"
@@ -21,6 +22,12 @@ import { hardenWebContents } from "@expand/desktop/main/security/harden-web-cont
 import { windowOptions } from "@expand/desktop/main/security/window-options"
 import { originRulesFor } from "@expand/desktop/main/ipc/origin-rules"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
+
+export class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
+  readonly reason: "invalid-renderer-url" | "host"
+  readonly value?: string
+  readonly cause?: unknown
+}> {}
 
 export interface DesktopRuntime extends RpcRuntime {
   readonly disposeEffect: Effect.Effect<void>
@@ -116,7 +123,9 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
   yield* hardenWebContents({
     onWillNavigate: browserWindow.onWillNavigate,
     setWindowOpenHandler: browserWindow.setWindowOpenHandler,
-    isAllowed: (url) => devUrl === undefined ? url.startsWith("file://") : url.startsWith(devUrl)
+    isAllowed: (url) => devUrl === undefined
+      ? url.startsWith("file://")
+      : isSameOrigin(url, devUrl)
   })
   const ports = yield* wirePortLifecycle({
     onNavigation: browserWindow.onNavigation,
@@ -146,7 +155,10 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
     const devtools = yield* Config.option(Config.string("EXPAND_DEVTOOLS_CDP"))
     const ssh = yield* Config.option(Config.string("SSH_CONNECTION"))
     const renderer = yield* Config.option(Config.string("ELECTRON_RENDERER_URL"))
-    const devUrl = Option.getOrUndefined(Option.filter(renderer, (value) => value.length > 0))
+    const rendererValue = deps.app.isPackaged
+      ? undefined
+      : Option.getOrUndefined(Option.filter(renderer, (value) => value.length > 0))
+    const devUrl = rendererValue === undefined ? undefined : yield* validateDevelopmentUrl(rendererValue)
     if (!deps.app.isPackaged && Option.contains(devtools, "1")) {
       yield* Effect.sync(() => deps.app.appendSwitch("remote-debugging-port", "9222"))
     }
@@ -156,6 +168,7 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
     yield* Effect.scoped(
       Effect.gen(function* () {
         const shutdown = yield* Deferred.make<void>()
+        const callbackFailure = yield* Deferred.make<Cause.Cause<unknown>>()
         const callbacks = yield* FiberSet.make<unknown, never>()
         const dispatchEffect = yield* FiberSet.runtime(callbacks)<never>()
         let appListenersActive = true
@@ -194,13 +207,22 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
                 runtime,
                 devUrl,
                 closeWindow,
-                (effect) => { dispatchEffect(effect) }
+                (effect) => {
+                  dispatchEffect(effect.pipe(
+                    Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
+                      ? Effect.void
+                      : Deferred.succeed(callbackFailure, cause))
+                  ))
+                }
               ).pipe(Scope.provide(windowScope))
               yield* waitFor(shutdown)
             })
           )
         )
-        yield* Effect.raceFirst(startup, waitFor(shutdown))
+        const observedCallbackFailure = Deferred.await(callbackFailure).pipe(
+          Effect.flatMap(Effect.failCause)
+        )
+        yield* Effect.raceFirst(Effect.raceFirst(startup, waitFor(shutdown)), observedCallbackFailure)
       })
     )
   })
@@ -212,6 +234,25 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
       })
     )
   )
+}
+
+const validateDevelopmentUrl = Effect.fn("DesktopMain.validateDevelopmentUrl")((value: string) =>
+  Effect.try({
+    try: () => {
+      const url = new URL(value)
+      if ((url.protocol !== "http:" && url.protocol !== "https:") || url.origin === "null") throw new Error(value)
+      return url.href
+    },
+    catch: () => new DesktopMainError({ reason: "invalid-renderer-url", value })
+  })
+)
+
+const isSameOrigin = (value: string, trusted: string): boolean => {
+  try {
+    return new URL(value).origin === new URL(trusted).origin
+  } catch {
+    return false
+  }
 }
 
 const waitFor = Deferred.await

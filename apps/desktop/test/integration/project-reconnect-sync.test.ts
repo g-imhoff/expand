@@ -56,7 +56,12 @@ const makePortPair = Effect.fn("ProjectReconnectTest.makePortPair")(function* ()
   ).pipe(Effect.forkScoped)
   const server: MainPortLike = {
     postMessage: (message) => { Queue.offerUnsafe(rendererMessages, message) },
-    on: (_event, listener) => { serverListener = listener },
+    on: (event, listener) => {
+      if (event === "message") serverListener = listener as (event: { data: unknown }) => void
+    },
+    off: (event, listener) => {
+      if (event === "message" && serverListener === listener) serverListener = null
+    },
     start: () => { Queue.offerUnsafe(mainStarted, undefined) }
   }
   const renderer: RendererPortLike = {

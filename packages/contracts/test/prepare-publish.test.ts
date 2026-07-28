@@ -1,7 +1,7 @@
 import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Path, Schema } from "effect"
+import { Layer, Cause, Deferred, Effect, Exit, Fiber, FileSystem, Path, Schema } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../../../test/support/process-spawner"
 import {
@@ -395,8 +395,7 @@ describe("contracts publish workflow", () => {
     const operations: Array<string> = []
     const fixture = processSpawnerFixture([0, 0], { eventLog: operations })
     const program = pack("/repo/packages/contracts").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         exists: (target) => Effect.sync(() => {
           operations.push(`exists:${target}`)
           return true
@@ -407,8 +406,7 @@ describe("contracts publish workflow", () => {
         copy: (from, to) => Effect.sync(() => operations.push(`copy:${from}:${to}`)),
         writeFileString: (target) => Effect.sync(() => operations.push(`write:${target}`)),
         rename: (from, to) => Effect.sync(() => operations.push(`rename:${from}:${to}`))
-      })),
-      Effect.provide(Path.layer)
+      }), Path.layer))
     )
 
     expect(Effect.isEffect(program)).toBe(true)
@@ -432,8 +430,7 @@ describe("contracts publish workflow", () => {
     const events: Array<string> = []
     const fixture = processSpawnerFixture([0, 6], { eventLog: events })
     return pack("/repo/packages/contracts").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         exists: () => Effect.succeed(true),
         readFileString: () => Effect.succeed(sourceJson),
         remove: () => Effect.void,
@@ -441,8 +438,7 @@ describe("contracts publish workflow", () => {
         copy: () => Effect.sync(() => events.push("stage")),
         writeFileString: () => Effect.void,
         rename: () => Effect.void
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
         expect(error).toEqual(new PublishCommandError({ command: "npm", exitCode: 6 }))

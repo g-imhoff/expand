@@ -1,8 +1,8 @@
 import { it } from "@effect/vitest"
-import { Crypto, Effect, Exit, Fiber, FileSystem, Option, Path, Schedule, Scope } from "effect"
+import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
-import { writeEndpointFile } from "@expand/server/endpoint-file"
+import { removeEndpointFile, writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
@@ -32,6 +32,51 @@ describe("endpoint file (I-3)", () => {
       const after = yield* fs.exists(file)
       expect(during).toBe(true)
       expect(after).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("ignores only NotFound and preserves permission cleanup with the primary Cause", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-cleanup-" })
+      const appContext = makeTestAppContext(directory, path)
+      const missing = PlatformError.systemError({
+        _tag: "NotFound",
+        module: "FileSystem",
+        method: "remove",
+        pathOrDescriptor: "/missing"
+      })
+      const permission = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "remove",
+        pathOrDescriptor: appContext.paths.endpointFile
+      })
+      yield* removeEndpointFile(FileSystem.FileSystem.of({
+        ...fs,
+        remove: () => Effect.fail(missing)
+      }), "/missing")
+      const scope = yield* Scope.make()
+      yield* writeEndpointFile({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "tok",
+        pid: 4242,
+        protocolVersion: PROTOCOL_VERSION
+      }).pipe(
+        Effect.provideService(Scope.Scope, scope),
+        Effect.provideService(AppContext, appContext),
+        Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+          ...fs,
+          remove: () => Effect.fail(permission)
+        }))
+      )
+      const primary = new Error("primary failure")
+      const exit = yield* Scope.close(scope, Exit.fail(primary)).pipe(Effect.exit)
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.filter(Cause.isFailReason).map(({ error }) => error)).toContain(primary)
+        expect(exit.cause.reasons.filter(Cause.isDieReason).map(({ defect }) => defect)).toContain(permission)
+      }
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("constructs the server without reading options, identity, or pid", () =>

@@ -98,7 +98,7 @@ describe.sequential("connect-during-shutdown race (Bug 2)", () => {
         yield* Fiber.join(reviver)
         yield* Fiber.interrupt(serverFiber)
         return result
-      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
       const r = yield* (program)
       expect(r.health).toBe("ok")

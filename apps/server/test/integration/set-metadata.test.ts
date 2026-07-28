@@ -46,7 +46,7 @@ describe.sequential("end-to-end set-metadata", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const r = yield* (program)
 
@@ -67,7 +67,7 @@ describe.sequential("end-to-end set-metadata", () => {
       const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({}))
       yield* Fiber.interrupt(serverFiber)
       return listed
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const listed2 = yield* (durable)
     const survived = listed2.projects.find((p) => p.id === r.project.id)

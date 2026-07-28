@@ -147,7 +147,7 @@ describe("Effect audit command", () => {
           {
             name: "language-service",
             command: "effect-language-service",
-            args: ["diagnostics", "--project", "tsconfig.effect-audit.json", "--format", "json", "--severity", "error,message"],
+            args: ["diagnostics", "--project", "tsconfig.effect-audit.json", "--format", "json", "--severity", "error,warning,message"],
             cwd: root,
             acceptedExitCodes: [0, 1]
           },
@@ -318,6 +318,32 @@ describe("Effect audit command", () => {
         })))
   })
 
+  it.effect("decodes and rejects every language-service warning as a blocking finding", () => {
+    const source = "export const sample = Effect.succeed(1)\n"
+    const warning = Schema.encodeSync(Schema.UnknownFromJsonString)({ diagnostics: [{
+      file: "src/sample.ts",
+      start: source.indexOf("Effect"),
+      length: 6,
+      line: 1,
+      column: source.indexOf("Effect") + 1,
+      severity: "warning",
+      name: "multipleEffectProvide",
+      message: "combine provides"
+    }] })
+    return fixture({ source, languageService: warning }, ({ root }) =>
+      Effect.gen(function* () {
+        const error = yield* runAudit(root).pipe(Effect.flip)
+        expect(error).toMatchObject({
+          reason: "blocking-findings",
+          findings: [{
+            engine: "effect-language-service",
+            rule: "multipleEffectProvide",
+            severity: "warning"
+          }]
+        })
+      }))
+  })
+
   it.effect("rejects every ESLint warning", () =>
     fixture({
       eslint: Schema.encodeSync(Schema.UnknownFromJsonString)([
@@ -452,8 +478,7 @@ describe("live audit command runner", () => {
       expect(result.stderr).toHaveLength(300000)
     }).pipe(
       Effect.scoped,
-      Effect.provide(AuditCommandRunnerLive),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
     ))
 
   it.effect("turns a child-process signal into a typed command failure", () =>
@@ -476,8 +501,7 @@ describe("live audit command runner", () => {
       }
     }).pipe(
       Effect.scoped,
-      Effect.provide(AuditCommandRunnerLive),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
     ))
 
   it.effect("turns an executable-not-found platform error into a typed command failure", () =>
@@ -500,8 +524,7 @@ describe("live audit command runner", () => {
       }
     }).pipe(
       Effect.scoped,
-      Effect.provide(AuditCommandRunnerLive),
-      Effect.provide(NodeServices.layer)
+      Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
     ))
 })
 
@@ -530,7 +553,8 @@ const windowLocation = ["window", "location"].join(".")
 const windowPostMessage = ["window", "postMessage"].join(".")
 const windowAddEventListener = ["window", "addEventListener"].join(".")
 const windowRemoveEventListener = ["window", "removeEventListener"].join(".")
-const cryptoRandomUUID = ["crypto", "randomUUID"].join(".")
+const cryptoGetRandomValues = ["crypto", "getRandomValues"].join(".")
+const cryptoSubtle = ["crypto", "subtle"].join(".")
 const promiseType = ["Pro", "mise"].join("")
 const promiseLikeType = ["Promise", "Like"].join("")
 const nodePath = ["node", "path"].join(":")
@@ -767,8 +791,14 @@ void (null as IpcRendererEvent | null)
   "packages/electron-ipc/preload.ts": `export interface PreloadIpcDeps { invoke: () => ${promiseType}<unknown> }
 export const exposeBridge = (invoke: () => ${promiseType}<unknown>) => invoke
 `,
-  "packages/electron-ipc/renderer.ts": `const makeNonce = () => ${cryptoRandomUUID}()
-void makeNonce
+  "packages/electron-ipc/renderer.ts": `import { Effect } from "effect"
+export const browserCrypto = {
+  randomBytes: (size: number) => ${cryptoGetRandomValues}(new Uint8Array(size)),
+  digest: Effect.tryPromise({
+    try: () => ${cryptoSubtle}.digest("SHA-256", new Uint8Array()),
+    catch: String
+  })
+}
 `,
   "packages/client-ts/adapters/node-process-control.ts": processControlBoundarySource,
   "packages/client-ts/adapters/node.ts": `import { WebSocket as WS } from "ws"

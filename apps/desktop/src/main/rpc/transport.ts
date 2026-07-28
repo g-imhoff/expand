@@ -24,10 +24,18 @@ export const connectPort = Effect.fn("DesktopMain.connectPort")(function* ({
     closed = true
     port.close?.()
   }
+  const on = ((event: "message" | "close", listener: ((event: { data: unknown }) => void) | (() => void)) => {
+    if (event === "message") port.on(event, listener as (event: { data: unknown }) => void)
+    else port.on(event, listener as () => void)
+  }) as MainPortLike["on"]
+  const off = ((event: "message" | "close", listener: ((event: { data: unknown }) => void) | (() => void)) => {
+    if (event === "message") port.off(event, listener as (event: { data: unknown }) => void)
+    else port.off(event, listener as () => void)
+  }) as MainPortLike["off"]
   const ownedPort: MainPortLike = {
     postMessage: (message) => port.postMessage(message),
-    on: (event, listener) => port.on(event, listener),
-    off: (event, listener) => port.off?.(event, listener),
+    on,
+    off,
     start: () => port.start(),
     close
   }

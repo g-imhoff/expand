@@ -1,5 +1,5 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Console, Data, Effect, FileSystem, Path, Stdio } from "effect"
+import { Layer, Console, Data, Effect, FileSystem, Path, Stdio } from "effect"
 import { ProjectClient } from "@expand/client-ts/project"
 import { adapter } from "./adapter"
 import { clientLayer } from "./client-layer"
@@ -71,8 +71,7 @@ export const bootstrapProjectsProgram = Effect.scoped(Effect.gen(function*() {
   const args = yield* (yield* Stdio.Stdio).args
   yield* bootstrapProjects(args[0] ?? "")
 })).pipe(
-  Effect.provide(clientLayer(adapter)),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(clientLayer(adapter).pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

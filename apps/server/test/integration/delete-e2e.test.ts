@@ -43,7 +43,7 @@ describe.sequential("project delete e2e", () => {
         )
         yield* Fiber.interrupt(serverFiber)
         return out
-      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir))))))
     expect(first.del).toEqual({ id: first.id, deleted: true })
     expect(Option.isSome(first.event)).toBe(true)
     expect(first.listed.projects.some((p) => p.id === first.id)).toBe(false)
@@ -54,7 +54,7 @@ describe.sequential("project delete e2e", () => {
         const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({ includeArchived: true }))
         yield* Fiber.interrupt(serverFiber)
         return listed
-      }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+      }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir))))))
     expect(afterRestart.projects.some((p) => p.id === first.id)).toBe(false)
   }))
 })

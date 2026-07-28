@@ -10,7 +10,7 @@ import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-ca
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 import { httpServerLayer } from "@expand/server/http"
-import { writeEndpointFile } from "@expand/server/endpoint-file"
+import { removeEndpointFile, writeEndpointFile } from "@expand/server/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { newId } from "@expand/server/lib/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
@@ -61,7 +61,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     yield* tracker.awaitShutdown
     yield* Effect.logInfo("last connection closed — shutting down")
 
-    yield* fs.remove(endpointFile).pipe(Effect.ignore)
+    yield* removeEndpointFile(fs, endpointFile)
 
     yield* Scope.close(httpScope, Exit.void).pipe(
       Effect.timeoutOrElse({

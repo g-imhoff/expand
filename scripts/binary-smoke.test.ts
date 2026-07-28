@@ -402,7 +402,7 @@ describe("binary certification live ownership", () => {
         const fields = row.trim().split(/\s+/)
         return fields.length === 3 ? `${fields[0]} ${fields[2]}` : row
       }).join("\n"), childPgid)).toEqual([])
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(ProcessServices.layer))))
+    }).pipe(Effect.provide(Layer.mergeAll(NodeServices.layer, ProcessServices.layer)))))
 
   it("routes every fixture mode through one ChildProcess command helper", () => {
     for (const args of [["fact", "node"], ["guardian", "./dist/expand"], ["signal", "TERM", "123"]]) {
@@ -468,17 +468,14 @@ describe("binary certification live ownership", () => {
     Effect.gen(function*() {
       const fixture = processSpawnerFixture([0, 1])
       const fiber = yield* certifyBinaries("/repo").pipe(
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
           makeDirectory: () => Effect.void,
           remove: () => Effect.void
-        })),
-        Effect.provide(Path.layer),
-        Effect.provide(Layer.succeed(ProcessControl, {
+        }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
           probe: () => Effect.succeed("dead" as const)
-        })),
-        Effect.provide(fixture.layer),
+        }), fixture.layer)),
         Effect.forkChild({ startImmediately: true })
       )
       yield* Effect.yieldNow
@@ -563,19 +560,16 @@ describe("binary certification live ownership", () => {
         })
       )
       const fiber = yield* certifyBinaries("/repo").pipe(
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
           makeDirectory: () => Effect.void,
           remove: () => Effect.void,
           exists: (file) => Effect.sync(() => phase === "auto" && file.endsWith("server.json") && autoAcknowledged && endpointChecks++ === 0),
           readFileString: () => Effect.succeed(phase === "auto" ? "{\"pid\":41}" : `{\"pid\":${directPid}}`)
-        })),
-        Effect.provide(Path.layer),
-        Effect.provide(Layer.succeed(ProcessControl, {
+        }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
           probe: (pid) => Effect.sync(() => pid === directPid && directRunning ? "alive" as const : "dead" as const)
-        })),
-        Effect.provide(layer),
+        }), layer)),
         Effect.forkChild({ startImmediately: true })
       )
       yield* Deferred.await(directSpawned)
@@ -589,13 +583,10 @@ describe("binary certification live ownership", () => {
     Effect.gen(function*() {
       const fixture = processSpawnerFixture([], { neverExitAt: 0 })
       const fiber = yield* certifyBinaries("/repo").pipe(
-        Effect.provide(FileSystem.layerNoop({ remove: () => Effect.void, makeDirectory: () => Effect.void, chmod: () => Effect.void })),
-        Effect.provide(Path.layer),
-        Effect.provide(Layer.succeed(ProcessControl, {
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({ remove: () => Effect.void, makeDirectory: () => Effect.void, chmod: () => Effect.void }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
           probe: () => Effect.succeed("dead" as const)
-        })),
-        Effect.provide(fixture.layer),
+        }), fixture.layer)),
         Effect.forkChild({ startImmediately: true })
       )
       yield* Effect.yieldNow
@@ -782,16 +773,13 @@ describe("binary certification live ownership", () => {
         args: ["health"],
         attempts: 0
       })).pipe(
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           exists: () => Effect.suspend(() => ++existsCalls === 1 ? Effect.succeed(true) : Effect.die(cleanup)),
           readFileString: () => Effect.succeed("malformed")
-        })),
-        Effect.provide(Path.layer),
-        Effect.provide(Layer.succeed(ProcessControl, {
+        }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
           probe: () => Effect.succeed("dead" as const)
-        })),
-        Effect.provide(fixture.layer),
+        }), fixture.layer)),
         Effect.exit
       )
       expect(Exit.isFailure(exit)).toBe(true)

@@ -43,7 +43,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
     const r = (yield* (program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -80,7 +80,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
     const r = (yield* (program)) as {
       results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
@@ -118,7 +118,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
     const r = (yield* (program)) as {
       restore: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<unknown> }
@@ -148,7 +148,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
     const r = (yield* (program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
@@ -186,7 +186,7 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(ProcessServices.layer), Effect.provide(Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
     const r = (yield* (program)) as {
       results: ReadonlyArray<{ _tag: string }>
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }

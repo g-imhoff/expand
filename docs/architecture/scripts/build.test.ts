@@ -1,10 +1,10 @@
 import * as NodePlatform from "@effect/platform-node"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Console, Effect, Fiber, FileSystem, Path } from "effect"
+import { Cause, Console, Effect, Exit, Fiber, FileSystem, Layer, Path, PlatformError } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../../../test/support/process-spawner"
-import { ArchitectureBuildError, NoD2SourcesError, buildArchitecture, enumerateD2Sources } from "./build"
+import { ArchitectureBuildError, ArchitectureFileError, NoD2SourcesError, buildArchitecture, enumerateD2Sources } from "./build"
 
 const live = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
   Effect.scoped,
@@ -48,18 +48,47 @@ describe("architecture docs build", () => {
     }))
   })
 
+  it.effect("preserves the primary build failure together with cleanup failure", () => {
+    const fixture = processSpawnerFixture([0, 0])
+    const permission = PlatformError.systemError({
+      _tag: "PermissionDenied",
+      module: "FileSystem",
+      method: "remove",
+      pathOrDescriptor: "/repo/docs/architecture/out"
+    })
+    let removals = 0
+    return buildArchitecture("/repo/docs/architecture").pipe(
+      Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
+        remove: () => {
+          removals += 1
+          return removals > 3 ? Effect.fail(permission) : Effect.void
+        },
+        readDirectory: () => Effect.succeed([]),
+        makeDirectory: () => Effect.void
+      }), Path.layer)),
+      Effect.provideService(Console.Console, capturingConsole([])),
+      Effect.exit,
+      Effect.tap((exit) => Effect.sync(() => {
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          const failures = exit.cause.reasons.filter(Cause.isFailReason).map(({ error }) => error)
+          expect(failures.some((error) => error instanceof NoD2SourcesError)).toBe(true)
+          expect(failures.some((error) => error instanceof ArchitectureFileError)).toBe(true)
+        }
+      }))
+    )
+  })
+
   it.effect("cleans first, runs LikeC4, renders sorted D2 files with bounded concurrency, and logs output", () => {
     const fixture = processSpawnerFixture([0, 0, 0, 0])
     const operations: Array<string> = []
     const lines: Array<string> = []
     return buildArchitecture("/repo/docs/architecture").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         remove: (target) => Effect.sync(() => operations.push(`remove:${target}`)),
         readDirectory: () => Effect.succeed(["z.d2", "ignore.txt", "a.d2"]),
         makeDirectory: (target) => Effect.sync(() => operations.push(`mkdir:${target}`))
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.provideService(Console.Console, capturingConsole(lines)),
       Effect.tap(() => Effect.sync(() => {
         expect(operations.slice(0, 3)).toEqual([
@@ -89,13 +118,11 @@ describe("architecture docs build", () => {
     const fixture = processSpawnerFixture([0, 0, 0, 8], { neverExitAt: 2 })
     const removals: Array<string> = []
     return buildArchitecture("/repo/docs/architecture").pipe(
-      Effect.provide(fixture.layer),
-      Effect.provide(FileSystem.layerNoop({
+      Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         remove: (target) => Effect.sync(() => removals.push(target)),
         readDirectory: () => Effect.succeed(["a.d2", "b.d2"]),
         makeDirectory: () => Effect.void
-      })),
-      Effect.provide(Path.layer),
+      }), Path.layer)),
       Effect.provideService(Console.Console, capturingConsole([])),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
@@ -114,12 +141,10 @@ describe("architecture docs build", () => {
     const removals: Array<string> = []
     return Effect.gen(function*() {
       const fiber = yield* buildArchitecture("/repo/docs/architecture").pipe(
-        Effect.provide(fixture.layer),
-        Effect.provide(FileSystem.layerNoop({
+        Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
           remove: (target) => Effect.sync(() => removals.push(target)),
           makeDirectory: () => Effect.void
-        })),
-        Effect.provide(Path.layer),
+        }), Path.layer)),
         Effect.provideService(Console.Console, capturingConsole([])),
         Effect.forkChild({ startImmediately: true })
       )

@@ -10,9 +10,11 @@
 import { createRequire } from "node:module"
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect } from "effect"
+import { Data, Effect } from "effect"
 import { describe, expect } from "vitest"
 import { runCommand } from "../support/effect-process"
+
+class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{ readonly cause: unknown }> {}
 
 const loadConfig = Effect.try({
   try: () => {
@@ -25,7 +27,7 @@ const loadConfig = Effect.try({
       }>
     }
   },
-  catch: (cause) => cause
+  catch: (cause) => new ConfigLoadError({ cause })
 })
 
 describe("@expand/client-ts barrel-only boundary", () => {

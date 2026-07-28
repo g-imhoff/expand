@@ -17,14 +17,14 @@ export const ProcessServices = (() => {
   const probe = Effect.fn("ServerNodeProcessControl.probe")(function*(pid: number) {
     return yield* Effect.try({
       try: () => process.kill(pid, 0),
-      catch: (cause) => cause
+      catch: (cause) => new ProcessProbeError({ pid, cause })
     }).pipe(
       Effect.matchEffect({
-        onFailure: (cause) => {
-          const code = errorCode(cause)
+        onFailure: (error) => {
+          const code = errorCode(error.cause)
           if (code === "ESRCH") return Effect.succeed<ProcessStatus>("dead")
           if (code === "EPERM") return Effect.succeed<ProcessStatus>("inaccessible")
-          return Effect.fail(new ProcessProbeError({ pid, cause }))
+          return Effect.fail(error)
         },
         onSuccess: () => Effect.succeed<ProcessStatus>("alive")
       })

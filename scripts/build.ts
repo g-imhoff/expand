@@ -65,7 +65,7 @@ export const buildBinaries = Effect.fn("scripts.build.buildBinaries")(
 const buildTool: BuildToolShape = {
   build: Effect.fn("scripts.build.buildTool")((options) => Effect.tryPromise({
     try: () => esbuildBuild(options),
-    catch: (cause) => cause
+    catch: (cause) => new BuildError({ operation: "esbuild", cause })
   }))
 }
 
@@ -76,8 +76,7 @@ const program = Effect.gen(function*() {
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
   yield* buildBinaries(root)
 }).pipe(
-  Effect.provide(BuildToolLive),
-  Effect.provide(NodeServices.layer)
+  Effect.provide(Layer.mergeAll(BuildToolLive, NodeServices.layer))
 )
 
 if (import.meta.main) {

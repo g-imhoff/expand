@@ -237,9 +237,7 @@ describe("package certification resources", () => {
   ] as const)("maps %s failures at the operation boundary", ([, workspace, phase, detail, fileSystem]) => {
     const cause = { operation: detail }
     return certifyPackages("/fixture").pipe(
-      Effect.provide(certificationRunner),
-      Effect.provide(fileSystem(cause)),
-      Effect.provide(Path.layer),
+      Effect.provide(Layer.mergeAll(certificationRunner, fileSystem(cause), Path.layer)),
       Effect.flip,
       Effect.map((error) => expect(error).toEqual(new PackageCertificationError({ workspace, phase, detail, cause })))
     )
@@ -262,9 +260,7 @@ describe("package certification resources", () => {
     ["defect", Effect.die("temporary directory defect"), false],
     ["interruption", Effect.interrupt, true]
   ] as const)("preserves temporary directory %s as Cause information", ([, acquisition, interrupted]) => certifyPackages("/fixture").pipe(
-    Effect.provide(certificationRunner),
-    Effect.provide(FileSystem.layerNoop({ makeTempDirectoryScoped: () => acquisition })),
-    Effect.provide(Path.layer),
+    Effect.provide(Layer.mergeAll(certificationRunner, FileSystem.layerNoop({ makeTempDirectoryScoped: () => acquisition }), Path.layer)),
     Effect.exit,
     Effect.map((exit) => {
       expect(Exit.isFailure(exit)).toBe(true)
@@ -279,8 +275,7 @@ describe("package certification resources", () => {
       run: (request) => Effect.succeed({ exitCode: request.phase === "build" ? 9 : 0, stdout: "", stderr: "failed" })
     }))
     return certifyPackages("/fixture").pipe(
-      Effect.provide(layer),
-      Effect.provide(NodeServices.layer),
+      Effect.provide(Layer.mergeAll(layer, NodeServices.layer)),
       Effect.flip,
       Effect.map((error) => expect(error).toMatchObject({ workspace: "@expand/contracts", phase: "build", detail: expect.stringContaining("exited 9") }))
     )
