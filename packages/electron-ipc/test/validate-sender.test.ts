@@ -72,6 +72,15 @@ describe("validateSender", () => {
     expect(validateSender({ url: "file:///opt/app/index.html", isMainFrame: true }, RULES)).toBe(true)
   })
 
+  it("accepts only the exact URL for an exact URL rule", () => {
+    const rules: ReadonlyArray<OriginRule> = [
+      { _tag: "exactUrl", url: "file:///opt/app/index.html" }
+    ]
+    expect(validateSender({ url: "file:///opt/app/index.html", isMainFrame: true }, rules)).toBe(true)
+    expect(validateSender({ url: "file:///opt/app/hostile.html", isMainFrame: true }, rules)).toBe(false)
+    expect(validateSender({ url: "file:///opt/app/index.html?hostile", isMainFrame: true }, rules)).toBe(false)
+  })
+
   it("accepts the exact dev origin", () => {
     expect(validateSender({ url: "http://localhost:5173/", isMainFrame: true }, RULES)).toBe(true)
     expect(validateSender({ url: "http://localhost:5173/some/route?x=1", isMainFrame: true }, RULES)).toBe(true)

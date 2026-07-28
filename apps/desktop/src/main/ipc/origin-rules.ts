@@ -1,7 +1,9 @@
 import type { OriginRule } from "@expand/electron-ipc/main"
 
-/** Production sender allowlist. Pinned by test: file protocol ONLY — never add dev origins here. */
-export const prodOriginRules: ReadonlyArray<OriginRule> = [{ _tag: "fileProtocol" }]
-
-export const originRulesFor = (devUrl: string | undefined): ReadonlyArray<OriginRule> =>
-  devUrl === undefined ? prodOriginRules : [...prodOriginRules, { _tag: "exactOrigin", origin: new URL(devUrl).origin }]
+export const originRulesFor = (
+  packagedRendererUrl: string,
+  devUrl: string | undefined
+): ReadonlyArray<OriginRule> =>
+  devUrl === undefined
+    ? [{ _tag: "exactUrl", url: packagedRendererUrl }]
+    : [{ _tag: "exactOrigin", origin: new URL(devUrl).origin }]

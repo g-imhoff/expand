@@ -8,6 +8,7 @@ export class BackendCommandError extends Data.TaggedError("BackendCommandError")
 
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly reason: string
+  readonly cause?: unknown
 }> {}
 
 export class SpawnLockError extends Data.TaggedError("SpawnLockError")<{

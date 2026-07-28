@@ -50,6 +50,7 @@ export interface BindIpcConfig<R, Port = unknown> {
 
 export type OriginRule =
   | { readonly _tag: "exactOrigin"; readonly origin: string }
+  | { readonly _tag: "exactUrl"; readonly url: string }
   | { readonly _tag: "fileProtocol" }
 
 export const snapshotSender = (
@@ -72,6 +73,7 @@ export const validateSender = (snapshot: FrameSnapshot, rules: ReadonlyArray<Ori
   }
   return rules.some((rule) => {
     if (rule._tag === "fileProtocol") return parsed.protocol === "file:"
+    if (rule._tag === "exactUrl") return parsed.href === rule.url
     if (parsed.origin === "null") return false
     return parsed.origin === rule.origin
   })

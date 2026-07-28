@@ -60,7 +60,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   let portGrants = 0
   const ipcListeners = new Map<string, Parameters<IpcMainLike["on"]>[1]>()
   const ipcHandlers = new Map<string, Parameters<IpcMainLike["handle"]>[1]>()
-  const frame = { url: "file:///app/index.html", detached: false }
+  const frame = { url: "file:///repo/apps/desktop/out/renderer/index.html", detached: false }
   const webContents = { id: 1 }
   const markAppListener = () => {
     appListenerCount += 1
@@ -274,6 +274,11 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       closed?.()
     },
     fireNavigation: () => { navigation?.({ isSameDocument: false }) },
+    fireWillNavigate: (url: string) => {
+      let prevented = false
+      willNavigate?.({ preventDefault: () => { prevented = true } }, url)
+      return prevented
+    },
     fireRpcPortRequest: (url = frame.url) => {
       frame.url = url
       ipcListeners.get("expand:rpcPort:request")?.(
@@ -300,7 +305,7 @@ const start = (harness: Effect.Success<ReturnType<typeof makeHarness>>) =>
   harness.program.pipe(Effect.forkChild({ startImmediately: true }))
 
 describe("mainProgram startup and shutdown", () => {
-  it.effect("ignores a hostile renderer URL in packaged mode for loading and IPC authorization", () =>
+  it.effect("uses the exact packaged renderer identity for loading, navigation, and IPC", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const harness = yield* makeHarness({
@@ -312,8 +317,29 @@ describe("mainProgram startup and shutdown", () => {
         yield* harness.succeedReady
         yield* waitFor(harness.loadStarted)
         expect(harness.loadedUrls).toEqual([])
-        expect(harness.loadedFiles).toHaveLength(1)
-        harness.fireRpcPortRequest("https://attacker.example/app")
+        expect(harness.loadedFiles).toEqual(["/repo/apps/desktop/out/renderer/index.html"])
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html")).toBe(false)
+        harness.fireRpcPortRequest("file:///repo/apps/desktop/out/renderer/index.html")
+        yield* Effect.yieldNow
+        expect(harness.portGrants()).toBe(1)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("rejects sibling packaged file navigation and IPC", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ packaged: true })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        const hostileFile = "file:///repo/apps/desktop/out/renderer/hostile.html"
+        expect(harness.fireWillNavigate(hostileFile)).toBe(true)
+        harness.fireRpcPortRequest(hostileFile)
         yield* Effect.yieldNow
         expect(harness.portGrants()).toBe(0)
         yield* harness.succeedLoad

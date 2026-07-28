@@ -119,12 +119,14 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
         if (!ownedWindow.isDestroyed()) ownedWindow.destroy()
       })
   )
+  const packagedRendererPath = path.join(here, "../renderer/index.html")
+  const packagedRendererUrl = (yield* path.toFileUrl(packagedRendererPath)).href
   if (devUrl === undefined) yield* installCsp(deps.csp)
   yield* hardenWebContents({
     onWillNavigate: browserWindow.onWillNavigate,
     setWindowOpenHandler: browserWindow.setWindowOpenHandler,
     isAllowed: (url) => devUrl === undefined
-      ? url.startsWith("file://")
+      ? isExactUrl(url, packagedRendererUrl)
       : isSameOrigin(url, devUrl)
   })
   const ports = yield* wirePortLifecycle({
@@ -141,11 +143,11 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
     {
       ipc: browserWindow.ipc.ipc,
       target: browserWindow.ipc.target,
-      originRules: originRulesFor(devUrl),
+      originRules: originRulesFor(packagedRendererUrl, devUrl),
       log: deps.log
     }
   )
-  if (devUrl === undefined) yield* browserWindow.loadFile(path.join(here, "../renderer/index.html"))
+  if (devUrl === undefined) yield* browserWindow.loadFile(packagedRendererPath)
   else yield* browserWindow.loadUrl(devUrl)
 })
 
@@ -246,6 +248,14 @@ const validateDevelopmentUrl = Effect.fn("DesktopMain.validateDevelopmentUrl")((
     catch: () => new DesktopMainError({ reason: "invalid-renderer-url", value })
   })
 )
+
+const isExactUrl = (value: string, trusted: string): boolean => {
+  try {
+    return new URL(value).href === trusted
+  } catch {
+    return false
+  }
+}
 
 const isSameOrigin = (value: string, trusted: string): boolean => {
   try {

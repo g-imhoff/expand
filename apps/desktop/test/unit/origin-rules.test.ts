@@ -1,19 +1,18 @@
 import { describe, expect, it } from "vitest"
-import { originRulesFor, prodOriginRules } from "@expand/desktop/main/ipc/origin-rules"
+import { originRulesFor } from "@expand/desktop/main/ipc/origin-rules"
+
+const packagedRendererUrl = "file:///opt/Expand/resources/app.asar/out/renderer/index.html"
 
 describe("origin rules", () => {
-  it("prod rules are file-protocol only — the dev carve-out cannot ship (spec §10.2 pin)", () => {
-    expect(prodOriginRules).toEqual([{ _tag: "fileProtocol" }])
-  })
-
-  it("dev adds the exact vite origin", () => {
-    expect(originRulesFor("http://localhost:5173/")).toEqual([
-      { _tag: "fileProtocol" },
-      { _tag: "exactOrigin", origin: "http://localhost:5173" }
+  it("pins packaged IPC to the exact renderer URL", () => {
+    expect(originRulesFor(packagedRendererUrl, undefined)).toEqual([
+      { _tag: "exactUrl", url: packagedRendererUrl }
     ])
   })
 
-  it("no devUrl → prod rules", () => {
-    expect(originRulesFor(undefined)).toEqual(prodOriginRules)
+  it("uses only the exact Vite origin in development", () => {
+    expect(originRulesFor(packagedRendererUrl, "http://localhost:5173/")).toEqual([
+      { _tag: "exactOrigin", origin: "http://localhost:5173" }
+    ])
   })
 })
