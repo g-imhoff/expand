@@ -29,6 +29,20 @@ const platformFunctions = new Set(platformFunctionGlobals)
 const platformConstructors = new Set(platformConstructorGlobals)
 const browserResources = new Set(browserResourceGlobals)
 const listeners = new Set(listenerMethods)
+const declarationNodeTypes = new Set([
+  "ClassDeclaration",
+  "FunctionDeclaration",
+  "MethodDefinition",
+  "Property",
+  "PropertyDefinition",
+  "TSDeclareFunction",
+  "TSEnumDeclaration",
+  "TSInterfaceDeclaration",
+  "TSMethodSignature",
+  "TSPropertySignature",
+  "TSTypeAliasDeclaration",
+  "VariableDeclarator"
+])
 const effectPackageNamespaces = new Set(["Effect", "ManagedRuntime", "Runtime", "Schema"])
 const listenerReceiverTypes = new Set(["BrowserWindow", "ChildProcess", "EventEmitter", "EventTarget", "MessagePort", "Socket", "WebSocket", "Worker"])
 const repositoryRoot = decodeURIComponent(new URL("../", import.meta.url).pathname).replace(/\\/g, "/")
@@ -306,20 +320,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const declarations = new Set(["module:<module>"])
   for (const node of nodes) {
-    if ([
-      "ClassDeclaration",
-      "FunctionDeclaration",
-      "MethodDefinition",
-      "Property",
-      "PropertyDefinition",
-      "TSDeclareFunction",
-      "TSEnumDeclaration",
-      "TSInterfaceDeclaration",
-      "TSMethodSignature",
-      "TSPropertySignature",
-      "TSTypeAliasDeclaration",
-      "VariableDeclarator"
-    ].includes(node.type)) declarations.add(declarationOf(node))
+    if (declarationNodeTypes.has(node.type)) declarations.add(declarationOf(node))
   }
 
   const rawOccurrences = []
@@ -487,7 +488,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   for (const node of nodes) {
     if (!isFunctionNode(node)) continue
     if (node.async) addOccurrence(node, "nativeAsync", "native:async")
-    if (!node.async && !callbackOrigin(node)?.path?.includes("tryPromise") && isPromiseLikeType(returnTypeOf(node))) {
+    if (!node.async && last(callbackOrigin(node)?.path ?? []) !== "tryPromise" && isPromiseLikeType(returnTypeOf(node))) {
       promiseFunctionNodes.add(node)
       addOccurrence(node, "promiseSignature", "signature:PromiseLike")
     }
