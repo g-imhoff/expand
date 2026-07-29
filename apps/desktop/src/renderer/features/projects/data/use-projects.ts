@@ -86,7 +86,10 @@ const useOwnedMutation = <I, A, E>(
   const invocationRef = useRef(0)
   const mountedRef = useRef(false)
   const runRef = useRef(run)
-  runRef.current = run
+
+  useEffect(() => {
+    runRef.current = run
+  })
 
   useEffect(() => {
     mountedRef.current = true

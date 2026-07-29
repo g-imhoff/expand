@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { type ReactNode } from "react"
-import { act, renderHook, type RenderHookResult } from "@testing-library/react"
+import { Suspense, startTransition, type ReactNode, useLayoutEffect, useState } from "react"
+import { act, render, renderHook, type RenderHookResult } from "@testing-library/react"
 import { it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect"
 import { describe, expect, vi } from "vitest"
@@ -212,6 +212,65 @@ describe("useRunMutation", () => {
       expect(result.current.mutate).toBe(mutate)
       expect(first).not.toHaveBeenCalled()
       expect(second).toHaveBeenCalledWith(4)
+    })))
+
+  it.effect("does not expose a mutation function from suspended render work", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const never = { then: () => undefined }
+      const first = vi.fn((input: number) => Effect.succeed(input))
+      const second = vi.fn((input: number) => Effect.succeed(input * 2))
+      let committedMutate: ((input: number) => void) | undefined
+      let suspendNext: (() => void) | undefined
+      let secondRenderAttempted = false
+
+      const Probe = ({
+        run,
+        suspend
+      }: {
+        readonly run: (input: number) => Effect.Effect<number>
+        readonly suspend: boolean
+      }) => {
+        const mutation = useRunMutation(run)
+        useLayoutEffect(() => {
+          committedMutate = mutation.mutate
+        }, [mutation.mutate])
+        if (suspend) {
+          secondRenderAttempted = true
+          throw never
+        }
+        return <span>committed</span>
+      }
+
+      const App = () => {
+        const [state, setState] = useState({ run: first, suspend: false })
+        suspendNext = () => {
+          startTransition(() => setState({ run: second, suspend: true }))
+        }
+        return (
+          <RendererRunnerProvider value={harness.runner}>
+            <Suspense fallback={<span>fallback</span>}>
+              <Probe run={state.run} suspend={state.suspend} />
+            </Suspense>
+          </RendererRunnerProvider>
+        )
+      }
+
+      const rendered = yield* Effect.acquireRelease(
+        Effect.sync(() => render(<App />)),
+        (value) => Effect.sync(() => value.unmount())
+      )
+
+      act(() => suspendNext?.())
+
+      expect(secondRenderAttempted).toBe(true)
+      expect(rendered.queryByText("committed")).not.toBeNull()
+      expect(rendered.queryByText("fallback")).toBeNull()
+      act(() => committedMutate?.(4))
+      expect({
+        firstCalls: first.mock.calls.length,
+        secondCalls: second.mock.calls.length
+      }).toEqual({ firstCalls: 1, secondCalls: 0 })
     })))
 
   it.effect("interrupts the active mutation and ignores a late exit after unmount", () =>
