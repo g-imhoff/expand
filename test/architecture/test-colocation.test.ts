@@ -46,7 +46,9 @@ describe("test colocation", () => {
     expect(processHeavyTestInclude).toEqual([
       "apps/server/test/integration/state-root-lock.test.ts",
       "packages/client-ts/test/integration/spawn-lock.test.ts",
-      "examples/client-ts/test/archive-stale.smoke.test.ts"
+      "examples/client-ts/test/archive-stale.smoke.test.ts",
+      "test/architecture/effect-audit.test.ts",
+      "test/architecture/effect-candidate-inventory.test.ts"
     ])
     expect(normalTestProject).toEqual({
       extends: true,

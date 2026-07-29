@@ -43,7 +43,7 @@ export class ProjectDeleteEnvelope extends Schema.Opaque<ProjectDeleteEnvelope>(
 export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
   Schema.Struct({
     apiVersion: Schema.Literal(ENVELOPE_VERSION),
-    kind: Schema.Literal("Health"),
+    kind: Schema.Literal("ServerHealth"),
     data: Schema.Struct({ status: Schema.String })
   })
 ) {}

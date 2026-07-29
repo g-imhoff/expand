@@ -3,6 +3,7 @@ import { describe, expect } from "vitest"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { NodeServices } from "@effect/platform-node"
 import { makeTempDirectoryScoped, writeFixture } from "../../../../test/support/effect-files"
+import { HealthEnvelope } from "@expand/cli/contract/envelope"
 import { makeExpand } from "@expand/cli/main"
 import { AppContext, defaultDataDir } from "@expand/contracts/app-context"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
@@ -211,8 +212,9 @@ describe("CLI contract", () => {
   }))
   it.live("health -> ServerHealth envelope", () => Effect.gen(function*() {
     const r = yield* runCli(tree(okClient), ["health"])
-    expect((yield* parseJson(r.stdout.join("")))).toMatchObject({ kind: "ServerHealth", data: { status: "ok" } })
+    const envelope = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(HealthEnvelope))(r.stdout.join(""))
     expect(r.code).toBe(0)
+    expect(envelope).toEqual({ apiVersion: "expand/v1", kind: "ServerHealth", data: { status: "ok" } })
   }))
   it.live("project rename <uuid> <new> -> Project envelope created:false, exit 0", () => Effect.gen(function*() {
     const r = yield* runCli(tree(okClient), ["project", "rename", "00000000-0000-4000-8000-000000000000", "renamed"])

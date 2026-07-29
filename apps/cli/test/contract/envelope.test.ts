@@ -61,7 +61,7 @@ describe("cli/contract/envelope", () => {
   })
 
   it.effect("HealthEnvelope wraps a status", () => {
-    const value = { apiVersion: "expand/v1", kind: "Health", data: { status: "ok" } }
+    const value = { apiVersion: "expand/v1", kind: "ServerHealth", data: { status: "ok" } }
     return Schema.decodeUnknownEffect(HealthEnvelope)(value).pipe(
       Effect.tap((decoded) => Effect.sync(() => expect(decoded).toEqual(value)))
     )
