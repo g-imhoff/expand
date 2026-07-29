@@ -1,7 +1,10 @@
-import { writeFileSync } from "node:fs"
+import { cpus, arch, platform, totalmem } from "node:os"
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Cause, Console, Data, Effect, FileSystem, Layer, Path, Scope } from "effect"
 import { ensureSeed, SCALES } from "./seed"
-import { hasBlocker, renderReport, toJsonReport } from "./report"
+import { hasBlocker, makeReportMetadata, renderReport, toJsonReport } from "./report"
 import type { Measurement, ScenarioContext } from "./report"
+import { BenchmarkHost, makeBenchmarkHostLayer } from "./rss"
 import { runColdBoot } from "./scenarios/cold-boot"
 import { runWarmBoot } from "./scenarios/warm-boot"
 import { runScanDrain } from "./scenarios/scan-drain"
@@ -16,8 +19,19 @@ interface CliOptions {
   readonly jsonPath?: string
 }
 
+interface Scenario {
+  readonly id: string
+  readonly run: (ctx: ScenarioContext) => Effect.Effect<ReadonlyArray<Measurement>, unknown, BenchmarkHost | FileSystem.FileSystem | Path.Path | Scope.Scope>
+}
+
+class BenchmarkCliError extends Data.TaggedError("BenchmarkCliError")<{
+  readonly detail: string
+}> {}
+
+class BenchmarkBlocked extends Data.TaggedError("BenchmarkBlocked")<{}> {}
+
 // layer-level first (attribution), then e2e (whole pipeline)
-const SCENARIOS: ReadonlyArray<{ readonly id: string; readonly run: (ctx: ScenarioContext) => Promise<ReadonlyArray<Measurement>> }> = [
+const SCENARIOS: ReadonlyArray<Scenario> = [
   { id: "s1", run: runColdBoot },
   { id: "s2", run: runWarmBoot },
   { id: "s4", run: runScanDrain },
@@ -54,52 +68,75 @@ const parseCli = (argv: ReadonlyArray<string>): CliOptions => {
 }
 
 const bail = (msg: string): never => {
-  console.error(`bench: ${msg}`)
-  process.exit(1)
+  throw new BenchmarkCliError({ detail: msg })
 }
 
-const main = async (): Promise<void> => {
-  const opts = parseCli(process.argv.slice(2))
+const main = Effect.fn("Benchmark.main")(function*() {
+  const opts = yield* Effect.try({
+    try: () => parseCli(process.argv.slice(2)),
+    catch: (cause) => cause instanceof BenchmarkCliError
+      ? cause
+      : new BenchmarkCliError({ detail: String(cause) })
+  }).pipe(Effect.tapError((error) => Console.error(`bench: ${error.detail}`)))
   const measurements: Array<Measurement> = []
   // Untimed setup: scales seed into separate cache files, so fan out. Deduped —
   // two concurrent seeds of the same path would race the rm + insert sequence.
   const uniqueScales = [...new Set(opts.scales)]
-  console.log(`\n== seeding ${uniqueScales.join(", ")} (cache hit is instant; --reseed forces) ==`)
-  const dbPaths = new Map(
-    await Promise.all(uniqueScales.map(async (scale) => [scale, await ensureSeed(scale, { reseed: opts.reseed })] as const))
-  )
+  yield* Console.log(`\n== seeding ${uniqueScales.join(", ")} (cache hit is instant; --reseed forces) ==`)
+  const dbPaths = new Map(yield* Effect.forEach(
+    uniqueScales,
+    (scale) => ensureSeed(scale, { reseed: opts.reseed }).pipe(Effect.map((dbPath) => [scale, dbPath] as const)),
+    { concurrency: "unbounded" }
+  ))
   for (const scale of opts.scales) {
-    console.log(`\n== ${scale} ==`)
+    yield* Console.log(`\n== ${scale} ==`)
     const ctx: ScenarioContext = {
       dbPath: dbPaths.get(scale)!,
       scale,
       eventCount: SCALES[scale]!,
       ...(opts.chunkSize !== undefined ? { chunkSize: opts.chunkSize } : {})
     }
-    for (const s of SCENARIOS) {
-      if (!opts.scenarios.has(s.id)) continue
-      console.log(`-- ${s.id} @ ${scale}`)
-      try {
-        measurements.push(...(await s.run(ctx)))
-      } catch (e) {
-        measurements.push({
-          key: `${s.id}-died`,
-          label: `${s.id} (died)`,
+    for (const scenario of SCENARIOS) {
+      if (!opts.scenarios.has(scenario.id)) continue
+      yield* Console.log(`-- ${scenario.id} @ ${scale}`)
+      const result = yield* scenario.run(ctx).pipe(
+        Effect.catchCause((cause) => Effect.succeed([{
+          key: `${scenario.id}-died`,
+          label: `${scenario.id} (died)`,
           scale,
           wallMs: 0,
           events: null,
           rssDeltaBytes: 0,
-          error: String(e)
-        })
-      }
+          error: Cause.pretty(cause)
+        }]))
+      )
+      measurements.push(...result)
     }
   }
-  console.log(renderReport(measurements, opts.chunkSize))
+  const metadata = yield* makeReportMetadata
+  yield* Console.log(renderReport(measurements, opts.chunkSize, metadata.machine))
   if (opts.jsonPath !== undefined) {
-    writeFileSync(opts.jsonPath, toJsonReport(measurements))
-    console.log(`json written: ${opts.jsonPath}`)
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.writeFileString(opts.jsonPath, toJsonReport(measurements, metadata))
+    yield* Console.log(`json written: ${opts.jsonPath}`)
   }
-  process.exit(hasBlocker(measurements) ? 1 : 0)
-}
+  if (hasBlocker(measurements)) return yield* new BenchmarkBlocked()
+})
 
-await main()
+const benchmarkHostLayer = makeBenchmarkHostLayer({
+  rss: () => process.memoryUsage().rss,
+  ...(globalThis.gc === undefined ? {} : { gc: () => globalThis.gc!() }),
+  machineInfo: () => ({
+    cpu: cpus()[0]?.model ?? "unknown",
+    cores: cpus().length,
+    nodeVersion: process.version,
+    platform: platform(),
+    arch: arch(),
+    totalMemGb: Math.round(totalmem() / 1024 / 1024 / 1024)
+  })
+})
+
+NodeRuntime.runMain(main().pipe(
+  Effect.scoped,
+  Effect.provide(Layer.mergeAll(benchmarkHostLayer, NodeServices.layer))
+), { disableErrorReporting: true })

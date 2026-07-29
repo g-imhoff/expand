@@ -14,10 +14,15 @@
   // directly from apps/desktop/src/renderer/index.css and compiled by the Vite
   // plugin, which Knip does not trace. These are false positives, not dead code.
   "ignoreDependencies": ["ws", "@types/ws", "tailwindcss"],
+  "ignoreBinaries": ["rg"],
 
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.ts"],
+      "entry": [
+        "scripts/*.ts",
+        "apps/server/test/fixtures/state-root-lock-contender.ts",
+        "apps/server/test/fixtures/trust-boundary-host.ts"
+      ],
       "project": [
         "apps/cli/**/*.{ts,tsx}",
         "apps/server/**/*.{ts,tsx}",
@@ -27,11 +32,19 @@
         "bench/**/*.ts"
       ]
     },
+    "packages/client-ts": {
+      "entry": ["test/fixtures/spawn-lock-contender.ts"],
+      "ignoreDependencies": ["@effect/platform-node-shared"]
+    },
     "apps/desktop": {
       "entry": [
         "test/**/*.test.{ts,tsx}",
-        "e2e/**/*.spec.ts"
+        "e2e/**/*.spec.ts",
+        "e2e/playwright.config.ts"
       ]
+    },
+    "docs/architecture": {
+      "project": ["scripts/**/*.ts"]
     }
   }
 }

@@ -1,66 +1,111 @@
-import { describe, expect, it } from "vitest"
-import { spawn } from "node:child_process"
-import { once } from "node:events"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Stream } from "effect"
+import { ChildProcess } from "effect/unstable/process"
+import { describe, expect } from "vitest"
 
-const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+const childOutput = (
+  stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
+  stderr: Fiber.Fiber<string, PlatformError.PlatformError>
+) =>
+  Effect.all([Fiber.join(stdout), Fiber.join(stderr)], { concurrency: "unbounded" })
 
-const isRunning = (child: ReturnType<typeof spawn>) => child.exitCode === null && child.signalCode === null
+type ServerChild = Effect.Success<ReturnType<typeof ChildProcess.make>>
 
-const waitForExit = async (child: ReturnType<typeof spawn>, milliseconds: number) => {
-  if (!isRunning(child)) return
-  await Promise.race([once(child, "exit"), delay(milliseconds)])
-}
+const awaitChildReadiness = Effect.fn("DefaultDataDir.awaitChildReadiness")(function*(
+  readiness: Effect.Effect<void, unknown>,
+  child: ServerChild,
+  stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
+  stderr: Fiber.Fiber<string, PlatformError.PlatformError>
+) {
+  yield* Effect.raceFirst(
+    readiness,
+    child.exitCode.pipe(
+      Effect.flatMap((code) => childOutput(stdout, stderr).pipe(
+        Effect.flatMap(([output, error]) => Effect.fail(
+          Number(code) === 0
+            ? `production server exited unexpectedly with code 0: stdout=${output} stderr=${error}`
+            : `production server exited with nonzero code ${String(code)}: stdout=${output} stderr=${error}`
+        ))
+      ))
+    )
+  )
+})
 
 describe("default data directory", () => {
-  it("starts fresh without moving an old unscoped home", async () => {
-    const root = mkdtempSync(join(tmpdir(), "expand-default-isolation-"))
-    const legacyDir = join(root, ".expand")
-    const defaultDir = join(legacyDir, "expand-dev")
-    const endpointFile = join(defaultDir, "server.json")
-    mkdirSync(legacyDir)
-    writeFileSync(join(legacyDir, "events.db"), "")
-    writeFileSync(join(legacyDir, "marker"), "legacy")
+  it.live("surfaces an early failing child before readiness times out", () =>
+    Effect.gen(function*() {
+      const child = yield* ChildProcess.make(
+        "node",
+        ["--definitely-invalid-expand-option"],
+        { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
+      )
+      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const readiness = Effect.sleep("5 seconds").pipe(
+        Effect.andThen(Effect.fail("readiness timed out" as const))
+      )
+      const error = yield* awaitChildReadiness(readiness, child, stdout, stderr).pipe(
+        Effect.timeoutOrElse({
+          duration: "1 second",
+          orElse: () => Effect.fail("early exit was not surfaced" as const)
+        }),
+        Effect.flip
+      )
+      expect(error).toBe(
+        "production server exited with nonzero code 9: stdout= stderr=node: bad option: --definitely-invalid-expand-option\n"
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-    const child = spawn(process.execPath, ["--import", "tsx", "apps/server/main.ts"], {
-      cwd: process.cwd(),
-      env: { ...process.env, HOME: root, EXPAND_LOG_LEVEL: "None" },
-      stdio: ["ignore", "ignore", "pipe"]
-    })
-    let stderr = ""
-    child.stderr?.setEncoding("utf8")
-    child.stderr?.on("data", (chunk: string) => {
-      stderr += chunk
-    })
+  it.live("starts fresh without moving an old unscoped home", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-default-isolation-" })
+      const legacyDir = path.join(root, ".expand")
+      const defaultDir = path.join(legacyDir, "expand-dev")
+      const endpointFile = path.join(defaultDir, "server.json")
+      yield* fs.makeDirectory(legacyDir)
+      yield* fs.writeFileString(path.join(legacyDir, "events.db"), "")
+      yield* fs.writeFileString(path.join(legacyDir, "marker"), "legacy")
 
-    try {
-      const deadline = Date.now() + 10_000
-      while (!existsSync(endpointFile) && isRunning(child) && Date.now() < deadline) {
-        await delay(25)
-      }
-      if (!existsSync(endpointFile)) {
-        throw new Error(
-          `production server did not start: exit=${String(child.exitCode)} signal=${String(child.signalCode)} stderr=${stderr}`
+      const child = yield* ChildProcess.make(
+        "node",
+        ["--import", "tsx", "apps/server/main.ts"],
+        {
+          cwd: path.resolve("."),
+          env: { HOME: root, EXPAND_LOG_LEVEL: "None" },
+          extendEnv: true,
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe"
+        }
+      )
+      const stdout = yield* child.stdout.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const stderr = yield* child.stderr.pipe(Stream.decodeText(), Stream.mkString, Effect.forkScoped)
+      const readiness = fs.exists(endpointFile).pipe(
+        Effect.filterOrFail((exists) => exists, () => "pending" as const),
+        Effect.retry(Schedule.spaced("25 millis")),
+        Effect.timeoutOrElse({
+          duration: "10 seconds",
+          orElse: () => Effect.fail("production server did not start" as const)
+        }),
+        Effect.asVoid
+      )
+      yield* awaitChildReadiness(readiness, child, stdout, stderr)
+      const exit = yield* child.exitCode.pipe(Effect.timeoutOption("1 millis"))
+      if (Option.isSome(exit)) {
+        const [output, error] = yield* childOutput(stdout, stderr)
+        return yield* Effect.fail(
+          Number(exit.value) === 0
+            ? `production server exited unexpectedly with code 0 after readiness: stdout=${output} stderr=${error}`
+            : `production server exited with nonzero code ${String(exit.value)} after readiness: stdout=${output} stderr=${error}`
         )
       }
-
-      expect(existsSync(join(legacyDir, "events.db"))).toBe(true)
-      expect(existsSync(join(legacyDir, "marker"))).toBe(true)
-      expect(existsSync(join(defaultDir, "events.db"))).toBe(true)
-      expect(existsSync(join(defaultDir, "marker"))).toBe(false)
-    } finally {
-      if (isRunning(child)) child.kill("SIGTERM")
-      await waitForExit(child, 2_000)
-      if (isRunning(child)) child.kill("SIGKILL")
-      await waitForExit(child, 2_000)
-      if (isRunning(child)) {
-        child.stderr?.destroy()
-        child.unref()
-        throw new Error(`production server did not stop; data preserved at ${root}`)
-      }
-      rmSync(root, { recursive: true, force: true })
-    }
-  }, 15_000)
+      expect(yield* fs.exists(path.join(legacyDir, "events.db"))).toBe(true)
+      expect(yield* fs.exists(path.join(legacyDir, "marker"))).toBe(true)
+      expect(yield* fs.exists(path.join(defaultDir, "events.db"))).toBe(true)
+      expect(yield* fs.exists(path.join(defaultDir, "marker"))).toBe(false)
+      expect(Option.isNone(exit), "production server must remain alive after readiness").toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), 15_000)
 })

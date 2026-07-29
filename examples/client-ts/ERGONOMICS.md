@@ -34,7 +34,9 @@ Every example ends with the same runtime incantation
 `audit-log.ts:62-70`):
 
 ```ts
-const runtime = ManagedRuntime.make(ClientLayer(adapter).pipe(Layer.provide(NodeServices.layer)))
+const runtime = ManagedRuntime.make(
+  clientLayer(adapter).pipe(Layer.provide(NodeServices.layer))
+)
 runtime.runPromise(program).then(
   () => runtime.dispose(),
   (err) => { console.error(err); return runtime.dispose().finally(() => process.exit(1)) }
@@ -52,35 +54,41 @@ typed `ProjectClient`, it must hand-roll `ManagedRuntime` and the two-arm
 tier consumers normally use. It would delete the repeated tail from all three
 examples.
 
-## 3. "Public API only" leaks two peer dependencies
+## 3. "Public API only" leaks platform and application composition
 
 The examples are meant to import *only* `@expand/client-ts` and
 `@expand/client-ts/adapters/node`. In practice every one of them also imports
 `effect` (`Effect`, `Layer`, `ManagedRuntime`, `Stream`) and, critically,
 `NodeServices` from `@effect/platform-node` (`bootstrap-projects.ts:1-2`, etc.).
 
-That second import isn't optional: `ClientLayer(adapter)` requires a
-`FileSystem.FileSystem` in its environment (`client-layer.ts:9-14`), which the
-consumer satisfies with `.pipe(Layer.provide(NodeServices.layer))`. So the Node consumer
-must know to add `@effect/platform-node` and wire its layer, even though they
-already selected the Node adapter — the platform is named twice.
+That second import isn't optional: `ClientLayer(adapter)` requires
+`FileSystem.FileSystem`, `Path.Path`, `Crypto.Crypto`, `AppContext`, and
+`ProcessControl`. The example-owned `clientLayer` helper supplies
+`nodeAppContextLayer` and the process-control layer before each entrypoint
+supplies `NodeServices.layer`. The context layer therefore receives `Path.Path`
+and `Stdio.Stdio`, acquires home and cwd lazily, and maps `Stdio.args` through
+the pure `dataDirFromArgs` helper. The Node consumer still names the platform
+separately from selecting the Node adapter while retaining explicit application
+ownership of context composition.
 
 **Possible cleanup:** have `makeNodeAdapter` or the Node subpath provide the Node
-`FileSystem` itself, so `ClientLayer(nodeAdapter)` needs no external platform
-layer — the adapter choice already implies the platform.
+platform services itself while preserving application ownership of
+`AppContext`, so the adapter choice does not need a second platform layer.
 
-## 4. Data-dir isolation is entirely off-surface (a magic argv flag)
+## 4. Data-dir isolation is application-owned, not an SDK option
 
 Pointing the client and the backend it spawns at an isolated data directory (the
 one thing every smoke test needs, and any embedding host will eventually need)
-is done by injecting `--data-dir <dir>` into the child argv
-(`test/helpers.ts:36`). It is read through `AppContext`, not selected by the SDK
-surface — there is no `ClientLayer(adapter, { dataDir })` or adapter option for
-it.
+is still done by injecting `--data-dir <dir>` into the child argv
+(`test/helpers.ts:36`). The application layer reads those arguments through the
+`Stdio` service, derives a pure `AppContext`, and then provides that context to
+the SDK. There is no ambient default and no `ClientLayer(adapter, { dataDir })`
+or adapter option.
 
-This works for a standalone CLI whose argv is its own, but a program that embeds
-the SDK inside a larger process has no programmatic way to choose the data dir.
-Confirmed gap.
+Standalone applications can retain argv behavior, while an embedding host can
+provide `AppContext` directly or call its Node context adapter with an explicit
+data directory. The remaining gap is convenience rather than control: the SDK
+does not expose a data-directory option itself.
 
 **Possible cleanup:** surface the data dir as an adapter or `ClientLayer` option
 that flows into `resolveBackendCommand` and spawn rather than piggybacking on
@@ -174,5 +182,6 @@ The Effect-native surface is genuinely good where it is typed: the error
 channels (#5), replay cursor (#6), and removal of the competing store command
 surface (#1) all help. The remaining friction clusters around setup and
 lifecycle: facade-runner boilerplate (#2), platform-layer leakage (#3), a data
-directory knob that is not on the surface (#4), epoch-bound raw streams (#6),
+application-owned context wiring (#3), a data-directory knob that is not on the
+SDK surface (#4), epoch-bound raw streams (#6),
 branded round-trips (#7), and graceful shutdown (#8).

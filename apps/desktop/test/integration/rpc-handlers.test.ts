@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Layer, Schema, Stream, SubscriptionRef } from "effect"
 import { Project, ProjectCreateResult } from "@expand/contracts/project"
 import {
@@ -62,8 +63,7 @@ const makeClientLayer = (
 }
 
 const runProjectHandlers = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
+  Effect.gen(function* () {
       const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
       let createPayload: Parameters<ProjectClientApi["create"]>[0] | undefined
       let renamePayload: Parameters<ProjectClientApi["rename"]>[0] | undefined
@@ -73,7 +73,7 @@ const runProjectHandlers = () =>
       let metadataPayload: Parameters<ProjectClientApi["setMetadata"]>[0] | undefined
       let deletePayload: Parameters<ProjectClientApi["delete"]>[0] | undefined
       let listPayload: Parameters<ProjectClientApi["list"]>[0] | undefined
-      const upstreamCreateResult = Schema.decodeUnknownSync(ProjectCreateResult)({
+      const upstreamCreateResult = yield* Schema.decodeUnknownEffect(ProjectCreateResult)({
         created: false,
         project
       })
@@ -138,11 +138,10 @@ const runProjectHandlers = () =>
         upstreamCreateResult
       }
     })
-  )
 
 describe("DesktopRpcHandlers", () => {
-  it("ProjectList and commands delegate to ProjectClient", async () => {
-    const result = await runProjectHandlers()
+  it.effect("ProjectList and commands delegate to ProjectClient", () => Effect.gen(function* () {
+    const result = yield* runProjectHandlers()
     expect(result.createPayload).toEqual({
       name: "omega",
       ensure: true,
@@ -156,5 +155,5 @@ describe("DesktopRpcHandlers", () => {
     expect(result.metadataPayload).toEqual({ id: uid(1), description: "hi", tags: ["x"] })
     expect(result.deletePayload).toEqual({ id: uid(1) })
     expect(result.createResult).toBe(result.upstreamCreateResult)
-  })
+  }))
 })

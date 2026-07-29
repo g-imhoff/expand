@@ -1,4 +1,4 @@
-import type { Effect, Layer } from "effect"
+import type { Effect, FileSystem, Layer } from "effect"
 import type { RpcClient } from "effect/unstable/rpc"
 import type { BackendUnavailable } from "./errors"
 
@@ -28,5 +28,7 @@ export interface RuntimeAdapter {
    * @param dataDir - The data directory the backend must use.
    * @returns An effect that completes after launch or fails with {@link BackendUnavailable}.
    */
-  readonly spawnBackend: (dataDir: string) => Effect.Effect<void, BackendUnavailable>
+  readonly spawnBackend: (
+    dataDir: string
+  ) => Effect.Effect<void, BackendUnavailable, FileSystem.FileSystem>
 }

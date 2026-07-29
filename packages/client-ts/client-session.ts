@@ -11,8 +11,10 @@ import {
   Stream,
   SubscriptionRef
 } from "effect"
-import type { FileSystem, Scope } from "effect"
+import type { Crypto, FileSystem, Path, Scope } from "effect"
 import { RpcClient } from "effect/unstable/rpc"
+import type { AppContext } from "@expand/contracts/app-context"
+import type { ProcessControl } from "@expand/contracts/process-control"
 import type { RuntimeAdapter } from "./adapter"
 import { BackendUnavailable } from "./errors"
 import { acquireClient, type ExpandRpcClientApi } from "./rpc-client"
@@ -32,7 +34,11 @@ export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
 export const ClientSessionLayer = (
   adapter: RuntimeAdapter
-): Layer.Layer<ClientSession, BackendUnavailable, FileSystem.FileSystem> =>
+): Layer.Layer<
+  ClientSession,
+  BackendUnavailable,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
+> =>
   Layer.effect(ClientSession, makeSession(adapter))
 
 const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
@@ -100,7 +106,7 @@ const toUnavailable = (error: { readonly _tag: string }): BackendUnavailable =>
     ? (error as BackendUnavailable)
     : new BackendUnavailable({ reason: String(error) })
 
-const currentClient = <A>(
+const currentClient = Effect.fn("ClientSession.currentClient")(<A>(
   ref: SubscriptionRef.SubscriptionRef<A | null>
 ): Effect.Effect<A> =>
   SubscriptionRef.changes(ref).pipe(
@@ -108,69 +114,73 @@ const currentClient = <A>(
     Stream.runHead,
     Effect.map(Option.getOrThrow)
   )
+)
 
-const makeSession = (
+const makeSession = Effect.fn("ClientSession.make")(function*(
   adapter: RuntimeAdapter
-): Effect.Effect<ClientSessionApi, BackendUnavailable, FileSystem.FileSystem | Scope.Scope> =>
-  Effect.gen(function* () {
-    const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")
-    const clients = yield* SubscriptionRef.make<ExpandRpcClientApi | null>(null)
-    const ready = yield* Deferred.make<void, BackendUnavailable>()
+): Effect.fn.Return<
+  ClientSessionApi,
+  BackendUnavailable,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
+> {
+  const status = yield* SubscriptionRef.make<ConnectionStatus>("disconnected")
+  const clients = yield* SubscriptionRef.make<ExpandRpcClientApi | null>(null)
+  const ready = yield* Deferred.make<void, BackendUnavailable>()
 
-    const acquireEpoch = Effect.scoped(
-      Effect.gen(function* () {
-        const hooked = withConnectionHooks(adapter, clients, status)
-        const { client } = yield* acquireClient(hooked.adapter)
-        const attempt = hooked.currentAttempt()
-        if (attempt === undefined) {
-          return yield* Effect.fail(new BackendUnavailable({ reason: "connection attempt missing" }))
-        }
-        const published = yield* attempt.lifecycle.withPermit(
-          Deferred.isDone(attempt.disconnected).pipe(
-            Effect.flatMap((done) =>
-              done
-                ? Effect.succeed(false)
-                : Deferred.succeed(attempt.published, undefined).pipe(
-                    Effect.andThen(SubscriptionRef.set(clients, client)),
-                    Effect.andThen(SubscriptionRef.set(status, "connected")),
-                    Effect.andThen(Deferred.succeed(ready, undefined)),
-                    Effect.as(true)
-                  )
-            )
+  const acquireEpoch = Effect.scoped(
+    Effect.gen(function* () {
+      const hooked = withConnectionHooks(adapter, clients, status)
+      const { client } = yield* acquireClient(hooked.adapter)
+      const attempt = hooked.currentAttempt()
+      if (attempt === undefined) {
+        return yield* new BackendUnavailable({ reason: "connection attempt missing" })
+      }
+      const published = yield* attempt.lifecycle.withPermit(
+        Deferred.isDone(attempt.disconnected).pipe(
+          Effect.flatMap((done) =>
+            done
+              ? Effect.succeed(false)
+              : Deferred.succeed(attempt.published, undefined).pipe(
+                  Effect.andThen(SubscriptionRef.set(clients, client)),
+                  Effect.andThen(SubscriptionRef.set(status, "connected")),
+                  Effect.andThen(Deferred.succeed(ready, undefined)),
+                  Effect.as(true)
+                )
           )
         )
-        if (!published) {
-          return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
-        }
-        yield* Deferred.await(attempt.disconnected)
-        return yield* Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
-      })
-    )
-
-    const loop = acquireEpoch.pipe(
-      Effect.tapError((error) => Deferred.fail(ready, toUnavailable(error))),
-      Effect.exit,
-      Effect.flatMap((exit) =>
-        Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
-          ? Effect.failCause(exit.cause)
-          : Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
-      ),
-      Effect.retry(reconnectPolicy)
-    )
-
-    yield* Effect.addFinalizer(() =>
-      SubscriptionRef.set(clients, null).pipe(
-        Effect.andThen(SubscriptionRef.set(status, "disconnected"))
       )
-    )
-    yield* Effect.forkScoped(supervised("client-session-connection", loop))
-    yield* Deferred.await(ready)
+      if (!published) {
+        return yield* new BackendUnavailable({ reason: "connection lost" })
+      }
+      yield* Deferred.await(attempt.disconnected)
+      return yield* new BackendUnavailable({ reason: "connection lost" })
+    })
+  )
 
-    return {
-      status,
-      current: currentClient(clients),
-      epochs: SubscriptionRef.changes(clients).pipe(
-        Stream.filter((client): client is ExpandRpcClientApi => client !== null)
-      )
-    }
-  })
+  const loop = acquireEpoch.pipe(
+    Effect.tapError((error) => Deferred.fail(ready, toUnavailable(error))),
+    Effect.exit,
+    Effect.flatMap((exit) =>
+      Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
+        ? Effect.failCause(exit.cause)
+        : Effect.fail(new BackendUnavailable({ reason: "connection lost" }))
+    ),
+    Effect.retry(reconnectPolicy)
+  )
+
+  yield* Effect.addFinalizer(() =>
+    SubscriptionRef.set(clients, null).pipe(
+      Effect.andThen(SubscriptionRef.set(status, "disconnected"))
+    )
+  )
+  yield* Effect.forkScoped(supervised("client-session-connection", loop))
+  yield* Deferred.await(ready)
+
+  return {
+    status,
+    current: currentClient(clients),
+    epochs: SubscriptionRef.changes(clients).pipe(
+      Stream.filter((client): client is ExpandRpcClientApi => client !== null)
+    )
+  }
+})

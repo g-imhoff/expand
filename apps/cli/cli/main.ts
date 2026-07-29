@@ -1,10 +1,8 @@
 import { Command, GlobalFlag, CliOutput } from "effect/unstable/cli"
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Effect, Layer } from "effect"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
-import { ClientLayer, resolveBackendCommand } from "@expand/client-ts"
+import { makeNodeAdapter, ProcessServices } from "@expand/client-ts/adapters/node"
+import { Effect, Layer, Path, type FileSystem } from "effect"
+import { NodePath, NodeRuntime } from "@effect/platform-node"
+import { ClientLayer, resolveBackendCommand, type BackendCommandError } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { DataDir, Format, Quiet } from "@expand/cli/global-flags"
@@ -28,22 +26,27 @@ export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | Server
   )
 }
 
-export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand })))
+export const backendCommand: (
+  moduleUrl?: URL
+) => Effect.Effect<ReadonlyArray<string>, BackendCommandError, FileSystem.FileSystem> = Effect.fn("Cli.backendCommand")(
+  function*(moduleUrl: URL = new URL(import.meta.url)) {
+    const path = yield* Path.Path
+    const modulePath = yield* path.fromFileUrl(moduleUrl).pipe(Effect.orDie)
+    return yield* resolveBackendCommand({
+      execPath: process.execPath,
+      runtimeArgs: ["--import", "tsx"],
+      sourceEntry: path.join(modulePath, "..", "..", "..", "server", "main.ts"),
+      binaryArgs: [process.execPath, path.join(path.dirname(modulePath), "expand-server")]
+    })
+  },
+  Effect.provide(NodePath.layer)
+)
 
-function backendCommand(): ReadonlyArray<string> {
-  const sourceEntry = join(fileURLToPath(import.meta.url), "..", "..", "..", "server", "main.ts")
-  return resolveBackendCommand({
-    execPath: process.execPath,
-    runtimeArgs: ["--import", "tsx"],
-    sourceEntry,
-    binaryArgs: [process.execPath, join(dirname(fileURLToPath(import.meta.url)), "expand-server")]
-  })
-}
+export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand: backendCommand() })))
 
 if (import.meta.main) {
   renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(
-    Effect.provide(CliOutput.layer(jsonCliErrorFormatter)),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(Layer.mergeAll(CliOutput.layer(jsonCliErrorFormatter), ProcessServices.layer)),
     NodeRuntime.runMain
   )
 }

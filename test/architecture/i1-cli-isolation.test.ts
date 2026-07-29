@@ -24,28 +24,22 @@
 // ADR: the 2026-07-08 client-ts rename design spec and plan under
 // docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
-import { execFileSync } from "node:child_process"
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect } from "effect"
+import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
 describe("I-1: CLI client isolation", () => {
-  it("apps/cli/cli/** does not import server-only modules", () => {
-    let output = ""
-    let code = 0
-    try {
-      // Cruise the full frontend + shared-client surface: apps (cli, tui, desktop)
-      // and packages (contracts, client-ts). I-1 now guards every frontend.
-      output = execFileSync(
-        "npm",
-        ["exec", "--", "depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
-      )
-    } catch (e: any) {
-      code = typeof e.status === "number" ? e.status : 1
-      output = `${e.stdout ?? ""}${e.stderr ?? ""}`
-    }
-    expect(output).not.toContain("frontends-must-not-import-backend")
-    expect(output).not.toContain("composition-only-from-server-subcommand")
-    expect(output).not.toContain("renderer-must-not-import-client-ts")
-    expect(code).toBe(0)
-  })
+  it.live("apps/cli/cli/** does not import server-only modules", () =>
+    runCommand("npm", ["exec", "--", "depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"]).pipe(
+      Effect.tap((report) => Effect.sync(() => {
+        const output = `${report.stdout}${report.stderr}`
+        expect(output).not.toContain("frontends-must-not-import-backend")
+        expect(output).not.toContain("composition-only-from-server-subcommand")
+        expect(output).not.toContain("renderer-must-not-import-client-ts")
+        expect(report.exitCode).toBe(0)
+      })),
+      Effect.provide(NodeServices.layer)
+    ))
 })

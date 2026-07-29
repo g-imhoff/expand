@@ -6,7 +6,7 @@ import { ServerClient } from "@expand/client-ts/server"
 import { dieOnRpcClientError } from "@expand/desktop/main/rpc/guard"
 
 export const healthHandlers: Pick<Handlers, "Health"> = {
-  Health: () =>
+  Health: Effect.fn("DesktopRpc.Health")(() =>
     Effect.flatMap(ClientSession, (session) =>
       Effect.flatMap(SubscriptionRef.get(session.status), (status) =>
         status === "connected"
@@ -14,6 +14,7 @@ export const healthHandlers: Pick<Handlers, "Health"> = {
           : Effect.die(new Error("backend disconnected"))
       )
     )
+  )
 }
 
 type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

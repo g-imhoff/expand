@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Schema, Stream } from "effect"
 import { Project as ProjectClass } from "@expand/contracts/project"
 import type { Project } from "@expand/contracts/project"
@@ -30,80 +31,74 @@ const project: Project = Schema.decodeUnknownSync(ProjectClass)({
   archived: false, createdAt: "t", updatedAt: "t"
 })
 
+const provideClient = (client: RendererRpcClientApi) =>
+  <A, E>(effect: Effect.Effect<A, E, ProjectRpc>) => effect.pipe(
+    Effect.provide(ProjectRpcLayer),
+    Effect.provideService(RendererRpcClient, client)
+  )
+
 describe("ProjectRpcLayer", () => {
-  it("create passes the payload straight through to ProjectCreate", async () => {
+  it.effect("create passes the payload straight through to ProjectCreate", () => Effect.gen(function* () {
     const client = fakeClient({
       ProjectCreate: (payload) => {
         expect(payload).toEqual({ name: "alpha", ensure: true })
         return Effect.succeed({ created: true, project })
       }
     })
-    const result = await ProjectRpc.pipe(
+    const result = yield* ProjectRpc.pipe(
       Effect.flatMap((rpc) => rpc.create({ name: "alpha", ensure: true })),
-      Effect.provide(ProjectRpcLayer),
-      Effect.provideService(RendererRpcClient, client),
-      Effect.runPromise
+      provideClient(client)
     )
     expect(result).toEqual({ created: true, project })
-  })
+  }))
 
-  it("archive forwards the { id } payload", async () => {
+  it.effect("archive forwards the { id } payload", () => Effect.gen(function* () {
     const client = fakeClient({
       ProjectArchive: (payload) => {
         expect(payload).toEqual({ id: uid(1) })
         return Effect.succeed(project)
       }
     })
-    const result = await ProjectRpc.pipe(
+    const result = yield* ProjectRpc.pipe(
       Effect.flatMap((rpc) => rpc.archive({ id: uid(1) })),
-      Effect.provide(ProjectRpcLayer),
-      Effect.provideService(RendererRpcClient, client),
-      Effect.runPromise
+      provideClient(client)
     )
     expect(result).toEqual(project)
-  })
+  }))
 
-  it("list forwards includeArchived (defaulting to {})", async () => {
+  it.effect("list forwards includeArchived (defaulting to {})", () => Effect.gen(function* () {
     const client = fakeClient({
       ProjectList: (payload) => {
         expect(payload).toEqual({ includeArchived: true })
         return Effect.succeed({ projects: [], seq: 0 })
       }
     })
-    const result = await ProjectRpc.pipe(
+    const result = yield* ProjectRpc.pipe(
       Effect.flatMap((rpc) => rpc.list({ includeArchived: true })),
-      Effect.provide(ProjectRpcLayer),
-      Effect.provideService(RendererRpcClient, client),
-      Effect.runPromise
+      provideClient(client)
     )
     expect(result).toEqual({ projects: [], seq: 0 })
-  })
+  }))
 
-  it("maps Connect booleans to project sync statuses", async () => {
-    const client = fakeClient({
-      Connect: () => Stream.make(true, false)
-    })
-    const result = await ProjectRpc.pipe(
+  it.effect("maps Connect booleans to project sync statuses", () => Effect.gen(function* () {
+    const client = fakeClient({ Connect: () => Stream.make(true, false) })
+    const result = yield* ProjectRpc.pipe(
       Effect.flatMap((rpc) => Stream.runCollect(rpc.status)),
-      Effect.provide(ProjectRpcLayer),
-      Effect.provideService(RendererRpcClient, client),
-      Effect.runPromise
+      provideClient(client)
     )
     expect(Array.from(result)).toEqual(["connected", "reconnecting"])
-  })
+  }))
 
-  it("forwards Events fromSeq unchanged", async () => {
+  it.effect("forwards Events fromSeq unchanged", () => Effect.gen(function* () {
     const client = fakeClient({
       Events: (payload) => {
         expect(payload).toEqual({ fromSeq: 17 })
         return Stream.empty
       }
     })
-    await ProjectRpc.pipe(
+    yield* ProjectRpc.pipe(
       Effect.flatMap((rpc) => Stream.runDrain(rpc.events({ fromSeq: 17 }))),
-      Effect.provide(ProjectRpcLayer),
-      Effect.provideService(RendererRpcClient, client),
-      Effect.runPromise
+      provideClient(client)
     )
-  })
+  }))
 })

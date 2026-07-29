@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import type { Effect } from "effect"
 import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
 import type { IpcBridgeOf, IpcEmitterOf, IpcHandlersOf, IpcSenderInfo, WireName } from "@expand/electron-ipc/contract"
+import type { IpcMainLike } from "@expand/electron-ipc/main"
 
 const Sample = IpcContract.make("sample", {
   ping: IpcChannel.send({ payload: Schema.Struct({ at: Schema.Number }) }),
@@ -13,7 +14,7 @@ const Sample = IpcContract.make("sample", {
   add: IpcChannel.invoke({
     payload: Schema.Struct({ a: Schema.Number, b: Schema.Number }),
     success: Schema.Number,
-    error: Schema.Struct({ _tag: Schema.Literal("AddFailed") })
+    error: Schema.TaggedStruct("AddFailed", {})
   }),
   // `tick` likewise carries a transform payload so the split is observable on the event leg.
   tick: IpcChannel.event({ payload: Schema.Struct({ seq: Schema.FiniteFromString }) }),
@@ -27,7 +28,10 @@ describe("type derivations", () => {
     expectTypeOf<Bridge["ping"]>().toEqualTypeOf<(payload: { readonly at: number }) => void>()
     // Encoded side: the transform payload surfaces as `string` on the bridge.
     expectTypeOf<Bridge["seek"]>().toEqualTypeOf<(payload: { readonly pos: string }) => void>()
-    expectTypeOf<Bridge["add"]>().toEqualTypeOf<(payload: { readonly a: number; readonly b: number }) => Promise<unknown>>()
+    expectTypeOf<Parameters<Bridge["add"]>[0]>().toEqualTypeOf<{ readonly a: number; readonly b: number }>()
+    expectTypeOf<ReturnType<Bridge["add"]>>().toEqualTypeOf<
+      ReturnType<Parameters<IpcMainLike["handle"]>[1]>
+    >()
     expectTypeOf<Bridge["tick"]>().toEqualTypeOf<(listener: (payload: { readonly seq: string }) => void) => () => void>()
     expectTypeOf<Bridge["rpcPort"]>().toEqualTypeOf<(nonce: string) => void>()
   })
@@ -47,7 +51,12 @@ describe("type derivations", () => {
         sender: IpcSenderInfo
       ) => Effect.Effect<number, { readonly _tag: "AddFailed" }, "REQ">
     >()
-    expectTypeOf<Handlers["rpcPort"]>().toEqualTypeOf<(sender: IpcSenderInfo) => Effect.Effect<"PORT", never, "REQ">>()
+    expectTypeOf<Handlers["rpcPort"]>().toEqualTypeOf<
+      (
+        sender: IpcSenderInfo,
+        grant: (port: "PORT") => Effect.Effect<void>
+      ) => Effect.Effect<void, never, "REQ">
+    >()
     expectTypeOf<keyof Handlers>().toEqualTypeOf<"ping" | "seek" | "add" | "rpcPort">()
   })
 

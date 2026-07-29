@@ -1,6 +1,7 @@
 import { CliError, CliOutput } from "effect/unstable/cli"
+import { Schema } from "effect"
 import { makeEnvelope } from "@expand/cli/errors/envelope"
-import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
+import { ErrorEnvelopeFromJson, type ErrorEnvelope } from "@expand/cli/contract/envelope"
 
 export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
@@ -20,7 +21,9 @@ export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
 
 export const jsonCliErrorFormatter: CliOutput.Formatter = {
   ...CliOutput.defaultFormatter(),
-  formatCliError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
-  formatError: (e) => JSON.stringify(cliErrorToEnvelope(e)),
-  formatErrors: (errors) => errors.map((e) => JSON.stringify(cliErrorToEnvelope(e))).join("\n")
+  formatCliError: (e) => encodeErrorEnvelope(cliErrorToEnvelope(e)),
+  formatError: (e) => encodeErrorEnvelope(cliErrorToEnvelope(e)),
+  formatErrors: (errors) => errors.map((e) => encodeErrorEnvelope(cliErrorToEnvelope(e))).join("\n")
 }
+
+const encodeErrorEnvelope = Schema.encodeSync(ErrorEnvelopeFromJson)

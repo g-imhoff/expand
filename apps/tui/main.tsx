@@ -1,11 +1,16 @@
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { Effect } from "effect"
 import { render } from "ink"
 import { App } from "@expand/tui/components/app"
-import { RuntimeContext, makeProductionRuntime } from "@expand/tui/runtime"
+import { RuntimeContext, makeProductionRuntime, tuiProgram } from "@expand/tui/runtime"
 
-const runtime = makeProductionRuntime()
-const { waitUntilExit } = render(
-  <RuntimeContext.Provider value={runtime}>
-    <App />
-  </RuntimeContext.Provider>
+NodeRuntime.runMain(
+  tuiProgram({
+    makeRuntime: makeProductionRuntime,
+    render: (runtime) => render(
+      <RuntimeContext.Provider value={runtime}>
+        <App />
+      </RuntimeContext.Provider>
+    )
+  }).pipe(Effect.provide(NodeServices.layer))
 )
-waitUntilExit().then(() => runtime.dispose())

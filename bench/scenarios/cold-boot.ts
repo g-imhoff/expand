@@ -19,10 +19,10 @@ export const projectionBootLayer = (dbPath: string, chunkSize?: number) => {
   return ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
 }
 
-export const runColdBoot = async (ctx: ScenarioContext): Promise<ReadonlyArray<Measurement>> => {
-  deleteCheckpoint(ctx.dbPath)
-  const { value: wallMs, rssDeltaBytes } = await withRss(() =>
-    Effect.runPromise(timedLayerBuild(projectionBootLayer(ctx.dbPath, ctx.chunkSize)))
+export const runColdBoot = Effect.fn("Benchmark.runColdBoot")(function*(ctx: ScenarioContext) {
+  yield* deleteCheckpoint(ctx.dbPath)
+  const { value: wallMs, rssDeltaBytes } = yield* withRss(
+    timedLayerBuild(projectionBootLayer(ctx.dbPath, ctx.chunkSize))
   )
   return [
     {
@@ -33,5 +33,5 @@ export const runColdBoot = async (ctx: ScenarioContext): Promise<ReadonlyArray<M
       events: ctx.eventCount,
       rssDeltaBytes
     }
-  ]
-}
+  ] satisfies ReadonlyArray<Measurement>
+})

@@ -30,5 +30,15 @@ export default defineConfig({
   treeshake: false,
   // Do NOT bundle dependencies — ship references, resolved from the consumer's
   // node_modules. The tracked package.json declares each as a dependency.
-  external: ["effect", /^effect\//, "ws", "@expand/contracts", /^@expand\/contracts\//]
+  external: [
+    "effect",
+    /^effect\//,
+    "ws",
+    "@effect/platform-node",
+    /^@effect\/platform-node\//,
+    "@effect/platform-node-shared",
+    /^@effect\/platform-node-shared\//,
+    "@expand/contracts",
+    /^@expand\/contracts\//
+  ]
 })

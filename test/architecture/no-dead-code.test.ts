@@ -1,27 +1,24 @@
-import { describe, expect, it } from "vitest"
-import { spawnSync } from "node:child_process"
-import { fileURLToPath } from "node:url"
-import { dirname, join } from "node:path"
-
-// Fitness test: the codebase must contain no dead code. Knip analyzes the whole
-// module graph across both workspaces (root + apps/desktop) and reports unused
-// files, exports, exported types, and dependencies; it exits non-zero on any
-// finding. Configuration and the rationale for every suppression live in knip.jsonc.
-//
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, Exit, Path } from "effect"
+import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
 describe("no dead code", () => {
-  it("knip finds no unused files, exports, types, or dependencies", () => {
-    const result = spawnSync("npm", ["exec", "--", "knip", "--no-progress"], {
-      cwd: repoRoot,
-      encoding: "utf8"
-    })
-    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim()
-    expect(
-      result.status,
-      output.length > 0
-        ? `knip reported dead code (delete it, un-export it, or justify in knip.jsonc):\n\n${output}`
-        : `knip failed to run (status ${String(result.status)})`
-    ).toBe(0)
-  }, 120_000)
+  it.live("knip finds no unused files, exports, types, or dependencies", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const result = yield* runCommand("npm", ["exec", "--", "knip", "--no-progress"], {
+        cwd: path.resolve(".")
+      }).pipe(Effect.exit)
+      expect(Exit.isSuccess(result)).toBe(true)
+      if (Exit.isFailure(result)) return
+      const output = `${result.value.stdout}\n${result.value.stderr}`.trim()
+      expect(
+        result.value.exitCode,
+        output.length > 0
+          ? `knip reported dead code (delete it, un-export it, or justify in knip.jsonc):\n\n${output}`
+          : `knip failed to run (status ${String(result.value.exitCode)})`
+      ).toBe(0)
+    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 })

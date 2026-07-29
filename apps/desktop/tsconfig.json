@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node", "react", "react-dom"],
+    "types": ["node", "react", "react-dom", "vite/client"],
     "baseUrl": "../..",
     "paths": {
       "@expand/desktop/*": ["apps/desktop/src/*"],
@@ -11,5 +11,12 @@
     "noEmit": true
   },
   "exclude": [],
-  "include": ["src", "test", "../../packages/contracts/globals.d.ts"]
+  "include": [
+    "src",
+    "test/integration",
+    "test/ui",
+    "test/unit/*.test.ts",
+    "test/unit/*.test.tsx",
+    "../../packages/contracts/globals.d.ts"
+  ]
 }

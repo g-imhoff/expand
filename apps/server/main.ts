@@ -1,25 +1,18 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
-import type { LogLevel } from "effect"
-import { join } from "node:path"
-import { AppContext } from "@expand/contracts/app-context"
-import { runServer } from "@expand/server/composition/app"
-import { stateRootLockForStartup } from "@expand/server/state-root-lock"
-
-const LOG_LEVELS: ReadonlyArray<LogLevel.LogLevel> = ["All", "Fatal", "Error", "Warn", "Info", "Debug", "Trace", "None"]
-
-const minimumLogLevel = (): LogLevel.LogLevel => {
-  const raw = process.env.EXPAND_LOG_LEVEL
-  return raw !== undefined && (LOG_LEVELS as ReadonlyArray<string>).includes(raw)
-    ? (raw as LogLevel.LogLevel)
-    : "Info"
-}
+import { nodeAppContextLayer } from "@expand/server/node-app-context"
+import { minimumLogLevel } from "@expand/server/server-config"
+import * as AppContext from "@expand/contracts/app-context"
+import * as ServerApp from "@expand/server/composition/app"
+import * as StateRootLock from "@expand/server/state-root-lock"
+import * as NodeProcessControl from "@expand/server/node-process-control"
 
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  const { paths } = yield* AppContext
+  const path = yield* Path.Path
+  const { paths } = yield* AppContext.AppContext
   yield* fs.makeDirectory(paths.logDir, { recursive: true })
-  return yield* Logger.formatLogFmt.pipe(Logger.toFile(join(paths.logDir, "server.log")))
+  return yield* Logger.formatLogFmt.pipe(Logger.toFile(path.join(paths.logDir, "server.log")))
 })
 
 const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe(
@@ -29,14 +22,14 @@ const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe
 const loggedProgram = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const { paths } = yield* AppContext
+  const { paths } = yield* AppContext.AppContext
   yield* fs.makeDirectory(path.dirname(paths.dbPath), { recursive: true })
-  yield* runServer({ dbPath: paths.dbPath })
+  yield* ServerApp.runServer({ dbPath: paths.dbPath })
 }).pipe(Effect.provide(loggerLayer))
 
 const program = Effect.gen(function* () {
-  const { paths } = yield* AppContext
-  yield* stateRootLockForStartup(paths.dataDir, paths.endpointFile)
+  const { paths } = yield* AppContext.AppContext
+  yield* StateRootLock.stateRootLockForStartup(paths.dataDir, paths.endpointFile)
   yield* loggedProgram
 }).pipe(Effect.scoped)
 
@@ -48,9 +41,12 @@ process.umask(0o077)
 
 NodeRuntime.runMain(
   program.pipe(
-    Effect.provide(Layer.succeed(References.MinimumLogLevel, minimumLogLevel())),
-    Effect.provide(NodeServices.layer),
-    Effect.tap(() => Effect.sync(() => process.exit(0)))
+    Effect.provideServiceEffect(References.MinimumLogLevel, minimumLogLevel),
+    Effect.provide(nodeAppContextLayer.pipe(
+      Layer.provideMerge(NodeProcessControl.ProcessServices.layer satisfies Layer.Layer<
+        NodeServices.NodeServices | import("@expand/contracts/process-control").ProcessControl
+      >)
+    ))
   ),
   {
     teardown: (exit, onExit) =>

@@ -1,8 +1,7 @@
 import tseslint from "typescript-eslint"
-import { effectHostBoundaries } from "./eslint-rules/effect-host-boundaries.mjs"
 import local from "./eslint-rules/index.mjs"
+import { effectHostBoundaries } from "./eslint-rules/effect-host-boundaries.mjs"
 
-const repositoryRoot = new URL("./", import.meta.url)
 const sourceFiles = ["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"]
 const generated = [
   "**/node_modules/**",
@@ -13,35 +12,23 @@ const generated = [
   "**/test-results/**",
   "**/playwright-report/**"
 ]
-const rule = ["error", effectHostBoundaries]
 
 export default tseslint.config(
-  { ignores: [".claude/worktrees/**", ".worktrees/**", ...generated] },
-  {
-    files: sourceFiles,
-    plugins: { local },
-    rules: { "local/effect-boundary": rule }
-  },
+  { ignores: generated },
+  { files: sourceFiles, plugins: { local } },
   {
     files: ["**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        ecmaFeatures: { jsx: true },
         project: "./tsconfig.effect-audit.json",
-        tsconfigRootDir: repositoryRoot.pathname
+        tsconfigRootDir: import.meta.dirname
       }
-    }
+    },
+    rules: { "local/effect-boundary": ["error", effectHostBoundaries] }
   },
   {
     files: ["**/*.{js,jsx,mjs,cjs}"],
-    languageOptions: {
-      parser: tseslint.parser,
-      parserOptions: {
-        ecmaFeatures: { jsx: true },
-        project: false,
-        projectService: false
-      }
-    }
+    rules: { "local/effect-boundary": ["error", effectHostBoundaries] }
   }
 )

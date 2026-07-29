@@ -2,6 +2,7 @@ export interface RendererPortLike {
   postMessage(message: unknown): void
   onmessage: ((event: { data: unknown }) => void) | null
   start(): void
+  close?(): void
 }
 
 export const makeRendererPort = (port: MessagePort): RendererPortLike => ({
@@ -12,5 +13,6 @@ export const makeRendererPort = (port: MessagePort): RendererPortLike => ({
   set onmessage(handler) {
     port.onmessage = handler
   },
-  start: () => port.start()
+  start: () => port.start(),
+  close: () => port.close()
 })

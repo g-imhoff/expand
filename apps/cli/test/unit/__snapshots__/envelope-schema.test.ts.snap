@@ -96,7 +96,7 @@ exports[`envelope contract (expand/v1) > matches the frozen envelope-shape snaps
         },
         "kind": {
           "enum": [
-            "Health",
+            "ServerHealth",
           ],
           "type": "string",
         },

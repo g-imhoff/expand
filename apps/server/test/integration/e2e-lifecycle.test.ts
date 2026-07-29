@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, FileSystem, Option, Schedule, Stream, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { Effect, FileSystem, Path, Fiber, Option, Schedule, Stream, Layer } from "effect"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -11,36 +10,30 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-e2e-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
-    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
+    orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
   })
 )
 
 describe.sequential("end-to-end lifecycle", () => {
-  it("boots, serves RPCs over WebSocket, and shuts down when the last client leaves", async () => {
+  it.live("boots, serves RPCs over WebSocket, and shuts down when the last client leaves",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-e2e-lifecycle-')
     const program = Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
 
       yield* awaitEndpointUp
-      const upDuring = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
+      const upDuring = yield* fs.exists(makeTestAppContext(path, dir).paths.endpointFile)
 
       const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
@@ -54,24 +47,26 @@ describe.sequential("end-to-end lifecycle", () => {
       yield* Fiber.join(serverFiber).pipe(
         Effect.timeoutOrElse({
           duration: "5 seconds",
-          orElse: () => Effect.fail(new Error("server did not shut down after last client left (I-4)"))
+          orElse: () => Effect.fail("server did not shut down after last client left (I-4)")
         })
       )
-      const upAfter = yield* fs.exists(makeAppContext(dir).paths.endpointFile)
+      const upAfter = yield* fs.exists(makeTestAppContext(path, dir).paths.endpointFile)
       return { upDuring, upAfter, outcome }
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.upDuring).toBe(true)
     expect(r.outcome.health).toBe("ok")
     expect(r.outcome.created.project.name).toBe("e2e")
     expect(r.outcome.listed.projects).toEqual([r.outcome.created.project])
     expect(r.upAfter).toBe(false)
-  })
+  }))
 
-  it("archive hides from default list, restore brings it back, ProjectNotFound on bogus id", async () => {
+  it.live("archive hides from default list, restore brings it back, ProjectNotFound on bogus id",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-e2e-lifecycle-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const outcome = yield* withClient(nodeAdapter, (client) =>
@@ -90,8 +85,8 @@ describe.sequential("end-to-end lifecycle", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = yield* (program)
     expect(Option.isSome(r.archivedEvent)).toBe(true)
     if (Option.isSome(r.archivedEvent)) {
       expect(r.archivedEvent.value.event._tag).toBe("ProjectArchived")
@@ -100,11 +95,13 @@ describe.sequential("end-to-end lifecycle", () => {
     expect(r.def.projects.some((p) => p.id === r.project.id)).toBe(false)
     expect(r.restored.archived).toBe(false)
     expect((r.missing as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
+  }))
 
-  it("delivers live domain events over the Events stream", async () => {
+  it.live("delivers live domain events over the Events stream",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-e2e-lifecycle-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
@@ -119,9 +116,9 @@ describe.sequential("end-to-end lifecycle", () => {
 
       yield* Fiber.interrupt(serverFiber)
       return observed
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
-    const observed = await Effect.runPromise(program)
+    const observed = yield* (program)
     expect(Option.isSome(observed)).toBe(true)
     if (Option.isSome(observed)) {
       expect(observed.value.event._tag).toBe("ProjectCreated")
@@ -129,5 +126,14 @@ describe.sequential("end-to-end lifecycle", () => {
         expect(observed.value.event.name).toBe("live")
       }
     }
-  })
+  }))
 })
+
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
+  )
+
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

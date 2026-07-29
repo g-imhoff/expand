@@ -24,7 +24,6 @@ export interface EffectBoundaryAnalysis {
   readonly occurrences: ReadonlyArray<BoundaryOccurrence>
   readonly declarations: ReadonlySet<string>
   readonly identityOf: (node: unknown) => SourceIdentity
-  readonly fallbackIdentityAtOffset: (offset: number, fallbackConstruct: string) => SourceIdentity
   readonly identityAtOffset: (offset: number, fallbackConstruct: string) => SourceIdentity
 }
 

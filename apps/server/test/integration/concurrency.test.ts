@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { Effect, FileSystem, Path, Fiber, Option, Schedule, Layer } from "effect"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -11,30 +10,25 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-conc-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
-    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
+    orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
   })
 )
 
 describe.sequential("project operations under concurrency", () => {
-  it("name-uniqueness guard rejects a SEQUENTIAL re-use with ProjectNameConflict", async () => {
+  it.live("name-uniqueness guard rejects a SEQUENTIAL re-use with ProjectNameConflict",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-concurrency-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -49,8 +43,8 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = (await Effect.runPromise(program)) as {
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = (yield* (program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
@@ -62,11 +56,13 @@ describe.sequential("project operations under concurrency", () => {
     const holders = r.listed.projects.filter((p) => p.name === "merged")
     expect(holders).toHaveLength(1)
     expect(holders[0]!.id).toBe(r.aId)
-  })
+  }))
 
-  it("concurrent rename to the same name has exactly one winner", async () => {
+  it.live("concurrent rename to the same name has exactly one winner",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-concurrency-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -84,8 +80,8 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = (await Effect.runPromise(program)) as {
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = (yield* (program)) as {
       results: ReadonlyArray<{ _tag: string; failure?: { _tag: string } }>
       listed: { projects: ReadonlyArray<{ id: string; name: string }> }
       aId: string
@@ -101,11 +97,13 @@ describe.sequential("project operations under concurrency", () => {
     expect(holders).toHaveLength(1)
     const loser = r.results.find((x) => x._tag === "Failure")
     expect(loser?.failure?._tag).toBe("ProjectNameConflict")
-  })
+  }))
 
-  it("a deleted (tombstoned) project never resurrects: restore fails ProjectNotFound", async () => {
+  it.live("a deleted (tombstoned) project never resurrects: restore fails ProjectNotFound",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-concurrency-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -120,20 +118,22 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = (await Effect.runPromise(program)) as {
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = (yield* (program)) as {
       restore: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<unknown> }
     }
     expect(r.restore._tag).toBe("Failure")
     expect(r.restore.failure?._tag).toBe("ProjectNotFound")
     expect(r.listed.projects).toEqual([])
-  })
+  }))
 
-  it("directory-uniqueness guard rejects a SEQUENTIAL re-use with ProjectDirectoryConflict", async () => {
-    const shared = mkdtempSync(join(tmpdir(), "expand-shared-seq-"))
+  it.live("directory-uniqueness guard rejects a SEQUENTIAL re-use with ProjectDirectoryConflict",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-concurrency-')
+    const shared = yield* makeTestDirectory("expand-shared-seq-")
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -148,8 +148,8 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = (await Effect.runPromise(program)) as {
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = (yield* (program)) as {
       first: { _tag: string }
       second: { _tag: string; failure?: { _tag: string } }
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }
@@ -161,13 +161,14 @@ describe.sequential("project operations under concurrency", () => {
     const holders = r.listed.projects.filter((p) => p.directory === shared)
     expect(holders).toHaveLength(1)
     expect(holders[0]!.id).toBe(r.aId)
-    rmSync(shared, { recursive: true, force: true })
-  })
+  }))
 
-  it("concurrent ChangeDirectory on the same dir has exactly one winner", async () => {
-    const shared = mkdtempSync(join(tmpdir(), "expand-shared-"))
+  it.live("concurrent ChangeDirectory on the same dir has exactly one winner",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-concurrency-')
+    const shared = yield* makeTestDirectory("expand-shared-")
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -185,8 +186,8 @@ describe.sequential("project operations under concurrency", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = (await Effect.runPromise(program)) as {
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = (yield* (program)) as {
       results: ReadonlyArray<{ _tag: string }>
       listed: { projects: ReadonlyArray<{ id: string; directory: string | null }> }
       aId: string
@@ -198,6 +199,14 @@ describe.sequential("project operations under concurrency", () => {
     expect(committed).toHaveLength(1)
     const holders = r.listed.projects.filter((p) => p.directory === shared)
     expect(holders).toHaveLength(1)
-    rmSync(shared, { recursive: true, force: true })
-  })
+  }))
 })
+
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
+  )
+
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

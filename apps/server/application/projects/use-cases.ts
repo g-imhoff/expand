@@ -1,4 +1,4 @@
-import { Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
+import { Context, Crypto, DateTime, Effect, FileSystem, Layer, Path, PlatformError, Schema, Semaphore } from "effect"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { Project } from "@expand/contracts/project"
 import type { ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
@@ -25,7 +25,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
     name: string,
     ensure: boolean,
     directory?: string | null
-  ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput | UseCaseError>
+  ) => Effect.Effect<ProjectCreateResult, ProjectAlreadyExists | ProjectDirectoryInvalid | ProjectDirectoryConflict | ProjectInvalidInput | UseCaseError | PlatformError.PlatformError, Crypto.Crypto>
   /** Renames; the new name must be brand-valid and unique. */
   readonly renameProject: (id: string, name: string) => Effect.Effect<Project, ProjectNotFound | ProjectNameConflict | ProjectInvalidInput | UseCaseError>
   /** Moves to an absolute, existing directory no other project claims (symlink-canonical check included). */
@@ -52,42 +52,54 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
     const path = yield* Path.Path
     const mutex = yield* Semaphore.make(1)
 
-    const commit = (event: ProjectEvent) =>
-      Effect.uninterruptible(
+    const nowIso = Effect.map(DateTime.now, DateTime.formatIso)
+
+    const commit = Effect.fn("ProjectUseCases.commit")(function*(event: ProjectEvent) {
+      return yield* Effect.uninterruptible(
         Effect.flatMap(projectEvents.append(event), (seq) =>
           projection.apply({ seq, event }).pipe(Effect.andThen(bus.publish({ seq, event })))
         )
       )
+    })
 
-    const validateDirectory = (
+    const validateDirectory = Effect.fn("ProjectUseCases.validateDirectory")(function*(
       directory: string,
       projects: ReadonlyArray<Project>,
       selfId?: string
-    ): Effect.Effect<void, ProjectDirectoryInvalid | ProjectDirectoryConflict> =>
-      Effect.gen(function* () {
-        if (directory.length > DIRECTORY_MAX_LENGTH) {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "too-long" }))
-        }
-        if (!path.isAbsolute(directory)) {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-absolute" }))
-        }
-        const info = yield* fs.stat(directory).pipe(
-          Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
-        )
-        if (info.type !== "Directory") {
-          return yield* Effect.fail(new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" }))
-        }
-        const canonical = yield* fs.realPath(directory).pipe(Effect.orDie)
-        if (projects.some((p) => p.id !== selfId && (p.directory === directory || p.directory === canonical))) {
-          return yield* Effect.fail(new ProjectDirectoryConflict({ directory }))
-        }
-      })
+    ) {
+      if (directory.length > DIRECTORY_MAX_LENGTH) {
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "too-long" })
+      }
+      if (!path.isAbsolute(directory)) {
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "not-absolute" })
+      }
+      const others = projects.filter((project) => project.id !== selfId)
+      if (others.some((project) => project.directory === directory)) {
+        return yield* new ProjectDirectoryConflict({ directory })
+      }
+      const info = yield* fs.stat(directory).pipe(
+        Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+      )
+      if (info.type !== "Directory") {
+        return yield* new ProjectDirectoryInvalid({ directory, reason: "not-a-directory" })
+      }
+      const canonical = yield* fs.realPath(directory).pipe(
+        Effect.mapError(() => new ProjectDirectoryInvalid({ directory, reason: "not-found" }))
+      )
+      const existingIdentities = yield* Effect.forEach(
+        others.flatMap((project) => project.directory === null ? [] : [project.directory]),
+        (existingDirectory) => fs.realPath(existingDirectory).pipe(Effect.option)
+      )
+      if (existingIdentities.some((identity) => identity._tag === "Some" && identity.value === canonical)) {
+        return yield* new ProjectDirectoryConflict({ directory })
+      }
+    })
 
-    const createProject = (name: string, ensure: boolean, directory?: string | null) =>
-      mutex.withPermit(Effect.gen(function* () {
+    const createProject = Effect.fn("ProjectUseCases.createProject")(function*(name: string, ensure: boolean, directory?: string | null) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const dir = typeof directory === "string" ? directory : null
-        const id = newId()
-        const createdAt = new Date().toISOString()
+        const id = yield* newId()
+        const createdAt = yield* nowIso
         const project = yield* Schema.decodeUnknownEffect(Project)({
           id, name, directory: dir, description: null, tags: [], archived: false, createdAt, updatedAt: createdAt
         }).pipe(Effect.mapError(toInvalidInput))
@@ -95,7 +107,7 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         const existing = all.find((p) => p.name === project.name)
         if (existing !== undefined) {
           if (ensure) return { created: false, project: existing } as const
-          return yield* Effect.fail(new ProjectAlreadyExists({ name: project.name }))
+          return yield* new ProjectAlreadyExists({ name: project.name })
         }
         if (typeof directory === "string") {
           yield* validateDirectory(directory, all)
@@ -104,64 +116,70 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         yield* commit(event)
         return { created: true, project } as const
       }))
+    })
 
-    const renameProject = (id: string, name: string) =>
-      mutex.withPermit(Effect.gen(function* () {
+    const renameProject = Effect.fn("ProjectUseCases.renameProject")(function*(id: string, name: string) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const target = all.find((p) => p.id === id)
-        if (target === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
-        const occurredAt = new Date().toISOString()
+        if (target === undefined) return yield* new ProjectNotFound({ id })
+        const occurredAt = yield* nowIso
         const renamed = yield* Schema.decodeUnknownEffect(Project)({ ...target, name, updatedAt: occurredAt })
           .pipe(Effect.mapError(toInvalidInput))
         if (all.some((p) => p.id !== id && p.name === renamed.name)) {
-          return yield* Effect.fail(new ProjectNameConflict({ name: renamed.name }))
+          return yield* new ProjectNameConflict({ name: renamed.name })
         }
         const event = ProjectRenamed.make({ projectId: id, name: renamed.name, occurredAt })
         yield* commit(event)
         return renamed
       }))
+    })
 
-    const changeDirectory = (id: string, directory: string) =>
-      mutex.withPermit(Effect.gen(function* () {
+    const changeDirectory = Effect.fn("ProjectUseCases.changeDirectory")(function*(id: string, directory: string) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         yield* validateDirectory(directory, all, id)
-        const occurredAt = new Date().toISOString()
+        const occurredAt = yield* nowIso
         const event = ProjectDirectoryChanged.make({ projectId: id, directory, occurredAt })
         yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
+    })
 
-    const toggleArchived = (
+    const toggleArchived = Effect.fn("ProjectUseCases.toggleArchived")(function*(
       id: string,
       makeEvent: (occurredAt: string) => typeof ProjectArchived.Type | typeof ProjectRestored.Type
-    ) =>
-      mutex.withPermit(Effect.gen(function* () {
+    ) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
-        const event = makeEvent(new Date().toISOString())
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
+        const event = makeEvent(yield* nowIso)
         yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
+    })
 
-    const archiveProject = (id: string) =>
-      toggleArchived(id, (occurredAt) => ProjectArchived.make({ projectId: id, occurredAt }))
-    const restoreProject = (id: string) =>
-      toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
+    const archiveProject = Effect.fn("ProjectUseCases.archiveProject")(function*(id: string) {
+      return yield* toggleArchived(id, (occurredAt) => ProjectArchived.make({ projectId: id, occurredAt }))
+    })
+    const restoreProject = Effect.fn("ProjectUseCases.restoreProject")(function*(id: string) {
+      return yield* toggleArchived(id, (occurredAt) => ProjectRestored.make({ projectId: id, occurredAt }))
+    })
 
-    const setMetadata = (id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) =>
-      mutex.withPermit(Effect.gen(function* () {
+    const setMetadata = Effect.fn("ProjectUseCases.setMetadata")(function*(id: string, patch: { description?: string | null; tags?: ReadonlyArray<string> }) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const all = yield* projection.list
         const existing = all.find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
         const next = yield* Schema.decodeUnknownEffect(Project)({
           ...existing,
           ...(patch.description !== undefined ? { description: patch.description } : {}),
           ...(patch.tags !== undefined ? { tags: patch.tags } : {})
         }).pipe(Effect.mapError(toInvalidInput))
-        const occurredAt = new Date().toISOString()
+        const occurredAt = yield* nowIso
         const event = ProjectMetadataChanged.make({
           projectId: id,
           ...(patch.description !== undefined ? { description: next.description } : {}),
@@ -171,18 +189,21 @@ export class ProjectUseCases extends Context.Service<ProjectUseCases, {
         yield* commit(event)
         return Project.applyEvent(existing, event)
       }))
+    })
 
-    const deleteProject = (id: string) =>
-      mutex.withPermit(Effect.gen(function* () {
+    const deleteProject = Effect.fn("ProjectUseCases.deleteProject")(function*(id: string) {
+      return yield* mutex.withPermit(Effect.gen(function*() {
         const existing = (yield* projection.list).find((p) => p.id === id)
-        if (existing === undefined) return yield* Effect.fail(new ProjectNotFound({ id }))
-        const event = ProjectDeleted.make({ projectId: id, occurredAt: new Date().toISOString() })
+        if (existing === undefined) return yield* new ProjectNotFound({ id })
+        const event = ProjectDeleted.make({ projectId: id, occurredAt: yield* nowIso })
         yield* commit(event)
         return { id, deleted: true } as const
       }))
+    })
 
-    const listProjects = (includeArchived = false) =>
+    const listProjects = Effect.fn("ProjectUseCases.listProjects")((includeArchived = false) =>
       Effect.map(projection.list, (ps) => includeArchived ? ps : ps.filter((p) => !p.archived))
+    )
 
     return { createProject, renameProject, changeDirectory, archiveProject, restoreProject, setMetadata, deleteProject, listProjects } as const
   })

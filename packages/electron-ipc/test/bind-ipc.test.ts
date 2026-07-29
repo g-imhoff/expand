@@ -1,7 +1,6 @@
-// packages/electron-ipc/test/bind-ipc.test.ts
-import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
-import { Schema } from "effect"
+import { it } from "@effect/vitest"
+import { Cause, Deferred, Effect, Exit, Fiber, Ref, Schema, Scope } from "effect"
+import { describe, expect } from "vitest"
 import { IpcChannel, IpcContract } from "@expand/electron-ipc/contract"
 import {
   bindIpc,
@@ -10,6 +9,9 @@ import {
   type IpcMainLike,
   type WindowTargetLike
 } from "@expand/electron-ipc/main"
+
+const waitFor = Deferred.await
+const fiberExit = Fiber.await
 
 class AddFailed extends Schema.TaggedErrorClass<AddFailed>()("AddFailed", { reason: Schema.String }) {}
 
@@ -24,210 +26,473 @@ const Sample = IpcContract.make("sample", {
   rpcPort: IpcChannel.portExchange()
 })
 
-const mainFrame: FrameLike = { url: "file:///app/index.html", detached: false }
-const webContents = { id: 1 }
-const goodEvent: IpcMainEventLike = { sender: webContents, senderFrame: mainFrame }
-const evilEvent: IpcMainEventLike = { sender: { id: 666 }, senderFrame: mainFrame }
+type Listener = Parameters<IpcMainLike["on"]>[1]
+type InvokeHandler = Parameters<IpcMainLike["handle"]>[1]
 
 interface FakeMain {
   readonly ipc: IpcMainLike
-  readonly target: WindowTargetLike
+  readonly target: WindowTargetLike<string>
   readonly posted: Array<{ channel: string; payload: unknown; transfer: ReadonlyArray<unknown> }>
-  readonly fireSend: (channel: string, event: IpcMainEventLike, payload: unknown) => void
-  readonly fireInvoke: (channel: string, event: IpcMainEventLike, payload: unknown) => Promise<unknown>
-  readonly listenerChannels: () => Array<string>
-  readonly handlerChannels: () => Array<string>
+  readonly fire: (channel: string, event: IpcMainEventLike, payload: unknown) => void
+  readonly invoke: (channel: string, event: IpcMainEventLike, payload: unknown) => Effect.Effect<unknown, unknown>
+  readonly retainedFire: (channel: string, event: IpcMainEventLike, payload: unknown) => void
+  readonly retainedInvoke: (channel: string, event: IpcMainEventLike, payload: unknown) => Effect.Effect<unknown, unknown>
+  readonly listenerCount: (channel: string) => number
+  readonly handlerChannels: () => ReadonlyArray<string>
+  readonly setPostDefect: (defect: Error | undefined) => void
+  readonly setPostObserver: (observer: (() => void) | undefined) => void
 }
 
-const makeFakeMain = (): FakeMain => {
-  const listeners = new Map<string, (event: IpcMainEventLike, payload: unknown) => void>()
-  const handlers = new Map<string, (event: IpcMainEventLike, payload: unknown) => Promise<unknown>>()
+const makeFakeMain = (mainFrame: FrameLike, webContents: object): FakeMain => {
+  const listeners = new Map<string, Set<Listener>>()
+  const handlers = new Map<string, InvokeHandler>()
+  const retainedListeners = new Map<string, Listener>()
+  const retainedHandlers = new Map<string, InvokeHandler>()
   const posted: Array<{ channel: string; payload: unknown; transfer: ReadonlyArray<unknown> }> = []
-  return {
-    ipc: {
-      on: (channel, listener) => listeners.set(channel, listener),
-      removeListener: (channel) => listeners.delete(channel),
-      handle: (channel, handler) => handlers.set(channel, handler),
-      removeHandler: (channel) => handlers.delete(channel)
+  let postDefect: Error | undefined
+  let postObserver: (() => void) | undefined
+  const ipc: IpcMainLike = {
+    on: (channel, listener) => {
+      const channelListeners = listeners.get(channel) ?? new Set<Listener>()
+      channelListeners.add(listener)
+      listeners.set(channel, channelListeners)
+      retainedListeners.set(channel, listener)
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        channelListeners.delete(listener)
+      }
     },
+    handle: (channel, handler) => {
+      handlers.set(channel, handler)
+      retainedHandlers.set(channel, handler)
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        if (handlers.get(channel) === handler) handlers.delete(channel)
+      }
+    }
+  }
+  const invokeWith = (handler: InvokeHandler | undefined, event: IpcMainEventLike, payload: unknown) =>
+    handler === undefined
+      ? Effect.die(new Error("missing invoke handler"))
+      : Effect.tryPromise(() => handler(event, payload))
+  return {
+    ipc,
     target: {
       webContents,
       mainFrame,
-      postToRenderer: (channel, payload, transfer) => posted.push({ channel, payload, transfer })
+      postToRenderer: (channel, payload, transfer) => {
+        if (postDefect !== undefined) throw postDefect
+        posted.push({ channel, payload, transfer })
+        postObserver?.()
+      }
     },
     posted,
-    fireSend: (channel, event, payload) => listeners.get(channel)?.(event, payload),
-    fireInvoke: (channel, event, payload) =>
-      handlers.get(channel)?.(event, payload) ?? Promise.reject(new Error(`no handler for ${channel}`)),
-    listenerChannels: () => [...listeners.keys()],
-    handlerChannels: () => [...handlers.keys()]
+    fire: (channel, event, payload) => {
+      for (const listener of listeners.get(channel) ?? []) listener(event, payload)
+    },
+    invoke: (channel, event, payload) => invokeWith(handlers.get(channel), event, payload),
+    retainedFire: (channel, event, payload) => {
+      retainedListeners.get(channel)?.(event, payload)
+    },
+    retainedInvoke: (channel, event, payload) => invokeWith(retainedHandlers.get(channel), event, payload),
+    listenerCount: (channel) => listeners.get(channel)?.size ?? 0,
+    handlerChannels: () => [...handlers.keys()],
+    setPostDefect: (defect) => { postDefect = defect },
+    setPostObserver: (observer) => { postObserver = observer }
   }
 }
 
-const runPromise = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
+interface BindOverrides {
+  readonly ping?: (at: number) => Effect.Effect<void>
+  readonly add?: (a: number, b: number) => Effect.Effect<number, AddFailed>
+  readonly port?: (
+    grant: (port: string) => Effect.Effect<void>
+  ) => Effect.Effect<void>
+  readonly log?: (message: string, cause: Cause.Cause<unknown> | undefined) => Effect.Effect<void>
+  readonly maxPayloadBytes?: number
+}
 
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
-
-const bindSample = (fake: FakeMain, overrides?: { onPing?: (at: number) => void }) =>
-  bindIpc(
+const bindSample = Effect.fn("ElectronIpcMainTest.bindSample")(function* (
+  fake: FakeMain,
+  overrides: BindOverrides = {}
+) {
+  return yield* bindIpc(
     Sample,
     {
-      ping: (payload) => Effect.sync(() => overrides?.onPing?.(payload.at)),
+      ping: (payload) => overrides.ping?.(payload.at) ?? Effect.void,
       add: (payload) =>
-        payload.b === 0
+        overrides.add?.(payload.a, payload.b) ??
+        (payload.b === 0
           ? Effect.fail(new AddFailed({ reason: "b is zero" }))
           : payload.b < 0
             ? Effect.die(new Error("secret internal detail"))
-            : Effect.succeed(payload.a + payload.b),
-      rpcPort: () => Effect.succeed("FAKE_PORT")
+            : Effect.succeed(payload.a + payload.b)),
+      rpcPort: (_sender, grant) => overrides.port?.(grant) ?? grant("FAKE_PORT")
     },
     {
       ipc: fake.ipc,
       target: fake.target,
       originRules: [{ _tag: "fileProtocol" }],
-      runPromise
+      ...(overrides.log === undefined ? {} : { log: overrides.log }),
+      ...(overrides.maxPayloadBytes === undefined ? {} : { maxPayloadBytes: overrides.maxPayloadBytes })
     }
   )
-
-describe("bindIpc registration", () => {
-  it("registers exactly the registry channels — registry is the allowlist", () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    expect(fake.listenerChannels().sort()).toEqual(["sample:ping", "sample:rpcPort:request"])
-    expect(fake.handlerChannels()).toEqual(["sample:add"])
-  })
-
-  it("unbind removes every listener and handler", () => {
-    const fake = makeFakeMain()
-    const bound = bindSample(fake)
-    bound.unbind()
-    expect(fake.listenerChannels()).toEqual([])
-    expect(fake.handlerChannels()).toEqual([])
-  })
 })
 
-describe("send pipeline", () => {
-  it("dispatches a valid payload from a valid sender", async () => {
-    const fake = makeFakeMain()
-    const pings: Array<number> = []
-    bindSample(fake, { onPing: (at) => pings.push(at) })
-    fake.fireSend("sample:ping", goodEvent, { at: 7 })
-    await flush()
-    expect(pings).toEqual([7])
-  })
+const makeHarness = () => {
+  const mainFrame = { url: "file:///app/index.html", detached: false }
+  const webContents = { id: 1 }
+  const fake = makeFakeMain(mainFrame, webContents)
+  const goodEvent: IpcMainEventLike = { sender: webContents, senderFrame: mainFrame }
+  const evilEvent: IpcMainEventLike = { sender: { id: 666 }, senderFrame: mainFrame }
+  return { fake, mainFrame, webContents, goodEvent, evilEvent }
+}
 
-  it("silently drops hostile senders and malformed payloads", async () => {
-    const fake = makeFakeMain()
-    const pings: Array<number> = []
-    bindSample(fake, { onPing: (at) => pings.push(at) })
-    fake.fireSend("sample:ping", evilEvent, { at: 7 })
-    fake.fireSend("sample:ping", goodEvent, { at: "not a number" })
-    fake.fireSend("sample:ping", { sender: webContents, senderFrame: null }, { at: 7 })
-    await flush()
-    expect(pings).toEqual([])
-  })
+describe("bindIpc registration and ownership", () => {
+  it.effect("registers only the registry allowlist and removes exact registrations", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const unrelated = () => {}
+        h.fake.ipc.on("sample:ping", unrelated)
+        const scope = yield* Scope.make()
+        yield* bindSample(h.fake).pipe(Scope.provide(scope))
+        expect(h.fake.listenerCount("sample:ping")).toBe(2)
+        expect(h.fake.listenerCount("sample:rpcPort:request")).toBe(1)
+        expect(h.fake.handlerChannels()).toEqual(["sample:add"])
+        yield* Scope.close(scope, Exit.void)
+        expect(h.fake.listenerCount("sample:ping")).toBe(1)
+        expect(h.fake.listenerCount("sample:rpcPort:request")).toBe(0)
+        expect(h.fake.handlerChannels()).toEqual([])
+      })
+    ))
+
+  it.effect("makes retained callbacks and emitters inert before removing them", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const calls = yield* Ref.make(0)
+        const scope = yield* Scope.make()
+        const bound = yield* bindSample(h.fake, {
+          ping: () => Ref.update(calls, (value) => value + 1),
+          port: (grant) => Ref.update(calls, (value) => value + 1).pipe(Effect.andThen(grant("PORT")))
+        }).pipe(Scope.provide(scope))
+        yield* Scope.close(scope, Exit.void)
+        h.fake.retainedFire("sample:ping", h.goodEvent, { at: 1 })
+        h.fake.retainedFire("sample:rpcPort:request", h.goodEvent, { nonce: "late" })
+        expect(yield* h.fake.retainedInvoke("sample:add", h.goodEvent, { a: 1, b: 2 })).toBeUndefined()
+        bound.emit.tick({ seq: 1 })
+        expect(yield* Ref.get(calls)).toBe(0)
+        expect(h.fake.posted).toEqual([])
+      })
+    ))
+
+  it.effect("interrupts active send, port, and invoke fibers on scope close", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const sendStarted = yield* Deferred.make<void>()
+        const portStarted = yield* Deferred.make<void>()
+        const invokeStarted = yield* Deferred.make<void>()
+        const sendInterrupted = yield* Deferred.make<void>()
+        const portInterrupted = yield* Deferred.make<void>()
+        const invokeInterrupted = yield* Deferred.make<void>()
+        const scope = yield* Scope.make()
+        yield* bindSample(h.fake, {
+          ping: () => Deferred.succeed(sendStarted, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.onInterrupt(() => Deferred.succeed(sendInterrupted, undefined))
+          ),
+          port: () => Deferred.succeed(portStarted, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.onInterrupt(() => Deferred.succeed(portInterrupted, undefined))
+          ),
+          add: () => Deferred.succeed(invokeStarted, undefined).pipe(
+            Effect.andThen(Effect.never),
+            Effect.onInterrupt(() => Deferred.succeed(invokeInterrupted, undefined))
+          )
+        }).pipe(Scope.provide(scope))
+        h.fake.fire("sample:ping", h.goodEvent, { at: 1 })
+        h.fake.fire("sample:rpcPort:request", h.goodEvent, { nonce: "n" })
+        const invokeFiber = yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: 2 }).pipe(
+          Effect.forkChild({ startImmediately: true })
+        )
+        yield* Effect.all([
+          waitFor(sendStarted),
+          waitFor(portStarted),
+          waitFor(invokeStarted)
+        ])
+        yield* Scope.close(scope, Exit.void)
+        yield* Effect.all([
+          waitFor(sendInterrupted),
+          waitFor(portInterrupted),
+          waitFor(invokeInterrupted)
+        ])
+        expect(Exit.isFailure(yield* fiberExit(invokeFiber))).toBe(true)
+      })
+    ))
+
+  it.effect("makes retained callbacks inert when a later registration acquisition defects", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const retainedListeners = new Map<string, Listener>()
+        const retainedHandlers = new Map<string, InvokeHandler>()
+        const disposeCounts = new Map<string, number>()
+        let getterAccesses = 0
+        let loggerCalls = 0
+        let handlerCalls = 0
+        let posts = 0
+        const webContents = { id: 1 }
+        const mainFrame: FrameLike = {
+          get url() {
+            getterAccesses += 1
+            return "file:///app/index.html"
+          },
+          get detached() {
+            getterAccesses += 1
+            return false
+          }
+        }
+        const ipc: IpcMainLike = {
+          on: (channel, listener) => {
+            retainedListeners.set(channel, listener)
+            if (channel === "sample:rpcPort:request") throw new Error("registration failed")
+            return () => {
+              disposeCounts.set(channel, (disposeCounts.get(channel) ?? 0) + 1)
+            }
+          },
+          handle: (channel, handler) => {
+            retainedHandlers.set(channel, handler)
+            return () => {
+              disposeCounts.set(channel, (disposeCounts.get(channel) ?? 0) + 1)
+            }
+          }
+        }
+        const target: WindowTargetLike<string> = {
+          get webContents() {
+            getterAccesses += 1
+            return webContents
+          },
+          get mainFrame() {
+            getterAccesses += 1
+            return mainFrame
+          },
+          postToRenderer: () => {
+            posts += 1
+          }
+        }
+        const makeEvent = (sender: object): IpcMainEventLike => ({
+          get sender() {
+            getterAccesses += 1
+            return sender
+          },
+          get senderFrame() {
+            getterAccesses += 1
+            return mainFrame
+          }
+        })
+        const makePayload = (values: Record<string, unknown>) => {
+          const payload: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(values)) {
+            Object.defineProperty(payload, key, {
+              enumerable: true,
+              get: () => {
+                getterAccesses += 1
+                return value
+              }
+            })
+          }
+          return payload
+        }
+        const acquisition = yield* bindIpc(
+          Sample,
+          {
+            ping: () => Effect.sync(() => { handlerCalls += 1 }),
+            add: () => Effect.sync(() => {
+              handlerCalls += 1
+              return 3
+            }),
+            rpcPort: (_sender, grant) => Effect.sync(() => { handlerCalls += 1 }).pipe(
+              Effect.andThen(grant("PORT"))
+            )
+          },
+          {
+            ipc,
+            target,
+            originRules: [{ _tag: "fileProtocol" }],
+            log: () => Effect.sync(() => { loggerCalls += 1 })
+          }
+        ).pipe(Effect.scoped, Effect.exit)
+        expect(Exit.isFailure(acquisition)).toBe(true)
+        const goodEvent = makeEvent(webContents)
+        const evilEvent = makeEvent({ id: 666 })
+        retainedListeners.get("sample:ping")?.(goodEvent, makePayload({ at: 1 }))
+        retainedListeners.get("sample:ping")?.(evilEvent, makePayload({ at: 1 }))
+        retainedListeners.get("sample:rpcPort:request")?.(goodEvent, makePayload({ nonce: "n" }))
+        const invoke = retainedHandlers.get("sample:add")
+        expect(invoke).toBeDefined()
+        if (invoke === undefined) return
+        expect(yield* Effect.tryPromise(() => invoke(goodEvent, makePayload({ a: 1, b: 2 })))).toBeUndefined()
+        expect(yield* Effect.tryPromise(() => invoke(evilEvent, makePayload({ a: 1, b: 2 })))).toBeUndefined()
+        expect(getterAccesses).toBe(0)
+        expect(loggerCalls).toBe(0)
+        expect(handlerCalls).toBe(0)
+        expect(posts).toBe(0)
+        expect(disposeCounts).toEqual(new Map([
+          ["sample:ping", 1],
+          ["sample:add", 1]
+        ]))
+      })
+    ))
 })
 
-describe("invoke pipeline", () => {
-  it("returns a Success envelope with the encoded value", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    await expect(fake.fireInvoke("sample:add", goodEvent, { a: 1, b: 2 })).resolves.toEqual({
-      _tag: "IpcSuccess",
-      value: 3
-    })
-  })
+describe("bindIpc security pipelines", () => {
+  it.effect("snapshots the admitted frame synchronously before the callback fiber yields", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const admitted = yield* Deferred.make<number>()
+        yield* bindIpc<typeof Sample, never, string>(
+          Sample,
+          {
+            ping: (_payload, sender) => Deferred.succeed(admitted, sender.frameUrl.length),
+            add: (payload) => Effect.succeed(payload.a + payload.b),
+            rpcPort: (_sender, grant) => grant("PORT")
+          },
+          { ipc: h.fake.ipc, target: h.fake.target, originRules: [{ _tag: "fileProtocol" }] }
+        )
+        h.fake.fire("sample:ping", h.goodEvent, { at: 1 })
+        h.mainFrame.detached = true
+        expect(yield* waitFor(admitted)).toBe("file:///app/index.html".length)
+      })
+    ))
 
-  it("returns a Failure envelope with the schema-encoded domain error", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    const result = (await fake.fireInvoke("sample:add", goodEvent, { a: 1, b: 0 })) as {
-      _tag: string
-      error: { _tag: string; reason: string }
-    }
-    expect(result._tag).toBe("IpcFailure")
-    expect(result.error._tag).toBe("AddFailed")
-    expect(result.error.reason).toBe("b is zero")
-  })
-
-  it("sanitizes handler defects — no internal details cross the boundary", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    const result = (await fake.fireInvoke("sample:add", goodEvent, { a: 1, b: -1 })) as {
-      _tag: string
-      message: string
-    }
-    expect(result._tag).toBe("IpcDefect")
-    expect(result.message).not.toContain("secret internal detail")
-  })
-
-  it("returns a Defect envelope for malformed payloads from a valid sender", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    const result = (await fake.fireInvoke("sample:add", goodEvent, { a: "x" })) as { _tag: string; message: string }
-    expect(result._tag).toBe("IpcDefect")
-    expect((result as { message: string }).message).toContain("payload decode failed")
-  })
-
-  it("returns undefined (silent) for hostile senders", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    await expect(fake.fireInvoke("sample:add", evilEvent, { a: 1, b: 2 })).resolves.toBeUndefined()
-  })
+  it.effect("silently drops hostile, detached, malformed, and oversized send and port requests", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const calls = yield* Ref.make(0)
+        yield* bindSample(h.fake, {
+          ping: () => Ref.update(calls, (value) => value + 1),
+          port: (grant) => Ref.update(calls, (value) => value + 1).pipe(Effect.andThen(grant("PORT"))),
+          maxPayloadBytes: 20
+        })
+        h.fake.fire("sample:ping", h.evilEvent, { at: 1 })
+        h.fake.fire("sample:ping", { sender: h.webContents, senderFrame: null }, { at: 1 })
+        h.fake.fire("sample:ping", h.goodEvent, { at: "bad" })
+        h.fake.fire("sample:ping", h.goodEvent, { at: 12345678901234567890 })
+        h.fake.fire("sample:rpcPort:request", h.evilEvent, { nonce: "n" })
+        h.fake.fire("sample:rpcPort:request", h.goodEvent, { nonce: 42 })
+        h.fake.fire("sample:rpcPort:request", h.goodEvent, "bad")
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(calls)).toBe(0)
+        expect(h.fake.posted).toEqual([])
+      })
+    ))
 })
 
-describe("portExchange pipeline", () => {
-  it("transfers the handler's port on the grant leg with the request nonce", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    fake.fireSend("sample:rpcPort:request", goodEvent, { nonce: "n-1" })
-    await flush()
-    expect(fake.posted).toEqual([
-      { channel: "sample:rpcPort:grant", payload: { nonce: "n-1" }, transfer: ["FAKE_PORT"] }
-    ])
-  })
+describe("bindIpc invoke", () => {
+  it.effect("preserves success, typed failure, malformed payload, sanitized defect, and silent hostile envelopes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        yield* bindSample(h.fake)
+        expect(yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: 2 })).toEqual({
+          _tag: "IpcSuccess",
+          value: 3
+        })
+        expect(yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: 0 })).toEqual({
+          _tag: "IpcFailure",
+          error: { _tag: "AddFailed", reason: "b is zero" }
+        })
+        const malformed = yield* h.fake.invoke("sample:add", h.goodEvent, { a: "bad", b: 1 })
+        expect(malformed).toMatchObject({ _tag: "IpcDefect" })
+        expect(String((malformed as { message: unknown }).message)).toContain("payload decode failed")
+        expect(yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: -1 })).toEqual({
+          _tag: "IpcDefect",
+          message: "internal error"
+        })
+        expect(yield* h.fake.invoke("sample:add", h.evilEvent, { a: 1, b: 2 })).toBeUndefined()
+      })
+    ))
 
-  it("drops port requests from hostile senders and with malformed nonces", async () => {
-    const fake = makeFakeMain()
-    bindSample(fake)
-    fake.fireSend("sample:rpcPort:request", evilEvent, { nonce: "n-1" })
-    fake.fireSend("sample:rpcPort:request", goodEvent, { nonce: 42 })
-    fake.fireSend("sample:rpcPort:request", goodEvent, "garbage")
-    await flush()
-    expect(fake.posted).toEqual([])
-  })
+  it.effect("contains throwing and defective loggers without changing the sanitized envelope", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const throwing = makeHarness()
+        yield* bindSample(throwing.fake, { log: () => { throw new Error("logger threw") } })
+        expect(yield* throwing.fake.invoke("sample:add", throwing.goodEvent, { a: 1, b: -1 })).toEqual({
+          _tag: "IpcDefect",
+          message: "internal error"
+        })
+        const defective = makeHarness()
+        yield* bindSample(defective.fake, { log: () => Effect.die(new Error("logger died")) })
+        expect(yield* defective.fake.invoke("sample:add", defective.goodEvent, { a: 1, b: -1 })).toEqual({
+          _tag: "IpcDefect",
+          message: "internal error"
+        })
+      })
+    ))
+
+  it.effect("preserves interruption authored by the logger", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        yield* bindSample(h.fake, { log: () => Effect.interrupt })
+        const exit = yield* h.fake.invoke("sample:add", h.goodEvent, { a: 1, b: -1 }).pipe(Effect.exit)
+        expect(Exit.isFailure(exit)).toBe(true)
+      })
+    ))
 })
 
-describe("event emitters", () => {
-  it("emit posts the encoded payload on the wire name", () => {
-    const fake = makeFakeMain()
-    const bound = bindSample(fake)
-    bound.emit.tick({ seq: 5 })
-    expect(fake.posted).toEqual([{ channel: "sample:tick", payload: { seq: 5 }, transfer: [] }])
-  })
-})
+describe("bindIpc port grant and events", () => {
+  it.effect("keeps grant inside the handler transaction with the exact nonce and transfer", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const events = yield* Ref.make<ReadonlyArray<string>>([])
+        const granted = yield* Deferred.make<void>()
+        yield* bindSample(h.fake, {
+          port: (grant) => Ref.update(events, (values) => [...values, "before"]).pipe(
+            Effect.andThen(grant("PORT")),
+            Effect.tap(() => Ref.update(events, (values) => [...values, "after"])),
+            Effect.tap(() => Deferred.succeed(granted, undefined))
+          )
+        })
+        h.fake.fire("sample:rpcPort:request", h.goodEvent, { nonce: "n-1" })
+        yield* waitFor(granted)
+        expect(yield* Ref.get(events)).toEqual(["before", "after"])
+        expect(h.fake.posted).toEqual([
+          { channel: "sample:rpcPort:grant", payload: { nonce: "n-1" }, transfer: ["PORT"] }
+        ])
+      })
+    ))
 
-describe("oversized payloads", () => {
-  it("drops send payloads above the cap", async () => {
-    const fake = makeFakeMain()
-    const pings: Array<number> = []
-    bindIpc(
-      Sample,
-      {
-        ping: (payload) => Effect.sync(() => pings.push(payload.at)),
-        add: (payload) => Effect.succeed(payload.a + payload.b),
-        rpcPort: () => Effect.succeed("FAKE_PORT")
-      },
-      {
-        ipc: fake.ipc,
-        target: fake.target,
-        originRules: [{ _tag: "fileProtocol" }],
-        runPromise,
-        maxPayloadBytes: 10
-      }
-    )
-    fake.fireSend("sample:ping", goodEvent, { at: 123456789012345 })
-    await flush()
-    expect(pings).toEqual([])
-  })
+  it.effect("contains a grant defect and keeps later event emitters owned by the binding scope", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const h = makeHarness()
+        const logged = yield* Deferred.make<void>()
+        const scope = yield* Scope.make()
+        const bound = yield* bindSample(h.fake, {
+          log: () => Deferred.succeed(logged, undefined)
+        }).pipe(Scope.provide(scope))
+        h.fake.setPostDefect(new Error("transfer failed"))
+        h.fake.fire("sample:rpcPort:request", h.goodEvent, { nonce: "n" })
+        yield* waitFor(logged)
+        h.fake.setPostDefect(undefined)
+        const posted = yield* Deferred.make<void>()
+        h.fake.setPostObserver(() => { Deferred.doneUnsafe(posted, Effect.void) })
+        bound.emit.tick({ seq: 5 })
+        yield* waitFor(posted)
+        expect(h.fake.posted).toEqual([{ channel: "sample:tick", payload: { seq: 5 }, transfer: [] }])
+        yield* Scope.close(scope, Exit.void)
+        bound.emit.tick({ seq: 6 })
+        expect(h.fake.posted).toHaveLength(1)
+      })
+    ))
 })

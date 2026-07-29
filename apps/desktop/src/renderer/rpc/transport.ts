@@ -10,24 +10,35 @@ export class RendererRpcClient extends Context.Service<RendererRpcClient, Render
 
 export type RendererRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-export const buildRendererClient = (
+export const buildRendererClient = Effect.fn("DesktopRenderer.buildRendererClient")((
   port: RendererPortLike
 ): Effect.Effect<RendererRpcClientApi, never, Scope.Scope> =>
   RpcClient.make(ExpandRpcs).pipe(
     Effect.provideServiceEffect(RpcClient.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )
+)
 
-const makePortProtocol = (port: RendererPortLike) =>
+const makePortProtocol = Effect.fn("DesktopRenderer.makePortProtocol")((port: RendererPortLike) =>
   RpcClient.Protocol.make(
     Effect.fnUntraced(function* (writeResponse) {
       const serialization = yield* RpcSerialization.RpcSerialization
       const parser = serialization.makeUnsafe()
       const inbound = yield* Queue.make<string | Uint8Array>()
-      port.onmessage = (event) => {
+      yield* Effect.addFinalizer(() => Queue.shutdown(inbound))
+      const listener = (event: { data: unknown }) => {
         Queue.offerUnsafe(inbound, event.data as string | Uint8Array)
       }
-      port.start()
+      yield* Effect.acquireRelease(
+        Effect.sync(() => { port.onmessage = listener }),
+        () =>
+          Effect.sync(() => {
+            if (port.onmessage === listener) port.onmessage = null
+          }).pipe(
+            Effect.ensuring(Effect.sync(() => port.close?.()))
+          )
+      )
+      yield* Effect.sync(() => port.start())
       yield* Stream.fromQueue(inbound).pipe(
         Stream.runForEach((data) => {
           const responses = parser.decode(data) as ReadonlyArray<RpcMessage.FromServerEncoded>
@@ -47,3 +58,4 @@ const makePortProtocol = (port: RendererPortLike) =>
       }
     })
   )
+)

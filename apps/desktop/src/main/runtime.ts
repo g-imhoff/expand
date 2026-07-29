@@ -1,5 +1,6 @@
-import { Layer, ManagedRuntime } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { NodePath } from "@effect/platform-node"
+import { Effect, Layer, ManagedRuntime, Path } from "effect"
+import { ProcessServices } from "@expand/client-ts/adapters/node"
 import {
   ClientLayer,
   ClientSession,
@@ -9,27 +10,37 @@ import {
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
-import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { nodeAppContextLayer } from "@expand/desktop/main/node-app-context"
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
   ClientSession | ProjectClient | ServerClient,
-  BackendUnavailable
+  BackendUnavailable | Layer.Error<typeof nodeAppContextLayer>
 >
 
-export const defaultBackendEntry = (moduleUrl: string): string =>
-  join(fileURLToPath(moduleUrl), "..", "..", "..", "..", "server", "main.ts")
+export const defaultBackendEntry = Effect.fn("DesktopMain.defaultBackendEntry")(function* (
+  moduleUrl: URL
+) {
+  const path = yield* Path.Path
+  const modulePath = yield* path.fromFileUrl(moduleUrl)
+  return path.join(modulePath, "..", "..", "..", "..", "server", "main.ts")
+})
 
 export const makeRuntime = (): ExpandRuntime =>
   ManagedRuntime.make(
-    ClientLayer(makeNodeAdapter({ backendCommand })).pipe(
-      Layer.provide(NodeServices.layer)
-    )
+    clientLayer(makeNodeAdapter({ backendCommand })).pipe(Layer.provide(ProcessServices.layer))
   )
 
-const backendCommand = (): ReadonlyArray<string> =>
-  resolveBackendCommand({
-    execPath: "node",
-    runtimeArgs: ["--import", "tsx"],
-    sourceEntry: defaultBackendEntry(import.meta.url)
-  })
+const backendCommand = defaultBackendEntry(new URL(import.meta.url)).pipe(
+  Effect.orDie,
+  Effect.provide(NodePath.layer),
+  Effect.flatMap((sourceEntry) =>
+    resolveBackendCommand({
+      execPath: "node",
+      runtimeArgs: ["--import", "tsx"],
+      sourceEntry
+    })
+  )
+)
+
+const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
+  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))

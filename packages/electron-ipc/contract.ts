@@ -192,7 +192,10 @@ export type IpcHandlersOf<C extends IpcContract, R, Port> = {
     : C["channels"][K] extends SendChannel<infer P>
       ? (payload: P["Type"], sender: IpcSenderInfo) => Effect.Effect<void, never, R>
       : C["channels"][K] extends PortExchangeChannel
-        ? (sender: IpcSenderInfo) => Effect.Effect<Port, never, R>
+        ? (
+            sender: IpcSenderInfo,
+            grant: (port: Port) => Effect.Effect<void>
+          ) => Effect.Effect<void, never, R>
         : never
 }
 

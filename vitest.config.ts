@@ -6,8 +6,10 @@ export const testInclude = [
   "packages/**/test/**/*.test.ts",
   "packages/**/test/**/*.test.tsx",
   "test/architecture/**/*.test.ts",
+  "test/support/**/*.test.ts",
   "scripts/**/*.test.ts",
   "scripts/**/*.test.tsx",
+  "bench/**/*.test.ts",
   "test/eslint/**/*.test.mjs",
   "examples/**/*.test.ts"
 ]
@@ -15,7 +17,9 @@ export const testInclude = [
 export const processHeavyTestInclude = [
   "apps/server/test/integration/state-root-lock.test.ts",
   "packages/client-ts/test/integration/spawn-lock.test.ts",
-  "examples/client-ts/test/archive-stale.smoke.test.ts"
+  "examples/client-ts/test/archive-stale.smoke.test.ts",
+  "test/architecture/effect-audit.test.ts",
+  "test/architecture/effect-candidate-inventory.test.ts"
 ]
 
 export const normalTestProject = {

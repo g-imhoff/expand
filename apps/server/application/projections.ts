@@ -22,7 +22,7 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
     // non-fatal (warn, continue — next boot just folds a longer tail). The event
     // LOG is the source of truth, so a log-read failure is a hard defect (orDie —
     // and scan itself dies on an undecodable row, D10 fail-fast).
-    const saveCheckpoint = (s: State) =>
+    const saveCheckpoint = Effect.fn("ProjectProjection.saveCheckpoint")((s: State) =>
       Schema.encodeEffect(ProjectsFromJson)(s.projects).pipe(
         Effect.orDie,
         Effect.flatMap((state) =>
@@ -32,6 +32,7 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
           Effect.logWarning(`projection checkpoint save failed — continuing (next boot folds a longer tail): ${e}`)
         )
       )
+    )
 
     // Load failure for ANY reason (absent / SQL error) → fall back to a
     // from-zero rebuild rather than failing to boot.
@@ -92,12 +93,13 @@ export class ProjectProjection extends Context.Service<ProjectProjection, {
       Effect.forkScoped
     )
 
-    const apply = (sequenced: SequencedEvent) =>
+    const apply = Effect.fn("ProjectProjection.apply")((sequenced: SequencedEvent) =>
       SubscriptionRef.modify(ref, (s) =>
         sequenced.seq <= s.seq
           ? [false, s] as const
           : [true, { projects: Project.foldList(s.projects, sequenced.event), seq: sequenced.seq }] as const
       )
+    )
 
     return {
       list: Effect.map(SubscriptionRef.get(ref), (s) => s.projects),

@@ -1,11 +1,17 @@
-import { Effect, FileSystem, Option, Schema } from "effect"
+import { Effect, FileSystem, Option, PlatformError, Schema } from "effect"
 import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { AppContext } from "@expand/contracts/app-context"
+import { ProcessControl, type ProcessProbeError } from "@expand/contracts/process-control"
 
-export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSystem.FileSystem> =
+export const readEndpoint: Effect.Effect<
+  Option.Option<Endpoint>,
+  ProcessProbeError,
+  FileSystem.FileSystem | AppContext | ProcessControl
+> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext
+    const processControl = yield* ProcessControl
     if (!(yield* fs.exists(paths.endpointFile).pipe(Effect.orElseSucceed(() => false)))) {
       return Option.none()
     }
@@ -14,22 +20,18 @@ export const readEndpoint: Effect.Effect<Option.Option<Endpoint>, never, FileSys
     if (Option.isNone(decoded)) return Option.none()
     const endpoint = decoded.value
     if (endpoint.protocolVersion !== PROTOCOL_VERSION) return Option.none()
-    if (!isProcessAlive(endpoint.pid)) return Option.none()
+    if ((yield* processControl.probe(endpoint.pid)) === "dead") return Option.none()
     return Option.some(endpoint)
   })
 
-export const deleteEndpoint: Effect.Effect<void, never, FileSystem.FileSystem> =
+export const deleteEndpoint: Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem | AppContext> =
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const { paths } = yield* AppContext
-    yield* fs.remove(paths.endpointFile).pipe(Effect.ignore)
+    yield* fs.remove(paths.endpointFile).pipe(
+      Effect.catchIf(
+        (error) => error instanceof PlatformError.PlatformError && error.reason._tag === "NotFound",
+        () => Effect.void
+      )
+    )
   })
-
-const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}

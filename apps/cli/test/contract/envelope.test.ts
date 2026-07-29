@@ -1,40 +1,103 @@
-import { describe, expect, it } from "vitest"
-import { Schema } from "effect"
-import { ENVELOPE_VERSION, ErrorEnvelope, ProjectEnvelope, ProjectListEnvelope, HealthEnvelope } from "@expand/cli/contract/envelope"
+import { it } from "@effect/vitest"
+import { Effect, Result, Schema } from "effect"
+import { describe, expect } from "vitest"
+import {
+  ENVELOPE_VERSION,
+  ErrorEnvelope,
+  ProjectEnvelope,
+  ProjectListEnvelope,
+  HealthEnvelope
+} from "@expand/cli/contract/envelope"
 import { ProjectCreateResult } from "@expand/contracts/project"
 
-const dec = <A, I>(s: Schema.Codec<A, I>, u: unknown) => Schema.decodeUnknownSync(s)(u)
-
-const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
+const uid = (n: number): string =>
+  `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
 
 describe("cli/contract/envelope", () => {
   it("ENVELOPE_VERSION is expand/v1", () => {
     expect(ENVELOPE_VERSION).toBe("expand/v1")
   })
 
-  it("ProjectEnvelope round-trips a created project", () => {
-    const v = { apiVersion: "expand/v1", kind: "Project", created: true, data: { id: uid(1), name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } }
-    expect(dec(ProjectEnvelope, v)).toEqual(v)
+  it.effect("ProjectEnvelope round-trips a created project", () => {
+    const value = {
+      apiVersion: "expand/v1",
+      kind: "Project",
+      created: true,
+      data: {
+        id: uid(1),
+        name: "foo",
+        directory: null,
+        description: null,
+        tags: [],
+        archived: false,
+        createdAt: "t",
+        updatedAt: "t"
+      }
+    }
+    return Schema.decodeUnknownEffect(ProjectEnvelope)(value).pipe(
+      Effect.tap((decoded) => Effect.sync(() => expect(decoded).toEqual(value)))
+    )
   })
 
-  it("ProjectListEnvelope carries count + array", () => {
-    const v = { apiVersion: "expand/v1", kind: "ProjectList", count: 1, data: [{ id: uid(1), name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" }] }
-    expect(dec(ProjectListEnvelope, v)).toEqual(v)
+  it.effect("ProjectListEnvelope carries count + array", () => {
+    const value = {
+      apiVersion: "expand/v1",
+      kind: "ProjectList",
+      count: 1,
+      data: [{
+        id: uid(1),
+        name: "foo",
+        directory: null,
+        description: null,
+        tags: [],
+        archived: false,
+        createdAt: "t",
+        updatedAt: "t"
+      }]
+    }
+    return Schema.decodeUnknownEffect(ProjectListEnvelope)(value).pipe(
+      Effect.tap((decoded) => Effect.sync(() => expect(decoded).toEqual(value)))
+    )
   })
 
-  it("HealthEnvelope wraps a status", () => {
-    const v = { apiVersion: "expand/v1", kind: "Health", data: { status: "ok" } }
-    expect(dec(HealthEnvelope, v)).toEqual(v)
+  it.effect("HealthEnvelope wraps a status", () => {
+    const value = { apiVersion: "expand/v1", kind: "ServerHealth", data: { status: "ok" } }
+    return Schema.decodeUnknownEffect(HealthEnvelope)(value).pipe(
+      Effect.tap((decoded) => Effect.sync(() => expect(decoded).toEqual(value)))
+    )
   })
 
-  it("ErrorEnvelope validates a tagged error code", () => {
-    const v = { apiVersion: "expand/v1", kind: "Error", code: "PROJECT_EXISTS", message: "x", retryable: false }
-    expect(dec(ErrorEnvelope, v)).toEqual(v)
-    expect(() => dec(ErrorEnvelope, { ...v, code: "NOPE" })).toThrow()
-  })
+  it.effect("ErrorEnvelope validates a tagged error code", () =>
+    Effect.gen(function*() {
+      const value = {
+        apiVersion: "expand/v1",
+        kind: "Error",
+        code: "PROJECT_EXISTS",
+        message: "x",
+        retryable: false
+      }
+      expect(yield* Schema.decodeUnknownEffect(ErrorEnvelope)(value)).toEqual(value)
+      expect(Result.isFailure(
+        yield* Schema.decodeUnknownEffect(ErrorEnvelope)({ ...value, code: "NOPE" }).pipe(Effect.result)
+      )).toBe(true)
+    }))
 
-  it("ProjectCreateResult pairs created + project", () => {
-    const v = { created: false, project: { id: uid(1), name: "foo", directory: null, description: null, tags: [], archived: false, createdAt: "t", updatedAt: "t" } }
-    expect(dec(ProjectCreateResult, v)).toEqual(v)
+  it.effect("ProjectCreateResult pairs created + project", () => {
+    const value = {
+      created: false,
+      project: {
+        id: uid(1),
+        name: "foo",
+        directory: null,
+        description: null,
+        tags: [],
+        archived: false,
+        createdAt: "t",
+        updatedAt: "t"
+      }
+    }
+    return Schema.decodeUnknownEffect(ProjectCreateResult)(value).pipe(
+      Effect.tap((decoded) => Effect.sync(() => expect(decoded).toEqual(value)))
+    )
   })
 })

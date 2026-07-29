@@ -1,30 +1,283 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest"
-import { act, renderHook, waitFor } from "@testing-library/react"
+import { type ReactNode } from "react"
+import { act, renderHook, type RenderHookResult } from "@testing-library/react"
+import { it } from "@effect/vitest"
+import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect"
+import { describe, expect, vi } from "vitest"
+import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
+import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { useRunMutation } from "@expand/desktop/renderer/features/projects/data/use-projects"
 
+const waitForDeferred = Deferred.await
+
+const ownHook = <Result, Props>(acquire: () => RenderHookResult<Result, Props>) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const rendered = acquire()
+      const release = rendered.unmount
+      let released = false
+      const unmount = () => {
+        if (released) return
+        released = true
+        release()
+      }
+      return { ...rendered, unmount }
+    }),
+    (rendered) => Effect.sync(() => rendered.unmount())
+  )
+
+interface StartedMutation {
+  readonly cancel: () => void
+  readonly fail: (error: unknown) => void
+  readonly succeed: (value: unknown) => void
+}
+
+const makeRunnerHarness = () => {
+  const started: Array<StartedMutation> = []
+  const runner: RendererRunner = {
+    start: <A, E,>(
+      _effect: Effect.Effect<A, E>,
+      onExit: (exit: Exit.Exit<A, E>) => void
+    ) => {
+      const cancel = vi.fn()
+      started.push({
+        cancel,
+        fail: (error) => onExit(Exit.fail(error as E)),
+        succeed: (value) => onExit(Exit.succeed(value as A))
+      })
+      return cancel
+    }
+  }
+  const wrapper = ({ children }: { readonly children: ReactNode }) => (
+    <RendererRunnerProvider value={runner}>{children}</RendererRunnerProvider>
+  )
+  return { runner, started, wrapper }
+}
+
 describe("useRunMutation", () => {
-  it("resolves, fires onSuccess, and clears isPending", async () => {
-    const { result } = renderHook(() => useRunMutation((n: number) => Promise.resolve(n * 2)))
-    let seen: number | undefined
-    act(() => { result.current.mutate(3, { onSuccess: (v) => { seen = v } }) })
-    await waitFor(() => expect(result.current.isPending).toBe(false))
-    expect(seen).toBe(6)
-    expect(result.current.error).toBeUndefined()
-  })
+  it.effect("publishes success through callbacks and clears pending state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const { result } = yield* ownHook(() => renderHook(
+        () => useRunMutation((n: number) => Effect.succeed(n * 2)),
+        { wrapper: harness.wrapper }
+      ))
+      const onSuccess = vi.fn()
 
-  it("captures error and fires onError", async () => {
-    const boom = new Error("boom")
-    const { result } = renderHook(() => useRunMutation((_: void) => Promise.reject(boom)))
-    let seen: unknown
-    act(() => { result.current.mutate(undefined, { onError: (e) => { seen = e } }) })
-    await waitFor(() => expect(result.current.error).toBe(boom))
-    expect(seen).toBe(boom)
-  })
+      act(() => result.current.mutate(3, { onSuccess }))
 
-  it("mutateAsync rejects on failure", async () => {
-    const boom = new Error("nope")
-    const { result } = renderHook(() => useRunMutation((_: void) => Promise.reject(boom)))
-    await expect(result.current.mutateAsync(undefined)).rejects.toBe(boom)
-  })
+      expect(result.current.isPending).toBe(true)
+      expect(Object.keys(result.current)).toEqual(["mutate", "error", "isPending", "reset"])
+      act(() => harness.started[0]?.succeed(6))
+      expect(onSuccess).toHaveBeenCalledWith(6)
+      expect(result.current.isPending).toBe(false)
+      expect(result.current.error).toBeUndefined()
+    })))
+
+  it.effect("publishes typed errors through callbacks and reset clears mutation state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const boom = new Error("boom")
+      const harness = makeRunnerHarness()
+      const { result } = yield* ownHook(() => renderHook(
+        () => useRunMutation((_: void) => Effect.fail(boom)),
+        { wrapper: harness.wrapper }
+      ))
+      const onError = vi.fn()
+
+      act(() => result.current.mutate(undefined, { onError }))
+      act(() => harness.started[0]?.fail(boom))
+
+      expect(onError).toHaveBeenCalledWith(boom)
+      expect(result.current.error).toBe(boom)
+      expect(result.current.isPending).toBe(false)
+      act(() => result.current.reset())
+      expect(result.current.error).toBeUndefined()
+      expect(result.current.isPending).toBe(false)
+    })))
+
+  it.effect("propagates mutation defects through the runner owner failure", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const defect = new Error("mutation defect")
+        const owner = yield* makeRendererRunner()
+        const callbackCompleted = yield* Deferred.make<void>()
+        const ownerFailure = yield* Effect.forkChild(Effect.exit(owner.failure))
+        let callbackDefect: unknown
+        const runner: RendererRunner = {
+          start: (effect, onExit) =>
+            owner.runner.start(effect, (exit) => {
+              try {
+                onExit(exit)
+              } catch (error) {
+                callbackDefect = error
+                throw error
+              } finally {
+                Deferred.doneUnsafe(callbackCompleted, Effect.void)
+              }
+            })
+        }
+        const wrapper = ({ children }: { readonly children: ReactNode }) => (
+          <RendererRunnerProvider value={runner}>{children}</RendererRunnerProvider>
+        )
+        const { result, unmount } = yield* ownHook(() => renderHook(
+          () => useRunMutation((_: void) => Effect.die(defect)),
+          { wrapper }
+        ))
+
+        act(() => result.current.mutate(undefined))
+        yield* waitForDeferred(callbackCompleted)
+
+        expect(callbackDefect).toBe(defect)
+        const ownerExit = yield* Fiber.join(ownerFailure)
+        expect(Exit.isFailure(ownerExit)).toBe(true)
+        if (Exit.isFailure(ownerExit)) expect(Cause.squash(ownerExit.cause)).toBe(defect)
+        unmount()
+      })
+    ))
+
+  it.effect("supervises a post-unmount defect without publishing a typed error", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const defect = new Error("post-unmount mutation defect")
+        const owner = yield* makeRendererRunner()
+        const started = yield* Deferred.make<void>()
+        const cancelRequested = yield* Deferred.make<void>()
+        const releaseDefect = yield* Deferred.make<void>()
+        const callbackCompleted = yield* Deferred.make<void>()
+        const ownerFailure = yield* Effect.forkChild(Effect.exit(owner.failure))
+        const runner: RendererRunner = {
+          start: (effect, onExit) => {
+            owner.runner.start(effect, (exit) => {
+              try {
+                onExit(exit)
+              } finally {
+                Deferred.doneUnsafe(callbackCompleted, Effect.void)
+              }
+            })
+            return () => { Deferred.doneUnsafe(cancelRequested, Effect.void) }
+          }
+        }
+        const wrapper = ({ children }: { readonly children: ReactNode }) => (
+          <RendererRunnerProvider value={runner}>{children}</RendererRunnerProvider>
+        )
+        const onError = vi.fn()
+        const { result, unmount } = yield* ownHook(() => renderHook(
+          () => useRunMutation((_: void) =>
+            Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(waitForDeferred(releaseDefect)),
+              Effect.andThen(Effect.die(defect))
+            )),
+          { wrapper }
+        ))
+
+        act(() => result.current.mutate(undefined, { onError }))
+        yield* waitForDeferred(started)
+        unmount()
+        yield* waitForDeferred(cancelRequested)
+        expect(Option.isNone(yield* Deferred.poll(callbackCompleted))).toBe(true)
+        yield* Deferred.succeed(releaseDefect, undefined)
+        yield* waitForDeferred(callbackCompleted)
+
+        yield* Effect.yieldNow
+        const ownerFiberExit = ownerFailure.pollUnsafe()
+        expect(ownerFiberExit).toBeDefined()
+        if (ownerFiberExit !== undefined) {
+          expect(Exit.isSuccess(ownerFiberExit)).toBe(true)
+          if (Exit.isSuccess(ownerFiberExit)) {
+            expect(Exit.isFailure(ownerFiberExit.value)).toBe(true)
+            if (Exit.isFailure(ownerFiberExit.value)) {
+              expect(Cause.squash(ownerFiberExit.value.cause)).toBe(defect)
+            }
+          }
+        }
+        expect(onError).not.toHaveBeenCalled()
+        expect(result.current.error).toBeUndefined()
+      })
+    ))
+
+  it.effect("uses the latest mutation function without changing mutate identity", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const first = vi.fn((n: number) => Effect.succeed(n))
+      const second = vi.fn((n: number) => Effect.succeed(n * 2))
+      const { result, rerender } = yield* ownHook(() => renderHook(
+        ({ run }) => useRunMutation(run),
+        { initialProps: { run: first }, wrapper: harness.wrapper }
+      ))
+      const mutate = result.current.mutate
+
+      rerender({ run: second })
+      act(() => result.current.mutate(4))
+
+      expect(result.current.mutate).toBe(mutate)
+      expect(first).not.toHaveBeenCalled()
+      expect(second).toHaveBeenCalledWith(4)
+    })))
+
+  it.effect("interrupts the active mutation and ignores a late exit after unmount", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const { result, unmount } = yield* ownHook(() => renderHook(
+        () => useRunMutation((_: void) => Effect.succeed("done")),
+        { wrapper: harness.wrapper }
+      ))
+      const onSuccess = vi.fn()
+
+      act(() => result.current.mutate(undefined, { onSuccess }))
+      unmount()
+      expect(harness.started[0]?.cancel).toHaveBeenCalledOnce()
+      act(() => harness.started[0]?.succeed("done"))
+      expect(onSuccess).not.toHaveBeenCalled()
+    })))
+
+  it.effect("keeps separate hook instances independently owned", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const { result } = yield* ownHook(() => renderHook(
+        () => ({
+          first: useRunMutation((n: number) => Effect.succeed(n)),
+          second: useRunMutation((n: number) => Effect.succeed(n))
+        }),
+        { wrapper: harness.wrapper }
+      ))
+
+      act(() => {
+        result.current.first.mutate(1)
+        result.current.second.mutate(2)
+      })
+
+      expect(harness.started[0]?.cancel).not.toHaveBeenCalled()
+      expect(result.current.first.isPending).toBe(true)
+      expect(result.current.second.isPending).toBe(true)
+      act(() => harness.started[0]?.succeed(1))
+      expect(result.current.first.isPending).toBe(false)
+      expect(result.current.second.isPending).toBe(true)
+    })))
+
+  it.effect("lets only the latest invocation publish after supersession", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = makeRunnerHarness()
+      const { result } = yield* ownHook(() => renderHook(
+        () => useRunMutation((n: number) => Effect.succeed(n)),
+        { wrapper: harness.wrapper }
+      ))
+      const staleError = new Error("stale")
+      const firstOnError = vi.fn()
+      const secondOnSuccess = vi.fn()
+
+      act(() => result.current.mutate(1, { onError: firstOnError }))
+      act(() => result.current.mutate(2, { onSuccess: secondOnSuccess }))
+
+      expect(harness.started[0]?.cancel).toHaveBeenCalledOnce()
+      expect(result.current.isPending).toBe(true)
+      act(() => harness.started[1]?.succeed(2))
+      expect(secondOnSuccess).toHaveBeenCalledWith(2)
+      expect(result.current.error).toBeUndefined()
+      expect(result.current.isPending).toBe(false)
+
+      act(() => harness.started[0]?.fail(staleError))
+      expect(firstOnError).not.toHaveBeenCalled()
+      expect(result.current.error).toBeUndefined()
+      expect(result.current.isPending).toBe(false)
+    })))
 })

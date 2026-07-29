@@ -13,17 +13,23 @@
 // docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { createRequire } from "node:module"
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { Data, Effect } from "effect"
+import { describe, expect } from "vitest"
 
-const load = createRequire(import.meta.url)
-const config = load("../../.dependency-cruiser.cjs") as {
-  options: { exclude: { path: string | ReadonlyArray<string> } }
-}
+class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{ readonly cause: unknown }> {}
 
-const raw = config.options.exclude.path
-const patterns = (typeof raw === "string" ? [raw] : raw).map((p) => new RegExp(p))
-
-const matchedByAny = (path: string): boolean => patterns.some((re) => re.test(path))
+const loadPatterns = Effect.try({
+  try: () => {
+    const load = createRequire(import.meta.url)
+    const config = load("../../.dependency-cruiser.cjs") as {
+      options: { exclude: { path: string | ReadonlyArray<string> } }
+    }
+    const raw = config.options.exclude.path
+    return (typeof raw === "string" ? [raw] : raw).map((pattern) => new RegExp(pattern))
+  },
+  catch: (cause) => new ConfigLoadError({ cause })
+})
 
 const MUST_STAY_CRUISED = [
   "apps/desktop/src/renderer/latest.ts",
@@ -40,15 +46,21 @@ const MUST_BE_EXCLUDED = [
 ] as const
 
 describe("depcruise exclude patterns (segment-anchored)", () => {
-  it("keeps cruising source files that merely contain 'test'/'out'/'dist' as a substring", () => {
-    for (const path of MUST_STAY_CRUISED) {
-      expect(matchedByAny(path), `expected ${path} to stay cruised`).toBe(false)
-    }
-  })
+  it.live("keeps cruising source files that merely contain 'test'/'out'/'dist' as a substring", () =>
+    loadPatterns.pipe(
+      Effect.tap((patterns) => Effect.sync(() => {
+        for (const path of MUST_STAY_CRUISED) {
+          expect(patterns.some((pattern) => pattern.test(path)), `expected ${path} to stay cruised`).toBe(false)
+        }
+      }))
+    ))
 
-  it("excludes test dirs, node_modules, build output, and playwright artifacts", () => {
-    for (const path of MUST_BE_EXCLUDED) {
-      expect(matchedByAny(path), `expected ${path} to be excluded`).toBe(true)
-    }
-  })
+  it.live("excludes test dirs, node_modules, build output, and playwright artifacts", () =>
+    loadPatterns.pipe(
+      Effect.tap((patterns) => Effect.sync(() => {
+        for (const path of MUST_BE_EXCLUDED) {
+          expect(patterns.some((pattern) => pattern.test(path)), `expected ${path} to be excluded`).toBe(true)
+        }
+      }))
+    ))
 })

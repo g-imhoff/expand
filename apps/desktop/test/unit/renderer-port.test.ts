@@ -4,15 +4,18 @@ import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
 const makeFakeMessagePort = () => {
   const sent: Array<unknown> = []
   let started = false
+  let closes = 0
   const port = {
     postMessage: (m: unknown) => { sent.push(m) },
     onmessage: null as ((event: MessageEvent) => void) | null,
-    start: () => { started = true }
+    start: () => { started = true },
+    close: () => { closes += 1 }
   }
   return {
     port: port as unknown as MessagePort,
     sent,
     isStarted: () => started,
+    closes: () => closes,
     fire: (data: unknown) => port.onmessage?.({ data } as MessageEvent)
   }
 }
@@ -35,5 +38,13 @@ describe("makeRendererPort", () => {
     fake.fire("payload")
     expect(received).toEqual(["payload"])
     expect(adapter.onmessage).not.toBeNull()
+  })
+
+  it("forwards each close call to the underlying MessagePort once", () => {
+    const fake = makeFakeMessagePort()
+    const adapter = makeRendererPort(fake.port)
+    adapter.close?.()
+    adapter.close?.()
+    expect(fake.closes()).toBe(2)
   })
 })

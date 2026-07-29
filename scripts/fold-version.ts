@@ -1,77 +1,120 @@
+import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import * as ts from "typescript"
-import { createHash } from "node:crypto"
-import { readFileSync, writeFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
-import { dirname, join } from "node:path"
+import { Console, Crypto, Data, Effect, Encoding, FileSystem, Path } from "effect"
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
-
-// Fold nodes PER PROJECTION. Each projection's version is a hash of exactly its
-// nodes, so a future projection's logic change never invalidates another
-// projection's persisted state. Adding a projection = add a map entry.
-// Over-capture is safe; under-capture (a real fold input not listed) is the only
-// unsoundness — backed by the snapshot-equivalence oracle.
 const PROJECTIONS: Readonly<Record<string, ReadonlyArray<{ readonly file: string; readonly name: string }>>> = {
   projects: [
-    { file: "packages/contracts/project.ts", name: "Project" }  // class: fromCreated/applyEvent/foldList + read-model shape
+    { file: "packages/contracts/project.ts", name: "Project" }
   ]
 }
 
-const findNamedNode = (src: ts.SourceFile, name: string): ts.Node | undefined => {
-  for (const stmt of src.statements) {
-    if ((ts.isClassDeclaration(stmt) || ts.isFunctionDeclaration(stmt)) && stmt.name?.text === name) {
-      return stmt
+const printer = ts.createPrinter({ removeComments: true })
+const textEncoder = new TextEncoder()
+
+export class FoldVersionError extends Data.TaggedError("FoldVersionError")<{
+  readonly reason: "read-failed" | "node-not-found" | "digest-failed" | "write-failed"
+  readonly file: string
+  readonly node?: string
+  readonly cause?: unknown
+}> {}
+
+export const findNamedNode = (source: ts.SourceFile, name: string): ts.Node | undefined => {
+  for (const statement of source.statements) {
+    if ((ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement)) && statement.name?.text === name) {
+      return statement
     }
-    if (ts.isVariableStatement(stmt)) {
-      for (const decl of stmt.declarationList.declarations) {
-        if (ts.isIdentifier(decl.name) && decl.name.text === name) return stmt
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name) return statement
       }
     }
   }
   return undefined
 }
 
-// removeComments + the printer's canonical formatting means comment/whitespace/
-// reformatting edits do NOT change the hash; identifier/literal changes DO.
-const printer = ts.createPrinter({ removeComments: true })
-
-const hashNodes = (nodes: ReadonlyArray<{ readonly file: string; readonly name: string }>): string => {
-  const hash = createHash("sha256")
-  for (const { file, name } of nodes) {
-    const path = join(ROOT, file)
-    const src = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true)
-    const node = findNamedNode(src, name)
-    if (node === undefined) {
-      throw new Error(`fold-version: node '${name}' not found in ${file} (did the fold move or get renamed?)`)
-    }
-    hash.update(`${file}::${name}\n`)
-    hash.update(printer.printNode(ts.EmitHint.Unspecified, node, src))
-    hash.update("\n \n")
-  }
-  return `sha256:${hash.digest("hex")}`
+export const canonicalFoldSource = (
+  file: string,
+  name: string,
+  sourceText: string
+): string | undefined => {
+  const source = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true)
+  const node = findNamedNode(source, name)
+  if (node === undefined) return undefined
+  return `${file}::${name}\n${printer.printNode(ts.EmitHint.Unspecified, node, source)}\n \n`
 }
 
-export const computeFoldHashes = (): Readonly<Record<string, string>> =>
-  Object.fromEntries(Object.entries(PROJECTIONS).map(([name, nodes]) => [name, hashNodes(nodes)]))
+const quoteString = (value: string): string => `"${value
+  .replaceAll("\\", "\\\\")
+  .replaceAll('"', '\\"')
+  .replaceAll("\b", "\\b")
+  .replaceAll("\f", "\\f")
+  .replaceAll("\n", "\\n")
+  .replaceAll("\r", "\\r")
+  .replaceAll("\t", "\\t")}"`
 
-const GENERATED_PATH = join(ROOT, "packages", "contracts", "fold-version.generated.ts")
-
-const write = (): Readonly<Record<string, string>> => {
-  const versions = computeFoldHashes()
-  writeFileSync(
-    GENERATED_PATH,
-    `// GENERATED — do not edit by hand. Run \`npm run gen:fold-version\` after changing a fold.
+export const renderFoldVersions = (versions: Readonly<Record<string, string>>): string => {
+  const entries = Object.entries(versions)
+    .map(([name, version]) => `  ${quoteString(name)}: ${quoteString(version)}`)
+    .join(",\n")
+  return `// GENERATED — do not edit by hand. Run \`npm run gen:fold-version\` after changing a fold.
 // FOLD_VERSIONS maps projection name → hash of that projection's fold nodes
 // (see scripts/fold-version.ts PROJECTIONS).
 // Staleness is caught by test/architecture/fold-version-lockstep.test.ts.
-export const FOLD_VERSIONS = ${JSON.stringify(versions, null, 2)} as const
+export const FOLD_VERSIONS = {\n${entries}\n} as const
 `
-  )
-  return versions
 }
 
+export const computeFoldHashes = Effect.fn("scripts.fold-version.computeFoldHashes")(
+  function*(rootDir: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const crypto = yield* Crypto.Crypto
+    const versions: Record<string, string> = {}
+
+    for (const [projection, nodes] of Object.entries(PROJECTIONS)) {
+      let canonical = ""
+      for (const { file, name } of nodes) {
+        const source = yield* fs.readFileString(path.join(rootDir, file)).pipe(
+          Effect.mapError((cause) => new FoldVersionError({ reason: "read-failed", file, node: name, cause }))
+        )
+        const printed = canonicalFoldSource(file, name, source)
+        if (printed === undefined) {
+          return yield* new FoldVersionError({ reason: "node-not-found", file, node: name })
+        }
+        canonical += printed
+      }
+      const digest = yield* crypto.digest("SHA-256", textEncoder.encode(canonical)).pipe(
+        Effect.mapError((cause) => new FoldVersionError({ reason: "digest-failed", file: projection, cause }))
+      )
+      versions[projection] = `sha256:${Encoding.encodeHex(digest)}`
+    }
+
+    return versions as Readonly<Record<string, string>>
+  }
+)
+
+const writeFoldVersions = Effect.fn("scripts.fold-version.writeFoldVersions")(
+  function*(rootDir: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const versions = yield* computeFoldHashes(rootDir)
+    const generatedPath = path.join(rootDir, "packages", "contracts", "fold-version.generated.ts")
+    yield* fs.writeFileString(generatedPath, renderFoldVersions(versions)).pipe(
+      Effect.mapError((cause) => new FoldVersionError({ reason: "write-failed", file: generatedPath, cause }))
+    )
+    yield* Console.log(`fold-version: wrote ${generatedPath}`)
+    for (const [name, version] of Object.entries(versions)) {
+      yield* Console.log(`  ${name}: ${version}`)
+    }
+  }
+)
+
+const program = Effect.gen(function*() {
+  const path = yield* Path.Path
+  const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
+  yield* writeFoldVersions(root)
+}).pipe(Effect.provide(NodeServices.layer))
+
 if (import.meta.main) {
-  const versions = write()
-  console.log(`fold-version: wrote ${GENERATED_PATH}`)
-  for (const [name, v] of Object.entries(versions)) console.log(`  ${name}: ${v}`)
+  NodeRuntime.runMain(program)
 }

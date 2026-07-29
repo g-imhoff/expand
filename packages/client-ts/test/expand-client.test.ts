@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Layer, Stream } from "effect"
 import { ProjectClient } from "../project/client"
 import { ServerClient } from "../server/client"
@@ -21,17 +22,15 @@ const serverStub = Layer.succeed(ServerClient, {
 })
 
 describe("client services", () => {
-  it("exposes project operations through ProjectClient", async () => {
-    const created = await Effect.runPromise(
-      Effect.flatMap(ProjectClient, (c) => c.create({ name: "alpha", ensure: true })).pipe(Effect.provide(projectStub))
-    )
-    expect(created.project.name).toBe("alpha")
-  })
+  it.effect("exposes project operations through ProjectClient", () =>
+    Effect.flatMap(ProjectClient, (c) => c.create({ name: "alpha", ensure: true })).pipe(
+      Effect.provide(projectStub),
+      Effect.tap((created) => Effect.sync(() => expect(created.project.name).toBe("alpha")))
+    ))
 
-  it("exposes server operations through ServerClient", async () => {
-    const health = await Effect.runPromise(
-      Effect.flatMap(ServerClient, (c) => c.health()).pipe(Effect.provide(serverStub))
-    )
-    expect(health).toBe("ok")
-  })
+  it.effect("exposes server operations through ServerClient", () =>
+    Effect.flatMap(ServerClient, (c) => c.health()).pipe(
+      Effect.provide(serverStub),
+      Effect.tap((health) => Effect.sync(() => expect(health).toBe("ok")))
+    ))
 })

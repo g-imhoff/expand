@@ -1,8 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema, Stream } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
 const StringMap = Schema.Record(Schema.String, Schema.String)
 const PackageJson = Schema.fromJsonString(Schema.Struct({
@@ -21,29 +21,17 @@ const AuditConfigJson = Schema.fromJsonString(Schema.Struct({
   include: Schema.Array(Schema.String),
   exclude: Schema.Array(Schema.String)
 }))
-const DesktopConfigJson = Schema.fromJsonString(Schema.Struct({ extends: Schema.String }))
+const DesktopConfigJson = Schema.fromJsonString(Schema.Struct({
+  extends: Schema.String,
+  exclude: Schema.Array(Schema.String),
+  include: Schema.Array(Schema.String)
+}))
 
 const readJson = Effect.fn("EffectAuditTest.readJson")(
   function* <S extends Schema.Top>(file: string, schema: S) {
     const fs = yield* FileSystem.FileSystem
     return yield* Schema.decodeUnknownEffect(schema)(yield* fs.readFileString(file))
   }
-)
-
-const runText = Effect.fn("EffectAuditTest.runText")(
-  (command: string, args: ReadonlyArray<string>) =>
-    Effect.scoped(Effect.gen(function*() {
-      const handle = yield* ChildProcess.make(command, args)
-      const [stdout, stderr, exitCode] = yield* Effect.all([
-        handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
-        handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
-        handle.exitCode
-      ], { concurrency: "unbounded" })
-      if (exitCode !== 0) {
-        return yield* Effect.fail({ command, args, exitCode, stderr } as const)
-      }
-      return stdout
-    }))
 )
 
 const isTypeScriptFile = (file: string) =>
@@ -59,16 +47,14 @@ const normalizedRepositoryFiles = Effect.fn("EffectAuditTest.normalizedRepositor
   }
 )
 
-const trackedTypeScriptFiles = Effect.fn("EffectAuditTest.trackedTypeScriptFiles")(
-  function*() {
-    const output = yield* runText("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
-    return yield* normalizedRepositoryFiles(output.split("\0").filter(isTypeScriptFile))
-  }
-)()
+const trackedTypeScriptFiles = Effect.gen(function*() {
+    const report = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+    expect(report.exitCode, report.stderr).toBe(0)
+    return yield* normalizedRepositoryFiles(report.stdout.split("\0").filter(isTypeScriptFile))
+})
 
-const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
-  function*() {
-    const output = yield* runText("npm", [
+const resolvedAuditFiles = Effect.gen(function*() {
+    const report = yield* runCommand("npm", [
       "exec",
       "--",
       "tsc",
@@ -76,9 +62,10 @@ const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
       "-p",
       "tsconfig.effect-audit.json"
     ])
+    expect(report.exitCode, report.stderr).toBe(0)
     const path = yield* Path.Path
     const root = path.resolve(".")
-    const files = output.split(/\r?\n/).filter((file) => {
+    const files = report.stdout.split(/\r?\n/).filter((file) => {
       if (!isTypeScriptFile(file)) return false
       const relative = path.relative(root, path.resolve(file))
       return relative !== ".." &&
@@ -86,13 +73,12 @@ const resolvedAuditFiles = Effect.fn("EffectAuditTest.resolvedAuditFiles")(
         !relative.split(path.sep).includes("node_modules")
     })
     return yield* normalizedRepositoryFiles(files)
-  }
-)()
+})
 
 const expectedScripts = {
-  "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,message",
-  "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,message",
-  "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,message",
+  "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,warning,message",
+  "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,warning,message",
+  "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,warning,message",
   "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json"
 }
 
@@ -133,6 +119,7 @@ const expectedAuditIncludes = [
   "migrations",
   "test",
   "eslint-rules",
+  "docs/architecture",
   "*.ts",
   "*.tsx",
   "*.mts",
@@ -150,7 +137,7 @@ const expectedAuditExcludes = [
 ]
 
 describe("Effect language service diagnostics", () => {
-  it.effect("pins the official packages, scripts, plugin, and audit project", () =>
+  it.live("pins the official packages, scripts, plugin, and audit project", () =>
     Effect.gen(function*() {
       const packageJson = yield* readJson("package.json", PackageJson)
       const rootConfig = yield* readJson("tsconfig.json", RootConfigJson)
@@ -172,10 +159,21 @@ describe("Effect language service diagnostics", () => {
         include: expectedAuditIncludes,
         exclude: expectedAuditExcludes
       })
-      expect(desktopConfig.extends).toBe("../../tsconfig.json")
+      expect(desktopConfig).toEqual({
+        extends: "../../tsconfig.json",
+        exclude: [],
+        include: [
+          "src",
+          "test/integration",
+          "test/ui",
+          "test/unit/*.test.ts",
+          "test/unit/*.test.tsx",
+          "../../packages/contracts/globals.d.ts"
+        ]
+      })
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("covers every tracked TypeScript source with the Effect audit project", () =>
+  it.live("covers every tracked TypeScript source with the Effect audit project", () =>
     Effect.gen(function*() {
       const tracked = yield* trackedTypeScriptFiles
       const resolved = yield* resolvedAuditFiles

@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Schedule, Queue, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { Effect, FileSystem, Path, Fiber, Option, Schedule, Queue, Layer } from "effect"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -11,31 +10,26 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-ops-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
-    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
+    orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
   })
 )
 
 describe.sequential("project operations over the wire", () => {
-  it("drives every operation and observes each event live", async () => {
-    const workdir = mkdtempSync(join(tmpdir(), "expand-projdir-"))
+  it.live("drives every operation and observes each event live",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-ops-lifecycle-')
+    const workdir = yield* makeTestDirectory("expand-projdir-")
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
 
@@ -61,9 +55,9 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return outcome
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
-    const r = await Effect.runPromise(program)
+    const r = yield* (program)
     expect(r.renamed.name).toBe("ops-renamed")
     expect(r.dirSet.directory).toBe(workdir)
     expect(r.archived.archived).toBe(true)
@@ -76,12 +70,13 @@ describe.sequential("project operations over the wire", () => {
       "ProjectArchived", "ProjectRestored", "ProjectMetadataChanged", "ProjectDeleted"
     ])
     expect(r.listed.projects).toEqual([])
-    rmSync(workdir, { recursive: true, force: true })
-  })
+  }))
 
-  it("rejects a non-absolute / non-existent directory with the typed error over the wire", async () => {
+  it.live("rejects a non-absolute / non-existent directory with the typed error over the wire",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-ops-lifecycle-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const result = yield* withClient(nodeAdapter, (client) =>
@@ -92,9 +87,18 @@ describe.sequential("project operations over the wire", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return result
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = yield* (program)
     expect(r._tag).toBe("Failure")
     if (r._tag === "Failure") expect((r.failure as { _tag: string })._tag).toBe("ProjectDirectoryInvalid")
-  })
+  }))
 })
+
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
+  )
+
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

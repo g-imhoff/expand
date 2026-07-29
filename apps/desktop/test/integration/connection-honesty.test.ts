@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect, Exit, Fiber, Layer, Stream, SubscriptionRef } from "effect"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import {
@@ -53,8 +54,7 @@ const unusedProjectClient = (events: ProjectClientApi["events"]): ProjectClientA
 })
 
 const collectEventRequest = (fromSeq: number) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
+  Effect.gen(function* () {
       const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
       let requested: { readonly fromSeq?: number } | undefined
       const layer = makeClientLayer(
@@ -68,11 +68,9 @@ const collectEventRequest = (fromSeq: number) =>
       yield* Stream.runDrain(events({ fromSeq })).pipe(Effect.provide(layer))
       return requested
     })
-  )
 
 const collectConnect = (statuses: ReadonlyArray<ConnectionStatus>) =>
-  Effect.runPromise(
-    Effect.gen(function* () {
+  Effect.gen(function* () {
       const status = yield* SubscriptionRef.make<ConnectionStatus>(statuses[0] ?? "disconnected")
       const layer = makeClientLayer(
         status,
@@ -90,11 +88,9 @@ const collectConnect = (statuses: ReadonlyArray<ConnectionStatus>) =>
       }
       return Array.from(yield* Fiber.join(fiber))
     })
-  )
 
 const runHealthStatusScenario = () =>
-  Effect.runPromise(
-    Effect.gen(function* () {
+  Effect.gen(function* () {
       const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
       let healthCalls = 0
       const layer = makeClientLayer(
@@ -112,23 +108,22 @@ const runHealthStatusScenario = () =>
       const reconnecting = yield* Effect.exit(health().pipe(Effect.provide(layer)))
       return { connected, reconnecting, healthCalls }
     })
-  )
 
 describe("desktop seam honesty", () => {
-  it("Events forwards fromSeq to the upstream epoch", async () => {
-    const requested = await collectEventRequest(17)
-    expect(requested).toEqual({ fromSeq: 17 })
-  })
+  it.effect("Events forwards fromSeq to the upstream epoch", () =>
+    collectEventRequest(17).pipe(Effect.tap((requested) =>
+      Effect.sync(() => { expect(requested).toEqual({ fromSeq: 17 }) })
+    )))
 
-  it("Connect reflects ClientSession status transitions", async () => {
-    const values = await collectConnect(["connected", "reconnecting", "connected"])
-    expect(values).toEqual([true, false, true])
-  })
+  it.effect("Connect reflects ClientSession status transitions", () =>
+    collectConnect(["connected", "reconnecting", "connected"]).pipe(Effect.tap((values) =>
+      Effect.sync(() => { expect(values).toEqual([true, false, true]) })
+    )))
 
-  it("Health delegates only while connected", async () => {
-    const result = await runHealthStatusScenario()
-    expect(result.connected).toBe("ok")
-    expect(Exit.isFailure(result.reconnecting)).toBe(true)
-    expect(result.healthCalls).toBe(1)
-  })
+  it.effect("Health delegates only while connected", () =>
+    runHealthStatusScenario().pipe(Effect.tap((result) => Effect.sync(() => {
+      expect(result.connected).toBe("ok")
+      expect(Exit.isFailure(result.reconnecting)).toBe(true)
+      expect(result.healthCalls).toBe(1)
+    }))))
 })

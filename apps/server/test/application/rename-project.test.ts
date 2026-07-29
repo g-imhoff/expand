@@ -1,10 +1,9 @@
-import { describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { Crypto, Effect, FileSystem, Layer } from "effect"
+import { TestClock } from "effect/testing"
+import { describe, expect } from "vitest"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { NodeFileSystem, NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { NodeServices } from "@effect/platform-node"
 import { EventBusLayer } from "@expand/server/application/event-bus"
 import { ProjectProjectionLayer } from "@expand/server/application/projections"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
@@ -16,83 +15,85 @@ const layer = () => {
   const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
   const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
-  return ProjectUseCasesLayer.pipe(
+  const useCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),
     Layer.provide(EventBusLayer),
-    Layer.provide(projection),
-    Layer.provide(NodeFileSystem.layer),
-    Layer.provide(NodeServices.layer)
+    Layer.provide(projection)
   )
+  return useCases.pipe(Layer.provideMerge(NodeServices.layer))
 }
-const run = <A, E>(eff: Effect.Effect<A, E, ProjectUseCases>) => Effect.runPromise(Effect.provide(eff, layer()))
 
 describe("ProjectUseCases.renameProject", () => {
-  it("renames a project and bumps updatedAt", async () => {
-    const r = await run(Effect.gen(function* () {
-      const u = yield* ProjectUseCases
-      const { project } = yield* u.createProject("alpha", false)
-      const renamed = yield* u.renameProject(project.id, "alpha-2")
-      return { project, renamed }
-    }))
-    expect(r.renamed.id).toBe(r.project.id)
-    expect(r.renamed.name).toBe("alpha-2")
+  it.live("renames a project using the later injected clock instant", () => {
+    const crypto = Crypto.make({
+      randomBytes: (size) => new Uint8Array(size),
+      digest: (_algorithm, data) => Effect.succeed(data)
+    })
+    return Effect.gen(function*() {
+      yield* TestClock.setTime(1_735_689_600_000)
+      const useCases = yield* ProjectUseCases
+      const { project } = yield* useCases.createProject("alpha", false)
+      yield* TestClock.setTime(1_735_693_200_000)
+      const renamed = yield* useCases.renameProject(project.id, "alpha-2")
+      expect(renamed.id).toBe(project.id)
+      expect(renamed.name).toBe("alpha-2")
+      expect(renamed.createdAt).toBe("2025-01-01T00:00:00.000Z")
+      expect(renamed.updatedAt).toBe("2025-01-01T01:00:00.000Z")
+    }).pipe(
+      Effect.provideService(Crypto.Crypto, crypto),
+      Effect.provide(Layer.mergeAll(layer(), TestClock.layer()))
+    )
   })
 
-  it("fails ProjectNotFound for an unknown id", async () => {
-    const exit = await run(Effect.gen(function* () {
-      const u = yield* ProjectUseCases
-      return yield* u.renameProject("00000000-0000-4000-8000-000000000001", "renamed").pipe(Effect.result)
-    }))
-    expect(exit._tag).toBe("Failure")
-    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
-  })
+  it.effect("fails ProjectNotFound for an unknown id", () =>
+    Effect.gen(function*() {
+      const useCases = yield* ProjectUseCases
+      const result = yield* useCases.renameProject("00000000-0000-4000-8000-000000000001", "renamed").pipe(Effect.result)
+      expect(result._tag).toBe("Failure")
+      expect((result as { failure: { _tag: string } }).failure._tag).toBe("ProjectNotFound")
+    }).pipe(Effect.provide(layer())))
 
-  it("fails ProjectNameConflict when the new name is taken by another live project", async () => {
-    const exit = await run(Effect.gen(function* () {
-      const u = yield* ProjectUseCases
-      const a = yield* u.createProject("alpha", false)
-      yield* u.createProject("beta", false)
-      return yield* u.renameProject(a.project.id, "beta").pipe(Effect.result)
-    }))
-    expect((exit as { failure: { _tag: string } }).failure._tag).toBe("ProjectNameConflict")
-  })
+  it.effect("fails ProjectNameConflict when the new name is taken by another live project", () =>
+    Effect.gen(function*() {
+      const useCases = yield* ProjectUseCases
+      const alpha = yield* useCases.createProject("alpha", false)
+      yield* useCases.createProject("beta", false)
+      const result = yield* useCases.renameProject(alpha.project.id, "beta").pipe(Effect.result)
+      expect((result as { failure: { _tag: string } }).failure._tag).toBe("ProjectNameConflict")
+    }).pipe(Effect.provide(layer())))
 
-  it("allows renaming a project to its own current name (no self-conflict)", async () => {
-    const r = await run(Effect.gen(function* () {
-      const u = yield* ProjectUseCases
-      const a = yield* u.createProject("alpha", false)
-      return yield* u.renameProject(a.project.id, "alpha")
-    }))
-    expect(r.name).toBe("alpha")
-  })
+  it.effect("allows renaming a project to its own current name (no self-conflict)", () =>
+    Effect.gen(function*() {
+      const useCases = yield* ProjectUseCases
+      const alpha = yield* useCases.createProject("alpha", false)
+      const renamed = yield* useCases.renameProject(alpha.project.id, "alpha")
+      expect(renamed.name).toBe("alpha")
+    }).pipe(Effect.provide(layer())))
 
-  it("an archived project's name stays reserved -> ProjectNameConflict", async () => {
-    const exit = await run(Effect.gen(function* () {
-      const u = yield* ProjectUseCases
-      const archived = yield* u.createProject("archived-name", false)
-      yield* u.archiveProject(archived.project.id)
-      const live = yield* u.createProject("live-name", false)
-      return yield* u.renameProject(live.project.id, "archived-name").pipe(Effect.result)
-    }))
-    expect((exit as { failure: { _tag: string; name: string } }).failure._tag).toBe("ProjectNameConflict")
-    expect((exit as { failure: { _tag: string; name: string } }).failure.name).toBe("archived-name")
-  })
+  it.effect("an archived project's name stays reserved -> ProjectNameConflict", () =>
+    Effect.gen(function*() {
+      const useCases = yield* ProjectUseCases
+      const archived = yield* useCases.createProject("archived-name", false)
+      yield* useCases.archiveProject(archived.project.id)
+      const live = yield* useCases.createProject("live-name", false)
+      const result = yield* useCases.renameProject(live.project.id, "archived-name").pipe(Effect.result)
+      const failure = (result as { failure: { _tag: string; name: string } }).failure
+      expect(failure._tag).toBe("ProjectNameConflict")
+      expect(failure.name).toBe("archived-name")
+    }).pipe(Effect.provide(layer())))
 
-  it("an archived project's directory stays reserved -> ProjectDirectoryConflict", async () => {
-    const tmp = mkdtempSync(join(tmpdir(), "expand-arch-dir-"))
-    try {
-      const exit = await run(Effect.gen(function* () {
-        const u = yield* ProjectUseCases
-        const a = yield* u.createProject("archived-dir", false)
-        yield* u.changeDirectory(a.project.id, tmp)
-        yield* u.archiveProject(a.project.id)
-        const live = yield* u.createProject("live-dir", false)
-        return yield* u.changeDirectory(live.project.id, tmp).pipe(Effect.result)
-      }))
-      expect((exit as { failure: { _tag: string; directory: string } }).failure._tag).toBe("ProjectDirectoryConflict")
-      expect((exit as { failure: { _tag: string; directory: string } }).failure.directory).toBe(tmp)
-    } finally {
-      rmSync(tmp, { recursive: true, force: true })
-    }
-  })
+  it.effect("an archived project's directory stays reserved -> ProjectDirectoryConflict", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-arch-dir-" })
+      const useCases = yield* ProjectUseCases
+      const archived = yield* useCases.createProject("archived-dir", false)
+      yield* useCases.changeDirectory(archived.project.id, directory)
+      yield* useCases.archiveProject(archived.project.id)
+      const live = yield* useCases.createProject("live-dir", false)
+      const result = yield* useCases.changeDirectory(live.project.id, directory).pipe(Effect.result)
+      const failure = (result as { failure: { _tag: string; directory: string } }).failure
+      expect(failure._tag).toBe("ProjectDirectoryConflict")
+      expect(failure.directory).toBe(directory)
+    }).pipe(Effect.provide(layer())))
 })

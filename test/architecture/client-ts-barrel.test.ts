@@ -8,43 +8,49 @@
 // /server), under docs/superpowers/specs/ and docs/superpowers/plans/.
 // ============================================================================
 import { createRequire } from "node:module"
-import { execFileSync } from "node:child_process"
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Data, Effect } from "effect"
+import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
-const load = createRequire(import.meta.url)
-const config = load("../../.dependency-cruiser.cjs") as {
-  forbidden: ReadonlyArray<{
-    name: string
-    from: { path?: string; pathNot?: string }
-    to: { path?: string; pathNot?: string }
-  }>
-}
+class ConfigLoadError extends Data.TaggedError("ConfigLoadError")<{ readonly cause: unknown }> {}
+
+const loadConfig = Effect.try({
+  try: () => {
+    const load = createRequire(import.meta.url)
+    return load("../../.dependency-cruiser.cjs") as {
+      forbidden: ReadonlyArray<{
+        name: string
+        from: { path?: string; pathNot?: string }
+        to: { path?: string; pathNot?: string }
+      }>
+    }
+  },
+  catch: (cause) => new ConfigLoadError({ cause })
+})
 
 describe("@expand/client-ts barrel-only boundary", () => {
-  it("defines the client-ts-barrel-only forbidden rule", () => {
-    const rule = config.forbidden.find((r) => r.name === "client-ts-barrel-only")
-    expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
-    expect(rule!.from.pathNot).toBe("^packages/client-ts/")
-    expect(rule!.to.path).toBe("^packages/client-ts/")
-    expect(rule!.to.pathNot).toBe(
-      "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
-    )
-  })
+  it.live("defines the client-ts-barrel-only forbidden rule", () =>
+    loadConfig.pipe(
+      Effect.tap((config) => Effect.sync(() => {
+        const rule = config.forbidden.find((r) => r.name === "client-ts-barrel-only")
+        expect(rule, "rule client-ts-barrel-only must exist").toBeDefined()
+        expect(rule!.from.pathNot).toBe("^packages/client-ts/")
+        expect(rule!.to.path).toBe("^packages/client-ts/")
+        expect(rule!.to.pathNot).toBe(
+          "^packages/client-ts/(index\\.ts$|project/index\\.ts$|server/index\\.ts$|adapters/)"
+        )
+      }))
+    ))
 
-  it("no external module deep-imports client-ts internals", () => {
-    let output = ""
-    let code = 0
-    try {
-      output = execFileSync(
-        "npm",
-        ["exec", "--", "depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
-      )
-    } catch (e: any) {
-      code = typeof e.status === "number" ? e.status : 1
-      output = `${e.stdout ?? ""}${e.stderr ?? ""}`
-    }
-    expect(output).not.toContain("client-ts-barrel-only")
-    expect(code).toBe(0)
-  })
+  it.live("no external module deep-imports client-ts internals", () =>
+    runCommand("npm", ["exec", "--", "depcruise", "apps", "packages", "bench", "examples", "--config", ".dependency-cruiser.cjs"]).pipe(
+      Effect.tap((report) => Effect.sync(() => {
+        const output = `${report.stdout}${report.stderr}`
+        expect(output).not.toContain("client-ts-barrel-only")
+        expect(report.exitCode).toBe(0)
+      })),
+      Effect.provide(NodeServices.layer)
+    ))
 })

@@ -36,6 +36,11 @@ wait. Lock publication and removal use record, token, and inode evidence so a
 delayed owner cannot delete a replacement lock. Endpoint polling runs every 100
 milliseconds and has a 30-second startup deadline.
 
+The acquisition and session layers leave `FileSystem`, `Path`, `Crypto`,
+`AppContext`, and `ProcessControl` explicit. The Node `ProcessServices.layer`
+provides the platform and process capabilities while the application provides
+the data-root context.
+
 After discovering an endpoint, acquisition builds the adapter's WebSocket
 protocol layer, creates the typed Expand RPC client, and drains `Connect()`
 until the server confirms presence. The presence handshake has a three-second
@@ -43,9 +48,12 @@ deadline. A stale endpoint is removed and acquisition is retried up to three
 times. Scope closure tears down the socket and its supervised fibers.
 
 The Node adapter injects `ws` into Effect's WebSocket layer, uses NDJSON RPC
-serialization, and starts its required backend command with
-`child_process.spawn`. The child is unreferenced; readiness is determined by
-endpoint discovery rather than the spawn call.
+serialization, and starts its required backend command with Effect
+`ChildProcess`. It provides the narrow Node child-process spawner and Node path
+service internally while leaving `FileSystem` caller-owned. Process creation
+and unref run in the same scope with the child kept in the guardian's process
+group; the scope closes after unref succeeds. The spawn effect reports operating
+system acceptance, while endpoint discovery remains responsible for readiness.
 
 ## `ClientSession`
 
@@ -99,7 +107,7 @@ Zustand dependency.
 - a status stream,
 - a list effect returning `{ projects, seq }`,
 - an events function accepting `{ fromSeq }`, and
-- sink functions for status and complete snapshots.
+- Effect-valued sink functions for status and complete snapshots.
 
 For every connected epoch it performs:
 
@@ -127,6 +135,8 @@ the sink to `"reconnecting"` and start a complete list-and-events retry loop
 with capped backoff. The first successful fresh snapshot restores
 `"connected"`. Status-stream failure remains in the `runProjectSync` error
 channel so the owner of the synchronization fiber can observe it.
+Sink failures propagate to that owner immediately and do not enter the source
+retry schedule.
 
 ## Application ownership
 

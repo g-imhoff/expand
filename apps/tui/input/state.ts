@@ -3,6 +3,7 @@
 import type { Project } from "@expand/contracts/project"
 import { emptyTextField, type TextFieldState } from "@expand/ink-input/text-field"
 import type { KeyName } from "@expand/ink-input/key-name"
+import { Schema } from "effect"
 
 export type Focus = "list" | "create"
 
@@ -57,5 +58,5 @@ export type Action =
   | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }
 
 export const assertNever = (value: never): never => {
-  throw new Error(`unreachable: ${JSON.stringify(value)}`)
+  throw new Error(`unreachable: ${Schema.encodeSync(Schema.UnknownFromJsonString)(value)}`)
 }

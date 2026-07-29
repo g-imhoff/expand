@@ -1,13 +1,14 @@
-import { describe, expect, it } from "vitest"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { Effect } from "effect"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/connection-tracker"
 
 const run = <A, E>(eff: Effect.Effect<A, E, ConnectionTracker>) =>
-  Effect.runPromise(Effect.provide(Effect.scoped(eff), ConnectionTrackerLayer))
+  Effect.provide(Effect.scoped(eff), ConnectionTrackerLayer)
 
 describe("ConnectionTracker (I-4)", () => {
-  it("is not armed before the first connect, and arms then fires exactly at zero", async () => {
-    const states = await run(
+  it.live("is not armed before the first connect, and arms then fires exactly at zero",  () => Effect.gen(function*() {
+    const states = yield* run(
       Effect.gen(function* () {
         const t = yield* ConnectionTracker
         const s0 = yield* t.isShuttingDown // false: nothing happened
@@ -23,10 +24,10 @@ describe("ConnectionTracker (I-4)", () => {
       })
     )
     expect(states).toEqual({ s0: false, s1: false, s2: false, s3: true })
-  })
+  }))
 
-  it("never lets the count go negative", async () => {
-    const n = await run(
+  it.live("never lets the count go negative",  () => Effect.gen(function*() {
+    const n = yield* run(
       Effect.gen(function* () {
         const t = yield* ConnectionTracker
         yield* t.onDisconnect
@@ -35,5 +36,5 @@ describe("ConnectionTracker (I-4)", () => {
       })
     )
     expect(n).toBe(0)
-  })
+  }))
 })

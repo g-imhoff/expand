@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
-import { Schema } from "effect"
+import { it } from "@effect/vitest"
+import { Effect, Result, Schema } from "effect"
+import { describe, expect } from "vitest"
 import { Project } from "@expand/contracts/project"
 
 const uid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`
@@ -15,47 +16,65 @@ const valid = {
   updatedAt: "2026-01-01T00:00:00.000Z"
 }
 
+const decode = (props: Record<string, unknown>) =>
+  Schema.decodeUnknownEffect(Project)({ ...valid, ...props })
+
 describe("Project schema", () => {
-  it("decodes a well-formed project and brands its fields", () => {
-    const p = Schema.decodeUnknownSync(Project)(valid)
-    expect(p.id).toBe(uid(1))
-    expect(p.name).toBe("my-app")
-  })
+  it.effect("decodes a well-formed project and brands its fields", () =>
+    Schema.decodeUnknownEffect(Project)(valid).pipe(
+      Effect.tap((project) => Effect.sync(() => {
+        expect(project.id).toBe(uid(1))
+        expect(project.name).toBe("my-app")
+      }))
+    ))
 
-  it("rejects an invalid id on decode", () => {
-    expect(() => Schema.decodeUnknownSync(Project)({ ...valid, id: "p1" })).toThrow()
-  })
+  it.effect("rejects an invalid id on decode", () =>
+    decode({ id: "p1" }).pipe(
+      Effect.result,
+      Effect.tap((result) => Effect.sync(() => expect(Result.isFailure(result)).toBe(true)))
+    ))
 
-  it("rejects a project missing a required field", () => {
-    expect(() => Schema.decodeUnknownSync(Project)({ id: uid(1) })).toThrow()
-  })
+  it.effect("rejects a project missing a required field", () =>
+    Schema.decodeUnknownEffect(Project)({ id: uid(1) }).pipe(
+      Effect.result,
+      Effect.tap((result) => Effect.sync(() => expect(Result.isFailure(result)).toBe(true)))
+    ))
 
-  it("decodes a legacy project (no new fields) filling defaults", () => {
-    const p = Schema.decodeUnknownSync(Project)({ id: uid(1), name: "first", createdAt: "2026-01-01T00:00:00.000Z" })
-    expect(p.directory).toBeNull()
-    expect(p.description).toBeNull()
-    expect(p.tags).toEqual([])
-    expect(p.archived).toBe(false)
-  })
+  it.effect("decodes a legacy project (no new fields) filling defaults", () =>
+    Schema.decodeUnknownEffect(Project)({
+      id: uid(1),
+      name: "first",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    }).pipe(
+      Effect.tap((project) => Effect.sync(() => {
+        expect(project.directory).toBeNull()
+        expect(project.description).toBeNull()
+        expect(project.tags).toEqual([])
+        expect(project.archived).toBe(false)
+      }))
+    ))
 })
 
 describe("Project field validation (enforced by construction)", () => {
-  const decode = (props: Record<string, unknown>) => Schema.decodeUnknownSync(Project)({ ...valid, ...props })
+  it.effect("accepts kebab names and rejects spaces/uppercase/empty", () =>
+    Effect.gen(function*() {
+      expect((yield* decode({ name: "my-app" })).name).toBe("my-app")
+      expect(Result.isFailure(yield* decode({ name: "My App" }).pipe(Effect.result))).toBe(true)
+      expect(Result.isFailure(yield* decode({ name: "" }).pipe(Effect.result))).toBe(true)
+    }))
 
-  it("accepts kebab names and rejects spaces/uppercase/empty", () => {
-    expect(decode({ name: "my-app" }).name).toBe("my-app")
-    expect(() => decode({ name: "My App" })).toThrow()
-    expect(() => decode({ name: "" })).toThrow()
-  })
+  it.effect("validates each tag", () =>
+    Effect.gen(function*() {
+      expect((yield* decode({ tags: ["web", "api"] })).tags).toEqual(["web", "api"])
+      expect(Result.isFailure(yield* decode({ tags: ["Bad Tag"] }).pipe(Effect.result))).toBe(true)
+    }))
 
-  it("validates each tag", () => {
-    expect(decode({ tags: ["web", "api"] }).tags).toEqual(["web", "api"])
-    expect(() => decode({ tags: ["Bad Tag"] })).toThrow()
-  })
-
-  it("enforces the description length cap and accepts null", () => {
-    expect(decode({ description: null }).description).toBeNull()
-    expect(decode({ description: "ok" }).description).toBe("ok")
-    expect(() => decode({ description: "x".repeat(2049) })).toThrow()
-  })
+  it.effect("enforces the description length cap and accepts null", () =>
+    Effect.gen(function*() {
+      expect((yield* decode({ description: null })).description).toBeNull()
+      expect((yield* decode({ description: "ok" })).description).toBe("ok")
+      expect(Result.isFailure(
+        yield* decode({ description: "x".repeat(2049) }).pipe(Effect.result)
+      )).toBe(true)
+    }))
 })

@@ -40,26 +40,37 @@ epoch; and `epochs` emits each newly connected epoch.
 and `ServerClient`. The facades delegate each operation through the session, so
 commands issued after a reconnect use the current epoch.
 
-Every SDK layer leaves `FileSystem` unprovided. Node hosts satisfy it with
-`NodeServices.layer` and provide a backend command through `makeNodeAdapter`.
+Every SDK layer leaves `FileSystem`, `Path`, `Crypto`, `AppContext`, and
+`ProcessControl` unprovided. Applications own the context that selects their
+data root; Node hosts satisfy the platform and process services with
+`ProcessServices.layer` and provide an application-defined
+`nodeAppContextLayer` that lazily acquires home, cwd, and `Stdio.args`. The SDK
+does not read argv or install a context internally.
 
 ```ts
-import { Effect } from "effect"
-import { NodeServices } from "@effect/platform-node"
+import { Effect, Layer } from "effect"
 import { ClientLayer } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
-import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { makeNodeAdapter, ProcessServices } from "@expand/client-ts/adapters/node"
+import { nodeAppContextLayer } from "./node-app-context"
 
 const adapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", "/absolute/path/to/apps/server/main.ts"]
+  backendCommand: Effect.succeed([
+    process.execPath,
+    "--import",
+    "tsx",
+    "/absolute/path/to/apps/server/main.ts"
+  ])
 })
+
+const clientLayer = ClientLayer(adapter).pipe(
+  Layer.provide(nodeAppContextLayer),
+  Layer.provide(ProcessServices.layer)
+)
 
 const program = Effect.flatMap(ProjectClient, (client) =>
   client.list({ includeArchived: true })
-).pipe(
-  Effect.provide(ClientLayer(adapter)),
-  Effect.provide(NodeServices.layer)
-)
+).pipe(Effect.provide(clientLayer))
 
 const snapshot = await Effect.runPromise(program)
 ```
@@ -69,8 +80,9 @@ facade is needed. Use `withClient(adapter, use)` for a scoped low-level call.
 
 ## Backend commands
 
-`makeNodeAdapter` accepts a command array or a function returning one. In
-application code, `resolveBackendCommand` applies this priority:
+`makeNodeAdapter` accepts an Effect that returns a command array and can fail
+with `BackendCommandError` while requiring `FileSystem`. In application code,
+`resolveBackendCommand` creates that Effect by applying this priority:
 
 1. `EXPAND_BACKEND_CMD`, when it is a JSON array of strings.
 2. An absolute TypeScript `sourceEntry`, normally with
@@ -97,8 +109,8 @@ const source = {
 }
 
 yield* runProjectSync(source, {
-  status: setStatus,
-  snapshot: setSnapshot
+  status: (status) => Effect.sync(() => setStatus(status)),
+  snapshot: (snapshot) => Effect.sync(() => setSnapshot(snapshot))
 })
 ```
 
@@ -121,6 +133,8 @@ ends cleanly while the source still reports a connected session. It publishes
 and publishes `"connected"` after a fresh snapshot succeeds. A failure of the
 source status stream is owner-visible instead: it fails `runProjectSync` so the
 application supervising the synchronization fiber can surface it.
+Sink callbacks are Effects and remain part of the serial delivery path. A sink
+failure propagates to that same owner without entering the source retry loop.
 
 The applications deliberately choose different ownership models:
 

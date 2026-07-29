@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Effect, Fiber, Option, Queue, Schedule, Layer } from "effect"
+import { it } from "@effect/vitest"
+import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { Effect, FileSystem, Path, Fiber, Option, Queue, Schedule, Layer } from "effect"
+import { ProcessServices } from "@expand/server/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -11,30 +10,25 @@ import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 
-let dir: string
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-replay-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
   Effect.retry(Schedule.spaced("25 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
-    orElse: () => Effect.fail(new Error("server never advertised an endpoint (I-3)"))
+    orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
   })
 )
 
 describe.sequential("Events replay with fromSeq", () => {
-  it("replays the backlog strictly after the cursor, then continues live without duplicates", async () => {
+  it.live("replays the backlog strictly after the cursor, then continues live without duplicates",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-events-replay-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -50,18 +44,20 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const r = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const r = yield* (program)
     expect(r.first.seq).toBe(2)
     expect(r.first.event._tag).toBe("ProjectCreated")
     if (r.first.event._tag === "ProjectCreated") expect(r.first.event.name).toBe("replay-b")
     expect(r.second.seq).toBe(3)
     expect(r.second.event._tag).toBe("ProjectRenamed")
-  })
+  }))
 
-  it("fromSeq: 0 replays the entire backlog in order", async () => {
+  it.live("fromSeq: 0 replays the entire backlog in order",  () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory('expand-events-replay-')
     const program = Effect.gen(function* () {
-      const dbPath = join(dir, "events.db")
+      const dbPath = path.join(dir, "events.db")
       const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
       yield* awaitEndpointUp
       const out = yield* withClient(nodeAdapter, (client) =>
@@ -76,9 +72,18 @@ describe.sequential("Events replay with fromSeq", () => {
       )
       yield* Fiber.interrupt(serverFiber)
       return out
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-    const [e1, e2] = await Effect.runPromise(program)
+    }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
+    const [e1, e2] = yield* (program)
     expect([e1.seq, e2.seq]).toEqual([1, 2])
     expect([e1.event._tag, e2.event._tag]).toEqual(["ProjectCreated", "ProjectCreated"])
-  })
+  }))
 })
+
+const makeTestDirectory = (prefix: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix })),
+    Effect.provide(NodeServices.layer)
+  )
+
+const makeTestAppContext = (path: Path.Path, dataDir: string) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })

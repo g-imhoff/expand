@@ -6,8 +6,6 @@ import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
 import { renderErrors } from "@expand/cli/run"
 
-export interface CliResult { readonly stdout: ReadonlyArray<string>; readonly stderr: ReadonlyArray<string>; readonly code: number }
-
 export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClient> => {
   const s = stub as Record<string, any>
   return Layer.mergeAll(
@@ -27,10 +25,10 @@ export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClien
   )
 }
 
-export const runCli = async (
+export const runCli = Effect.fn("CliTest.runCli")(function*(
   command: Command.Command.Any,
   argv: ReadonlyArray<string>
-): Promise<CliResult> => {
+): Effect.fn.Return<CliResult> {
   const stdout: string[] = []
   const stderr: string[] = []
   const infra = Layer.mergeAll(
@@ -38,18 +36,20 @@ export const runCli = async (
     CliOutput.layer(jsonCliErrorFormatter),
     NodeServices.layer
   )
-  const exit = await Effect.runPromise(
-    renderErrors(Command.runWith(command, { version: "test" })(argv) as Effect.Effect<void, unknown, never>).pipe(
-      Effect.provide(infra),
-      Effect.exit
-    )
+  const exit = yield* renderErrors(
+    Command.runWith(command, { version: "test" })(argv) as Effect.Effect<void, unknown, never>
+  ).pipe(
+    Effect.provide(infra),
+    Effect.exit
   )
   return {
     stdout,
     stderr,
     code: exit._tag === "Success" ? 0 : Runtime.getErrorExitCode(Cause.squash(exit.cause))
   }
-}
+})
+
+interface CliResult { readonly stdout: ReadonlyArray<string>; readonly stderr: ReadonlyArray<string>; readonly code: number }
 
 const capturingConsole = (stdout: string[], stderr: string[]): Console.Console => ({
   log: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },

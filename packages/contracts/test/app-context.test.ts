@@ -1,57 +1,114 @@
-import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
-import { homedir } from "node:os"
-import { join, resolve } from "node:path"
-import { AppContext, defaultDataDir, makeAppContext } from "@expand/contracts/app-context"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, Option, Path } from "effect"
+import { describe, expect, expectTypeOf } from "vitest"
+import {
+  AppContext,
+  type AppContextShape,
+  dataDirFromArgs,
+  defaultDataDir,
+  makeAppContext
+} from "@expand/contracts/app-context"
+
+const withPath = <A>(use: (path: Path.Path) => A) =>
+  Effect.gen(function*() {
+    return use(yield* Path.Path)
+  }).pipe(Effect.provide(NodeServices.layer))
 
 describe("AppContext", () => {
-  it("exposes the channel-specific default directory", () => {
-    expect(defaultDataDir()).toBe(join(homedir(), ".expand", "expand-dev"))
-  })
+  it.effect("derives channel-specific default directories from explicit host inputs", () =>
+    withPath((path) => {
+      expect(defaultDataDir(path, "/home/test", "dev")).toBe("/home/test/.expand/expand-dev")
+      expect(defaultDataDir(path, "/home/test", "release")).toBe("/home/test/.expand/expand")
+    }))
 
-  it("derives every path from an explicit production directory", () => {
-    expect(makeAppContext("/tmp/expand-agent-data")).toEqual({
-      channel: "dev",
-      paths: {
-        dataDir: "/tmp/expand-agent-data",
-        dbPath: "/tmp/expand-agent-data/events.db",
-        endpointFile: "/tmp/expand-agent-data/server.json",
-        logDir: "/tmp/expand-agent-data/logs",
-        spawnLockFile: "/tmp/expand-agent-data/server.json.lock"
+  it.effect("derives every path from explicit host inputs", () =>
+    withPath((path) => {
+      expect(makeAppContext(path, {
+        homeDir: "/home/test",
+        cwd: "/work",
+        dataDir: "state",
+        channel: "dev"
+      })).toEqual({
+        channel: "dev",
+        paths: {
+          dataDir: "/work/state",
+          dbPath: "/work/state/events.db",
+          endpointFile: "/work/state/server.json",
+          logDir: "/work/state/logs",
+          spawnLockFile: "/work/state/server.json.lock"
+        }
+      })
+    }))
+
+  it.effect("resolves relative overrides against the supplied current directory", () =>
+    withPath((path) => {
+      expect(makeAppContext(path, {
+        homeDir: "/home/test",
+        cwd: "/work",
+        dataDir: "relative-state"
+      }).paths.dataDir).toBe("/work/relative-state")
+    }))
+
+  it.effect("preserves absolute overrides", () =>
+    withPath((path) => {
+      expect(makeAppContext(path, {
+        homeDir: "/home/test",
+        cwd: "/work",
+        dataDir: "/var/lib/expand"
+      }).paths.dataDir).toBe("/var/lib/expand")
+    }))
+
+  it.effect("uses the channel fallback when no override is supplied", () =>
+    withPath((path) => {
+      expect(makeAppContext(path, {
+        homeDir: "/home/test",
+        cwd: "/work",
+        channel: "release"
+      }).paths.dataDir).toBe("/home/test/.expand/expand")
+    }))
+
+  it.effect("uses external coordination locks for implicit and explicit-equal defaults", () =>
+    withPath((path) => {
+      for (const [selectedChannel, lockName] of [
+        ["dev", "expand-dev.spawn.lock"],
+        ["release", "expand.spawn.lock"]
+      ] as const) {
+        const fallback = defaultDataDir(path, "/home/test", selectedChannel)
+        const implicit = makeAppContext(path, {
+          homeDir: "/home/test",
+          cwd: "/work",
+          channel: selectedChannel
+        })
+        const explicit = makeAppContext(path, {
+          homeDir: "/home/test",
+          cwd: "/work",
+          dataDir: fallback,
+          channel: selectedChannel
+        })
+
+        expect(implicit.paths.spawnLockFile).toBe(`/home/test/.expand-locks/${lockName}`)
+        expect(explicit.paths.spawnLockFile).toBe(`/home/test/.expand-locks/${lockName}`)
       }
-    })
+    }))
+
+  it("selects the first data-dir argument only when a following token exists", () => {
+    expect(dataDirFromArgs(["project", "list", "--data-dir", "state", "--data-dir", "other"])).toBe("state")
+    expect(dataDirFromArgs(["--data-dir", "--quiet"])).toBe("--quiet")
+    expect(dataDirFromArgs(["project", "list"])).toBeUndefined()
+    expect(dataDirFromArgs(["project", "list", "--data-dir"])).toBeUndefined()
   })
 
-  it.each([
-    ["dev", "expand-dev.spawn.lock"],
-    ["release", "expand.spawn.lock"]
-  ] as const)("derives the external %s spawn lock for the implicit default root", (selectedChannel, lockName) => {
-    expect(makeAppContext(undefined, selectedChannel).paths.spawnLockFile).toBe(
-      join(homedir(), ".expand-locks", lockName)
-    )
+  it("requires AppContext in the Effect environment", () => {
+    const appContextProgram = AppContext
+
+    expectTypeOf(appContextProgram).toMatchTypeOf<
+      Effect.Effect<AppContextShape, never, AppContext>
+    >()
   })
 
-  it.each([
-    ["dev", "expand-dev.spawn.lock"],
-    ["release", "expand.spawn.lock"]
-  ] as const)("derives the external %s spawn lock for an explicit equal default root", (selectedChannel, lockName) => {
-    expect(makeAppContext(defaultDataDir(selectedChannel), selectedChannel).paths.spawnLockFile).toBe(
-      join(homedir(), ".expand-locks", lockName)
-    )
-  })
-
-  it("normalizes a relative production directory", () => {
-    expect(makeAppContext("relative-state").paths.dataDir).toBe(resolve("relative-state"))
-  })
-
-  it("preserves the default when no explicit directory is provided", () => {
-    expect(makeAppContext().paths.dataDir).toBe(defaultDataDir())
-  })
-
-  it("resolves the channel base under ~/.expand by default", async () => {
-    const ctx = await Effect.gen(function* () {
-      return yield* AppContext
-    }).pipe(Effect.runPromise)
-    expect(ctx.paths.dataDir).toBe(defaultDataDir())
-  })
+  it.effect("has no ambient AppContext service", () =>
+    Effect.serviceOption(AppContext).pipe(
+      Effect.map((context) => expect(Option.isNone(context)).toBe(true))
+    ))
 })

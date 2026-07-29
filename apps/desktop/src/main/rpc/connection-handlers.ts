@@ -1,4 +1,4 @@
-import { Effect, Stream, SubscriptionRef } from "effect"
+import { Effect, PubSub, Stream } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
@@ -8,7 +8,11 @@ export const connectionHandlers: Pick<Handlers, "Connect" | "Events"> = {
   Connect: () =>
     Stream.unwrap(
       Effect.map(ClientSession, (session) =>
-        SubscriptionRef.changes(session.status).pipe(
+        Stream.unwrap(
+          Effect.map(PubSub.subscribe(session.status.pubsub), (subscription) =>
+            Stream.fromEffectRepeat(PubSub.take(subscription))
+          )
+        ).pipe(
           Stream.map((status) => status === "connected")
         )
       )

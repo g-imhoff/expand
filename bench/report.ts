@@ -1,7 +1,14 @@
 // Report rendering: verdict table, machine header, JSON dump.
-import { arch, cpus, platform, totalmem } from "node:os"
+import { Data, DateTime, Effect, Schema } from "effect"
 import { verdictFor } from "./budgets"
 import type { Verdict } from "./budgets"
+import { BenchmarkHost } from "./rss"
+import type { MachineInfo } from "./rss"
+
+export class BenchmarkScenarioError extends Data.TaggedError("BenchmarkScenarioError")<{
+  readonly scenario: string
+  readonly detail: string
+}> {}
 
 export interface Measurement {
   readonly key: string
@@ -21,6 +28,11 @@ export interface ScenarioContext {
   readonly chunkSize?: number
 }
 
+export interface ReportMetadata {
+  readonly machine: MachineInfo
+  readonly generatedAt: string
+}
+
 export const eventsPerSec = (m: Measurement): number | null =>
   m.events !== null && m.events > 0 && m.wallMs > 0 ? Math.round(m.events / (m.wallMs / 1000)) : null
 
@@ -32,8 +44,18 @@ export const hasBlocker = (measurements: ReadonlyArray<Measurement>): boolean =>
     return v === "FAIL" || v === "ERROR"
   })
 
-export const renderReport = (measurements: ReadonlyArray<Measurement>, chunkSize?: number): string => {
-  const machine = machineInfo()
+export const makeReportMetadata = Effect.gen(function*() {
+  const host = yield* BenchmarkHost
+  const machine = yield* host.machineInfo
+  const generatedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso))
+  return { machine, generatedAt }
+})
+
+export const renderReport = (
+  measurements: ReadonlyArray<Measurement>,
+  chunkSize: number | undefined,
+  machine: MachineInfo
+): string => {
   const header =
     `event-store bench — ${machine.cpu} (${machine.cores} cores, ${machine.totalMemGb}GB) · ` +
     `node ${machine.nodeVersion} · ${machine.platform}/${machine.arch} · chunk ${chunkSize ?? 1000}`
@@ -54,25 +76,36 @@ export const renderReport = (measurements: ReadonlyArray<Measurement>, chunkSize
   return ["", header, "", line(cols), line(widths.map((w) => "-".repeat(w))), ...rows.map(line), "", caveat].join("\n")
 }
 
-export const toJsonReport = (measurements: ReadonlyArray<Measurement>): string =>
-  JSON.stringify(
-    {
-      machine: machineInfo(),
-      generatedAt: new Date().toISOString(),
-      measurements: measurements.map((m) => ({ ...m, eventsPerSec: eventsPerSec(m), verdict: verdictOf(m) }))
-    },
-    null,
-    2
-  )
+const JsonString = Schema.fromJsonString(Schema.String)
+const encodeJsonString = Schema.encodeSync(JsonString)
 
-const machineInfo = () => ({
-  cpu: cpus()[0]?.model ?? "unknown",
-  cores: cpus().length,
-  nodeVersion: process.version,
-  platform: platform(),
-  arch: arch(),
-  totalMemGb: Math.round(totalmem() / 1024 / 1024 / 1024)
-})
+const prettyJson = (value: unknown, depth = 0): string => {
+  if (value === null) return "null"
+  if (typeof value === "string") return encodeJsonString(value)
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "null"
+  if (typeof value === "boolean") return String(value)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]"
+    const indent = " ".repeat((depth + 1) * 2)
+    const close = " ".repeat(depth * 2)
+    return `[\n${value.map((item) => `${indent}${prettyJson(item, depth + 1)}`).join(",\n")}\n${close}]`
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value).filter(([, entry]) => entry !== undefined)
+    if (entries.length === 0) return "{}"
+    const indent = " ".repeat((depth + 1) * 2)
+    const close = " ".repeat(depth * 2)
+    return `{\n${entries.map(([key, entry]) => `${indent}${encodeJsonString(key)}: ${prettyJson(entry, depth + 1)}`).join(",\n")}\n${close}}`
+  }
+  return "null"
+}
+
+export const toJsonReport = (measurements: ReadonlyArray<Measurement>, metadata: ReportMetadata): string =>
+  prettyJson({
+    machine: metadata.machine,
+    generatedAt: metadata.generatedAt,
+    measurements: measurements.map((m) => ({ ...m, eventsPerSec: eventsPerSec(m), verdict: verdictOf(m) }))
+  })
 
 const fmtMs = (ms: number): string => (ms < 10 ? ms.toFixed(1) : Math.round(ms).toLocaleString())
 const fmtEps = (eps: number | null): string => (eps === null ? "—" : eps.toLocaleString())

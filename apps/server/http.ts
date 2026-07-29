@@ -14,10 +14,9 @@ export const httpServerLayer = (port: number, token: string) => {
     Layer.provide(guardedRpcWebsocket(token)),
     Layer.provide(RpcSerialization.layerNdjson)
   )
-  return Layer.mergeAll(
-    HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }),
-    node
-  ).pipe(Layer.provide(node))
+  return HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }).pipe(
+    Layer.provideMerge(node)
+  )
 }
 
 const accessLogger = HttpMiddleware.make((httpApp) =>

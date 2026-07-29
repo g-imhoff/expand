@@ -1,60 +1,61 @@
-// test/architecture/tui-input-boundary.test.ts
-// ============================================================================
-// DO NOT MODIFY — single-router input invariant (review finding C1).
-// This test is part of the SPECIFICATION, not the implementation. Changing or
-// relaxing it changes the system's guarantees and requires an architecture-
-// decision document plus architecture-owner review. CODEOWNERS routes this path.
-//
-// Architectural enforcement for the TUI input framework. Ink's useInput is a
-// GLOBAL broadcast: every mounted handler receives every keypress, with no
-// consumption or priority. Exclusivity is only structural when exactly one
-// handler exists. This test pins that single-router invariant repo-wide. ADR:
-// docs/superpowers/specs/2026-06-13-tui-input-architecture-design.md
-// ============================================================================
-import { readFileSync, readdirSync, statSync } from "node:fs"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { NodeServices } from "@effect/platform-node"
+import { it } from "@effect/vitest"
+import { Effect, FileSystem, Path } from "effect"
+import { describe, expect } from "vitest"
 
-const read = (path: string): string => readFileSync(path, "utf8")
+const read = Effect.fn("TuiInputBoundary.read")(function*(file: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.readFileString(file)
+})
 
-const walk = (dir: string): Array<string> =>
-  readdirSync(dir).flatMap((entry) => {
-    if (entry.startsWith(".")) return []
-    const full = join(dir, entry)
-    if (entry === "node_modules" || entry === "out" || entry === "dist" || entry === "test-results") return []
-    return statSync(full).isDirectory() ? walk(full) : full.endsWith(".ts") || full.endsWith(".tsx") ? [full] : []
-  })
+const walk = Effect.fn("TuiInputBoundary.walk")(function*(dir: string): Effect.fn.Return<ReadonlyArray<string>, unknown, FileSystem.FileSystem | Path.Path> {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const files: Array<string> = []
+  for (const entry of yield* fs.readDirectory(dir)) {
+    if (entry.startsWith(".")) continue
+    const full = path.join(dir, entry)
+    if (entry === "node_modules" || entry === "out" || entry === "dist" || entry === "test-results") continue
+    const info = yield* fs.stat(full)
+    if (info.type === "Directory") files.push(...yield* walk(full))
+    else if (full.endsWith(".ts") || full.endsWith(".tsx")) files.push(full)
+  }
+  return files
+})
 
-const ROUTER_ADAPTER = join("packages/ink-input", "use-key-router-ink.tsx")
+const ROUTER_ADAPTER = "packages/ink-input/use-key-router-ink.tsx"
 
 describe("TUI input boundary", () => {
-  it("ink's useInput appears in exactly one file: the ink-input router adapter", () => {
-    const offenders = [...walk("apps"), ...walk("packages")].filter((file) => {
-      if (file === ROUTER_ADAPTER) return false
-      return /\buseInput\b/.test(read(file))
-    })
-    expect(offenders, "raw useInput reintroduces the global-broadcast collision (review finding C1)").toEqual([])
-  })
+  it.live("ink's useInput appears in exactly one file: the ink-input router adapter", () =>
+    Effect.gen(function*() {
+      const offenders: Array<string> = []
+      for (const file of [...yield* walk("apps"), ...yield* walk("packages")]) {
+        if (file !== ROUTER_ADAPTER && /\buseInput\b/.test(yield* read(file))) offenders.push(file)
+      }
+      expect(offenders, "raw useInput reintroduces the global-broadcast collision (review finding C1)").toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("ink-input pure modules never import ink", () => {
-    for (const file of ["key-name.ts", "text-field.ts", "bindings.ts"]) {
-      const source = read(`packages/ink-input/${file}`)
-      expect(source, `${file} must stay ink-free`).not.toMatch(/from\s+"ink"/)
-    }
-  })
+  it.live("ink-input pure modules never import ink", () =>
+    Effect.gen(function*() {
+      for (const file of ["key-name.ts", "text-field.ts", "bindings.ts"]) {
+        const source = yield* read(`packages/ink-input/${file}`)
+        expect(source, `${file} must stay ink-free`).not.toMatch(/from\s+"ink"/)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("ink-input is a leaf: no @expand or effect imports", () => {
-    const files = walk("packages/ink-input").filter((f) => !f.includes(join("packages/ink-input", "test")))
-    for (const file of files) {
-      const source = read(file)
-      expect(source, `${file} must not import @expand/* (except own modules) or effect`)
-        .not.toMatch(/from\s+"(@expand\/(?!ink-input\/)|effect)/)
-    }
-  })
+  it.live("ink-input is a leaf: no @expand or effect imports", () =>
+    Effect.gen(function*() {
+      for (const file of (yield* walk("packages/ink-input")).filter((file) => !file.includes("packages/ink-input/test"))) {
+        const source = yield* read(file)
+        expect(source, `${file} must not import @expand/* (except own modules) or effect`)
+          .not.toMatch(/from\s+"(@expand\/(?!ink-input\/)|effect)/)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
 
-  it("tui input policy modules stay pure (no ink imports)", () => {
-    for (const file of walk("apps/tui/input")) {
-      expect(read(file), `${file} must stay ink-free`).not.toMatch(/from\s+"ink"/)
-    }
-  })
+  it.live("tui input policy modules stay pure (no ink imports)", () =>
+    Effect.gen(function*() {
+      for (const file of yield* walk("apps/tui/input")) {
+        expect(yield* read(file), `${file} must stay ink-free`).not.toMatch(/from\s+"ink"/)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

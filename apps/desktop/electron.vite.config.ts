@@ -12,10 +12,7 @@ export default (() => {
     "@expand/desktop": resolve(here, "src")
   }
 
-  const nodeBuiltins = [
-    ...builtinModules,
-    ...builtinModules.map((m) => `node:${m}`)
-  ]
+  const nodeBuiltins = [...builtinModules]
   const external: Array<string | RegExp> = [
     "electron",
     "effect",

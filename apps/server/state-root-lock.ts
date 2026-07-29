@@ -1,18 +1,16 @@
-import { Data, Effect, Scope } from "effect"
-import { randomUUID } from "node:crypto"
 import {
-  chmodSync,
-  closeSync,
-  fsyncSync,
-  linkSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync
-} from "node:fs"
-import { join, resolve } from "node:path"
+  Clock,
+  Crypto,
+  Data,
+  Effect,
+  FileSystem,
+  Option,
+  Path,
+  PlatformError,
+  Schema,
+  Scope
+} from "effect"
+import { ProcessControl } from "@expand/contracts/process-control"
 
 export interface StateRootLease {
   readonly path: string
@@ -20,235 +18,361 @@ export interface StateRootLease {
   readonly token: string
 }
 
+export interface StateRootLockOptions {
+  readonly afterClaim?: Effect.Effect<void>
+  readonly afterObservation?: Effect.Effect<void>
+  readonly beforePublish?: (candidatePath: string) => Effect.Effect<void>
+}
+
 export class StateRootLockError extends Data.TaggedError("StateRootLockError")<{
   readonly dataDir: string
   readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner"
   readonly ownerPid?: number
   readonly reason: string
+  readonly cause?: unknown
 }> {}
 
-export const acquireStateRootLock = (
-  dataDir: string
-): Effect.Effect<StateRootLease, StateRootLockError> =>
-  Effect.try({
-    try: () => {
-      const normalizedDataDir = resolve(dataDir)
-      secureDirectory(normalizedDataDir)
-      return acquireLease(join(normalizedDataDir, LOCK_FILE), normalizedDataDir)
-    },
-    catch: (error) => asStateRootLockError(resolve(dataDir), error)
-  })
-
-export const releaseStateRootLock = (lease: StateRootLease): Effect.Effect<void> =>
-  Effect.sync(() => {
-    try {
-      removeOwner(lease.path, { pid: lease.pid, token: lease.token })
-    } catch {}
-  })
-
-export const stateRootLock = (
-  dataDir: string
-): Effect.Effect<StateRootLease, StateRootLockError, Scope.Scope> =>
-  Effect.acquireRelease(acquireStateRootLock(dataDir), releaseStateRootLock)
-
-export const stateRootLockForStartup = (
+export const acquireStateRootLock = Effect.fn("StateRootLock.acquire")(function*(
   dataDir: string,
-  endpointFile: string
-): Effect.Effect<StateRootLease, StateRootLockError, Scope.Scope> => {
-  const normalizedDataDir = resolve(dataDir)
-  const normalizedEndpointFile = resolve(endpointFile)
-  const acquire = Effect.flatMap(
-    Effect.sync(() => Date.now() + HANDOFF_TIMEOUT_MS),
-    (deadline) => acquireStartupLease(normalizedDataDir, normalizedEndpointFile, deadline)
+  options: StateRootLockOptions = {}
+) {
+  const path = yield* Path.Path
+  const normalizedDataDir = path.resolve(dataDir)
+  const lockPath = path.join(normalizedDataDir, LOCK_FILE)
+  return yield* acquireLease(lockPath, normalizedDataDir, options).pipe(
+    Effect.mapError((cause) => asStateRootLockError(normalizedDataDir, cause))
   )
-  return Effect.acquireRelease(acquire, releaseStateRootLock)
-}
+})
 
-interface LockOwner {
-  readonly pid: number
-  readonly token: string
-}
+export const releaseStateRootLock = Effect.fn("StateRootLock.release")(function*(
+  lease: StateRootLease,
+  options: Pick<StateRootLockOptions, "afterClaim"> = {}
+) {
+  const dataDir = dataDirFromLockPath(lease.path)
+  yield* removeOwner(
+    lease.path,
+    dataDir,
+    { pid: lease.pid, token: lease.token },
+    options.afterClaim
+  ).pipe(
+    Effect.asVoid,
+    Effect.mapError((cause) => asStateRootLockError(dataDir, cause))
+  )
+})
+
+export const stateRootLock = Effect.fn("StateRootLock.scoped")(function*(
+  dataDir: string,
+  options: StateRootLockOptions = {}
+): Effect.fn.Return<
+  StateRootLease,
+  StateRootLockError,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl | Scope.Scope
+> {
+  return yield* Effect.acquireRelease(
+    acquireStateRootLock(dataDir, options),
+    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie),
+    { interruptible: true }
+  )
+})
+
+export const stateRootLockForStartup = Effect.fn("StateRootLock.startup")(function*(
+  dataDir: string,
+  endpointFile: string,
+  options: StateRootLockOptions = {}
+): Effect.fn.Return<
+  StateRootLease,
+  StateRootLockError,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl | Scope.Scope
+> {
+  const path = yield* Path.Path
+  const normalizedDataDir = path.resolve(dataDir)
+  const normalizedEndpointFile = path.resolve(endpointFile)
+  const deadline = (yield* Clock.currentTimeMillis) + HANDOFF_TIMEOUT_MS
+  return yield* Effect.acquireRelease(
+    acquireStartupLease(normalizedDataDir, normalizedEndpointFile, deadline, options).pipe(
+      Effect.mapError((cause) => asStateRootLockError(normalizedDataDir, cause))
+    ),
+    (lease) => releaseStateRootLock(lease, options).pipe(Effect.orDie),
+    { interruptible: true }
+  )
+})
+
+const PositiveSafeInteger = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
+const UuidV4 = Schema.String.pipe(Schema.check(Schema.isUUID(4)))
+const LockOwnerSchema = Schema.Struct({ pid: PositiveSafeInteger, token: UuidV4 })
+const LockOwnerFromJson = Schema.fromJsonString(LockOwnerSchema)
+
+type LockOwner = typeof LockOwnerSchema.Type
 
 const LOCK_FILE = "backend.lock"
 const HANDOFF_RETRY_INTERVAL = "50 millis"
 const HANDOFF_TIMEOUT_MS = 4_000
-const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+const strictParseOptions = { onExcessProperty: "error" } as const
+const textEncoder = new TextEncoder()
 
-const acquireStartupLease = (
+const acquireLease = Effect.fn("StateRootLock.acquireLease")(function*(
+  lockPath: string,
   dataDir: string,
-  endpointFile: string,
-  deadline: number
-): Effect.Effect<StateRootLease, StateRootLockError> =>
-  acquireStateRootLock(dataDir).pipe(
-    Effect.catch((error) => retryLiveOwner(dataDir, endpointFile, deadline, error))
-  )
+  options: StateRootLockOptions
+) {
+  yield* secureDirectory(dataDir)
+  const first = yield* publishLease(lockPath, options.beforePublish)
+  if (first !== undefined) return first
 
-const retryLiveOwner = (
+  const staleOwner = yield* readOwner(lockPath, dataDir)
+  const processControl = yield* ProcessControl
+  const status = yield* processControl.probe(staleOwner.pid)
+  if (status !== "dead") return yield* liveOwnerError(dataDir, staleOwner.pid)
+  if (options.afterObservation !== undefined) yield* options.afterObservation
+  if (!(yield* removeOwner(lockPath, dataDir, staleOwner, options.afterClaim))) {
+    return yield* ownershipChangedError(dataDir)
+  }
+
+  const retry = yield* publishLease(lockPath, options.beforePublish)
+  if (retry !== undefined) return retry
+  return yield* ownershipChangedError(dataDir)
+})
+
+const acquireStartupLease: (
   dataDir: string,
   endpointFile: string,
   deadline: number,
+  options: StateRootLockOptions
+) => Effect.Effect<
+  StateRootLease,
+  StateRootLockError | PlatformError.PlatformError,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+> = Effect.fn("StateRootLock.acquireStartup")(function*(
+  dataDir: string,
+  endpointFile: string,
+  deadline: number,
+  options: StateRootLockOptions
+) {
+  return yield* acquireStateRootLock(dataDir, options).pipe(
+    Effect.catchIf(
+      (error) => error.kind === "live-owner" && error.ownerPid !== undefined,
+      (error) => retryLiveOwner(dataDir, endpointFile, deadline, options, error)
+    )
+  )
+})
+
+const retryLiveOwner: (
+  dataDir: string,
+  endpointFile: string,
+  deadline: number,
+  options: StateRootLockOptions,
   error: StateRootLockError
-): Effect.Effect<StateRootLease, StateRootLockError> => {
+) => Effect.Effect<
+  StateRootLease,
+  StateRootLockError | PlatformError.PlatformError,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
+> = Effect.fn("StateRootLock.retryLiveOwner")(function*(
+  dataDir: string,
+  endpointFile: string,
+  deadline: number,
+  options: StateRootLockOptions,
+  error: StateRootLockError
+) {
   const ownerPid = error.ownerPid
-  if (error.kind !== "live-owner" || ownerPid === undefined) return Effect.fail(error)
-  return endpointIsAdvertised(dataDir, endpointFile).pipe(
-    Effect.flatMap((advertised) => {
-      if (advertised) return Effect.fail(endpointAdvertisedError(dataDir))
-      if (Date.now() >= deadline) {
-        return Effect.fail(new StateRootLockError({
-          dataDir,
-          kind: "handoff-timeout",
-          ownerPid,
-          reason: `state root handoff timed out waiting for backend process ${String(ownerPid)}`
-        }))
-      }
-      return Effect.sleep(HANDOFF_RETRY_INTERVAL).pipe(
-        Effect.andThen(acquireStartupLease(dataDir, endpointFile, deadline))
+  if (ownerPid === undefined) return yield* error
+  if (yield* endpointAdvertised(endpointFile)) {
+    return yield* endpointAdvertisedError(dataDir)
+  }
+  if ((yield* Clock.currentTimeMillis) >= deadline) {
+    return yield* handoffTimeoutError(dataDir, ownerPid)
+  }
+  yield* Effect.sleep(HANDOFF_RETRY_INTERVAL)
+  return yield* acquireStartupLease(dataDir, endpointFile, deadline, options)
+})
+
+const endpointAdvertised = Effect.fn("StateRootLock.endpointAdvertised")(function*(
+  endpointFile: string
+) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.stat(endpointFile).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.succeed(false)
+        : Effect.fail(cause),
+      onSuccess: () => Effect.succeed(true)
+    })
+  )
+})
+
+const secureDirectory = Effect.fn("StateRootLock.secureDirectory")(function*(directory: string) {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.makeDirectory(directory, { recursive: true, mode: 0o700 })
+  yield* fs.chmod(directory, 0o700)
+})
+
+const publishLease = Effect.fn("StateRootLock.publish")(function*(
+  lockPath: string,
+  beforePublish: StateRootLockOptions["beforePublish"]
+) {
+  const fs = yield* FileSystem.FileSystem
+  const cryptoService = yield* Crypto.Crypto
+  const processControl = yield* ProcessControl
+  return yield* Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function*() {
+      const token = yield* cryptoService.randomUUIDv4
+      const record: LockOwner = { pid: processControl.currentPid, token }
+      const lease: StateRootLease = { path: lockPath, ...record }
+      const candidatePath = `${lockPath}.candidate.${record.pid}.${record.token}`
+      return yield* Effect.acquireUseRelease(
+        Effect.succeed(candidatePath),
+        () => Effect.gen(function*() {
+          yield* Effect.scoped(
+            Effect.gen(function*() {
+              const file = yield* fs.open(candidatePath, { flag: "wx", mode: 0o600 })
+              const encoded = yield* Schema.encodeEffect(
+                LockOwnerFromJson,
+                strictParseOptions
+              )(record)
+              yield* file.writeAll(textEncoder.encode(encoded))
+              yield* file.sync
+            })
+          )
+          yield* fs.chmod(candidatePath, 0o600)
+          if (beforePublish !== undefined) yield* restore(beforePublish(candidatePath))
+          const published = yield* fs.link(candidatePath, lockPath).pipe(
+            Effect.matchEffect({
+              onFailure: (cause) => hasSystemReason(cause, "AlreadyExists")
+                ? Effect.succeed(false)
+                : Effect.fail(cause),
+              onSuccess: () => Effect.succeed(true)
+            })
+          )
+          return published ? lease : undefined
+        }),
+        (candidate) => removeArtifact(candidate)
       )
     })
   )
-}
+})
 
-const endpointIsAdvertised = (
+const readOwner = Effect.fn("StateRootLock.readOwner")(function*(
+  lockPath: string,
+  dataDir: string
+) {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(lockPath).pipe(
+    Effect.mapError((cause) => hasSystemReason(cause, "NotFound")
+      ? invalidOwnerError(dataDir, cause)
+      : cause)
+  )
+  return yield* Schema.decodeUnknownEffect(LockOwnerFromJson, strictParseOptions)(text).pipe(
+    Effect.mapError((cause) => invalidOwnerError(dataDir, cause))
+  )
+})
+
+const readOwnerIfPresent = Effect.fn("StateRootLock.readOwnerIfPresent")(function*(
+  lockPath: string,
+  dataDir: string
+) {
+  const fs = yield* FileSystem.FileSystem
+  const text = yield* fs.readFileString(lockPath).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.void
+        : Effect.fail(cause),
+      onSuccess: (value) => Effect.succeed(value)
+    })
+  )
+  if (text === undefined) return undefined
+  return yield* Schema.decodeUnknownEffect(LockOwnerFromJson, strictParseOptions)(text).pipe(
+    Effect.mapError((cause) => invalidOwnerError(dataDir, cause))
+  )
+})
+
+const removeOwner = Effect.fn("StateRootLock.removeOwner")(function*(
+  lockPath: string,
   dataDir: string,
-  endpointFile: string
-): Effect.Effect<boolean, StateRootLockError> =>
-  Effect.try({
-    try: () => {
-      try {
-        statSync(endpointFile)
-        return true
-      } catch (error) {
-        if (isNodeError(error) && error.code === "ENOENT") return false
-        throw error
-      }
-    },
-    catch: (error) => asStateRootLockError(dataDir, error)
-  })
+  expected: LockOwner,
+  afterClaim: StateRootLockOptions["afterClaim"]
+) {
+  const fs = yield* FileSystem.FileSystem
+  const claimPath = `${lockPath}.reclaim.${expected.token}`
+  return yield* Effect.uninterruptibleMask((restore) =>
+    fs.link(lockPath, claimPath).pipe(
+      Effect.matchEffect({
+        onFailure: (cause) => hasSystemReason(cause, "AlreadyExists") || hasSystemReason(cause, "NotFound")
+          ? Effect.succeed(false)
+          : Effect.fail(cause),
+        onSuccess: () => Effect.acquireUseRelease(
+          Effect.succeed(claimPath),
+          () => Effect.gen(function*() {
+            yield* fs.chmod(claimPath, 0o600)
+            if (afterClaim !== undefined) yield* restore(afterClaim)
+            const claimedOwner = yield* readOwnerIfPresent(claimPath, dataDir)
+            const canonicalOwner = yield* readOwnerIfPresent(lockPath, dataDir)
+            if (!sameOwner(claimedOwner, expected) || !sameOwner(canonicalOwner, expected)) return false
 
-const acquireLease = (path: string, dataDir: string): StateRootLease => {
-  const first = createLease(path)
-  if (first !== undefined) return first
-
-  const staleOwner = readOwner(path)
-  if (staleOwner === undefined) {
-    throw new StateRootLockError({
-      dataDir,
-      reason: "state root ownership record is incomplete or invalid"
-    })
-  }
-  if (isProcessAlive(staleOwner.pid)) throw liveOwnerError(dataDir, staleOwner.pid)
-
-  if (!removeOwner(path, staleOwner)) {
-    throw new StateRootLockError({
-      dataDir,
-      reason: "state root ownership changed while the backend was starting"
-    })
-  }
-
-  const retry = createLease(path)
-  if (retry !== undefined) return retry
-
-  throw new StateRootLockError({
-    dataDir,
-    reason: "state root ownership changed while the backend was starting"
-  })
-}
-
-const createLease = (path: string): StateRootLease | undefined => {
-  const lease = { path, pid: process.pid, token: randomUUID() }
-  const candidatePath = `${path}.candidate.${lease.pid}.${lease.token}`
-  const record = JSON.stringify({ pid: lease.pid, token: lease.token })
-
-  try {
-    const descriptor = openSync(candidatePath, "wx", 0o600)
-    try {
-      writeFileSync(descriptor, record)
-      fsyncSync(descriptor)
-    } finally {
-      closeSync(descriptor)
-    }
-    chmodSync(candidatePath, 0o600)
-
-    try {
-      linkSync(candidatePath, path)
-    } catch (error) {
-      if (isNodeError(error) && error.code === "EEXIST") return undefined
-      throw error
-    }
-
-    return lease
-  } finally {
-    rmSync(candidatePath, { force: true })
-  }
-}
-
-const readOwner = (path: string): LockOwner | undefined => {
-  try {
-    const candidate = JSON.parse(readFileSync(path, "utf8")) as Partial<LockOwner>
-    if (!Number.isSafeInteger(candidate.pid) || (candidate.pid ?? 0) <= 0) return undefined
-    if (typeof candidate.token !== "string" || !TOKEN_PATTERN.test(candidate.token)) return undefined
-    return { pid: candidate.pid as number, token: candidate.token }
-  } catch {
-    return undefined
-  }
-}
-
-const isProcessAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return isNodeError(error) && error.code === "EPERM"
-  }
-}
-
-const asStateRootLockError = (dataDir: string, error: unknown): StateRootLockError =>
-  error instanceof StateRootLockError
-    ? error
-    : new StateRootLockError({
-        dataDir,
-        reason: error instanceof Error ? error.message : String(error)
+            const claim = yield* statIfPresent(claimPath)
+            const canonical = yield* statIfPresent(lockPath)
+            if (claim === undefined || canonical === undefined) return false
+            if (claim.dev !== canonical.dev) return false
+            if (Option.isNone(claim.ino) || Option.isNone(canonical.ino)) return false
+            if (claim.ino.value !== canonical.ino.value) return false
+            return yield* removeCanonical(lockPath)
+          }),
+          (claim) => removeArtifact(claim)
+        )
       })
+    )
+  )
+})
 
-const secureDirectory = (directory: string): void => {
-  mkdirSync(directory, { recursive: true, mode: 0o700 })
-  chmodSync(directory, 0o700)
-}
+const statIfPresent = Effect.fn("StateRootLock.statIfPresent")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.stat(path).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.void
+        : Effect.fail(cause),
+      onSuccess: (info) => Effect.succeed(info)
+    })
+  )
+})
 
-const removeOwner = (path: string, staleOwner: LockOwner): boolean => {
-  const claimPath = `${path}.reclaim.${staleOwner.token}`
+const removeCanonical = Effect.fn("StateRootLock.removeCanonical")(function*(lockPath: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.remove(lockPath).pipe(
+    Effect.matchEffect({
+      onFailure: (cause) => hasSystemReason(cause, "NotFound")
+        ? Effect.succeed(false)
+        : Effect.fail(cause),
+      onSuccess: () => Effect.succeed(true)
+    })
+  )
+})
 
-  try {
-    linkSync(path, claimPath)
-  } catch (error) {
-    if (isNodeError(error) && (error.code === "EEXIST" || error.code === "ENOENT")) return false
-    throw error
-  }
-
-  try {
-    chmodSync(claimPath, 0o600)
-    const claimedOwner = readOwner(claimPath)
-    const canonicalOwner = readOwner(path)
-    if (!sameOwner(claimedOwner, staleOwner) || !sameOwner(canonicalOwner, staleOwner)) return false
-
-    const claim = statSync(claimPath)
-    const canonical = statSync(path)
-    if (claim.dev !== canonical.dev || claim.ino !== canonical.ino) return false
-
-    try {
-      rmSync(path)
-      return true
-    } catch {
-      return false
-    }
-  } finally {
-    rmSync(claimPath, { force: true })
-  }
-}
+const removeArtifact = Effect.fn("StateRootLock.removeArtifact")(function*(path: string) {
+  const fs = yield* FileSystem.FileSystem
+  yield* fs.remove(path, { force: true }).pipe(
+    Effect.catchIf(
+      (cause) => hasSystemReason(cause, "NotFound"),
+      () => Effect.void
+    )
+  )
+})
 
 const sameOwner = (left: LockOwner | undefined, right: LockOwner): boolean =>
   left?.pid === right.pid && left.token === right.token
+
+const invalidOwnerError = (
+  dataDir: string,
+  cause: unknown
+): StateRootLockError => new StateRootLockError({
+  dataDir,
+  reason: "state root ownership record is incomplete or invalid",
+  cause
+})
+
+const ownershipChangedError = (dataDir: string): StateRootLockError =>
+  new StateRootLockError({
+    dataDir,
+    reason: "state root ownership changed while the backend was starting"
+  })
 
 const liveOwnerError = (dataDir: string, pid: number): StateRootLockError =>
   new StateRootLockError({
@@ -265,4 +389,30 @@ const endpointAdvertisedError = (dataDir: string): StateRootLockError =>
     reason: "state root endpoint is already advertised"
   })
 
-const isNodeError = (error: unknown): error is NodeJS.ErrnoException => error instanceof Error
+const handoffTimeoutError = (dataDir: string, ownerPid: number): StateRootLockError =>
+  new StateRootLockError({
+    dataDir,
+    kind: "handoff-timeout",
+    ownerPid,
+    reason: `state root handoff timed out waiting for backend process ${String(ownerPid)}`
+  })
+
+const asStateRootLockError = (dataDir: string, cause: unknown): StateRootLockError =>
+  cause instanceof StateRootLockError
+    ? cause
+    : new StateRootLockError({
+        dataDir,
+        reason: cause instanceof Error && cause.message !== "" ? cause.message : String(cause),
+        cause
+      })
+
+const dataDirFromLockPath = (lockPath: string): string => {
+  const parent = lockPath.slice(0, -LOCK_FILE.length)
+  if (parent === "/" || parent === "\\" || /^[A-Za-z]:[\\/]$/.test(parent)) return parent
+  return parent.endsWith("/") || parent.endsWith("\\") ? parent.slice(0, -1) : parent
+}
+
+const hasSystemReason = (
+  cause: PlatformError.PlatformError,
+  reason: PlatformError.SystemErrorTag
+): boolean => cause.reason._tag === reason

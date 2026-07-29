@@ -1,158 +1,237 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Deferred, Effect, Fiber, FileSystem, Option } from "effect"
-import { TestClock } from "effect/testing"
 import { NodeServices } from "@effect/platform-node"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { layer as effectLayer } from "@effect/vitest"
+import { Clock, Context, Deferred, Effect, Fiber, FileSystem, Layer, Option, Path, Queue, Schema } from "effect"
+import { TestClock } from "effect/testing"
+import { expect } from "vitest"
+import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { ProcessServices } from "../process-services"
 import { findOrSpawnBackend } from "../../spawn"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
-import { type Endpoint, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
-import { Layer } from "effect"
-import type { BackendUnavailable } from "../../errors"
+import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { ProcessControl } from "@expand/contracts/process-control"
+import { BackendUnavailable } from "../../errors"
 
-let dir: string
+class TestDirectory extends Context.Service<TestDirectory, string>()("expand/FindOrSpawnTest/Directory") {}
+
+const TestDirectoryLive = Layer.effect(
+  TestDirectory,
+  makeTempDirectoryScoped("expand-spawn-")
+).pipe(Layer.provide(NodeServices.layer))
+
+const TestLayer = Layer.mergeAll(TestDirectoryLive, ProcessServices.layer, NodeServices.layer)
+
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: [process.execPath, "--import", "tsx", join(process.cwd(), "apps/server/main.ts")]
+  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
 })
 const reviverOwnedAdapter = {
   protocolLayer: nodeAdapter.protocolLayer,
   spawnBackend: () => Effect.void
 }
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "expand-spawn-"))
-})
-afterEach(() => {
-  rmSync(dir, { recursive: true, force: true })
-})
+const SpawnLockRecordFromJson = Schema.fromJsonString(Schema.Struct({
+  pid: Schema.Number,
+  startedAt: Schema.Number
+}))
 
-describe("findOrSpawnBackend", () => {
-  it("returns the existing live backend without spawning", async () => {
-    writeFileSync(
-      makeAppContext(dir).paths.endpointFile,
-      JSON.stringify({
+effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it) => {
+  const context = (name: string) => Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const directory = path.join(yield* TestDirectory, name)
+    yield* fs.makeDirectory(directory)
+    return makeTestAppContext(directory, path)
+  })
+
+  it.effect("returns the existing live backend without spawning", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("existing")
+      const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
         url: "ws://127.0.0.1:51789/rpc",
         token: "t",
-        pid: process.pid,
+        pid: processControl.currentPid,
         protocolVersion: PROTOCOL_VERSION
       })
-    )
-    const endpoint = await Effect.runPromise(
-      Effect.provide(findOrSpawnBackend(nodeAdapter), Layer.mergeAll(NodeServices.layer, Layer.succeed(AppContext, makeAppContext(dir))))
-    )
-    expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
-    expect(endpoint.pid).toBe(process.pid)
-  })
+      yield* fs.writeFileString(appContext.paths.endpointFile, advertisedEndpoint)
+      const endpoint = yield* findOrSpawnBackend(nodeAdapter).pipe(
+        Effect.provideService(AppContext, appContext)
+      )
+      expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
+      expect(endpoint.pid).toBe(processControl.currentPid)
+    }))
 
-  it("spawns once for concurrent callers using the same state root", async () => {
-    let spawnCount = 0
-    const endpoint = {
-      url: "ws://127.0.0.1:51792/rpc",
-      token: "same-root",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    }
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: (dataDir: string) => Effect.gen(function* () {
-        spawnCount += 1
-        yield* Effect.sleep("25 millis")
-        writeFileSync(makeAppContext(dataDir).paths.endpointFile, JSON.stringify(endpoint))
-      })
-    }
-
-    const endpoints = await Effect.runPromise(
-      Effect.all(
+  it.effect("spawns once for concurrent callers using the same state root", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("concurrent")
+      let spawnCount = 0
+      const endpoint = {
+        url: "ws://127.0.0.1:51792/rpc",
+        token: "same-root",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.gen(function*() {
+          spawnCount += 1
+          yield* Effect.sleep("25 millis")
+          const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
+          yield* fs.writeFileString(appContext.paths.endpointFile, advertisedEndpoint)
+        }).pipe(Effect.orDie)
+      }
+      const endpoints = yield* Effect.all(
         [findOrSpawnBackend(adapter), findOrSpawnBackend(adapter)],
         { concurrency: "unbounded" }
-      ).pipe(
-        Effect.provide(NodeServices.layer),
-        Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
-      )
-    )
+      ).pipe(Effect.provideService(AppContext, appContext))
+      expect(spawnCount).toBe(1)
+      expect(endpoints).toEqual([endpoint, endpoint])
+    }))
 
-    expect(spawnCount).toBe(1)
-    expect(endpoints).toEqual([endpoint, endpoint])
-  })
-
-  it("holds the default external lease without creating the nested target before spawn", async () => {
-    const dataDir = join(dir, ".expand", "expand-dev")
-    const context = makeAppContext(dataDir)
-    const externalLock = join(dir, ".expand-locks", "expand-dev.spawn.lock")
-    const paths = { ...context.paths, spawnLockFile: externalLock }
-    const endpoint = {
-      url: "ws://127.0.0.1:51795/rpc",
-      token: "external-default",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    }
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: () => Effect.sync(() => {
-        expect(existsSync(dataDir)).toBe(false)
-        expect(existsSync(externalLock)).toBe(true)
-        mkdirSync(dataDir, { recursive: true })
-        writeFileSync(paths.endpointFile, JSON.stringify(endpoint))
-      })
-    }
-
-    const actual = await Effect.runPromise(
-      findOrSpawnBackend(adapter).pipe(
-        Effect.provide(NodeServices.layer),
-        Effect.provide(Layer.succeed(AppContext, { channel: context.channel, paths }))
-      )
-    )
-
-    expect(actual).toEqual(endpoint)
-    expect(existsSync(externalLock)).toBe(false)
-  })
-
-  it("spawns independently for different state roots", async () => {
-    const leftRoot = join(dir, "left")
-    const rightRoot = join(dir, "right")
-    const spawnedRoots: Array<string> = []
-    const adapter = {
-      ...nodeAdapter,
-      spawnBackend: (dataDir: string) => Effect.sync(() => {
-        spawnedRoots.push(dataDir)
-        writeFileSync(
-          makeAppContext(dataDir).paths.endpointFile,
-          JSON.stringify({
-            url: `ws://127.0.0.1:${dataDir === leftRoot ? 51793 : 51794}/rpc`,
-            token: dataDir,
-            pid: process.pid,
-            protocolVersion: PROTOCOL_VERSION
-          })
+  it.effect("re-elects a contender after the elected spawner fails without advertising", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("failed-owner-takeover")
+      const releaseOwner = yield* Queue.unbounded<void>()
+      const contenderObserved = yield* Queue.unbounded<void>()
+      let spawnAttempts = 0
+      let takeoverSpawns = 0
+      const endpoint = {
+        url: "ws://127.0.0.1:51796/rpc",
+        token: "takeover",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.gen(function*() {
+          spawnAttempts += 1
+          if (spawnAttempts === 1) {
+            yield* Queue.take(releaseOwner)
+            return yield* new BackendUnavailable({ reason: "elected spawner failed" })
+          }
+          takeoverSpawns += 1
+          const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)(endpoint).pipe(Effect.orDie)
+          yield* fs.writeFileString(appContext.paths.endpointFile, advertisedEndpoint).pipe(Effect.orDie)
+        })
+      }
+      const observedFs = FileSystem.FileSystem.of({
+        ...fs,
+        link: (existingPath, newPath) => fs.link(existingPath, newPath).pipe(
+          Effect.tapError(() => spawnAttempts === 1 && newPath === appContext.paths.spawnLockFile
+            ? Queue.offer(contenderObserved, undefined)
+            : Effect.void)
         )
       })
-    }
+      const owner = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, observedFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      while (spawnAttempts === 0) yield* Effect.yieldNow
+      const contender = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, observedFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.forkChild
+      )
+      yield* Queue.take(contenderObserved)
+      yield* Queue.offer(releaseOwner, undefined)
+      const ownerExit = yield* Fiber.join(owner).pipe(Effect.result)
+      const contenderResult = yield* Fiber.join(contender).pipe(Effect.timeout("2 seconds"))
+      expect(spawnAttempts).toBe(2)
+      expect(ownerExit).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "BackendUnavailable", reason: "elected spawner failed" }
+      })
+      expect(contenderResult).toEqual(endpoint)
+      expect(takeoverSpawns).toBe(1)
+    }))
 
-    await Effect.runPromise(
-      Effect.all(
-        [
-          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeAppContext(leftRoot)))),
-          findOrSpawnBackend(adapter).pipe(Effect.provide(Layer.succeed(AppContext, makeAppContext(rightRoot))))
-        ],
-        { concurrency: "unbounded" }
-      ).pipe(Effect.provide(NodeServices.layer))
-    )
-
-    expect(new Set(spawnedRoots)).toEqual(new Set([leftRoot, rightRoot]))
-  })
-
-  it("waits for a valid endpoint advertised at six seconds", async () => {
-    const realEndpoint = {
-      url: "ws://127.0.0.1:51791/rpc",
-      token: "slow-start",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    }
-
-    const program = Effect.gen(function* () {
+  it.effect("holds the default external lease without creating the nested target before spawn", () =>
+    Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
-      const postSpawnPollCompleted = yield* Deferred.make<void>()
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const dir = path.join(yield* TestDirectory, "external")
+      const dataDir = path.join(dir, ".expand", "expand-dev")
+      const appContext = makeTestAppContext(dataDir, path)
+      const externalLock = path.join(dir, ".expand-locks", "expand-dev.spawn.lock")
+      const paths = { ...appContext.paths, spawnLockFile: externalLock }
+      const endpoint = {
+        url: "ws://127.0.0.1:51795/rpc",
+        token: "external-default",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.gen(function*() {
+          expect(yield* fs.exists(dataDir)).toBe(false)
+          expect(yield* fs.exists(externalLock)).toBe(true)
+          yield* fs.makeDirectory(dataDir, { recursive: true })
+          const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
+          yield* fs.writeFileString(paths.endpointFile, advertisedEndpoint)
+        }).pipe(Effect.orDie)
+      }
+      const actual = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(AppContext, { channel: appContext.channel, paths })
+      )
+      expect(actual).toEqual(endpoint)
+      expect(yield* fs.exists(externalLock)).toBe(false)
+    }))
+
+  it.effect("spawns independently for different state roots", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const dir = path.join(yield* TestDirectory, "independent")
+      const leftRoot = path.join(dir, "left")
+      const rightRoot = path.join(dir, "right")
+      const spawnedRoots: Array<string> = []
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: (dataDir: string) => Effect.gen(function*() {
+          spawnedRoots.push(dataDir)
+          const target = makeTestAppContext(dataDir, path).paths.endpointFile
+          const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+            url: `ws://127.0.0.1:${dataDir === leftRoot ? 51793 : 51794}/rpc`,
+            token: dataDir,
+            pid: processControl.currentPid,
+            protocolVersion: PROTOCOL_VERSION
+          })
+          yield* fs.writeFileString(target, advertisedEndpoint)
+        }).pipe(Effect.orDie)
+      }
+      yield* Effect.all([
+        findOrSpawnBackend(adapter).pipe(
+          Effect.provideService(AppContext, makeTestAppContext(leftRoot, path))
+        ),
+        findOrSpawnBackend(adapter).pipe(
+          Effect.provideService(AppContext, makeTestAppContext(rightRoot, path))
+        )
+      ], { concurrency: "unbounded" })
+      expect(new Set(spawnedRoots)).toEqual(new Set([leftRoot, rightRoot]))
+    }))
+
+  it.effect("waits for a valid endpoint advertised at six seconds", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("six-seconds")
+      const realEndpoint = {
+        url: "ws://127.0.0.1:51791/rpc",
+        token: "slow-start",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const postSpawnPollCompleted = yield* Queue.unbounded<void>()
+      const advertiserAwake = yield* Deferred.make<void>()
+      const finderCompleted = yield* Deferred.make<Endpoint, BackendUnavailable | ProbeFailure>()
       let backendSpawned = false
       const adapter = {
         ...nodeAdapter,
@@ -162,42 +241,41 @@ describe("findOrSpawnBackend", () => {
       }
       const observedFs = FileSystem.FileSystem.of({
         ...fs,
-        exists: (path) => fs.exists(path).pipe(
+        exists: (target) => fs.exists(target).pipe(
           Effect.tap(() => backendSpawned
-            ? Deferred.succeed(postSpawnPollCompleted, undefined)
+            ? Queue.offer(postSpawnPollCompleted, undefined)
             : Effect.void)
         )
       })
       const advertiser = yield* Effect.sleep("6 seconds").pipe(
-        Effect.andThen(
-          Effect.sync(() => writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint)))
-        ),
+        Effect.andThen(Deferred.succeed(advertiserAwake, undefined)),
+        Effect.andThen(Schema.encodeEffect(EndpointFromJson)(realEndpoint)),
+        Effect.flatMap((encoded) => fs.writeFileString(appContext.paths.endpointFile, encoded)),
         Effect.forkChild
       )
-      const finder = yield* findOrSpawnBackend(adapter).pipe(
-        Effect.provideService(FileSystem.FileSystem, observedFs),
-        Effect.forkChild
-      )
-      yield* Deferred.await(postSpawnPollCompleted)
+      const finderCompletion = yield* Deferred.complete(
+        finderCompleted,
+        findOrSpawnBackend(adapter).pipe(
+          Effect.provideService(FileSystem.FileSystem, observedFs),
+          Effect.provideService(AppContext, appContext)
+        )
+      ).pipe(Effect.forkChild)
+      yield* Queue.take(postSpawnPollCompleted)
       yield* TestClock.adjust("6 seconds")
-      yield* TestClock.adjust("100 millis")
-      const endpoint = yield* Fiber.join(finder)
+      expect(Option.isSome(yield* Deferred.poll(advertiserAwake))).toBe(true)
       yield* Fiber.join(advertiser)
-      return endpoint
-    }).pipe(
-      Effect.provide(TestClock.layer()),
-      Effect.provide(NodeServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
-    )
+      expect(Option.isNone(yield* Deferred.poll(finderCompleted))).toBe(true)
+      yield* TestClock.adjust("100 millis")
+      yield* Fiber.join(finderCompletion)
+      const endpoint = yield* Option.getOrThrow(yield* Deferred.poll(finderCompleted))
+      expect(endpoint.url).toBe(realEndpoint.url)
+    }).pipe(Effect.provide(TestClock.layer())))
 
-    const endpoint = await Effect.runPromise(program)
-    expect(endpoint.url).toBe(realEndpoint.url)
-  })
-
-  it("fails when the backend has not advertised by thirty seconds", async () => {
-    const program = Effect.gen(function* () {
+  it.effect("fails when the backend has not advertised by thirty seconds", () =>
+    Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
-      const postSpawnPollCompleted = yield* Deferred.make<void>()
+      const appContext = yield* context("thirty-seconds")
+      const postSpawnPollCompleted = yield* Queue.unbounded<void>()
       let backendSpawned = false
       const adapter = {
         ...nodeAdapter,
@@ -207,72 +285,64 @@ describe("findOrSpawnBackend", () => {
       }
       const observedFs = FileSystem.FileSystem.of({
         ...fs,
-        exists: (path) => fs.exists(path).pipe(
+        exists: (target) => fs.exists(target).pipe(
           Effect.tap(() => backendSpawned
-            ? Deferred.succeed(postSpawnPollCompleted, undefined)
+            ? Queue.offer(postSpawnPollCompleted, undefined)
             : Effect.void)
         )
       })
-      const completed = yield* Deferred.make<Endpoint, BackendUnavailable | "pending">()
+      const completed = yield* Deferred.make<Endpoint, BackendUnavailable | ProbeFailure>()
       yield* Deferred.complete(
         completed,
-        findOrSpawnBackend(adapter).pipe(Effect.provideService(FileSystem.FileSystem, observedFs))
+        findOrSpawnBackend(adapter).pipe(
+          Effect.provideService(FileSystem.FileSystem, observedFs),
+          Effect.provideService(AppContext, appContext)
+        )
       ).pipe(Effect.forkChild)
-      yield* Deferred.await(postSpawnPollCompleted)
+      yield* Queue.take(postSpawnPollCompleted)
       yield* TestClock.adjust("29 seconds")
       const beforeDeadline = yield* Deferred.poll(completed)
       yield* TestClock.adjust("1 second")
       const result = yield* Deferred.await(completed).pipe(Effect.result)
-      return { beforeDeadline, result }
-    }).pipe(
-      Effect.provide(TestClock.layer()),
-      Effect.provide(NodeServices.layer),
-      Effect.provide(Layer.succeed(AppContext, makeAppContext(dir)))
-    )
+      expect(Option.isNone(beforeDeadline)).toBe(true)
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { _tag: "BackendUnavailable", reason: "backend did not start in time" }
+      })
+    }).pipe(Effect.provide(TestClock.layer())))
 
-    const { beforeDeadline, result } = await Effect.runPromise(program)
-    expect(Option.isNone(beforeDeadline)).toBe(true)
-    expect(result).toMatchObject({
-      _tag: "Failure",
-      failure: { _tag: "BackendUnavailable", reason: "backend did not start in time" }
-    })
-  })
-
-  // Regression for the stale-spawn-lock wedge: a spawner SIGKILLed AFTER acquiring
-  // `<endpoint>.lock` but BEFORE advertising `server.json` would orphan the lock
-  // forever, so every later command failed with BackendUnavailable and never
-  // re-spawned (pre-fix). The acquire must now detect the dead-pid lock as stale,
-  // clear it, and proceed to spawn instead of waiting out the timeout and failing.
-  it("recovers from a stale (dead-pid) spawn lock with no server.json", async () => {
-    const lockPath = makeAppContext(dir).paths.spawnLockFile
-    // Orphaned lock: a dead pid (out-of-range -> ESRCH -> treated as dead). No
-    // server.json exists, so readEndpoint is None and we go straight to acquire.
-    writeFileSync(lockPath, JSON.stringify({ pid: 2147483647, startedAt: Date.now() }))
-
-    const realEndpoint = {
-      url: "ws://127.0.0.1:51790/rpc",
-      token: "fresh",
-      pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION
-    }
-
-    const program = Effect.gen(function* () {
-      // Stand in for the freshly-spawned server: once the acquire has cleared the
-      // stale lock and (no-op) spawn fires, advertise a live endpoint so the
-      // acquiring fiber's awaitEndpoint resolves instead of timing out.
-      const reviver = yield* Effect.forkChild(
-        Effect.sync(() => writeFileSync(makeAppContext(dir).paths.endpointFile, JSON.stringify(realEndpoint))).pipe(
-          Effect.delay("100 millis")
-        )
+  it.effect("recovers from a stale (dead-pid) spawn lock with no server.json", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("stale-lock")
+      const lockPath = appContext.paths.spawnLockFile
+      const staleLock = yield* Schema.encodeEffect(SpawnLockRecordFromJson)({
+        pid: 2_147_483_647,
+        startedAt: yield* Clock.currentTimeMillis
+      })
+      yield* fs.writeFileString(lockPath, staleLock)
+      const realEndpoint = {
+        url: "ws://127.0.0.1:51790/rpc",
+        token: "fresh",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const encodedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)(realEndpoint)
+      const reviver = yield* fs.writeFileString(
+        appContext.paths.endpointFile,
+        encodedEndpoint
+      ).pipe(Effect.delay("100 millis"), Effect.forkChild)
+      const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter).pipe(
+        Effect.provideService(AppContext, appContext)
       )
-      const endpoint = yield* findOrSpawnBackend(reviverOwnedAdapter)
       yield* Fiber.join(reviver)
-      return endpoint
-    }).pipe(Effect.provide(NodeServices.layer), Effect.provide(Layer.succeed(AppContext, makeAppContext(dir))))
-
-    const endpoint = await Effect.runPromise(program)
-    expect(endpoint.url).toBe(realEndpoint.url)
-    // The stale lock was cleared (acquired then released via Effect.ensuring).
-    expect(existsSync(lockPath)).toBe(false)
-  })
+      expect(endpoint.url).toBe(realEndpoint.url)
+      expect(yield* fs.exists(lockPath)).toBe(false)
+    }))
 })
+
+const makeTestAppContext = (dataDir: string, path: Path.Path) =>
+  makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })
+
+type ProbeFailure = import("@expand/contracts/process-control").ProcessProbeError | "pending"

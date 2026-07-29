@@ -72,6 +72,15 @@ describe("validateSender", () => {
     expect(validateSender({ url: "file:///opt/app/index.html", isMainFrame: true }, RULES)).toBe(true)
   })
 
+  it("accepts only the exact URL for an exact URL rule", () => {
+    const rules: ReadonlyArray<OriginRule> = [
+      { _tag: "exactUrl", url: "file:///opt/app/index.html" }
+    ]
+    expect(validateSender({ url: "file:///opt/app/index.html", isMainFrame: true }, rules)).toBe(true)
+    expect(validateSender({ url: "file:///opt/app/hostile.html", isMainFrame: true }, rules)).toBe(false)
+    expect(validateSender({ url: "file:///opt/app/index.html?hostile", isMainFrame: true }, rules)).toBe(false)
+  })
+
   it("accepts the exact dev origin", () => {
     expect(validateSender({ url: "http://localhost:5173/", isMainFrame: true }, RULES)).toBe(true)
     expect(validateSender({ url: "http://localhost:5173/some/route?x=1", isMainFrame: true }, RULES)).toBe(true)
@@ -105,7 +114,7 @@ describe("payloadSize", () => {
     expect(payloadSize("abcd")).toBe(4)
     expect(payloadSize(undefined)).toBe(0)
     expect(payloadSize(null)).toBe(0)
-    expect(payloadSize({ a: 1 })).toBe(JSON.stringify({ a: 1 }).length)
+    expect(payloadSize({ a: 1 })).toBe(7)
     const circular: { self?: unknown } = {}
     circular.self = circular
     expect(payloadSize(circular)).toBe(Number.MAX_SAFE_INTEGER)

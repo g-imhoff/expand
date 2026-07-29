@@ -1,4 +1,4 @@
-export const nativePromiseStatics = Object.freeze([
+export const promiseStaticMethods = Object.freeze([
   "all",
   "allSettled",
   "any",
@@ -11,22 +11,207 @@ export const nativePromiseStatics = Object.freeze([
 
 export const promiseChainMethods = Object.freeze(["catch", "finally", "then"])
 
+export const effectProducerMethods = Object.freeze([
+  "acquireDisposable",
+  "acquireRelease",
+  "acquireUseRelease",
+  "addFinalizer",
+  "all",
+  "andThen",
+  "annotateCurrentSpan",
+  "annotateLogs",
+  "annotateLogsScoped",
+  "annotateSpans",
+  "as",
+  "asSome",
+  "asVoid",
+  "awaitAllChildren",
+  "bind",
+  "bindTo",
+  "cached",
+  "cachedInvalidateWithTTL",
+  "cachedWithTTL",
+  "callback",
+  "catch",
+  "catchCause",
+  "catchCauseFilter",
+  "catchCauseIf",
+  "catchDefect",
+  "catchEager",
+  "catchFilter",
+  "catchIf",
+  "catchNoSuchElement",
+  "catchReason",
+  "catchReasons",
+  "catchTag",
+  "catchTags",
+  "clockWith",
+  "context",
+  "contextWith",
+  "delay",
+  "die",
+  "ensuring",
+  "eventually",
+  "exit",
+  "fail",
+  "failCause",
+  "failCauseSync",
+  "failSync",
+  "filter",
+  "filterMap",
+  "filterMapEffect",
+  "filterMapOrElse",
+  "filterMapOrFail",
+  "filterOrElse",
+  "filterOrFail",
+  "findFirst",
+  "findFirstFilter",
+  "firstSuccessOf",
+  "flatMap",
+  "flatMapEager",
+  "flatten",
+  "flip",
+  "forEach",
+  "forever",
+  "forkChild",
+  "forkDetach",
+  "forkIn",
+  "forkScoped",
+  "fromNullishOr",
+  "fromOption",
+  "fromResult",
+  "gen",
+  "ignore",
+  "ignoreCause",
+  "interruptible",
+  "interruptibleMask",
+  "isFailure",
+  "isSuccess",
+  "let",
+  "linkSpans",
+  "log",
+  "logDebug",
+  "logError",
+  "logFatal",
+  "logInfo",
+  "logTrace",
+  "logWarning",
+  "makeSpan",
+  "makeSpanScoped",
+  "map",
+  "mapBoth",
+  "mapBothEager",
+  "mapEager",
+  "mapError",
+  "mapErrorEager",
+  "match",
+  "matchCause",
+  "matchCauseEager",
+  "matchCauseEffect",
+  "matchCauseEffectEager",
+  "matchEager",
+  "matchEffect",
+  "onError",
+  "onErrorFilter",
+  "onErrorIf",
+  "onExit",
+  "onExitFilter",
+  "onExitIf",
+  "onExitPrimitive",
+  "onInterrupt",
+  "option",
+  "orDie",
+  "orElseSucceed",
+  "partition",
+  "promise",
+  "provide",
+  "provideContext",
+  "provideService",
+  "provideServiceEffect",
+  "race",
+  "raceAll",
+  "raceAllFirst",
+  "raceFirst",
+  "repeat",
+  "repeatOrElse",
+  "replicateEffect",
+  "request",
+  "result",
+  "retry",
+  "retryOrElse",
+  "sandbox",
+  "schedule",
+  "scheduleFrom",
+  "scoped",
+  "scopedWith",
+  "service",
+  "serviceOption",
+  "sleep",
+  "succeed",
+  "succeedSome",
+  "suspend",
+  "sync",
+  "tap",
+  "tapCause",
+  "tapCauseFilter",
+  "tapCauseIf",
+  "tapDefect",
+  "tapError",
+  "tapErrorTag",
+  "timed",
+  "timeout",
+  "timeoutOption",
+  "timeoutOrElse",
+  "track",
+  "trackDefects",
+  "trackDuration",
+  "trackErrors",
+  "trackSuccesses",
+  "try",
+  "tryPromise",
+  "tx",
+  "uninterruptible",
+  "uninterruptibleMask",
+  "unwrapReason",
+  "updateContext",
+  "updateService",
+  "useSpan",
+  "validate",
+  "when",
+  "whileLoop",
+  "withConcurrency",
+  "withErrorReporting",
+  "withExecutionPlan",
+  "withFiber",
+  "withLogSpan",
+  "withLogger",
+  "withParentSpan",
+  "withSpan",
+  "withSpanScoped",
+  "withTracer",
+  "withTracerEnabled",
+  "withTracerTiming",
+  "yieldNowWith",
+  "zip",
+  "zipWith"
+])
+
 export const effectRunnerMethods = Object.freeze([
   "runCallback",
   "runCallbackWith",
   "runFork",
   "runForkWith",
   "runPromise",
-  "runPromiseWith",
   "runPromiseExit",
   "runPromiseExitWith",
+  "runPromiseWith",
   "runSync",
-  "runSyncWith",
   "runSyncExit",
-  "runSyncExitWith"
+  "runSyncExitWith",
+  "runSyncWith"
 ])
 
-export const managedRuntimeRunnerMethods = Object.freeze([
+export const runtimeRunnerMethods = Object.freeze([
   "runCallback",
   "runFork",
   "runPromise",
@@ -35,121 +220,68 @@ export const managedRuntimeRunnerMethods = Object.freeze([
   "runSyncExit"
 ])
 
-export const runtimeRunnerMethods = Object.freeze(["makeRunMain"])
-
-export const nodeRuntimeRunnerMethods = Object.freeze(["runMain"])
-
-const callbackForm = ({ direct = [], max, min, nonCallbacks = [], options = [], properties = [] }) => Object.freeze({
-  direct: direct === "all" ? direct : Object.freeze(direct),
-  max,
-  min,
-  nonCallbacks: Object.freeze(nonCallbacks),
-  options: Object.freeze(options),
-  properties: Object.freeze(properties.map(([index, names]) => Object.freeze([
-    index,
-    names === "all" ? names : Object.freeze(names)
-  ])))
-})
-
-const dataLastCallbackForms = Object.freeze([
-  callbackForm({ direct: [0], min: 1, max: 1 }),
-  callbackForm({ direct: [1], min: 2, max: 2 })
+export const effectCallbackMethods = Object.freeze([
+  "acquireRelease",
+  "andThen",
+  "async",
+  "catch",
+  "catchAll",
+  "catchAllCause",
+  "catchIf",
+  "catchTag",
+  "catchTags",
+  "filterOrElse",
+  "filterOrFail",
+  "flatMap",
+  "fn",
+  "fnUntraced",
+  "forEach",
+  "gen",
+  "if",
+  "iterate",
+  "loop",
+  "map",
+  "mapBoth",
+  "mapError",
+  "match",
+  "matchCause",
+  "matchCauseEffect",
+  "matchEffect",
+  "onError",
+  "onExit",
+  "onInterrupt",
+  "orElse",
+  "promise",
+  "reduce",
+  "reduceEffect",
+  "repeatOrElse",
+  "retryOrElse",
+  "suspend",
+  "sync",
+  "tap",
+  "tapBoth",
+  "tapError",
+  "tapErrorCause",
+  "timeoutTo",
+  "transform",
+  "transformOrFail",
+  "try",
+  "tryPromise",
+  "unless",
+  "when",
+  "whileLoop"
 ])
-
-const iterableCallbackForms = Object.freeze([
-  callbackForm({ direct: [0], min: 1, max: 2, options: [1] }),
-  callbackForm({ direct: [1], min: 2, max: 3, options: [2] })
-])
-
-const matchCallbackForms = Object.freeze([
-  callbackForm({ min: 1, max: 1, properties: [[0, ["onFailure", "onSuccess"]]] }),
-  callbackForm({ min: 2, max: 2, properties: [[1, ["onFailure", "onSuccess"]]] })
-])
-
-export const effectCallbackOwnership = Object.freeze({
-  acquireRelease: Object.freeze([
-    callbackForm({ direct: [1], min: 2, max: 3 })
-  ]),
-  acquireUseRelease: Object.freeze([
-    callbackForm({ direct: [1, 2], min: 3, max: 3 })
-  ]),
-  andThen: dataLastCallbackForms,
-  callback: Object.freeze([
-    callbackForm({ direct: [0], min: 1, max: 1 })
-  ]),
-  catch: dataLastCallbackForms,
-  catchIf: Object.freeze([
-    callbackForm({ direct: [0, 1, 2], min: 2, max: 3 }),
-    callbackForm({ direct: [1, 2, 3], min: 3, max: 4, nonCallbacks: [0] })
-  ]),
-  catchTag: Object.freeze([
-    callbackForm({ direct: [1, 2], min: 2, max: 3, nonCallbacks: [0] }),
-    callbackForm({ direct: [2, 3], min: 3, max: 4, nonCallbacks: [0, 1] })
-  ]),
-  catchTags: Object.freeze([
-    callbackForm({ direct: [1], min: 1, max: 2, properties: [[0, "all"]] }),
-    callbackForm({ direct: [2], min: 2, max: 3, properties: [[1, "all"]] })
-  ]),
-  filter: iterableCallbackForms,
-  filterMap: dataLastCallbackForms,
-  flatMap: dataLastCallbackForms,
-  fn: Object.freeze([
-    callbackForm({ direct: "all", min: 1, max: Number.POSITIVE_INFINITY })
-  ]),
-  fnUntraced: Object.freeze([
-    callbackForm({ direct: "all", min: 1, max: Number.POSITIVE_INFINITY })
-  ]),
-  forEach: iterableCallbackForms,
-  gen: Object.freeze([
-    callbackForm({ direct: [0], min: 1, max: 1 }),
-    callbackForm({ direct: [1], min: 2, max: 2 })
-  ]),
-  map: dataLastCallbackForms,
-  match: matchCallbackForms,
-  matchEffect: matchCallbackForms,
-  onError: dataLastCallbackForms,
-  onExit: dataLastCallbackForms,
-  suspend: Object.freeze([
-    callbackForm({ direct: [0], min: 1, max: 1 })
-  ]),
-  sync: Object.freeze([
-    callbackForm({ direct: [0], min: 1, max: 1 })
-  ]),
-  tap: dataLastCallbackForms,
-  tapError: dataLastCallbackForms,
-  try: Object.freeze([
-    callbackForm({ min: 1, max: 1, properties: [[0, ["catch", "try"]]] })
-  ]),
-  tryPromise: Object.freeze([
-    callbackForm({ direct: [0], min: 1, max: 1, properties: [[0, ["catch", "try"]]] })
-  ]),
-  validate: iterableCallbackForms
-})
-
-export const effectCallbackMethods = Object.freeze(Object.keys(effectCallbackOwnership))
-
-export const effectFunctionMethods = Object.freeze(["fn", "fnUntraced"])
 
 export const schemaSyncMethods = Object.freeze([
   "decodeSync",
   "decodeUnknownSync",
   "encodeSync",
-  "encodeUnknownSync"
-])
-
-export const deterministicNodeUrlExports = Object.freeze([
-  "URL",
-  "URLSearchParams"
-])
-
-export const hostUrlMethods = Object.freeze([
-  "createObjectURL",
-  "revokeObjectURL"
+  "encodeUnknownSync",
+  "validateSync"
 ])
 
 export const nodeBuiltinModules = Object.freeze([
   "assert",
-  "assert/strict",
   "async_hooks",
   "buffer",
   "child_process",
@@ -160,11 +292,9 @@ export const nodeBuiltinModules = Object.freeze([
   "dgram",
   "diagnostics_channel",
   "dns",
-  "dns/promises",
   "domain",
   "events",
   "fs",
-  "fs/promises",
   "http",
   "http2",
   "https",
@@ -173,30 +303,24 @@ export const nodeBuiltinModules = Object.freeze([
   "net",
   "os",
   "path",
-  "path/posix",
-  "path/win32",
   "perf_hooks",
   "process",
   "punycode",
   "querystring",
   "readline",
-  "readline/promises",
   "repl",
+  "sea",
+  "sqlite",
   "stream",
-  "stream/consumers",
-  "stream/promises",
-  "stream/web",
   "string_decoder",
   "sys",
   "test",
   "timers",
-  "timers/promises",
   "tls",
   "trace_events",
   "tty",
   "url",
   "util",
-  "util/types",
   "v8",
   "vm",
   "wasi",
@@ -204,69 +328,86 @@ export const nodeBuiltinModules = Object.freeze([
   "zlib"
 ])
 
-export const platformPackages = Object.freeze([
-  "better-sqlite3",
-  "electron",
-  "node-pty",
-  "playwright",
-  "playwright-core",
-  "ws"
+export const hostModules = Object.freeze(["better-sqlite3", "electron", "ws"])
+
+export const processMembers = Object.freeze([
+  "arch",
+  "argv",
+  "chdir",
+  "cpuUsage",
+  "cwd",
+  "env",
+  "execArgv",
+  "execPath",
+  "exit",
+  "getegid",
+  "geteuid",
+  "getgid",
+  "getgroups",
+  "getuid",
+  "hrtime",
+  "kill",
+  "memoryUsage",
+  "nextTick",
+  "pid",
+  "platform",
+  "ppid",
+  "resourceUsage",
+  "setegid",
+  "seteuid",
+  "setgid",
+  "setgroups",
+  "setuid",
+  "stderr",
+  "stdin",
+  "stdout",
+  "title",
+  "umask",
+  "uptime",
+  "version",
+  "versions"
 ])
 
-export const ambientPlatformObjects = Object.freeze([
-  "Bun",
-  "Deno",
-  "caches",
-  "console",
-  "cookieStore",
-  "document",
-  "history",
-  "indexedDB",
-  "localStorage",
-  "location",
-  "navigator",
-  "performance",
-  "process",
-  "screen",
-  "sessionStorage",
-  "window"
-])
-
-export const ambientPlatformFunctions = Object.freeze([
-  "cancelAnimationFrame",
+export const timerGlobals = Object.freeze([
   "clearImmediate",
   "clearInterval",
   "clearTimeout",
-  "fetch",
   "queueMicrotask",
   "requestAnimationFrame",
+  "cancelAnimationFrame",
   "setImmediate",
   "setInterval",
   "setTimeout"
 ])
 
-export const ambientPlatformConstructors = Object.freeze([
+export const platformFunctionGlobals = Object.freeze(["fetch", ...timerGlobals])
+
+export const platformConstructorGlobals = Object.freeze([
   "BroadcastChannel",
   "EventSource",
   "FileReader",
+  "FileSystemObserver",
   "MessageChannel",
   "MessagePort",
-  "MutationObserver",
-  "ResizeObserver",
+  "Notification",
+  "Request",
   "SharedWorker",
   "WebSocket",
   "Worker",
   "XMLHttpRequest"
 ])
 
-export const ambientPlatformMembers = Object.freeze([
-  "Date.now",
-  "Math.random",
-  "crypto.getRandomValues",
-  "crypto.randomUUID",
-  "crypto.subtle",
-  "performance.now",
-  "performance.timeOrigin"
+export const browserResourceGlobals = Object.freeze([
+  "caches",
+  "document",
+  "history",
+  "indexedDB",
+  "localStorage",
+  "location",
+  "navigator",
+  "screen",
+  "sessionStorage",
+  "window"
 ])
 
 export const listenerMethods = Object.freeze([
@@ -276,20 +417,5 @@ export const listenerMethods = Object.freeze([
   "on",
   "once",
   "removeEventListener",
-  "removeListener",
-  "subscribe",
-  "unsubscribe"
+  "removeListener"
 ])
-
-export const resourceMethods = Object.freeze([
-  "close",
-  "postMessage",
-  "start",
-  "terminate"
-])
-
-export const isNodeBuiltin = (source) =>
-  source.startsWith("node:") || nodeBuiltinModules.includes(source)
-
-export const isPlatformPackage = (source) =>
-  platformPackages.some((candidate) => source === candidate || source.startsWith(`${candidate}/`))

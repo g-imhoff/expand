@@ -4,8 +4,7 @@ import local from "./eslint-rules/index.mjs"
 export default tseslint.config(
   {
     ignores: [
-      ".claude/worktrees/**",
-      ".worktrees/**",
+      "**/node_modules/**",
       "**/dist/**",
       "**/out/**",
       "**/build/**",
@@ -16,7 +15,7 @@ export default tseslint.config(
     ]
   },
   {
-    files: ["apps/**/*.{ts,tsx}", "packages/**/*.{ts,tsx}", "examples/**/*.{ts,tsx}"],
+    files: ["apps/**/*.{ts,tsx,mts,cts}", "packages/**/*.{ts,tsx,mts,cts}", "examples/**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } }
@@ -29,11 +28,12 @@ export default tseslint.config(
   },
   {
     files: [
-      "bench/**/*.{ts,tsx,mts,cts}",
-      "eslint-rules/**/*.{ts,tsx,mts,cts}",
-      "migrations/**/*.{ts,tsx,mts,cts}",
       "scripts/**/*.{ts,tsx,mts,cts}",
+      "docs/architecture/**/*.{ts,tsx,mts,cts}",
       "test/**/*.{ts,tsx,mts,cts}",
+      "bench/**/*.{ts,tsx,mts,cts}",
+      "migrations/**/*.{ts,tsx,mts,cts}",
+      "eslint-rules/**/*.d.mts",
       "*.{ts,tsx,mts,cts}"
     ],
     languageOptions: {
@@ -42,14 +42,6 @@ export default tseslint.config(
     }
   },
   {
-    files: ["**/*.{js,jsx,mjs,cjs}"],
-    languageOptions: {
-      parser: tseslint.parser,
-      parserOptions: {
-        ecmaFeatures: { jsx: true },
-        project: false,
-        projectService: false
-      }
-    }
+    files: ["**/*.{js,jsx,mjs,cjs}"]
   }
 )

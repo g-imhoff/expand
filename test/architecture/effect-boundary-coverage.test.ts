@@ -1,108 +1,61 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, Path, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { Effect, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
-const EslintOutputJson = Schema.fromJsonString(Schema.Array(Schema.Struct({
-  filePath: Schema.String
-})))
+const EslintMessage = Schema.Struct({ ruleId: Schema.NullOr(Schema.String) })
+const EslintResult = Schema.Struct({
+  filePath: Schema.String,
+  messages: Schema.Array(EslintMessage)
+})
+const EslintJson = Schema.fromJsonString(Schema.Array(EslintResult))
 
-const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]
-const typeScriptExtensions = [".ts", ".tsx", ".mts", ".cts"]
+const typescriptFile = (file: string) => /\.(?:ts|tsx|mts|cts)$/.test(file)
+const eslintFile = (file: string) => /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(file)
 
-const runText = Effect.fn("EffectBoundaryCoverageTest.runText")(
-  (root: string, command: string, args: ReadonlyArray<string>, accepted: ReadonlyArray<number>) =>
-    Effect.scoped(Effect.gen(function*() {
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const handle = yield* spawner.spawn(ChildProcess.make(command, args, { cwd: root }))
-      const [stdout, stderr, exitCode] = yield* Effect.all([
-        handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
-        handle.stderr.pipe(Stream.decodeText(), Stream.mkString),
-        handle.exitCode
-      ], { concurrency: "unbounded" })
-      const numericExit = Number(exitCode)
-      if (!accepted.includes(numericExit)) {
-        return yield* Effect.fail({ command, args, exitCode: numericExit, stderr } as const)
-      }
-      return stdout
-    }))
-)
-
-const normalize = Effect.fn("EffectBoundaryCoverageTest.normalize")(
-  function*(root: string, files: ReadonlyArray<string>) {
+const repositoryFile = Effect.fn("EffectBoundaryCoverageTest.repositoryFile")(
+  function*(root: string, file: string) {
     const path = yield* Path.Path
-    return Array.from(new Set(files.map((file) =>
-      path.relative(root, path.resolve(root, file)).split(path.sep).join("/")
-    ))).sort()
+    const relative = path.relative(root, path.resolve(file)).split(path.sep).join("/")
+    return relative !== ".." && !relative.startsWith("../") && !relative.split("/").includes("node_modules")
+      ? relative
+      : undefined
   }
 )
 
-const repositoryRoot = Effect.fn("EffectBoundaryCoverageTest.repositoryRoot")(
-  function*() {
-    const path = yield* Path.Path
-    return yield* path.fromFileUrl(new URL("../../", import.meta.url))
-  }
-)()
-
-const manifest = Effect.fn("EffectBoundaryCoverageTest.manifest")(
-  function*(root: string) {
-    const output = yield* runText(root, "git", [
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "-z"
-    ], [0])
-    return yield* normalize(root, output.split("\0").filter((file) => file.length > 0))
-  }
-)
-
-const hasExtension = (file: string, extensions: ReadonlyArray<string>) =>
-  extensions.some((extension) => file.endsWith(extension))
-
-describe("Effect boundary engine coverage", () => {
-  it.effect("includes every non-ignored TypeScript-family source in the audit project", () =>
+describe("Effect audit boundary coverage", () => {
+  it.live("covers tracked and untracked TypeScript-family files with the audit project", () =>
     Effect.gen(function*() {
-      const root = yield* repositoryRoot
-      const expected = (yield* manifest(root)).filter((file) => hasExtension(file, typeScriptExtensions))
-      const output = yield* runText(root, "npm", [
-        "exec",
-        "--",
-        "tsc",
-        "--listFilesOnly",
-        "-p",
-        "tsconfig.effect-audit.json"
-      ], [0])
       const path = yield* Path.Path
-      const actual = yield* normalize(root, output.split(/\r?\n/u).filter((file) => {
-        if (!hasExtension(file, typeScriptExtensions)) return false
-        const relative = path.relative(root, path.resolve(root, file))
-        return relative !== ".."
-          && !relative.startsWith(`..${path.sep}`)
-          && !relative.split(path.sep).includes("node_modules")
-      }))
+      const root = path.resolve(".")
+      const manifest = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+      const listed = yield* runCommand("tsc", ["--listFilesOnly", "-p", "tsconfig.effect-audit.json"])
+      expect(manifest.exitCode, manifest.stderr).toBe(0)
+      expect(listed.exitCode, listed.stderr).toBe(0)
+      const expected = manifest.stdout.split("\0").filter(typescriptFile).sort()
+      const actual = (yield* Effect.forEach(
+        listed.stdout.split(/\r?\n/).filter(typescriptFile),
+        (file) => repositoryFile(root, file)
+      )).filter((file): file is string => file !== undefined).sort()
+
       expect(actual).toEqual(expected)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("includes every non-ignored TypeScript and JavaScript source in whole-tree ESLint", () =>
+  it.live("covers tracked and untracked TS/JS-family files with whole-tree ESLint", () =>
     Effect.gen(function*() {
-      const root = yield* repositoryRoot
-      const expected = (yield* manifest(root)).filter((file) => hasExtension(file, sourceExtensions))
-      const output = yield* runText(root, "npm", [
-        "exec",
-        "--",
-        "eslint",
-        "--config",
-        "eslint.effect.config.mjs",
-        ".",
-        "--format",
-        "json"
-      ], [0, 1])
-      const decoded = yield* Schema.decodeUnknownEffect(EslintOutputJson)(output)
-      const expectedSet = new Set(expected)
-      const actual = (yield* normalize(root, decoded.map((result) => result.filePath)))
-        .filter((file) => expectedSet.has(file))
+      const path = yield* Path.Path
+      const root = path.resolve(".")
+      const manifest = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
+      const eslint = yield* runCommand("eslint", ["--config", "eslint.effect.config.mjs", ".", "--format", "json"])
+      expect(manifest.exitCode, manifest.stderr).toBe(0)
+      expect([0, 1]).toContain(eslint.exitCode)
+      const results = yield* Schema.decodeUnknownEffect(EslintJson)(eslint.stdout)
+      const expected = manifest.stdout.split("\0").filter(eslintFile).sort()
+      const actual = (yield* Effect.forEach(results, (result) => repositoryFile(root, result.filePath)))
+        .filter((file): file is string => file !== undefined && eslintFile(file))
+        .sort()
+
       expect(actual).toEqual(expected)
-    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
+    }).pipe(Effect.provide(NodeServices.layer)))
 })
