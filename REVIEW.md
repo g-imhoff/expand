@@ -1,6 +1,6 @@
 # Reviewing `feature/effect-only-migration`
 
-A guided reading path for reviewing this branch. It is large — **649 commits, 467 files, 75,833 insertions and 363 deletions** — so treat everything here as *newly built*, not as a small diff on top of `develop`.
+A guided reading path for reviewing this branch. It is large, so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
 This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
@@ -16,7 +16,7 @@ The Effect-only implementation range is `dd83af88c04159ac6847c62271078e607ff3e3f
 
 ### Permanent guarantees
 
-- The Effect language-service gate collects `error`, `warning`, and `message`. Live warnings and messages are zero; the only diagnostics are the exact registered `nodeBuiltinImport` errors.
+- The Effect language-service gate collects `error`, `warning`, and `message` and rejects unregistered diagnostics and advisories.
 - `npm run effect:audit` is a permanent zero-finding gate. The migration baseline, updater command, and comparison APIs are removed.
 - `effect-candidate-inventory.json` permanently requires a bijection between every lexical candidate or language-service advisory and one exact reviewed classification.
 - `effect-executable-inventory.json` permanently requires a bijection between executable discovery and exact fingerprinted entrypoint/invocation records across manifests, runners, child APIs, wrappers, exports, Electron, esbuild, and shebangs.
@@ -26,6 +26,7 @@ The Effect-only implementation range is `dd83af88c04159ac6847c62271078e607ff3e3f
 
 ### Fresh final evidence at `e7d9fc6`
 
+- The language-service gate reported zero warnings and messages; its residual errors were the exact registered `nodeBuiltinImport` diagnostics.
 - The candidate inventory contained 261 exact candidates and zero advisories: 60 host boundaries, 61 analyzer-proven lexical false positives, 133 audit fixtures, and 7 host-required types. The executable inventory contained 28 entrypoints and 94 invocation links.
 - Clean root and architecture-doc installs preserved lockfiles at SHA-256 `e7dd3a5af435971242555c24123d97d0c3f76e1be6205b2e380199bda258f1dc` and `a838b86b2eb505de4e8d07fc9c05c196462491189ddfbca8dfd82076c56f3e7b`.
 - Agent synchronization, diagnostics, audit, raw grep, candidate and executable inventories, ESLint, all TypeScript projects, dependency-cruiser, root/docs Knip, and the five-manifest policy passed.
@@ -110,12 +111,12 @@ Effect is required for I/O, ambient inputs, async/cancellation, recoverable fail
 
 ### Stage 1 — `packages/contracts`  ·  35–45 min  ·  🟡 medium
 
-**What:** The shared vocabulary every other package imports and nothing imports back: branded scalars, the domain event union, the canonical `Project` read-model with its fold logic, the RPC surface, the discovery-file schema, the runtime data-path context, and the CLI output envelopes.
+**What:** The shared vocabulary every other package imports and nothing imports back: branded scalars, the domain event union, the canonical `Project` read-model with its fold logic, the RPC surface, the discovery-file schema, and the runtime data-path context.
 
 **Why here:** It is the foundation (`dependsOn: none`). Every later module speaks this language.
 
 **Read in order:**
-DONE (2026-07-05: fold versions became per-projection — re-read the FOLD_VERSIONS part; 2026-07-07: the fold is now ONLY Project.foldList — server/domain/project.ts removed) 1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSIONS`** — a per-projection map (name → build-time SHA-256 of that projection's fold nodes; `projects` hashes the `Project` class), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`npm run gen:fold-version`). The server stamps `FOLD_VERSIONS.projects` on the persisted `projection_state` row; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
+REREVIEW (historical review notes: 2026-07-05: fold versions became per-projection — re-read the FOLD_VERSIONS part; 2026-07-07: the fold is now ONLY Project.foldList — server/domain/project.ts removed. The Effect migration changed fold-version generation and lockstep, so rereview `scripts/fold-version.ts` and `test/architecture/fold-version-lockstep.test.ts`.) 1. `project.ts` — **start here.** Branded scalars + the opaque `Project` and its canonical statics `fromCreated` / `applyEvent` / `foldList`. *This fold is the single source of truth reused by server and clients alike.* Also drives **`FOLD_VERSIONS`** — a per-projection map (name → build-time SHA-256 of that projection's fold nodes; `projects` hashes the `Project` class), generated into `packages/contracts/fold-version.generated.ts` by `scripts/fold-version.ts` (`npm run gen:fold-version`). The server stamps `FOLD_VERSIONS.projects` on the persisted `projection_state` row; a mismatch forces a from-zero rebuild. It changes automatically when the fold changes — no manual bump (pinned by `test/architecture/fold-version-lockstep.test.ts`).
 DONE 2. `events/meta.ts` — tiny `withMeta()` helper that gives every event a common envelope.
 DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryChanged/Archived/Restored/MetadataChanged/Deleted).
 UPDATED 4. `events/domain-event.ts` → `events/domain.ts` — the internal module constructs the `DomainEvent` union and JSON codec once; the public module constructs `SequencedEvent {seq, event}` and re-exports those exact schema identities. The helper subpath is explicitly blocked from the source and staged package exports.
@@ -219,7 +220,7 @@ UPDATED (2026-07-12) 3. `cli/output.ts` + `cli/global-flags.ts` — stdout/stder
 UPDATED (2026-07-12) 7. `cli/errors/index.ts` + `cli/errors/project-errors.ts` + `cli/errors/parser-errors.ts` + `cli/run.ts` — the contract/parser-error → CLI-error mapping (stable codes/exit codes) and the top-level error boundary. Parser failures such as an existing file passed to `--data-dir` must still produce one structured `INVALID_ARGUMENT` envelope and exit 2.
 
 **Scrutinize hardest:**
-- **Effect CLI boundary:** the Effect CLI runner acquires `Stdio` and `Path` services at the host boundary. Typed CLI failures render through one top-level mapping without changing the stable `expand/v1` envelope or stdout/stderr contract.
+- **Effect CLI boundary:** the runner uses `Command.run` and provides `CliOutput.layer(jsonCliErrorFormatter)` with `ProcessServices.layer`; `Path` resolves the backend command, while `Console` owns stdout/stderr. Typed CLI failures render through one top-level mapping without changing the stable `expand/v1` envelope or stdout/stderr contract.
 - **Error-mapping fidelity:** unmapped `_tag`s silently fall through to `UNEXPECTED` (exit 1) — verify the switch tables cover the real contract error set.
 - **Exit codes are an external API** for scripting agents — confirm codes (1/2/5/6/7/8/9/10) and `retryable` flags are stable and tested.
 - **stdout/stderr purity:** a failure must emit nothing on stdout and exactly one JSON line on stderr.
