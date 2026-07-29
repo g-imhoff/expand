@@ -418,15 +418,16 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
 
   const exportedNames = new Set()
   for (const statement of sourceCode.ast.body ?? []) {
+    const declarationName = statement.declaration?.id?.name
     if (statement.type === "ExportNamedDeclaration") {
       if (statement.declaration?.type === "VariableDeclaration") {
         for (const declarator of statement.declaration.declarations) for (const name of bindingNames(declarator.id)) exportedNames.add(name)
-      } else if (statement.declaration?.id?.name) {
-        exportedNames.add(statement.declaration.id.name)
+      } else if (declarationName) {
+        exportedNames.add(declarationName)
       }
       for (const specifier of statement.specifiers ?? []) if (specifier.local?.name) exportedNames.add(specifier.local.name)
-    } else if (statement.type === "ExportDefaultDeclaration" && statement.declaration?.id?.name) {
-      exportedNames.add(statement.declaration.id.name)
+    } else if (statement.type === "ExportDefaultDeclaration" && declarationName) {
+      exportedNames.add(declarationName)
     }
   }
 
