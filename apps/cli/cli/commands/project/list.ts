@@ -1,9 +1,9 @@
 import { Flag } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
 import type { Project } from "@expand/contracts/project"
 import { ProjectClient } from "@expand/client-ts/project"
-import { defineCommand } from "@expand/cli/_command"
+import { defineCommand } from "@expand/cli/commands/define-command"
 
 export const listCommand = (() => {
   const sorted = (ps: ReadonlyArray<Project>) =>

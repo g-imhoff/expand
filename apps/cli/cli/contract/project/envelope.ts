@@ -1,18 +1,6 @@
 import { Schema } from "effect"
 import { Project, ProjectDeleteResult } from "@expand/contracts/project"
-import { ENVELOPE_VERSION, ErrorCode } from "./envelope-internal"
-
-export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
-  Schema.Struct({
-    apiVersion: Schema.Literal(ENVELOPE_VERSION),
-    kind: Schema.Literal("Error"),
-    code: ErrorCode,
-    message: Schema.String,
-    retryable: Schema.Boolean,
-    input: Schema.optional(Schema.Unknown),
-    hint: Schema.optional(Schema.String)
-  })
-) {}
+import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
 
 export class ProjectEnvelope extends Schema.Opaque<ProjectEnvelope>()(
   Schema.Struct({
@@ -39,16 +27,3 @@ export class ProjectDeleteEnvelope extends Schema.Opaque<ProjectDeleteEnvelope>(
     data: ProjectDeleteResult
   })
 ) {}
-
-export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
-  Schema.Struct({
-    apiVersion: Schema.Literal(ENVELOPE_VERSION),
-    kind: Schema.Literal("ServerHealth"),
-    data: Schema.Struct({ status: Schema.String })
-  })
-) {}
-
-export const ErrorEnvelopeFromJson = Schema.fromJsonString(ErrorEnvelope)
-
-export { ENVELOPE_VERSION, ErrorCode }
-export type ErrorCode = typeof ErrorCode.Type

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { DataDir, Format, Quiet } from "@expand/cli/global-flags"
+import { DataDir, Format, Quiet } from "@expand/cli/commands/global-flags"
 
 describe("global flags", () => {
   it("Format, Quiet, and DataDir are global-flag settings", () => {

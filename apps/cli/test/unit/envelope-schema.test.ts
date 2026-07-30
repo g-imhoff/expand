@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
-import { ErrorEnvelope, HealthEnvelope, ProjectDeleteEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@expand/cli/contract/envelope"
+import { ErrorEnvelope } from "@expand/cli/errors/envelope"
+import { ProjectDeleteEnvelope, ProjectEnvelope, ProjectListEnvelope } from "@expand/cli/contract/project/envelope"
+import { HealthEnvelope } from "@expand/cli/contract/server/envelope"
 
 const shapeOf = (schema: Schema.Top): unknown => Schema.toJsonSchemaDocument(schema)
 

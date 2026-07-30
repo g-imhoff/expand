@@ -4,7 +4,7 @@ import { NodeServices } from "@effect/platform-node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
-import { renderErrors } from "@expand/cli/run"
+import { renderErrors } from "@expand/cli/errors/render-errors"
 
 export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClient> => {
   const s = stub as Record<string, any>

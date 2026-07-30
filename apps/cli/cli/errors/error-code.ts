@@ -1,7 +1,5 @@
 import { Schema } from "effect"
 
-export const ENVELOPE_VERSION = "expand/v1" as const
-
 export const ErrorCode = Schema.Literals([
   "UNEXPECTED",
   "INVALID_ARGUMENT",
@@ -14,3 +12,5 @@ export const ErrorCode = Schema.Literals([
   "DIRECTORY_INVALID",
   "DIRECTORY_CONFLICT"
 ])
+
+export type ErrorCode = typeof ErrorCode.Type

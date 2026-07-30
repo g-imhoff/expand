@@ -1,10 +1,10 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
 import type { Project } from "@expand/contracts/project"
 import { ProjectClient } from "@expand/client-ts/project"
-import { defineCommand } from "@expand/cli/_command"
-import { resolveProjectTarget } from "@expand/cli/commands/project/_resolve"
+import { defineCommand } from "@expand/cli/commands/define-command"
+import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
 
 export const changeDirectoryCommand = (() => {
   const target = Argument.string("project")

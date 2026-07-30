@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { CliError } from "effect/unstable/cli"
 import { describe, expect, expectTypeOf, it } from "vitest"
-import { ErrorEnvelope, ErrorEnvelopeFromJson } from "@expand/cli/contract/envelope"
+import { ErrorEnvelope, ErrorEnvelopeFromJson } from "@expand/cli/errors/envelope"
 import { makeEnvelope } from "@expand/cli/errors/envelope"
 import { jsonCliErrorFormatter } from "@expand/cli/errors/parser-errors"
 

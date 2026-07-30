@@ -681,7 +681,7 @@ const boundarySourceCatalog: Record<string, string> = {
   "apps/cli/cli/main.ts": `${boundarySource}const backendCommand = { execPath: ${hostProcessExecPath}, binaryArgs: [${hostProcessExecPath}] }
 void backendCommand
 `,
-  "apps/cli/cli/node-app-context.ts": appContextBoundarySource,
+  "apps/cli/cli/runtime/node-app-context.ts": appContextBoundarySource,
   "apps/desktop/electron.vite.config.ts": `import { builtinModules } from "node:module"
 import { resolve } from "node:path"
 void builtinModules

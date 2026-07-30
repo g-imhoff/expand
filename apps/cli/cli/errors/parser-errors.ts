@@ -1,7 +1,6 @@
 import { CliError, CliOutput } from "effect/unstable/cli"
 import { Schema } from "effect"
-import { makeEnvelope } from "@expand/cli/errors/envelope"
-import { ErrorEnvelopeFromJson, type ErrorEnvelope } from "@expand/cli/contract/envelope"
+import { ErrorEnvelopeFromJson, type ErrorEnvelope, makeEnvelope } from "@expand/cli/errors/envelope"
 
 export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {

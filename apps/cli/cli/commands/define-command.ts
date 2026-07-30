@@ -1,6 +1,6 @@
 import { Command } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { Format, Quiet } from "@expand/cli/global-flags"
+import { Format, Quiet } from "@expand/cli/commands/global-flags"
 import { successLine, writeOut } from "@expand/cli/output"
 
 export interface ResultSpec<R> {

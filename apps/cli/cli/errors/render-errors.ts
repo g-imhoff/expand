@@ -1,7 +1,7 @@
 import { Data, Effect, Runtime, Schema } from "effect"
 import { CliError } from "effect/unstable/cli"
 import { mapContractError, type ExpandCliError } from "@expand/cli/errors"
-import { ErrorEnvelopeFromJson } from "@expand/cli/contract/envelope"
+import { ErrorEnvelopeFromJson } from "@expand/cli/errors/envelope"
 import { cliErrorToEnvelope } from "@expand/cli/errors/parser-errors"
 import { writeErr } from "@expand/cli/output"
 

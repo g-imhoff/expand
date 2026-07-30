@@ -5,12 +5,12 @@ import { NodePath, NodeRuntime } from "@effect/platform-node"
 import { ClientLayer, resolveBackendCommand, type BackendCommandError } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
-import { DataDir, Format, Quiet } from "@expand/cli/global-flags"
+import { DataDir, Format, Quiet } from "@expand/cli/commands/global-flags"
 import { jsonCliErrorFormatter } from "@expand/cli/errors"
-import { renderErrors } from "@expand/cli/run"
+import { renderErrors } from "@expand/cli/errors/render-errors"
 import { healthCommand } from "@expand/cli/commands/health"
 import { projectCommand } from "@expand/cli/commands/project"
-import { appContextFromDataDir } from "@expand/cli/app-context-layer"
+import { appContextFromDataDir } from "@expand/cli/runtime/app-context-layer"
 
 export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerClient, E, R>) => {
   const configuredClientLayer = clientLayer.pipe(Layer.provide(appContextFromDataDir))

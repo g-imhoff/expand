@@ -3,7 +3,7 @@ import { Cause, Console, Context, Effect, Runtime, Schema } from "effect"
 import { CliError } from "effect/unstable/cli"
 import { describe, expect, expectTypeOf } from "vitest"
 import { ProjectAlreadyExists } from "@expand/contracts/rpc"
-import { renderErrors } from "@expand/cli/run"
+import { renderErrors } from "@expand/cli/errors/render-errors"
 
 class RenderService extends Context.Service<RenderService, string>()("expand/CliRenderErrorsTest") {}
 

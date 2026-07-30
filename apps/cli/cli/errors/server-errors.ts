@@ -1,5 +1,5 @@
 import { Data, Runtime } from "effect"
-import type { ErrorEnvelope } from "@expand/cli/contract/envelope"
+import type { ErrorEnvelope } from "@expand/cli/errors/envelope"
 import { makeEnvelope, tagOf } from "@expand/cli/errors/envelope"
 
 export class BackendUnreachable extends Data.TaggedError("BackendUnreachable")<{ readonly reason: string }> {

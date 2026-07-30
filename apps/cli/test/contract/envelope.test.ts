@@ -1,13 +1,10 @@
 import { it } from "@effect/vitest"
 import { Effect, Result, Schema } from "effect"
 import { describe, expect } from "vitest"
-import {
-  ENVELOPE_VERSION,
-  ErrorEnvelope,
-  ProjectEnvelope,
-  ProjectListEnvelope,
-  HealthEnvelope
-} from "@expand/cli/contract/envelope"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { ErrorEnvelope } from "@expand/cli/errors/envelope"
+import { ProjectEnvelope, ProjectListEnvelope } from "@expand/cli/contract/project/envelope"
+import { HealthEnvelope } from "@expand/cli/contract/server/envelope"
 import { ProjectCreateResult } from "@expand/contracts/project"
 
 const uid = (n: number): string =>
