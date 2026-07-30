@@ -2,7 +2,7 @@ import { Effect, Ref, Stream } from "effect"
 import type { RpcGroup } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { EventBus } from "@expand/server/application/event-bus"
-import { ConnectionTracker } from "@expand/server/connection-tracker"
+import { ConnectionTracker } from "@expand/server/runtime/connection-tracker"
 import { ReplayFeed } from "@expand/server/db/replay-feed"
 
 export const streamHandlers = {

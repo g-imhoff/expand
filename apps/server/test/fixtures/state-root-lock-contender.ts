@@ -1,11 +1,11 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect, FileSystem, Schedule, Schema, Stdio } from "effect"
 import { ProcessControl } from "@expand/contracts/process-control"
-import { ProcessServices } from "@expand/server/node-process-control"
+import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import {
   acquireStateRootLock,
   releaseStateRootLock
-} from "@expand/server/state-root-lock"
+} from "@expand/server/runtime/state-root-lock"
 
 const ContenderResult = Schema.fromJsonString(Schema.Union([
   Schema.Struct({

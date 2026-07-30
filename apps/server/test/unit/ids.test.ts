@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { Crypto, Effect, PlatformError } from "effect"
 import { describe, expect, expectTypeOf } from "vitest"
-import { newId } from "@expand/server/lib/ids"
+import { newId } from "@expand/server/application/ids"
 
 describe("newId", () => {
   it.effect("is a lazy Effect that produces a deterministic uuid", () => {

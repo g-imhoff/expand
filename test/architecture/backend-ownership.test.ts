@@ -12,12 +12,12 @@ const SERVER_FILES = [
   "apps/server/application/projections.ts",
   "apps/server/application/projects/use-cases.ts",
   "apps/server/application/server/use-cases.ts",
-  "apps/server/http.ts",
-  "apps/server/connection-tracker.ts",
-  "apps/server/endpoint-file.ts",
-  "apps/server/state-root-lock.ts",
-  "apps/server/rpc-handlers.ts",
-  "apps/server/lib/ids.ts"
+  "apps/server/transport/http-server.ts",
+  "apps/server/runtime/connection-tracker.ts",
+  "apps/server/runtime/endpoint-file.ts",
+  "apps/server/runtime/state-root-lock.ts",
+  "apps/server/rpc/handlers.ts",
+  "apps/server/application/ids.ts"
 ] as const
 
 const CLI_FORBIDDEN_DIRS = [

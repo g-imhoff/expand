@@ -3,7 +3,7 @@ import { networkInterfaces } from "node:os"
 import { Console, Effect, Layer, Path, Schema, Stdio } from "effect"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { runServer } from "@expand/server/composition/app"
-import { ProcessServices } from "@expand/server/node-process-control"
+import { ProcessServices } from "@expand/server/runtime/node-process-control"
 
 const HostArguments = Schema.Union([
   Schema.Tuple([Schema.Literal("network-targets")]),

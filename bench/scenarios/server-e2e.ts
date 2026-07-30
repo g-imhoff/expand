@@ -3,7 +3,7 @@
 // Pattern mirrors apps/server/test/integration/durability-restart.test.ts.
 import { Duration, Effect, Fiber, FileSystem, Layer, Option, Path, Schedule } from "effect"
 import type { Scope } from "effect"
-import { ProcessServices } from "@expand/server/node-process-control"
+import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import type { ExpandRpcClientApi } from "@expand/client-ts"

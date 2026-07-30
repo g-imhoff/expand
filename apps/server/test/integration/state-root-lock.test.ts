@@ -24,7 +24,7 @@ import {
   ProcessProbeError,
   type ProcessControlShape
 } from "@expand/contracts/process-control"
-import { ProcessServices } from "@expand/server/node-process-control"
+import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import {
   acquireStateRootLock,
   releaseStateRootLock,
@@ -33,7 +33,7 @@ import {
   type StateRootLockOptions,
   stateRootLock,
   stateRootLockForStartup
-} from "@expand/server/state-root-lock"
+} from "@expand/server/runtime/state-root-lock"
 
 effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minutes" })("state root ownership (I-2)", (test) => {
   test("exposes typed lock errors and service environments", () => {

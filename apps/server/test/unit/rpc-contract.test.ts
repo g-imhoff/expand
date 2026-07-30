@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Schema } from "effect"
 import { ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectNotFound, ExpandRpcs } from "@expand/contracts/rpc"
 import { ProjectDeleteResult } from "@expand/contracts/project"
-import { ExpandHandlers } from "@expand/server/rpc-handlers"
+import { ExpandHandlers } from "@expand/server/rpc/handlers"
 
 describe("ExpandRpcs contract", () => {
   it("is a defined RpcGroup", () => {

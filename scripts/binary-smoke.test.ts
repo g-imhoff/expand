@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { ProcessControl } from "@expand/contracts/process-control"
-import { ProcessServices } from "@expand/server/node-process-control"
+import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Ref, Schedule, Sink, Stream } from "effect"
 import { TestClock } from "effect/testing"

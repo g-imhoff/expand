@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect } from "effect"
-import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/connection-tracker"
+import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 
 const run = <A, E>(eff: Effect.Effect<A, E, ConnectionTracker>) =>
   Effect.provide(Effect.scoped(eff), ConnectionTrackerLayer)

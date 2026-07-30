@@ -41,4 +41,31 @@ describe("app responsibility folder convention", () => {
         "apps/cli/cli/run.ts"
       ]
     ).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("organizes server modules by responsibility", () =>
+    assertPaths(
+      [
+        "apps/server/main.ts",
+        "apps/server/application/ids.ts",
+        "apps/server/rpc/handlers.ts",
+        "apps/server/runtime/connection-tracker.ts",
+        "apps/server/runtime/endpoint-file.ts",
+        "apps/server/runtime/node-app-context.ts",
+        "apps/server/runtime/node-process-control.ts",
+        "apps/server/runtime/server-config.ts",
+        "apps/server/runtime/state-root-lock.ts",
+        "apps/server/transport/http-server.ts"
+      ],
+      [
+        "apps/server/lib/ids.ts",
+        "apps/server/rpc-handlers.ts",
+        "apps/server/connection-tracker.ts",
+        "apps/server/endpoint-file.ts",
+        "apps/server/node-app-context.ts",
+        "apps/server/node-process-control.ts",
+        "apps/server/server-config.ts",
+        "apps/server/state-root-lock.ts",
+        "apps/server/http.ts"
+      ]
+    ).pipe(Effect.provide(NodeServices.layer)))
 })

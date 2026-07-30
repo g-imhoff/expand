@@ -307,7 +307,7 @@ const expectedBoundaryEnforcement = {
     "packages/client-ts/test/integration/spawn-lock.test.ts"
   ],
   "I-4": [
-    "apps/server/connection-tracker.ts",
+    "apps/server/runtime/connection-tracker.ts",
     "apps/server/composition/app.ts",
     "apps/server/test/unit/connection-tracker.test.ts",
     "apps/server/test/integration/endpoint-file.test.ts",

@@ -5,7 +5,7 @@ import { NodeHttpServer } from "@effect/platform-node"
 import { timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
-import { ExpandHandlers } from "@expand/server/rpc-handlers"
+import { ExpandHandlers } from "@expand/server/rpc/handlers"
 
 export const httpServerLayer = (port: number, token: string) => {
   const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })

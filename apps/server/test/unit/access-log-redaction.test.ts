@@ -6,7 +6,7 @@ import * as Socket from "effect/unstable/socket/Socket"
 import { HttpServer } from "effect/unstable/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
-import { httpServerLayer } from "@expand/server/http"
+import { httpServerLayer } from "@expand/server/transport/http-server"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { EventBusLayer } from "@expand/server/application/event-bus"
 import { ProjectProjectionLayer } from "@expand/server/application/projections"
@@ -14,7 +14,7 @@ import { ProjectEventStoreLayer } from "@expand/server/application/projects/proj
 import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
-import { ConnectionTrackerLayer } from "@expand/server/connection-tracker"
+import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {

@@ -1,11 +1,11 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
-import { nodeAppContextLayer } from "@expand/server/node-app-context"
-import { minimumLogLevel } from "@expand/server/server-config"
+import { nodeAppContextLayer } from "@expand/server/runtime/node-app-context"
+import { minimumLogLevel } from "@expand/server/runtime/server-config"
 import * as AppContext from "@expand/contracts/app-context"
 import * as ServerApp from "@expand/server/composition/app"
-import * as StateRootLock from "@expand/server/state-root-lock"
-import * as NodeProcessControl from "@expand/server/node-process-control"
+import * as StateRootLock from "@expand/server/runtime/state-root-lock"
+import * as NodeProcessControl from "@expand/server/runtime/node-process-control"
 
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem

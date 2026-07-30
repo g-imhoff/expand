@@ -320,14 +320,14 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/http.ts",
+    file: "apps/server/transport/http-server.ts",
     declaration: "module:<module>",
     host: "Node HTTP adapter",
     construct: nodeCryptoImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/http.ts",
+    file: "apps/server/transport/http-server.ts",
     declaration: "module:<module>",
     host: "Node HTTP adapter",
     construct: nodeHttpImport,
@@ -348,28 +348,28 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/node-app-context.ts",
+    file: "apps/server/runtime/node-app-context.ts",
     declaration: "module:<module>",
     host: "Node AppContext host acquisition",
     construct: nodeOsImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/node-app-context.ts",
+    file: "apps/server/runtime/node-app-context.ts",
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/node-process-control.ts",
+    file: "apps/server/runtime/node-process-control.ts",
     declaration: "member:nodeProcessControlLayer.currentPid",
     host: "Node ProcessControl host acquisition",
     construct: processPid,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/server/node-process-control.ts",
+    file: "apps/server/runtime/node-process-control.ts",
     declaration: "member:probe.try",
     host: "Node ProcessControl host acquisition",
     construct: processKill,

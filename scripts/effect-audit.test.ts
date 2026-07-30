@@ -714,10 +714,10 @@ void release
   ${documentRemoveEventListener}("keydown", listener)
 }
 `,
-  "apps/server/http.ts": serverHttpBoundarySource,
+  "apps/server/transport/http-server.ts": serverHttpBoundarySource,
   "apps/server/main.ts": serverMainBoundarySource,
-  "apps/server/node-app-context.ts": appContextBoundarySource,
-  "apps/server/node-process-control.ts": processControlBoundarySource,
+  "apps/server/runtime/node-app-context.ts": appContextBoundarySource,
+  "apps/server/runtime/node-process-control.ts": processControlBoundarySource,
   "apps/server/test/fixtures/state-root-lock-contender.ts": runnerBoundarySource,
   "apps/server/test/fixtures/trust-boundary-host.ts": `import { homedir } from "${nodeOs}"
 import { NodeRuntime } from "@effect/platform-node"
@@ -850,8 +850,8 @@ describe("registered Effect language diagnostic command", () => {
     expect({ missing, unregistered: unregisteredFiles }).toEqual({ missing: [], unregistered: [] })
 
     const start = serverHttpBoundarySource.indexOf(`"${nodeHttp}"`)
-    const registered = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
-    const registeredMessage = `{"diagnostics":[{"file":"apps/server/http.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"message","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
+    const registered = `{"diagnostics":[{"file":"apps/server/transport/http-server.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
+    const registeredMessage = `{"diagnostics":[{"file":"apps/server/transport/http-server.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"message","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
     const unregisteredSource = `import { createServer } from "${nodeHttp}"\n`
     const unregisteredStart = unregisteredSource.indexOf(`"${nodeHttp}"`)
     const unregistered = `{"diagnostics":[{"file":"src/sample.ts","start":${unregisteredStart},"length":${nodeHttp.length + 2},"line":1,"column":${unregisteredStart + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`
@@ -867,7 +867,7 @@ describe("registered Effect language diagnostic command", () => {
             reason: "invalid-output",
             findings: [{
               engine: "effect-language-service",
-              file: "apps/server/http.ts",
+              file: "apps/server/transport/http-server.ts",
               rule: "nodeBuiltinImport",
               severity: "message"
             }]

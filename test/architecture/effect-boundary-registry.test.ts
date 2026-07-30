@@ -25,7 +25,7 @@ const platformProcessExit = ["platform:process", "exit"].join(".")
 type NodeBuiltinDiagnosticMatcherOptions = Parameters<typeof isRegisteredNodeBuiltinDiagnostic>[0]
 
 const nodeHttpBoundary = {
-  file: "apps/server/http.ts",
+  file: "apps/server/transport/http-server.ts",
   declaration: "module:<module>",
   construct: ["platform:import:node", "http"].join(":"),
   occurrence: 0

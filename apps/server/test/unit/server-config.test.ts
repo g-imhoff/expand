@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { Config, ConfigProvider, Effect, type LogLevel } from "effect"
 import { describe, expect, expectTypeOf } from "vitest"
-import { minimumLogLevel } from "@expand/server/server-config"
+import { minimumLogLevel } from "@expand/server/runtime/server-config"
 
 const configLayer = (value: unknown) =>
   ConfigProvider.layer(ConfigProvider.fromUnknown(value))

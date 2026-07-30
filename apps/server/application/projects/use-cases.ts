@@ -8,7 +8,7 @@ import type { ProjectEvent } from "@expand/contracts/events/project"
 import { EventBus } from "@expand/server/application/event-bus"
 import { ProjectProjection } from "@expand/server/application/projections"
 import { ProjectArchived, ProjectCreated, ProjectDeleted, ProjectDirectoryChanged, ProjectMetadataChanged, ProjectRenamed, ProjectRestored } from "@expand/contracts/events/project"
-import { newId } from "@expand/server/lib/ids"
+import { newId } from "@expand/server/application/ids"
 
 /**
  * Every project mutation — the only code that appends project events.

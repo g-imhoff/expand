@@ -220,7 +220,7 @@ targeting that root are still connected. The server does not care who
 spawned it — only how many connections to that root are active. This
 prevents the "Desktop launched the server, CLI outlives it" class of bugs.
 
-**Enforcement.** `apps/server/connection-tracker.ts` owns the in-memory
+**Enforcement.** `apps/server/runtime/connection-tracker.ts` owns the in-memory
 connection state; there are no file-based counters or external coordination.
 `apps/server/composition/app.ts` awaits that tracker, removes the endpoint,
 and closes the HTTP transport through a one-second bounded graceful shutdown.
@@ -245,7 +245,7 @@ This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, mode
 | I-1 | `.dependency-cruiser.cjs`, `test/architecture/i1-cli-isolation.test.ts`, `test/architecture/ipc-boundary.test.ts`, `test/architecture/depcruise-exclude.test.ts`, `test/architecture/server-app-split.test.ts` |
 | I-2 | `test/architecture/backend-ownership.test.ts`, `apps/server/test/integration/state-root-lock.test.ts` |
 | I-3 | `apps/server/test/integration/endpoint-file.test.ts`, `packages/client-ts/test/integration/find-or-spawn.test.ts`, `packages/client-ts/test/integration/spawn-lock.test.ts` |
-| I-4 | `apps/server/connection-tracker.ts`, `apps/server/composition/app.ts`, `apps/server/test/unit/connection-tracker.test.ts`, `apps/server/test/integration/endpoint-file.test.ts`, `apps/server/test/unit/harness.test.ts` |
+| I-4 | `apps/server/runtime/connection-tracker.ts`, `apps/server/composition/app.ts`, `apps/server/test/unit/connection-tracker.test.ts`, `apps/server/test/integration/endpoint-file.test.ts`, `apps/server/test/unit/harness.test.ts` |
 
 ## Modifying these invariants
 
