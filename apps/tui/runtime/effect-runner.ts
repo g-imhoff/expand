@@ -3,7 +3,7 @@ import { Cause, Effect, Exit, Fiber, ManagedRuntime } from "effect"
 import type { ClientSession } from "@expand/client-ts"
 import type { ProjectClient } from "@expand/client-ts/project"
 import type { ServerClient } from "@expand/client-ts/server"
-import type { ExpandRuntimeError } from "@expand/tui/runtime"
+import type { ExpandRuntimeError } from "@expand/tui/runtime/tui-runtime"
 
 export interface TuiEffectRunner {
   readonly start: <A, E>(

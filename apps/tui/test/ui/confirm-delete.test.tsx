@@ -3,7 +3,7 @@ import { describe, expect, vi } from "vitest"
 import React from "react"
 import { Effect, Exit, Scope } from "effect"
 import { ConfirmDelete } from "@expand/tui/components/confirm-delete"
-import { renderInkScoped } from "./_runtime-harness"
+import { renderInkScoped } from "./runtime-harness"
 
 describe("ConfirmDelete", () => {
   it.effect("does not release the Ink root again after explicit unmount", () =>

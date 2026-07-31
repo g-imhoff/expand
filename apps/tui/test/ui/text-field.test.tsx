@@ -4,7 +4,7 @@ import React from "react"
 import { Effect } from "effect"
 import { textField } from "@expand/ink-input/text-field"
 import { TextField } from "@expand/tui/components/text-field"
-import { renderInkScoped } from "./_runtime-harness"
+import { renderInkScoped } from "./runtime-harness"
 
 describe("TextField", () => {
   it.effect("renders label and value", () =>

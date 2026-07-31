@@ -3,7 +3,7 @@ import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
 import { App } from "@expand/tui/components/app"
-import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./_runtime-harness"
+import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./runtime-harness"
 
 const seed = (n: number, name: string) => fakeProject(n, name)
 // Poll for an observable outcome instead of sleeping a fixed time: ink attaches

@@ -3,8 +3,8 @@ import { Effect, Exit, Schema, SubscriptionRef } from "effect"
 import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { runProjectSync, type ProjectSnapshot } from "@expand/contracts/project-sync"
-import { reportFailure, useTuiEffectRunner } from "@expand/tui/effect-runner"
-import { RuntimeContext } from "@expand/tui/runtime"
+import { reportFailure, useTuiEffectRunner } from "@expand/tui/runtime/effect-runner"
+import { RuntimeContext } from "@expand/tui/runtime/tui-runtime"
 
 export const useProjects = () => {
   const runtime = use(RuntimeContext)

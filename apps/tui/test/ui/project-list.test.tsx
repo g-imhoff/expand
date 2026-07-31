@@ -3,7 +3,7 @@ import { describe, expect } from "vitest"
 import { Effect } from "effect"
 import { ProjectList } from "@expand/tui/components/project-list"
 import { type Project } from "@expand/contracts/project"
-import { renderInkScoped } from "./_runtime-harness"
+import { renderInkScoped } from "./runtime-harness"
 
 const uid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 

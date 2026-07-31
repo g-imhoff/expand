@@ -14,7 +14,7 @@ import {
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
-import { nodeAppContextLayer } from "@expand/tui/node-app-context"
+import { nodeAppContextLayer } from "@expand/tui/runtime/node-app-context"
 
 export class TuiHostError extends Data.TaggedError("TuiHostError")<{
   readonly operation: "render" | "wait"

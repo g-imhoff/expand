@@ -4,7 +4,7 @@ import React from "react"
 import { Effect } from "effect"
 import { ProjectNameConflict } from "@expand/contracts/rpc"
 import { App } from "@expand/tui/components/app"
-import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./_runtime-harness"
+import { fakeProject, makeRuntimeHarnessScoped, renderWithRuntimeScoped } from "./runtime-harness"
 
 // See app-input-routing.test.tsx for the full rationale. ink wires its input hook
 // across two effects; between them a written key is read off stdin but routed to

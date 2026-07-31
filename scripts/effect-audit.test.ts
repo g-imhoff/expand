@@ -726,14 +726,14 @@ ${nodeRuntimeRunMain}(program as never)
 void homedir
 `,
   "apps/tui/main.tsx": runnerBoundarySource,
-  "apps/tui/runtime.ts": `import { join } from "${nodePath}"
+  "apps/tui/runtime/tui-runtime.ts": `import { join } from "${nodePath}"
 import { fileURLToPath } from "${nodeUrl}"
 const backendCommand = { execPath: ${hostProcessExecPath}, binaryArgs: [${hostProcessExecPath}] }
 void backendCommand
 void join
 void fileURLToPath
 `,
-  "apps/tui/node-app-context.ts": appContextBoundarySource,
+  "apps/tui/runtime/node-app-context.ts": appContextBoundarySource,
   "bench/main.ts": `import { cpus } from "${nodeOs}"
 import { NodeRuntime } from "@effect/platform-node"
 const opts = { try: () => ${hostProcessArgv}.slice(2) }

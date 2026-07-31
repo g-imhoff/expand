@@ -68,4 +68,23 @@ describe("app responsibility folder convention", () => {
         "apps/server/http.ts"
       ]
     ).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("organizes TUI modules by responsibility", () =>
+    assertPaths(
+      [
+        "apps/tui/main.tsx",
+        "apps/tui/runtime/tui-runtime.ts",
+        "apps/tui/runtime/effect-runner.ts",
+        "apps/tui/runtime/node-app-context.ts",
+        "apps/tui/features/projects/use-projects.ts",
+        "apps/tui/test/ui/runtime-harness.ts"
+      ],
+      [
+        "apps/tui/runtime.ts",
+        "apps/tui/effect-runner.ts",
+        "apps/tui/node-app-context.ts",
+        "apps/tui/use-projects.ts",
+        "apps/tui/test/ui/_runtime-harness.ts"
+      ]
+    ).pipe(Effect.provide(NodeServices.layer)))
 })

@@ -17,7 +17,7 @@ import {
 import { Project } from "@expand/contracts/project"
 import type { ProjectSnapshot } from "@expand/contracts/project-sync"
 import { ProjectInvalidInput } from "@expand/contracts/rpc"
-import { RuntimeContext, type ExpandRuntime } from "@expand/tui/runtime"
+import { RuntimeContext, type ExpandRuntime } from "@expand/tui/runtime/tui-runtime"
 
 export interface RuntimeHarnessOptions {
   readonly snapshot?: ProjectSnapshot

@@ -396,7 +396,7 @@ The migration also changed the code that proves, builds, packages, exercises, an
 
 #### 3. Desktop/TUI UI adapters and Playwright host bridge
 
-**Representative files:** `apps/desktop/test/ui/_harness.tsx`, `apps/tui/test/ui/_runtime-harness.ts`, `apps/desktop/e2e/effect-test.ts`, `apps/desktop/e2e/helpers.ts`, and `apps/desktop/e2e/playwright.config.ts`.
+**Representative files:** `apps/desktop/test/ui/_harness.tsx`, `apps/tui/test/ui/runtime-harness.ts`, `apps/desktop/e2e/effect-test.ts`, `apps/desktop/e2e/helpers.ts`, and `apps/desktop/e2e/playwright.config.ts`.
 
 **Scrutinize:** Read the host-required Promise adapter and shared UI harnesses completely. Playwright has one exact callback bridge; React/Ink roots, Electron/CDP processes, ports, listeners, runtimes, and temporary data must close on failure or interruption. Repetitive spec bodies may be sampled only after confirming all Page, Locator, Electron, and assertion Promises translate immediately through that bridge. **Matching tests:** `apps/desktop/test/unit/playwright/effect-test.test.ts`, `apps/desktop/test/unit/renderer-root.test.tsx`, `apps/tui/test/ui/use-projects.test.tsx`, and the desktop E2E suite.
 

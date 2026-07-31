@@ -411,42 +411,42 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/runtime.ts",
+    file: "apps/tui/runtime/tui-runtime.ts",
     declaration: "member:backendCommand.binaryArgs",
     host: "Node backend executable acquisition",
     construct: processExecPath,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/runtime.ts",
+    file: "apps/tui/runtime/tui-runtime.ts",
     declaration: "member:backendCommand.execPath",
     host: "Node backend executable acquisition",
     construct: processExecPath,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/runtime.ts",
+    file: "apps/tui/runtime/tui-runtime.ts",
     declaration: "module:<module>",
     host: "Node backend executable path adapter",
     construct: nodePathImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/runtime.ts",
+    file: "apps/tui/runtime/tui-runtime.ts",
     declaration: "module:<module>",
     host: "Node backend executable URL adapter",
     construct: nodeUrlImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/node-app-context.ts",
+    file: "apps/tui/runtime/node-app-context.ts",
     declaration: "module:<module>",
     host: "Node AppContext host acquisition",
     construct: nodeOsImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/tui/node-app-context.ts",
+    file: "apps/tui/runtime/node-app-context.ts",
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,

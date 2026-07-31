@@ -8,15 +8,15 @@ import { BackendUnavailable } from "@expand/client-ts"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import { runProjectSync } from "@expand/contracts/project-sync"
 import { App } from "@expand/tui/components/app"
-import { makeEffectRunner } from "@expand/tui/effect-runner"
-import { TuiHostError, tuiProgram, type ExpandRuntime } from "@expand/tui/runtime"
-import { useProjects } from "@expand/tui/use-projects"
+import { makeEffectRunner } from "@expand/tui/runtime/effect-runner"
+import { TuiHostError, tuiProgram, type ExpandRuntime } from "@expand/tui/runtime/tui-runtime"
+import { useProjects } from "@expand/tui/features/projects/use-projects"
 import {
   fakeProject,
   makeRuntimeHarnessScoped,
   renderWithRuntimeScoped,
   type RuntimeHarness
-} from "./_runtime-harness"
+} from "./runtime-harness"
 
 const alpha = fakeProject(1, "alpha")
 const beta = fakeProject(2, "beta")
