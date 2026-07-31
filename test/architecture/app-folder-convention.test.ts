@@ -165,6 +165,7 @@ describe("app responsibility folder convention", () => {
       const fs = yield* FileSystem.FileSystem
       const source = yield* fs.readFileString("docs/architecture/APP_STRUCTURE.md")
       for (const name of [
+        "app",
         "application",
         "commands",
         "components",
@@ -196,7 +197,7 @@ describe("app responsibility folder convention", () => {
         "styles",
         "workers"
       ]) {
-        expect(source).toContain(`\`${name}\``)
+        expect(source).toContain(`- \`${name}\`:`)
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 })
