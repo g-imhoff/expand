@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path } from "effect"
 import { describe, expect } from "vitest"
+import { makeTempDirectoryScoped, writeFixture } from "../support/effect-files"
 import { runCommand } from "../support/effect-process"
 
 const assertPaths = Effect.fn("AppFolderConvention.assertPaths")(function*(
@@ -17,27 +18,42 @@ const assertPaths = Effect.fn("AppFolderConvention.assertPaths")(function*(
   }
 })
 
-const trackedAppSource = Effect.fn("AppFolderConvention.trackedAppSource")(function*() {
-  const path = yield* Path.Path
-  const root = path.resolve(".")
+const appSourceManifest = Effect.fn("AppFolderConvention.appSourceManifest")(function*(root: string) {
   const report = yield* runCommand(
-    "rg",
-    [
-      "--files",
-      "apps",
-      "-g",
-      "*.ts",
-      "-g",
-      "*.tsx",
-      "-g",
-      "!**/node_modules/**",
-      "-g",
-      "!**/test-results/**"
-    ],
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "apps/**/*.ts", "apps/**/*.tsx"],
     { cwd: root }
   )
   expect(report.exitCode, report.stderr).toBe(0)
-  return report.stdout.split(/\r?\n/).filter(Boolean)
+  return report.stdout.split("\0").filter(Boolean).sort()
+})
+
+const gitFixture = Effect.fn("AppFolderConvention.gitFixture")(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const root = yield* makeTempDirectoryScoped("expand-app-folders-")
+  const files = {
+    ".gitignore": "apps/desktop/src/main/tracked-ignored.ts\n",
+    "apps/desktop/src/main/index.ts": "",
+    "apps/desktop/src/main/tracked-ignored.ts": "",
+    "apps/desktop/src/preload/index.ts": "",
+    "apps/desktop/src/renderer/main.tsx": "",
+    "apps/desktop/src/shared/ipc/channels.ts": "",
+    "apps/desktop/src/worker/untracked.ts": ""
+  }
+  for (const [file, source] of Object.entries(files)) {
+    yield* fs.makeDirectory(path.dirname(path.join(root, file)), { recursive: true })
+    yield* writeFixture(root, file, source)
+  }
+  for (const args of [
+    ["init", "-q"],
+    ["add", ".gitignore", "apps/desktop/src/main/index.ts", "apps/desktop/src/preload/index.ts", "apps/desktop/src/renderer/main.tsx", "apps/desktop/src/shared/ipc/channels.ts"],
+    ["add", "-f", "apps/desktop/src/main/tracked-ignored.ts"]
+  ]) {
+    const report = yield* runCommand("git", args, { cwd: root })
+    expect(report.exitCode, report.stderr).toBe(0)
+  }
+  return root
 })
 
 const directFiles = (files: ReadonlyArray<string>, root: string): ReadonlyArray<string> =>
@@ -47,7 +63,38 @@ const directFiles = (files: ReadonlyArray<string>, root: string): ReadonlyArray<
     .filter((file) => !file.includes("/"))
     .sort()
 
+const assertDesktopProcessRoots = (files: ReadonlyArray<string>): void => {
+  const roots = [
+    ...new Set(
+      files
+        .filter((file) => file.startsWith("apps/desktop/src/"))
+        .map((file) => file.slice("apps/desktop/src/".length).split("/")[0])
+    )
+  ].sort()
+  expect(roots).toEqual(["main", "preload", "renderer", "shared"])
+}
+
 describe("app responsibility folder convention", () => {
+  it.live("includes tracked ignored and non-ignored untracked app sources", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* gitFixture()
+      expect(yield* appSourceManifest(root)).toEqual([
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/tracked-ignored.ts",
+        "apps/desktop/src/preload/index.ts",
+        "apps/desktop/src/renderer/main.tsx",
+        "apps/desktop/src/shared/ipc/channels.ts",
+        "apps/desktop/src/worker/untracked.ts"
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))))
+
+  it.live("rejects a fifth desktop process boundary", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* gitFixture()
+      const files = yield* appSourceManifest(root)
+      expect(() => assertDesktopProcessRoots(files)).toThrow()
+    }).pipe(Effect.provide(NodeServices.layer))))
+
   it.live("organizes CLI modules by responsibility", () =>
     assertPaths(
       [
@@ -144,20 +191,24 @@ describe("app responsibility folder convention", () => {
 
   it.live("uses descriptive app source names without catch-all lib folders", () =>
     Effect.gen(function*() {
-      const files = yield* trackedAppSource()
+      const path = yield* Path.Path
+      const files = yield* appSourceManifest(path.resolve("."))
       expect(files.filter((file) => file.split("/").at(-1)?.startsWith("_"))).toEqual([])
       expect(files.filter((file) => file.split("/").includes("lib"))).toEqual([])
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("keeps application and process roots limited to entrypoints", () =>
     Effect.gen(function*() {
-      const files = yield* trackedAppSource()
+      const path = yield* Path.Path
+      const files = yield* appSourceManifest(path.resolve("."))
+      assertDesktopProcessRoots(files)
       expect(directFiles(files, "apps/cli/cli")).toEqual(["main.ts", "output.ts"])
       expect(directFiles(files, "apps/server")).toEqual(["main.ts"])
       expect(directFiles(files, "apps/tui")).toEqual(["main.tsx"])
       expect(directFiles(files, "apps/desktop/src/main")).toEqual(["index.ts"])
       expect(directFiles(files, "apps/desktop/src/preload")).toEqual(["api.d.ts", "index.ts"])
       expect(directFiles(files, "apps/desktop/src/renderer")).toEqual(["css.d.ts", "main.tsx"])
+      expect(directFiles(files, "apps/desktop/src/shared")).toEqual([])
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("documents current and optional future folder responsibilities", () =>
