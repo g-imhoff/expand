@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { MainProgramDeps } from "@expand/desktop/main/program"
+import type { MainProgramDeps } from "@expand/desktop/main/application/main-program"
 import { windowOptions } from "@expand/desktop/main/security/window-options"
 import "@expand/desktop/main/index"
 
@@ -199,8 +199,8 @@ vi.mock("electron", () => ({
   session: electron.session
 }))
 
-vi.mock("@expand/desktop/main/program", () => ({ mainProgram: program.mainProgram }))
-vi.mock("@expand/desktop/main/runtime", () => ({ makeRuntime: () => ({}) }))
+vi.mock("@expand/desktop/main/application/main-program", () => ({ mainProgram: program.mainProgram }))
+vi.mock("@expand/desktop/main/runtime/client-runtime", () => ({ makeRuntime: () => ({}) }))
 vi.mock("@expand/electron-ipc/main-electron", () => ({ electronBindDeps: binding.electronBindDeps }))
 vi.mock("@effect/platform-node", () => platform)
 

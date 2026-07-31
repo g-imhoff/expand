@@ -9,7 +9,7 @@ import { startRendererRoot } from "@expand/desktop/renderer/app/runner"
 import { boot } from "@expand/desktop/renderer/app/runtime"
 import { router } from "@expand/desktop/renderer/app/router"
 import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
-import { supervised } from "@expand/desktop/renderer/lib/supervised"
+import { supervised } from "@expand/desktop/renderer/app/supervised"
 import { browserCrypto } from "@expand/electron-ipc/renderer"
 
 interface RendererHotContext {

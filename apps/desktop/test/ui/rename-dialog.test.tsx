@@ -5,7 +5,7 @@ import { fireEvent } from "@testing-library/react"
 import { Effect } from "effect"
 import { ProjectInvalidInput } from "@expand/contracts/rpc"
 import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
-import { renderScoped } from "./_harness"
+import { renderScoped } from "./ui-harness"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

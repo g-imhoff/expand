@@ -9,7 +9,7 @@ import {
   EditMetadataDialog,
   type EditMetadataDialogProps
 } from "@expand/desktop/renderer/features/projects/components/EditMetadataDialog"
-import { renderScoped } from "./_harness"
+import { renderScoped } from "./ui-harness"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

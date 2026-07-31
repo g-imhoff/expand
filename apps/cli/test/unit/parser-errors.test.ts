@@ -8,7 +8,11 @@ import { jsonCliErrorFormatter } from "@expand/cli/errors/parser-errors"
 
 describe("Error envelope JSON", () => {
   it("constructs the shared envelope fields before the body fields", () => {
-    expect(JSON.stringify(makeEnvelope("Project", { created: false, data: { id: "project-id" } })))
+    expect(
+      Schema.encodeSync(Schema.UnknownFromJsonString)(
+        makeEnvelope("Project", { created: false, data: { id: "project-id" } })
+      )
+    )
       .toBe('{"apiVersion":"expand/v1","kind":"Project","created":false,"data":{"id":"project-id"}}')
   })
 

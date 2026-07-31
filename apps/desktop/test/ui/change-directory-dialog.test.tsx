@@ -4,7 +4,7 @@ import { describe, expect, vi } from "vitest"
 import { fireEvent } from "@testing-library/react"
 import { Effect } from "effect"
 import { ChangeDirectoryDialog } from "@expand/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
-import { renderScoped } from "./_harness"
+import { renderScoped } from "./ui-harness"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 

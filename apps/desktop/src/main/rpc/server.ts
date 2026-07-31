@@ -5,7 +5,7 @@ import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
-import { supervised } from "@expand/desktop/main/lib/supervised"
+import { supervised } from "@expand/desktop/main/runtime/supervised"
 
 export interface MainPortLike {
   postMessage: (message: unknown) => void

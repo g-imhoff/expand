@@ -3,7 +3,7 @@ import type { ClientSession } from "@expand/client-ts"
 import type { ProjectClient } from "@expand/client-ts/project"
 import type { ServerClient } from "@expand/client-ts/server"
 import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
-import { supervised } from "@expand/desktop/main/lib/supervised"
+import { supervised } from "@expand/desktop/main/runtime/supervised"
 
 export interface RpcRuntime {
   readonly contextEffect: Effect.Effect<Context.Context<DesktopRpcServices>, unknown>

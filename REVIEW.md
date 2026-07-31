@@ -213,7 +213,7 @@ DONE 9. `project/client.ts` + the package-root `client-layer.ts` — the session
 **Read in order:**
 DONE (2026-07-12) 1. `cli/runtime/app-context-layer.ts` + `cli/main.ts` — the parsed `DataDir` setting becomes an `AppContext` layer before the composition root provides the real Node client; `main.ts` then builds the command tree and installs the JSON error formatter (`makeExpand` factory + main-module guard).
 2. `cli/commands/define-command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
-UPDATED (2026-07-12) 3. `cli/output/index.ts` + `cli/commands/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
+UPDATED (2026-07-12) 3. `cli/output.ts` + `cli/commands/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
 4. `cli/contract/envelope-internal.ts` + `cli/contract/envelope.ts` — the envelope schemas being hand-built; the former `packages/contracts/cli.ts` path was deleted when envelope ownership moved into the CLI. The internal owner constructs `ENVELOPE_VERSION` and `ErrorCode` once before the opaque envelope classes, and the public module re-exports those exact bindings.
 5. `cli/commands/project/create.ts` — a representative command (the pattern all verbs follow).
 6. `cli/commands/project/resolve-project-target.ts` — name-or-UUID target resolution.
@@ -286,7 +286,7 @@ Read the IPC framework, then the privileged main process, then the renderer. Thi
 
 **What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting `ClientSession`, `ProjectClient`, and `ServerClient` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
-**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/program.ts` (main lifecycle program; matching test: `test/unit/main-program.test.ts`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
+**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime/client-runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/application/main-program.ts` (main lifecycle program; matching test: `test/unit/main-program.test.ts`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler`) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
 **Scrutinize hardest:**
 - **Packaged identity and admission:** production load URL, navigation admission, IPC sender admission, and renderer identity resolve to one exact canonical packaged file, including symlink-safe identity checks.
@@ -396,7 +396,7 @@ The migration also changed the code that proves, builds, packages, exercises, an
 
 #### 3. Desktop/TUI UI adapters and Playwright host bridge
 
-**Representative files:** `apps/desktop/test/ui/_harness.tsx`, `apps/tui/test/ui/runtime-harness.ts`, `apps/desktop/e2e/effect-test.ts`, `apps/desktop/e2e/helpers.ts`, and `apps/desktop/e2e/playwright.config.ts`.
+**Representative files:** `apps/desktop/test/ui/ui-harness.tsx`, `apps/tui/test/ui/runtime-harness.ts`, `apps/desktop/e2e/effect-test.ts`, `apps/desktop/e2e/helpers.ts`, and `apps/desktop/e2e/playwright.config.ts`.
 
 **Scrutinize:** Read the host-required Promise adapter and shared UI harnesses completely. Playwright has one exact callback bridge; React/Ink roots, Electron/CDP processes, ports, listeners, runtimes, and temporary data must close on failure or interruption. Repetitive spec bodies may be sampled only after confirming all Page, Locator, Electron, and assertion Promises translate immediately through that bridge. **Matching tests:** `apps/desktop/test/unit/playwright/effect-test.test.ts`, `apps/desktop/test/unit/renderer-root.test.tsx`, `apps/tui/test/ui/use-projects.test.tsx`, and the desktop E2E suite.
 

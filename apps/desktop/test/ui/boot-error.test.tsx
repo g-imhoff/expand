@@ -4,7 +4,7 @@ import { describe, expect, vi } from "vitest"
 import { fireEvent } from "@testing-library/react"
 import { Effect } from "effect"
 import { BootError } from "@expand/desktop/renderer/app/BootError"
-import { renderScoped } from "./_harness"
+import { renderScoped } from "./ui-harness"
 
 describe("BootError", () => {
   it.effect("renders the failure in a role=alert block with a Retry button", () =>

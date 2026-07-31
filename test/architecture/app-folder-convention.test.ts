@@ -1,7 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem } from "effect"
+import { Effect, FileSystem, Path } from "effect"
 import { describe, expect } from "vitest"
+import { runCommand } from "../support/effect-process"
 
 const assertPaths = Effect.fn("AppFolderConvention.assertPaths")(function*(
   expected: ReadonlyArray<string>,
@@ -16,6 +17,36 @@ const assertPaths = Effect.fn("AppFolderConvention.assertPaths")(function*(
   }
 })
 
+const trackedAppSource = Effect.fn("AppFolderConvention.trackedAppSource")(function*() {
+  const path = yield* Path.Path
+  const root = path.resolve(".")
+  const report = yield* runCommand(
+    "rg",
+    [
+      "--files",
+      "apps",
+      "-g",
+      "*.ts",
+      "-g",
+      "*.tsx",
+      "-g",
+      "!**/node_modules/**",
+      "-g",
+      "!**/test-results/**"
+    ],
+    { cwd: root }
+  )
+  expect(report.exitCode, report.stderr).toBe(0)
+  return report.stdout.split(/\r?\n/).filter(Boolean)
+})
+
+const directFiles = (files: ReadonlyArray<string>, root: string): ReadonlyArray<string> =>
+  files
+    .filter((file) => file.startsWith(`${root}/`))
+    .map((file) => file.slice(root.length + 1))
+    .filter((file) => !file.includes("/"))
+    .sort()
+
 describe("app responsibility folder convention", () => {
   it.live("organizes CLI modules by responsibility", () =>
     assertPaths(
@@ -27,7 +58,7 @@ describe("app responsibility folder convention", () => {
         "apps/cli/cli/commands/project/resolve-project-target.ts",
         "apps/cli/cli/runtime/app-context-layer.ts",
         "apps/cli/cli/runtime/node-app-context.ts",
-        "apps/cli/cli/output/index.ts",
+        "apps/cli/cli/output.ts",
         "apps/cli/cli/errors/render-errors.ts"
       ],
       [
@@ -37,7 +68,7 @@ describe("app responsibility folder convention", () => {
         "apps/cli/cli/commands/project/_resolve.ts",
         "apps/cli/cli/app-context-layer.ts",
         "apps/cli/cli/node-app-context.ts",
-        "apps/cli/cli/output.ts",
+        "apps/cli/cli/output/index.ts",
         "apps/cli/cli/run.ts"
       ]
     ).pipe(Effect.provide(NodeServices.layer)))
@@ -87,4 +118,45 @@ describe("app responsibility folder convention", () => {
         "apps/tui/test/ui/_runtime-harness.ts"
       ]
     ).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("organizes desktop modules by responsibility", () =>
+    assertPaths(
+      [
+        "apps/desktop/src/main/index.ts",
+        "apps/desktop/src/main/application/main-program.ts",
+        "apps/desktop/src/main/runtime/client-runtime.ts",
+        "apps/desktop/src/main/runtime/node-app-context.ts",
+        "apps/desktop/src/main/runtime/supervised.ts",
+        "apps/desktop/src/renderer/app/supervised.ts",
+        "apps/desktop/src/renderer/components/ui/class-names.ts",
+        "apps/desktop/test/ui/ui-harness.tsx"
+      ],
+      [
+        "apps/desktop/src/main/program.ts",
+        "apps/desktop/src/main/runtime.ts",
+        "apps/desktop/src/main/node-app-context.ts",
+        "apps/desktop/src/main/lib/supervised.ts",
+        "apps/desktop/src/renderer/lib/supervised.ts",
+        "apps/desktop/src/renderer/lib/utils.ts",
+        "apps/desktop/test/ui/_harness.tsx"
+      ]
+    ).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("uses descriptive app source names without catch-all lib folders", () =>
+    Effect.gen(function*() {
+      const files = yield* trackedAppSource()
+      expect(files.filter((file) => file.split("/").at(-1)?.startsWith("_"))).toEqual([])
+      expect(files.filter((file) => file.split("/").includes("lib"))).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("keeps application and process roots limited to entrypoints", () =>
+    Effect.gen(function*() {
+      const files = yield* trackedAppSource()
+      expect(directFiles(files, "apps/cli/cli")).toEqual(["main.ts", "output.ts"])
+      expect(directFiles(files, "apps/server")).toEqual(["main.ts"])
+      expect(directFiles(files, "apps/tui")).toEqual(["main.tsx"])
+      expect(directFiles(files, "apps/desktop/src/main")).toEqual(["index.ts"])
+      expect(directFiles(files, "apps/desktop/src/preload")).toEqual(["api.d.ts", "index.ts"])
+      expect(directFiles(files, "apps/desktop/src/renderer")).toEqual(["css.d.ts", "main.tsx"])
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

@@ -8,7 +8,7 @@ import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
 import { CommandPalette } from "@expand/desktop/renderer/features/command/components/CommandPalette"
-import { fakeProject, makeFakeProjectContext, renderWithProjectContextScoped, uid } from "./_harness"
+import { fakeProject, makeFakeProjectContext, renderWithProjectContextScoped, uid } from "./ui-harness"
 
 const navigate = vi.hoisted(() => vi.fn())
 

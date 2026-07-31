@@ -15,7 +15,7 @@ import type {
 import { NodePath, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { electronBindDeps } from "@expand/electron-ipc/main-electron"
-import { makeRuntime } from "@expand/desktop/main/runtime"
+import { makeRuntime } from "@expand/desktop/main/runtime/client-runtime"
 import {
   DesktopMainError,
   mainProgram,
@@ -23,7 +23,7 @@ import {
   type DesktopAppHost,
   type DesktopWindowHost,
   type MainProgramDeps
-} from "@expand/desktop/main/program"
+} from "@expand/desktop/main/application/main-program"
 
 const appHost: DesktopAppHost = {
   isPackaged: app.isPackaged,

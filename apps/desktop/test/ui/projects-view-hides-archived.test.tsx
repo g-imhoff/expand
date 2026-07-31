@@ -13,7 +13,7 @@ import {
   makeFakeProjectContext,
   renderWithProjectContextScoped,
   uid
-} from "./_harness"
+} from "./ui-harness"
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>

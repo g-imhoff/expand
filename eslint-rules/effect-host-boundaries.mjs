@@ -250,14 +250,14 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/desktop/src/main/node-app-context.ts",
+    file: "apps/desktop/src/main/runtime/node-app-context.ts",
     declaration: "module:<module>",
     host: "Node AppContext host acquisition",
     construct: nodeOsImport,
     occurrence: 0
   }),
   Object.freeze({
-    file: "apps/desktop/src/main/node-app-context.ts",
+    file: "apps/desktop/src/main/runtime/node-app-context.ts",
     declaration: "member:cwd.try",
     host: "Node AppContext host acquisition",
     construct: processCwd,

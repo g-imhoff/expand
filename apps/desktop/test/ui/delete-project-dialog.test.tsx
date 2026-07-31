@@ -4,7 +4,7 @@ import { describe, expect, vi } from "vitest"
 import { screen, fireEvent } from "@testing-library/react"
 import { Effect } from "effect"
 import { DeleteProjectDialog } from "@expand/desktop/renderer/features/projects/components/DeleteProjectDialog"
-import { renderScoped } from "./_harness"
+import { renderScoped } from "./ui-harness"
 
 describe("DeleteProjectDialog", () => {
   it.effect("shows the project name and calls onConfirm when Delete is clicked", () =>

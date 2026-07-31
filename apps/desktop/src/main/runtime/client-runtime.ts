@@ -10,7 +10,7 @@ import {
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
-import { nodeAppContextLayer } from "@expand/desktop/main/node-app-context"
+import { nodeAppContextLayer } from "@expand/desktop/main/runtime/node-app-context"
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
   ClientSession | ProjectClient | ServerClient,
@@ -22,7 +22,8 @@ export const defaultBackendEntry = Effect.fn("DesktopMain.defaultBackendEntry")(
 ) {
   const path = yield* Path.Path
   const modulePath = yield* path.fromFileUrl(moduleUrl)
-  return path.join(modulePath, "..", "..", "..", "..", "server", "main.ts")
+  const sourceOffset = modulePath.endsWith(".ts") ? ".." : "."
+  return path.join(modulePath, "..", "..", "..", "..", sourceOffset, "server", "main.ts")
 })
 
 export const makeRuntime = (): ExpandRuntime =>

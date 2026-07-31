@@ -3,7 +3,12 @@ import { NodePath } from "@effect/platform-node"
 import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
 import { describe, expect } from "vitest"
 import type { IpcMainLike } from "@expand/electron-ipc/main"
-import { DesktopMainError, mainProgram, type CspHost, type MainProgramDeps } from "@expand/desktop/main/program"
+import {
+  DesktopMainError,
+  mainProgram,
+  type CspHost,
+  type MainProgramDeps
+} from "@expand/desktop/main/application/main-program"
 
 const waitFor = Deferred.await
 const fiberExit = Fiber.await

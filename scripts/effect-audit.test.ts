@@ -691,7 +691,7 @@ void resolve
 export const makeTestEffect = (): ${promiseLikeType}<void> => ${effectRunPromise}(Effect.void)
 `,
   "apps/desktop/src/main/index.ts": desktopMainBoundarySource,
-  "apps/desktop/src/main/node-app-context.ts": appContextBoundarySource,
+  "apps/desktop/src/main/runtime/node-app-context.ts": appContextBoundarySource,
   "apps/desktop/src/renderer/app/runner.ts": `import { Effect } from "effect"
 declare const effect: Effect.Effect<void>
 const fiber = ${effectRunFork}(effect)

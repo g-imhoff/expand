@@ -2,7 +2,7 @@ import { Context, Effect, Queue, type Scope, Stream } from "effect"
 import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/unstable/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
-import { supervised } from "@expand/desktop/renderer/lib/supervised"
+import { supervised } from "@expand/desktop/renderer/app/supervised"
 
 export class RendererRpcClient extends Context.Service<RendererRpcClient, RendererRpcClientApi>()(
   "expand/desktop/RendererRpcClient"
