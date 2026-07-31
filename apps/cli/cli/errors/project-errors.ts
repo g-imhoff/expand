@@ -1,12 +1,12 @@
 import { Data, Runtime } from "effect"
 import type { ErrorEnvelope } from "@expand/cli/errors/envelope"
-import { makeEnvelope, tagOf } from "@expand/cli/errors/envelope"
+import { makeErrorEnvelope, tagOf } from "@expand/cli/errors/envelope"
 
 export class ProjectExists extends Data.TaggedError("ProjectExists")<{ readonly name: string }> {
   readonly [Runtime.errorExitCode] = 5
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("PROJECT_EXISTS", `project '${this.name}' already exists`, false, {
+    return makeErrorEnvelope("PROJECT_EXISTS", `project '${this.name}' already exists`, false, {
       input: { name: this.name },
       hint: "choose a different name, or re-run with --ensure to no-op"
     })
@@ -17,7 +17,7 @@ export class ProjectNotFoundCli extends Data.TaggedError("ProjectNotFoundCli")<{
   readonly [Runtime.errorExitCode] = 7
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("PROJECT_NOT_FOUND", `project '${this.id}' not found`, false, {
+    return makeErrorEnvelope("PROJECT_NOT_FOUND", `project '${this.id}' not found`, false, {
       input: { id: this.id },
       hint: "check the project name or id (try `expand project list`)"
     })
@@ -49,7 +49,7 @@ class NameConflictCli extends Data.TaggedError("NameConflictCli")<{ readonly nam
   readonly [Runtime.errorExitCode] = 8
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("NAME_CONFLICT", `project name '${this.name}' is already taken`, false, {
+    return makeErrorEnvelope("NAME_CONFLICT", `project name '${this.name}' is already taken`, false, {
       input: { name: this.name },
       hint: "choose a different name"
     })
@@ -60,7 +60,7 @@ class DirectoryInvalidCli extends Data.TaggedError("DirectoryInvalidCli")<{ read
   readonly [Runtime.errorExitCode] = 9
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("DIRECTORY_INVALID", `directory '${this.directory}' is invalid: ${this.reason}`, false, {
+    return makeErrorEnvelope("DIRECTORY_INVALID", `directory '${this.directory}' is invalid: ${this.reason}`, false, {
       input: { directory: this.directory, reason: this.reason },
       hint: "pass an absolute path that exists on disk"
     })
@@ -71,7 +71,7 @@ class DirectoryConflictCli extends Data.TaggedError("DirectoryConflictCli")<{ re
   readonly [Runtime.errorExitCode] = 10
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("DIRECTORY_CONFLICT", `directory '${this.directory}' is already used by another project`, false, {
+    return makeErrorEnvelope("DIRECTORY_CONFLICT", `directory '${this.directory}' is already used by another project`, false, {
       input: { directory: this.directory },
       hint: "choose a different directory"
     })
@@ -82,7 +82,7 @@ class InvalidInputCli extends Data.TaggedError("InvalidInputCli")<{ readonly fie
   readonly [Runtime.errorExitCode] = 2
   readonly [Runtime.errorReported] = false
   toEnvelope(): ErrorEnvelope {
-    return makeEnvelope("INVALID_ARGUMENT", `invalid ${this.field}: ${this.reason}`, false, {
+    return makeErrorEnvelope("INVALID_ARGUMENT", `invalid ${this.field}: ${this.reason}`, false, {
       input: { field: this.field, reason: this.reason },
       hint: "names and tags must match ^[a-z0-9][a-z0-9-]{0,63}$; descriptions are capped at 2048 chars"
     })

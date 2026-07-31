@@ -1,4 +1,5 @@
 import { Schema } from "effect"
+import { makeEnvelope } from "@expand/cli/contract/envelope"
 import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
 import { ErrorCode, type ErrorCode as ErrorCodeType } from "@expand/cli/errors/error-code"
 
@@ -16,14 +17,12 @@ export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(
 
 export const ErrorEnvelopeFromJson = Schema.fromJsonString(ErrorEnvelope)
 
-export const makeEnvelope = (
+export const makeErrorEnvelope = (
   code: ErrorCodeType,
   message: string,
   retryable: boolean,
   extra?: { input?: unknown; hint?: string }
-): ErrorEnvelope => ({
-  apiVersion: ENVELOPE_VERSION,
-  kind: "Error",
+): ErrorEnvelope => makeEnvelope("Error", {
   code,
   message,
   retryable,

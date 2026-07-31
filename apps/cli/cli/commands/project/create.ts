@@ -1,6 +1,6 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { makeEnvelope } from "@expand/cli/contract/envelope"
 import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
 
@@ -14,7 +14,7 @@ export const createCommand = (() => {
     "create",
     { name, ensure, directory },
     {
-      envelope: (r: CreateResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: r.created, data: r.project }),
+      envelope: (r: CreateResult) => makeEnvelope("Project", { created: r.created, data: r.project }),
       text: (r: CreateResult) => `created ${r.project.id}  ${r.project.name}`,
       quiet: (r: CreateResult) => r.project.id
     },

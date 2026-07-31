@@ -1,20 +1,20 @@
 import { CliError, CliOutput } from "effect/unstable/cli"
 import { Schema } from "effect"
-import { ErrorEnvelopeFromJson, type ErrorEnvelope, makeEnvelope } from "@expand/cli/errors/envelope"
+import { ErrorEnvelopeFromJson, type ErrorEnvelope, makeErrorEnvelope } from "@expand/cli/errors/envelope"
 
 export const cliErrorToEnvelope = (e: CliError.CliError): ErrorEnvelope => {
   switch (e._tag) {
     case "InvalidValue":
     case "MissingArgument":
-      return makeEnvelope("INVALID_ARGUMENT", e.message, false)
+      return makeErrorEnvelope("INVALID_ARGUMENT", e.message, false)
     case "MissingOption":
     case "UnrecognizedOption":
     case "DuplicateOption":
-      return makeEnvelope("INVALID_OPTION", e.message, false)
+      return makeErrorEnvelope("INVALID_OPTION", e.message, false)
     case "UnknownSubcommand":
-      return makeEnvelope("UNKNOWN_COMMAND", e.message, false)
+      return makeErrorEnvelope("UNKNOWN_COMMAND", e.message, false)
     default:
-      return makeEnvelope("INVALID_ARGUMENT", e.message, false)
+      return makeErrorEnvelope("INVALID_ARGUMENT", e.message, false)
   }
 }
 

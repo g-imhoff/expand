@@ -1,7 +1,7 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
 import type { Project } from "@expand/contracts/project"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { makeEnvelope } from "@expand/cli/contract/envelope"
 import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
@@ -14,7 +14,7 @@ export const renameCommand = (() => {
     "rename",
     { project: target, name },
     {
-      envelope: (p: Project) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: false, data: p }),
+      envelope: (p: Project) => makeEnvelope("Project", { created: false, data: p }),
       text: (p: Project) => `${p.id}  ${p.name}`,
       quiet: (p: Project) => p.id
     },

@@ -1,6 +1,6 @@
 import { Argument, Flag } from "effect/unstable/cli"
 import { Effect, Option } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { Project } from "@expand/contracts/project"
 import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
@@ -17,7 +17,7 @@ export const setMetadataCommand = (() => {
     "set-metadata",
     { project: target, description, tag, clearTags },
     {
-      envelope: (p: Project) => ({ apiVersion: ENVELOPE_VERSION, kind: "Project", created: false, data: p }),
+      envelope: (p: Project) => makeEnvelope("Project", { created: false, data: p }),
       text: (p: Project) => `${p.id}  ${p.name}`,
       quiet: (p: Project) => p.id
     },

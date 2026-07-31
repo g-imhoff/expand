@@ -1,6 +1,6 @@
 import { Argument } from "effect/unstable/cli"
 import { Effect } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { ProjectDeleteResult } from "@expand/contracts/project"
 import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
@@ -13,7 +13,7 @@ export const deleteCommand = (() => {
     "delete",
     { project: target },
     {
-      envelope: (r: ProjectDeleteResult) => ({ apiVersion: ENVELOPE_VERSION, kind: "ProjectDelete", data: r }),
+      envelope: (r: ProjectDeleteResult) => makeEnvelope("ProjectDelete", { data: r }),
       text: (r: ProjectDeleteResult) => `deleted ${r.id}`,
       quiet: (r: ProjectDeleteResult) => r.id
     },
