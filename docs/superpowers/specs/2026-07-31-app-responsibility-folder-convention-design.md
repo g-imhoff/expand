@@ -18,7 +18,7 @@ Executable entrypoints may remain directly at an application or process root:
 - TUI and renderer: `main.tsx`
 - Electron main and preload: their configured `index.ts` entrypoints
 
-All other source files belong to a named responsibility. Folder names are lowercase nouns. Source filenames are descriptive kebab-case, while existing local React component case conventions remain unchanged. Leading underscores do not signal internal modules and will not be used.
+All other source files belong to a named responsibility, except the CLI's focused `output.ts` module, which remains at the CLI root by explicit project choice. Folder names are lowercase nouns. Source filenames are descriptive kebab-case, while existing local React component case conventions remain unchanged. Leading underscores do not signal internal modules and will not be used.
 
 This is an organizational refactor only. Exported symbols, RPC contracts, CLI output, runtime behavior, error semantics, and process boundaries remain unchanged.
 
@@ -37,6 +37,7 @@ The selected design uses a shared responsibility vocabulary with an app-specific
 ```text
 apps/cli/cli/
 ├── main.ts
+├── output.ts
 ├── commands/
 │   ├── define-command.ts
 │   ├── global-flags.ts
@@ -55,8 +56,6 @@ apps/cli/cli/
 ├── runtime/
 │   ├── app-context-layer.ts
 │   └── node-app-context.ts
-├── output/
-│   └── index.ts
 ├── errors/
 │   ├── index.ts
 │   ├── render-errors.ts
@@ -79,10 +78,9 @@ The concrete moves are:
 - `commands/project/_resolve.ts` to `commands/project/resolve-project-target.ts`
 - `app-context-layer.ts` to `runtime/app-context-layer.ts`
 - `node-app-context.ts` to `runtime/node-app-context.ts`
-- `output.ts` to `output/index.ts`
 - `run.ts` to `errors/render-errors.ts`
 
-The existing `contract` and `errors` trees remain otherwise intact because they already express clear responsibilities.
+The focused `output.ts` module remains at the CLI root. The existing `contract` and `errors` trees remain otherwise intact because they already express clear responsibilities.
 
 ## Server layout
 
@@ -211,16 +209,19 @@ The folders present after this refactor mean:
 - `components`: reusable visual or terminal UI building blocks.
 - `composition`: assembly of layers and services into a runnable application.
 - `contract`: stable CLI-owned external formats. Shared cross-application contracts remain in `packages/contracts`.
+- `data`: feature-owned data access, stores, and query integration.
 - `db`: database-backed stores, replay readers, and persistence-specific implementations.
 - `errors`: application-specific error mapping, serialization, and terminal error rendering.
 - `features`: user-facing functionality grouped by domain capability.
 - `input`: keyboard bindings, input state, routing, and reducers.
 - `ipc`: Electron inter-process channels and lifecycle coordination.
-- `output`: successful terminal output selection and writing.
+- `model`: feature-owned state, reducers, and view models.
+- `pages`: route-level or screen-level compositions owned by a feature.
 - `rpc`: RPC handlers, protocol adapters, and RPC transport-facing services.
 - `runtime`: host integration, process lifecycle, platform services, connection runtimes, and resource supervision.
 - `security`: Electron navigation, origin, content-security, and window hardening policy.
 - `shared`: pure definitions shared across process boundaries within one application.
+- `shell`: frontend application-shell composition owned beneath `app`.
 - `transport`: network listeners and transport-server construction.
 
 ## Optional future folders
@@ -235,7 +236,7 @@ Future applications may add the following only when the responsibility exists:
 - `jobs`: scheduled or long-running background jobs.
 - `migrations`: application-owned state or database migrations.
 - `observability`: logging, tracing, metrics, and diagnostic integration.
-- `pages`: route-level screens when they are not already owned by a feature.
+- `output`: terminal output modules if the current focused `output.ts` grows into multiple files.
 - `styles`: shared styles and design tokens when they outgrow entrypoint-level styles.
 - `workers`: worker-thread, subprocess, or web-worker entrypoints and protocols.
 
