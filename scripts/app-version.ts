@@ -88,7 +88,9 @@ export const resolveAppVersion = Effect.fn("AppVersion.resolve")(
 
 export const resolveBuildAppVersion = Effect.fn("AppVersion.resolveBuild")(
   function*(root: string) {
-    const tags = yield* exactTags(root)
+    const observedTags = yield* Effect.option(exactTags(root))
+    if (Option.isNone(observedTags)) return "0.0.0-dev"
+    const tags = observedTags.value
     if (tags.length > 0) {
       return yield* resolveAppVersionObservation({ exactTags: tags, shortSha: undefined }, "release")
     }

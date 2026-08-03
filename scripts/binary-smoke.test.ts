@@ -30,6 +30,8 @@ import {
   cleanupDirectServer,
   cleanupGuardianOwnership,
   certifyCompiledVersion,
+  decodeOutput,
+  Health,
   parseProcessGroupRows,
   reserveGuardianRelease,
   retainCleanupCause,
@@ -183,7 +185,7 @@ describe("binary certification live ownership", () => {
     "expand v0.0.0-dev+0123456789ab\n"
   ])("accepts compiled development identity %j", (stdout) => {
     const fixture = processSpawnerFixture([0], { stdout: [stdout] })
-    return certifyCompiledVersion("/repo").pipe(
+    return certifyCompiledVersion("/repo", stdout.trim().slice("expand v".length)).pipe(
       Effect.provide(fixture.layer),
       Effect.tap(() => Effect.sync(() => {
         expect(fixture.records[0]?.command._tag).toBe("StandardCommand")
@@ -195,9 +197,28 @@ describe("binary certification live ownership", () => {
     )
   })
 
+  it.effect("accepts an exact-tag release identity", () => {
+    const fixture = processSpawnerFixture([0], { stdout: ["expand v2.3.4\n"] })
+    return certifyCompiledVersion("/repo", "2.3.4").pipe(
+      Effect.provide(fixture.layer)
+    )
+  })
+
+  it.effect.each([
+    '{"kind":"ServerHealth","data":{"status":"ok"}}',
+    '{"apiVersion":"expand/v2","kind":"ServerHealth","data":{"status":"ok"}}'
+  ])("rejects compiled JSON output outside the expand/v1 envelope", (source) =>
+    decodeOutput(Health, source, "health").pipe(
+      Effect.flip,
+      Effect.map((error) => expect(error).toMatchObject({
+        operation: "parse",
+        detail: "health response was malformed"
+      }))
+    ))
+
   it.effect("rejects a compiled identity that does not match the development build", () => {
     const fixture = processSpawnerFixture([0], { stdout: ["1.2.3\n"] })
-    return certifyCompiledVersion("/repo").pipe(
+    return certifyCompiledVersion("/repo", "0.0.0-dev").pipe(
       Effect.provide(fixture.layer),
       Effect.flip,
       Effect.map((error) => expect(error).toMatchObject({
@@ -496,7 +517,7 @@ describe("binary certification live ownership", () => {
 
   it.effect("starts the real health CLI under the guardian immediately after the build", () =>
     Effect.gen(function*() {
-      const fixture = processSpawnerFixture([0, 0, 1], { stdout: ["", "expand v0.0.0-dev\n", ""] })
+      const fixture = processSpawnerFixture([0, 0, 0, 1], { stdout: ["", "v1.2.3\n", "expand v1.2.3\n", ""] })
       const fiber = yield* certifyBinaries("/repo").pipe(
         Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
           makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"),
@@ -510,7 +531,7 @@ describe("binary certification live ownership", () => {
       )
       yield* Effect.yieldNow
       expect(fixture.records.length).toBeGreaterThanOrEqual(2)
-      const guardian = fixture.records[2]?.command
+      const guardian = fixture.records[3]?.command
       expect(guardian?._tag).toBe("StandardCommand")
       if (guardian?._tag === "StandardCommand") {
         expect(guardian.command).toBe("bash")
@@ -525,7 +546,7 @@ describe("binary certification live ownership", () => {
       const interrupted = yield* Fiber.interrupt(fiber).pipe(Effect.forkChild)
       yield* TestClock.adjust("3 seconds")
       yield* Fiber.join(interrupted)
-      expect(fixture.records[2]?.releaseCount).toBe(1)
+      expect(fixture.records[3]?.releaseCount).toBe(1)
     }))
 
   it.live("interrupts the production coordinator after direct-server spawn with no surviving process", () =>
@@ -558,7 +579,7 @@ describe("binary certification live ownership", () => {
           }
           const version = standard?.command === "./dist/expand" && standard.args.length === 1 && standard.args[0] === "--version"
           const stdout = guardian
-            ? "job=%2 pid=41 jobPid=41 pgid=91\n{\"kind\":\"ServerHealth\",\"data\":{\"status\":\"ok\"}}\nstatus=0\n"
+            ? "job=%2 pid=41 jobPid=41 pgid=91\n{\"apiVersion\":\"expand/v1\",\"kind\":\"ServerHealth\",\"data\":{\"status\":\"ok\"}}\nstatus=0\n"
             : version ? "expand v0.0.0-dev\n" : pgid ? "91\n" : ""
           return Effect.acquireRelease(
             Effect.sync(() => ChildProcessSpawner.makeHandle({

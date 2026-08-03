@@ -251,11 +251,19 @@ describe("benchmark resources and orchestration", () => {
       const path = yield* Path.Path
       const modulePath = yield* path.fromFileUrl(new URL(import.meta.url))
 
-      expect(yield* ensureSeed("smoke")).toBe(path.join(
+      const seedPath = yield* ensureSeed("smoke")
+      expect(seedPath).toBe(path.join(
         path.dirname(modulePath),
         ".cache",
-        "events-smoke-seed42-g1.db"
+        "events-smoke-seed42-g2.db"
       ))
+      const revisions = yield* Effect.gen(function*() {
+        const sql = yield* SqlClient
+        return yield* sql<{ readonly event_revision: number }>`
+          SELECT event_revision FROM events ORDER BY seq LIMIT 1
+        `
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: seedPath })))
+      expect(revisions).toEqual([{ event_revision: 2 }])
     })))
 
   it.effect("closes SQLite on success, failure, and interruption", () =>

@@ -15,7 +15,11 @@ export class StoredEventMigrationError extends Data.TaggedError("StoredEventMigr
   readonly failedRevision?: number
   readonly reason: "unknown-event" | "invalid-revision" | "future-revision" | "missing-upcaster" | "invalid-json" | "invalid-payload"
   readonly cause?: unknown
-}> {}
+}> {
+  get message(): string {
+    return `undecodable event row seq=${this.input.seq} stream_id=${this.input.streamId} event_type=${this.input.eventType} stored_revision=${this.input.eventRevision} target_revision=${this.targetRevision ?? "unknown"} failed_revision=${this.failedRevision ?? "unknown"} reason=${this.reason}`
+  }
+}
 
 export const EVENT_REVISIONS = {
   ProjectCreated: 2,

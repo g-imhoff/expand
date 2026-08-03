@@ -118,6 +118,19 @@ describe("app version Git adapter", () => {
     )
   })
 
+  it.effect("falls back when the build tag probe is unavailable", () => {
+    const git = processSpawnerFixture([128], { stderr: ["git metadata unavailable"] })
+    return resolveBuildAppVersion("/repo").pipe(
+      Effect.provide(git.layer),
+      Effect.map((version) => {
+        expect(version).toBe("0.0.0-dev")
+        expect(commandDetails(git)).toEqual([
+          { command: "git", args: ["tag", "--points-at", "HEAD", "--list", "v*"], cwd: "/repo", released: true }
+        ])
+      })
+    )
+  })
+
   it.effect("uses the SHA development identity for an untagged build and releases both probes", () => {
     const git = processSpawnerFixture([0, 0], { stdout: ["", "abcdef012345\n"] })
     return resolveBuildAppVersion("/repo").pipe(

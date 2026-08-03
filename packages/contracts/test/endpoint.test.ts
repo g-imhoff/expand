@@ -1,12 +1,16 @@
 import { it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 import { describe, expect } from "vitest"
-import { EndpointFromJson } from "@expand/contracts/endpoint"
+import { ENVELOPE_VERSION, EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 
 describe("Endpoint", () => {
   it("PROTOCOL_VERSION is 2", () => {
     expect(PROTOCOL_VERSION).toBe(2)
+  })
+
+  it("re-exports the CLI envelope version through the compatibility entrypoint", () => {
+    expect(ENVELOPE_VERSION).toBe("expand/v1")
   })
 
   it.effect("roundtrips through JSON text", () =>

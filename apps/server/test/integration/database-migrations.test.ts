@@ -2,6 +2,7 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { Migrator } from "effect/unstable/sql"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import {
   DatabaseReadyLayer,
@@ -79,21 +80,35 @@ describe("database migrations", () => {
   it.live("rolls back migration 1 when its transaction cannot complete", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient
-      yield* sql`
-        CREATE TABLE events (
-          seq INTEGER PRIMARY KEY AUTOINCREMENT,
-          payload TEXT NOT NULL
-        ) STRICT
-      `
+      let fail = true
+      const migrateFixture = Migrator.make({})({
+        loader: Migrator.fromRecord({
+          "1_fixture": Effect.gen(function*() {
+            yield* sql`CREATE TABLE migration_fixture (value INTEGER NOT NULL) STRICT`
+            if (fail) return yield* Effect.fail("injected migration failure")
+          })
+        })
+      })
 
-      const exit = yield* Effect.exit(migrateDatabase)
+      const exit = yield* Effect.exit(migrateFixture)
       const migrations = yield* sql<{ readonly migration_id: number }>`
         SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 1
       `
-      const columns = yield* sql<{ readonly name: string }>`PRAGMA table_info(events)`
+      const tables = yield* sql<{ readonly name: string }>`
+        SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'migration_fixture'
+      `
       expect(Exit.isFailure(exit)).toBe(true)
       expect(migrations).toEqual([])
-      expect(columns.map((column) => column.name)).not.toContain("event_revision")
+      expect(tables).toEqual([])
+
+      fail = false
+      yield* migrateFixture
+      const retriedMigrations = yield* sql<{ readonly migration_id: number }>`
+        SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 1
+      `
+      const retriedColumns = yield* sql<{ readonly name: string }>`PRAGMA table_info(migration_fixture)`
+      expect(retriedMigrations.map(({ migration_id }) => migration_id)).toEqual([1])
+      expect(retriedColumns.map(({ name }) => name)).toEqual(["value"])
     }).pipe(Effect.provide(Sql)))
 
   it.live("rejects a database ledger newer than this server", () =>

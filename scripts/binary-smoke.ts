@@ -1,5 +1,6 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
+import { ENVELOPE_VERSION } from "@expand/contracts/endpoint"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { Cause, Config, Data, Effect, Exit, Fiber, FileSystem, Option, Path, Ref, Schedule, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -16,6 +17,7 @@ import {
   releaseTransition,
   timeoutTransition
 } from "./binary-smoke-model"
+import { resolveBuildAppVersion } from "./app-version"
 
 export const JOB_CONTROL_FIXTURE = "scripts/fixtures/job-control.sh"
 
@@ -291,13 +293,13 @@ const requireSuccess = (report: CommandReport, label: string): Effect.Effect<Com
     : Effect.fail(commandError("command", `${label} exited ${report.exitCode}: ${report.stderr.trim()}`))
 
 export const certifyCompiledVersion = Effect.fn("BinarySmoke.certifyCompiledVersion")(
-  function*(root: string) {
+  function*(root: string, expectedVersion: string) {
     const report = yield* runCommand(root, "./dist/expand", ["--version"]).pipe(
       Effect.flatMap((result) => requireSuccess(result, "compiled version"))
     )
     const version = report.stdout.trim()
-    if (!/^expand v0\.0\.0-dev(?:\+[0-9a-f]{12})?$/.test(version)) {
-      return yield* commandError("parse", `compiled version did not match a development build: ${version}`)
+    if (version !== `expand v${expectedVersion}`) {
+      return yield* commandError("parse", `compiled version did not match resolved build identity ${expectedVersion}: ${version}`)
     }
   }
 )
@@ -339,22 +341,27 @@ export const runJobControlFact = Effect.fn("BinarySmoke.runJobControlFact")(
 )
 
 const Endpoint = Schema.fromJsonString(Schema.Struct({ pid: Schema.Int.check(Schema.isGreaterThan(0)) }))
-const Health = Schema.fromJsonString(Schema.Struct({
+export const Health = Schema.fromJsonString(Schema.Struct({
+  apiVersion: Schema.Literal(ENVELOPE_VERSION),
   kind: Schema.Literal("ServerHealth"),
   data: Schema.Struct({ status: Schema.Literal("ok") })
 }))
 const Created = Schema.fromJsonString(Schema.Struct({
+  apiVersion: Schema.Literal(ENVELOPE_VERSION),
   kind: Schema.Literal("Project"),
   created: Schema.Literal(true),
   data: Schema.Struct({ id: Schema.String })
 }))
 const Listed = Schema.fromJsonString(Schema.Struct({
+  apiVersion: Schema.Literal(ENVELOPE_VERSION),
   kind: Schema.Literal("ProjectList"),
   data: Schema.Array(Schema.Struct({ name: Schema.String }))
 }))
-const JsonValue = Schema.fromJsonString(Schema.Unknown)
+const JsonEnvelope = Schema.fromJsonString(Schema.Struct({
+  apiVersion: Schema.Literal(ENVELOPE_VERSION)
+}))
 
-const decodeOutput = Effect.fn("BinarySmoke.decodeOutput")(
+export const decodeOutput = Effect.fn("BinarySmoke.decodeOutput")(
   <A>(schema: Schema.Codec<A, unknown, never, never>, source: string, label: string): Effect.Effect<A, BinarySmokeError> =>
     Schema.decodeUnknownEffect(schema)(source).pipe(
       Effect.mapError((cause) => commandError("parse", `${label} response was malformed`, cause))
@@ -737,7 +744,8 @@ export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
       Effect.flatMap((report) => requireSuccess(report, "binary build")),
       Effect.mapError((cause) => cause.operation === "command" ? new BinarySmokeError({ ...cause, operation: "build" }) : cause)
     )
-    yield* certifyCompiledVersion(root)
+    const expectedVersion = yield* resolveBuildAppVersion(root)
+    yield* certifyCompiledVersion(root, expectedVersion)
     const attempts = yield* Config.int("EXPAND_BINARY_SMOKE_ATTEMPTS").pipe(Config.withDefault(250))
     yield* Effect.scoped(Effect.gen(function*() {
       const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-binary-smoke-" })
@@ -772,7 +780,7 @@ export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
         attempts,
         args: ["project", "delete", created.data.id, "--format", "json"]
       })
-      yield* decodeOutput(JsonValue, deletedSource, "delete")
+      yield* decodeOutput(JsonEnvelope, deletedSource, "delete")
       if (!(yield* fs.exists(path.join(dataDir, "events.db")))) {
         return yield* commandError("cleanup", "events database was not durable")
       }

@@ -1,4 +1,5 @@
-export const ENVELOPE_VERSION = "expand/v1" as const
+import { ENVELOPE_VERSION } from "@expand/contracts/endpoint"
+export { ENVELOPE_VERSION } from "@expand/contracts/endpoint"
 
 export const makeEnvelope = <Kind extends string, Body extends object>(
   kind: Kind,

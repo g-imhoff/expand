@@ -31,8 +31,7 @@ export interface EventStorePrimitives {
    * @remarks
    * Keyset pagination: each pull fetches one chunk ({@link EventScanChunkSize}
    * rows) in its own short read transaction — WAL-friendly. Decoding is
-   * fail-fast: an undecodable row is a defect naming `{seq, stream_id,
-   * event_type}`, never skipped. Not a snapshot: an event appended between
+   * fail-fast: an undecodable row is a defect, never skipped. Not a snapshot: an event appended between
    * chunk fetches surfaces exactly once, in order — no gap, no duplicate
    * across chunk seams.
    *
@@ -78,8 +77,8 @@ export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChu
  * The only door to the raw event-log primitives.
  *
  * @remarks
- * Ensures the `events` DDL (idempotent), captures {@link EventScanChunkSize}
- * once, then builds the raw {@link EventStorePrimitives} as a closure handed
+ * Captures {@link EventScanChunkSize} once, then builds the raw
+ * {@link EventStorePrimitives} as a closure handed
  * only to `build`. Calling this IS the sanctioned architectural act of
  * declaring a new specialized event store — misuse is loud and greppable.
  *
@@ -95,7 +94,7 @@ export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChu
  * ```
  *
  * @param build - Receives the raw primitives; returns the specialized store's service value.
- * @returns An effect yielding the specialized store `S`; requires `SqlClient`.
+ * @returns An effect yielding the specialized store `S`.
  */
 export const specializeEventStore = Effect.fn("EventStore.specialize")(function*<S>(
   build: (store: EventStorePrimitives) => S
@@ -123,9 +122,6 @@ export const specializeEventStore = Effect.fn("EventStore.specialize")(function*
       eventRevision: row.event_revision,
       payload: row.payload
     }).pipe(
-      Effect.mapError((error) => new Error(
-        `undecodable event row seq=${row.seq} stream_id=${row.stream_id} event_type=${row.event_type} stored_revision=${row.event_revision} target_revision=${error.targetRevision ?? "unknown"} reason=${error.reason}`
-      )),
       Effect.orDie,
       Effect.map((event) => ({ seq: row.seq, event }))
     )

@@ -24,7 +24,7 @@ import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 import { EVENT_REVISIONS } from "@expand/server/migrations/events"
 
-const GENERATOR_VERSION = 1
+const GENERATOR_VERSION = 2
 const PRNG_SEED = 42
 export const LIVE_PROJECT_CAP = 200
 
