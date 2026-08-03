@@ -11,7 +11,7 @@ import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases
 import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { httpServerLayer } from "@expand/server/transport/http-server"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
-import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"

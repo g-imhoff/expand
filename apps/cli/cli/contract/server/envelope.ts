@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
 
 export class HealthEnvelope extends Schema.Opaque<HealthEnvelope>()(
   Schema.Struct({

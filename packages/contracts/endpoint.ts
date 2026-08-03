@@ -9,6 +9,6 @@ export class Endpoint extends Schema.Opaque<Endpoint>()(
   })
 ) {}
 
-export const PROTOCOL_VERSION = 2
+export { PROTOCOL_VERSION } from "./rpc/version.js"
 
 export const EndpointFromJson = Schema.fromJsonString(Endpoint)

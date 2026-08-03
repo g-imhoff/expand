@@ -18,7 +18,8 @@ import { TestClock } from "effect/testing"
 import { describe, expect, expectTypeOf } from "vitest"
 import { RpcClient } from "effect/unstable/rpc"
 import { AppContext, makeAppContext, type AppContextShape } from "@expand/contracts/app-context"
-import { type Endpoint, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { type Endpoint } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import {
   ProcessControl,
   ProcessProbeError,

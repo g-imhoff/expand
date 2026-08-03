@@ -5,7 +5,8 @@ import { expect } from "vitest"
 import { ProcessServices } from "../process-services"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { deleteEndpoint, readEndpoint } from "../../discovery"
-import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 class TestDirectory extends Context.Service<TestDirectory, string>()("expand/DiscoveryTest/Directory") {}

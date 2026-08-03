@@ -6,7 +6,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { readEndpoint, withClient } from "@expand/client-ts"
 import { runServer } from "@expand/server/composition/app"
 import { writeEndpointFile } from "@expand/server/runtime/endpoint-file"
-import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl } from "@expand/contracts/process-control"
 

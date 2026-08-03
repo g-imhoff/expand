@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { Effect, Result, Schema } from "effect"
 import { describe, expect } from "vitest"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
 import { ErrorEnvelope } from "@expand/cli/errors/envelope"
 import { ProjectEnvelope, ProjectListEnvelope } from "@expand/cli/contract/project/envelope"
 import { HealthEnvelope } from "@expand/cli/contract/server/envelope"

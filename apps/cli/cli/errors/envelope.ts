@@ -1,6 +1,5 @@
 import { Schema } from "effect"
-import { makeEnvelope } from "@expand/cli/contract/envelope"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/version"
+import { ENVELOPE_VERSION, makeEnvelope } from "@expand/cli/contract/envelope"
 import { ErrorCode, type ErrorCode as ErrorCodeType } from "@expand/cli/errors/error-code"
 
 export class ErrorEnvelope extends Schema.Opaque<ErrorEnvelope>()(

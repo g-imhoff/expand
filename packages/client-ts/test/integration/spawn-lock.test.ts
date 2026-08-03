@@ -20,7 +20,8 @@ import {
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
-import { EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import {
   ProcessControl,
   ProcessProbeError,

@@ -1,5 +1,6 @@
 import { Effect, FileSystem, Option, PlatformError, Schema } from "effect"
-import { type Endpoint, EndpointFromJson, PROTOCOL_VERSION } from "@expand/contracts/endpoint"
+import { type Endpoint, EndpointFromJson } from "@expand/contracts/endpoint"
+import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessProbeError } from "@expand/contracts/process-control"
 
