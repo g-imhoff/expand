@@ -2,6 +2,7 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Console, Data, Effect, Exit, FileSystem, Path, Schema } from "effect"
 import { Command } from "effect/unstable/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { resolveAppVersion } from "../../../scripts/app-version"
 
 export class PublishStageError extends Data.TaggedError("PublishStageError")<{
   readonly operation: "missing-dist" | "read-manifest" | "clean" | "mkdir" | "copy" | "write" | "commit"
@@ -30,7 +31,7 @@ export const build = Effect.fn("ClientPublish.build")(
 )
 
 export const stage = Effect.fn("ClientPublish.stage")(
-  function*(root: string) {
+  function*(root: string, releaseVersion: string) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const dist = path.join(root, "dist")
@@ -52,7 +53,7 @@ export const stage = Effect.fn("ClientPublish.stage")(
     )
     const publishManifest = {
       name: source.name,
-      version: source.version,
+      version: releaseVersion,
       type: source.type,
       sideEffects: source.sideEffects,
       private: false as const,
@@ -80,7 +81,7 @@ export const stage = Effect.fn("ClientPublish.stage")(
         "./package.json": "./package.json"
       },
       files: ["dist"] as const,
-      dependencies: source.dependencies
+      dependencies: { ...source.dependencies, "@expand/contracts": releaseVersion }
     }
     const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(PublishedManifest))(publishManifest).pipe(
       Effect.mapError((cause) => new PublishManifestError({ cause }))
@@ -175,17 +176,25 @@ export const stage = Effect.fn("ClientPublish.stage")(
           : cleanupExit.cause)
       }))
     }))
-    yield* Console.log(`[prepare-publish] staged ${source.name}@${source.version} -> ${target}`)
+    yield* Console.log(`[prepare-publish] staged ${source.name}@${releaseVersion} -> ${target}`)
   }
 )
 
 export const pack = Effect.fn("ClientPublish.pack")(
-  function*(root: string) {
+  function*(root: string, releaseVersion: string) {
     yield* build(root)
-    yield* stage(root)
+    yield* stage(root, releaseVersion)
     yield* runCommand(root, "npm", ["pack", "./dist-publish"])
   }
 )
+
+export const releaseAtRoot = Effect.fn("ClientPublish.releaseAtRoot")(function*(operation: typeof stage | typeof pack) {
+  const path = yield* Path.Path
+  const root = yield* packageRoot
+  const repositoryRoot = yield* path.fromFileUrl(new URL("../../../", import.meta.url))
+  const releaseVersion = yield* resolveAppVersion(repositoryRoot, "release")
+  yield* operation(root, releaseVersion)
+})
 
 const PackageManifest = Schema.Struct({
   name: Schema.String,
@@ -227,10 +236,12 @@ const runCommand = Effect.fn("ClientPublish.runCommand")(
     }))
 )
 
+const packageRoot = Path.Path.pipe(Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))))
+
 const command = Command.make("prepare-publish").pipe(Command.withSubcommands([
-  Command.make("build", {}, () => Path.Path.pipe(Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))), Effect.flatMap(build))),
-  Command.make("stage", {}, () => Path.Path.pipe(Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))), Effect.flatMap(stage))),
-  Command.make("pack", {}, () => Path.Path.pipe(Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))), Effect.flatMap(pack)))
+  Command.make("build", {}, () => packageRoot.pipe(Effect.flatMap(build))),
+  Command.make("stage", {}, () => releaseAtRoot(stage)),
+  Command.make("pack", {}, () => releaseAtRoot(pack))
 ]))
 
 const program = Command.run(command, { version: "0.0.0" }).pipe(Effect.provide(NodeServices.layer))

@@ -1,6 +1,7 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { build as esbuildBuild, type BuildOptions } from "esbuild"
 import { Context, Data, Effect, FileSystem, Layer, Path } from "effect"
+import { resolveAppVersion } from "./app-version"
 
 export const BUILD_ENTRIES = [
   ["apps/cli/cli/main.ts", "dist/expand"],
@@ -22,7 +23,7 @@ export class BuildError extends Data.TaggedError("BuildError")<{
   readonly cause: unknown
 }> {}
 
-export const buildOptions = (rootDir: string, entry: string, outfile: string): BuildOptions => ({
+export const buildOptions = (rootDir: string, entry: string, outfile: string, appVersion: string): BuildOptions => ({
   entryPoints: [entry],
   outfile,
   absWorkingDir: rootDir,
@@ -32,12 +33,12 @@ export const buildOptions = (rootDir: string, entry: string, outfile: string): B
   format: "esm",
   sourcemap: true,
   banner: { js: BUILD_BANNER },
-  define: { __EXPAND_CHANNEL__: '"release"' },
+  define: { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: `"${appVersion}"` },
   external: ["better-sqlite3"]
 })
 
 export const buildBinaries = Effect.fn("scripts.build.buildBinaries")(
-  function*(rootDir: string) {
+  function*(rootDir: string, appVersion: string) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const tool = yield* BuildTool
@@ -52,7 +53,7 @@ export const buildBinaries = Effect.fn("scripts.build.buildBinaries")(
 
     for (const [entry, output] of BUILD_ENTRIES) {
       const outfile = path.join(rootDir, output)
-      yield* tool.build(buildOptions(rootDir, path.join(rootDir, entry), outfile)).pipe(
+      yield* tool.build(buildOptions(rootDir, path.join(rootDir, entry), outfile, appVersion)).pipe(
         Effect.mapError((cause) => new BuildError({ operation: "esbuild", cause }))
       )
       yield* fs.chmod(outfile, 0o755).pipe(
@@ -74,7 +75,8 @@ export const BuildToolLive = Layer.succeed(BuildTool, buildTool)
 const program = Effect.gen(function*() {
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
-  yield* buildBinaries(root)
+  const appVersion = yield* resolveAppVersion(root, "development")
+  yield* buildBinaries(root, appVersion)
 }).pipe(
   Effect.provide(Layer.mergeAll(BuildToolLive, NodeServices.layer))
 )

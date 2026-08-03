@@ -1,6 +1,8 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Context, Data, Effect, Exit, FileSystem, Layer, Path, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { stage as stageContracts } from "../packages/contracts/scripts/prepare-publish"
+import { stage as stageClient } from "../packages/client-ts/scripts/prepare-publish"
 
 export class PackageCertificationError extends Data.TaggedError("PackageCertificationError")<{
   readonly workspace: "@expand/contracts" | "@expand/client-ts"
@@ -15,6 +17,8 @@ export interface PackageCertificationReport {
   readonly filename: string
   readonly files: ReadonlyArray<string>
   readonly exports: Readonly<Record<string, unknown>>
+  readonly version: string
+  readonly dependencies: Readonly<Record<string, string>>
 }
 
 export interface PackageCertificationCommandRequest {
@@ -35,8 +39,12 @@ export class PackageCertificationCommandRunner extends Context.Service<PackageCe
   readonly run: (request: PackageCertificationCommandRequest) => Effect.Effect<PackageCertificationCommandResult, PackageCertificationError>
 }>()("expand/PackageCertificationCommandRunner") {}
 
-const Workspace = Schema.Literals(["@expand/contracts", "@expand/client-ts"])
-type Workspace = typeof Workspace.Type
+export const Workspace = Schema.Literals(["@expand/contracts", "@expand/client-ts"])
+export type Workspace = typeof Workspace.Type
+
+export class PackageStager extends Context.Service<PackageStager, {
+  readonly stage: (workspace: Workspace, root: string, version: string) => Effect.Effect<void, PackageCertificationError>
+}>()("expand/PackageStager") {}
 
 const PackFile = Schema.Struct({
   path: Schema.String,
@@ -66,7 +74,8 @@ const PublishedManifest = Schema.Struct({
   private: Schema.Boolean,
   type: Schema.Literal("module"),
   files: Schema.Array(Schema.String),
-  exports: Schema.Record(Schema.String, Schema.Unknown)
+  exports: Schema.Record(Schema.String, Schema.Unknown),
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
 })
 
 export interface TarEntry {
@@ -95,6 +104,19 @@ const contractsExports = {
 
 const failure = (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string, cause?: unknown) =>
   new PackageCertificationError({ workspace, phase, detail, ...(cause === undefined ? {} : { cause }) })
+
+export const PackageStagerLive = Layer.effect(PackageStager, Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  return PackageStager.of({
+    stage: Effect.fn("PackageCertification.stagePackage")((workspace, root, version) =>
+      (workspace === "@expand/contracts" ? stageContracts(root, version) : stageClient(root, version)).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+        Effect.provideService(Path.Path, path),
+        Effect.mapError((cause) => failure(workspace, "stage", "package staging failed", cause))
+      ))
+  })
+}))
 
 const mapCertificationError = (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string) =>
   <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(Effect.mapError((cause) => failure(workspace, phase, detail, cause)))
@@ -223,7 +245,9 @@ export const inspectPackageArtifact = Effect.fn("PackageCertification.inspectPac
       packageName: manifest.name,
       filename: input.filename,
       files: input.metadataFiles,
-      exports: manifest.exports
+      exports: manifest.exports,
+      version: manifest.version,
+      dependencies: manifest.dependencies ?? {}
     } satisfies PackageCertificationReport
   }
 )
@@ -321,6 +345,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
   (root: string) => Effect.scoped(Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+    const stager = yield* PackageStager
     const temp = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-certification-" }).pipe(
       mapCertificationError("@expand/contracts", "build", "temporary directory could not be created")
     )
@@ -329,7 +354,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
     for (const workspace of workspaces) {
       const work = Effect.gen(function*() {
         yield* run({ workspace: workspace.name, phase: "build", command: "npm", args: ["run", "build", "--workspace", workspace.name], cwd: root })
-        yield* run({ workspace: workspace.name, phase: "stage", command: "npm", args: ["run", "stage:publish", "--workspace", workspace.name], cwd: root })
+        yield* stager.stage(workspace.name, path.join(root, workspace.directory), "0.0.0-cert.0")
         const packed = yield* run({
           workspace: workspace.name,
           phase: "pack",
@@ -363,6 +388,11 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
         reports.push(report)
       })
       yield* runWorkspaceLifecycle(root, workspace.directory, workspace.name, work)
+    }
+    const contracts = reports.find((report) => report.workspace === "@expand/contracts")
+    const client = reports.find((report) => report.workspace === "@expand/client-ts")
+    if (contracts === undefined || client === undefined || contracts.version !== client.version || client.dependencies["@expand/contracts"] !== contracts.version) {
+      return yield* failure("@expand/client-ts", "inspect", "fixed-group package versions were not aligned")
     }
     const consumer = path.join(temp, "consumer")
     yield* fs.makeDirectory(consumer, { recursive: true }).pipe(
@@ -420,7 +450,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
 const program = Path.Path.pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))),
   Effect.flatMap(certifyPackages),
-  Effect.provide(PackageCertificationCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
+  Effect.provide(Layer.merge(PackageStagerLive, PackageCertificationCommandRunnerLive).pipe(Layer.provideMerge(NodeServices.layer)))
 )
 
 if (import.meta.main) {

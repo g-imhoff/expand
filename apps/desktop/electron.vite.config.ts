@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { builtinModules } from "node:module"
 import { resolve } from "node:path"
 
-export default (() => {
+export const makeElectronConfig = (appVersion: string) => {
   const here = import.meta.dirname
   const repo = resolve(here, "../..")
   const alias = {
@@ -21,9 +21,11 @@ export default (() => {
     "ws",
     ...nodeBuiltins
   ]
+  const quotedVersion = `"${appVersion}"`
 
   return defineConfig({
     main: {
+      define: { __EXPAND_VERSION__: quotedVersion },
       plugins: [externalizeDepsPlugin()],
       resolve: { alias },
       build: {
@@ -35,6 +37,7 @@ export default (() => {
       }
     },
     preload: {
+      define: { __EXPAND_VERSION__: quotedVersion },
       resolve: { alias },
       build: {
         rollupOptions: {
@@ -45,9 +48,14 @@ export default (() => {
       }
     },
     renderer: {
+      define: { __EXPAND_VERSION__: quotedVersion },
       plugins: [react(), tailwindcss()],
       resolve: { alias },
       build: { rollupOptions: { input: resolve(here, "src/renderer/index.html") } }
     }
   })
-})()
+}
+
+export default makeElectronConfig(
+  (Reflect.get(globalThis, "process") as NodeJS.Process).env.EXPAND_APP_VERSION ?? "0.0.0-dev"
+)

@@ -11,6 +11,7 @@ import { renderErrors } from "@expand/cli/errors/render-errors"
 import { healthCommand } from "@expand/cli/commands/health"
 import { projectCommand } from "@expand/cli/commands/project"
 import { appContextFromDataDir } from "@expand/cli/runtime/app-context-layer"
+import { appVersion } from "@expand/contracts/build-info"
 
 export const makeExpand = <E, R>(clientLayer: Layer.Layer<ProjectClient | ServerClient, E, R>) => {
   const configuredClientLayer = clientLayer.pipe(Layer.provide(appContextFromDataDir))
@@ -45,7 +46,7 @@ export const backendCommand: (
 export const expand = makeExpand(ClientLayer(makeNodeAdapter({ backendCommand: backendCommand() })))
 
 if (import.meta.main) {
-  renderErrors(Command.run(expand, { version: "0.0.0" })).pipe(
+  renderErrors(Command.run(expand, { version: appVersion })).pipe(
     Effect.provide(Layer.mergeAll(CliOutput.layer(jsonCliErrorFormatter), ProcessServices.layer)),
     NodeRuntime.runMain
   )

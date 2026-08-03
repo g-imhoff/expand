@@ -8,20 +8,21 @@ import { DesktopCommandError, runDesktopCommand } from "./desktop-command"
 const commandDetails = (fixture: ReturnType<typeof processSpawnerFixture>) => fixture.records.map(({ command }) => {
   expect(command._tag).toBe("StandardCommand")
   return command._tag === "StandardCommand"
-    ? { command: command.command, args: command.args, cwd: command.options.cwd, stdin: command.options.stdin, stdout: command.options.stdout, stderr: command.options.stderr }
+    ? { command: command.command, args: command.args, cwd: command.options.cwd, env: command.options.env, stdin: command.options.stdin, stdout: command.options.stdout, stderr: command.options.stderr }
     : undefined
 })
 
 describe("desktop command", () => {
   it.effect("runs dev with the exact electron-vite arguments and desktop cwd", () => {
     const fixture = processSpawnerFixture([0])
-    return runDesktopCommand("/repo", "dev").pipe(
+    return runDesktopCommand("/repo", "dev", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([{
           command: "electron-vite",
           args: ["dev", "-w"],
           cwd: "/repo/apps/desktop",
+          env: { EXPAND_APP_VERSION: "1.2.3" },
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit"
@@ -33,24 +34,28 @@ describe("desktop command", () => {
 
   it.effect("runs build with the exact electron-vite arguments and desktop cwd", () => {
     const fixture = processSpawnerFixture([0])
-    return runDesktopCommand("/repo", "build").pipe(
+    const environment = (Reflect.get(globalThis, "process") as NodeJS.Process).env
+    const parentVersion = environment.EXPAND_APP_VERSION
+    return runDesktopCommand("/repo", "build", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([{
           command: "electron-vite",
           args: ["build"],
           cwd: "/repo/apps/desktop",
+          env: { EXPAND_APP_VERSION: "1.2.3" },
           stdin: "inherit",
           stdout: "inherit",
           stderr: "inherit"
         }])
+        expect(environment.EXPAND_APP_VERSION).toBe(parentVersion)
       }))
     )
   })
 
   it.effect("runs e2e as build followed by Playwright with exact arguments", () => {
     const fixture = processSpawnerFixture([0, 0])
-    return runDesktopCommand("/repo", "e2e").pipe(
+    return runDesktopCommand("/repo", "e2e", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([
@@ -58,6 +63,7 @@ describe("desktop command", () => {
             command: "electron-vite",
             args: ["build"],
             cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
             stdin: "inherit",
             stdout: "inherit",
             stderr: "inherit"
@@ -66,6 +72,7 @@ describe("desktop command", () => {
             command: "playwright",
             args: ["test", "-c", "e2e/playwright.config.ts"],
             cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
             stdin: "inherit",
             stdout: "inherit",
             stderr: "inherit"
@@ -77,7 +84,7 @@ describe("desktop command", () => {
 
   it.effect("tags nonzero exits and does not continue e2e", () => {
     const fixture = processSpawnerFixture([6])
-    return runDesktopCommand("/repo", "e2e").pipe(
+    return runDesktopCommand("/repo", "e2e", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
@@ -90,7 +97,7 @@ describe("desktop command", () => {
   it.effect("releases a running child when interrupted", () => {
     const fixture = processSpawnerFixture([], { neverExitAt: 0 })
     return Effect.gen(function*() {
-      const fiber = yield* runDesktopCommand("/repo", "dev").pipe(
+      const fiber = yield* runDesktopCommand("/repo", "dev", "1.2.3").pipe(
         Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
         Effect.forkChild({ startImmediately: true })
       )

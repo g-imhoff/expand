@@ -290,6 +290,23 @@ describe("exact executable inventory architecture", () => {
       ])
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("resolves a default export that calls a local named config factory with transported version data", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/electron.vite.config.ts": `import { defineConfig } from "electron-vite"\nimport { resolve } from "node${":"}path"\nexport const makeElectronConfig = (version: string) => defineConfig({ main: { define: { VERSION: version }, build: { rollupOptions: { input: resolve(import.meta.dirname, "src/main/index.ts") } } }, preload: { define: { VERSION: version }, build: { rollupOptions: { input: resolve(import.meta.dirname, "src/preload/index.ts") } } }, renderer: { define: { VERSION: version }, build: { rollupOptions: { input: resolve(import.meta.dirname, "src/renderer/index.html") } } } })\nconst transportedVersion = "1.2.3"\nexport default makeElectronConfig(transportedVersion)\n`,
+        "apps/desktop/src/main/index.ts": `import { NodeRuntime } from "@effect/platform-node"\nNodeRuntime.${"runMain"}(null)\n`,
+        "apps/desktop/src/preload/index.ts": `export {}\n`,
+        "apps/desktop/src/renderer/index.html": `<main></main>\n`
+      })
+      const discovery = yield* discoverExecutableInventory(root)
+      expect(discovery.observations.filter(({ invocation }) => invocation.selector.startsWith("electron:")).map(({ file, invocation }) => ({ file, selector: invocation.selector }))).toEqual([
+        { file: "apps/desktop/src/main/index.ts", selector: "electron:main" },
+        { file: "apps/desktop/src/preload/index.ts", selector: "electron:preload" },
+        { file: "apps/desktop/src/renderer/index.html", selector: "electron:renderer" }
+      ])
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("does not accept an unresolved exported Electron section because a dead section is resolvable", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({

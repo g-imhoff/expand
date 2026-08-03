@@ -6,6 +6,7 @@ import * as AppContext from "@expand/contracts/app-context"
 import * as ServerApp from "@expand/server/composition/app"
 import * as StateRootLock from "@expand/server/runtime/state-root-lock"
 import * as NodeProcessControl from "@expand/server/runtime/node-process-control"
+import { appVersion } from "@expand/contracts/build-info"
 
 const fileLogger = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -28,6 +29,7 @@ const loggedProgram = Effect.gen(function* () {
 }).pipe(Effect.provide(loggerLayer))
 
 const program = Effect.gen(function* () {
+  yield* Effect.logInfo("starting Expand server", { appVersion })
   const { paths } = yield* AppContext.AppContext
   yield* StateRootLock.stateRootLockForStartup(paths.dataDir, paths.endpointFile)
   yield* loggedProgram

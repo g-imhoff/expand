@@ -14,6 +14,7 @@ import type {
 } from "electron"
 import { NodePath, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
+import { appVersion } from "@expand/contracts/build-info"
 import { electronBindDeps } from "@expand/electron-ipc/main-electron"
 import { makeRuntime } from "@expand/desktop/main/runtime/client-runtime"
 import {
@@ -129,4 +130,9 @@ const deps: MainProgramDeps<MessagePortMain> = {
     cause === undefined ? Effect.logWarning(message) : Effect.logWarning(message, cause)
 }
 
-NodeRuntime.runMain(mainProgram(deps).pipe(Effect.provide(NodePath.layer)))
+NodeRuntime.runMain(
+  Effect.logInfo("starting Expand desktop", { appVersion }).pipe(
+    Effect.andThen(mainProgram(deps)),
+    Effect.provide(NodePath.layer)
+  )
+)

@@ -2,6 +2,7 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Data, Effect, Path } from "effect"
 import { Command } from "effect/unstable/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { resolveAppVersion } from "./app-version"
 
 export type DesktopMode = "dev" | "build" | "e2e"
 
@@ -16,11 +17,13 @@ export class DesktopProcessError extends Data.TaggedError("DesktopProcessError")
 }> {}
 
 const runCommand = Effect.fn("DesktopCommand.runCommand")(
-  (cwd: string, command: string, args: ReadonlyArray<string>) =>
+  (cwd: string, command: string, args: ReadonlyArray<string>, appVersion: string) =>
     Effect.scoped(Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const handle = yield* spawner.spawn(ChildProcess.make(command, args, {
         cwd,
+        env: { EXPAND_APP_VERSION: appVersion },
+        extendEnv: true,
         stdin: "inherit",
         stdout: "inherit",
         stderr: "inherit"
@@ -35,23 +38,25 @@ const runCommand = Effect.fn("DesktopCommand.runCommand")(
 )
 
 export const runDesktopCommand = Effect.fn("DesktopCommand.run")(
-  function*(root: string, mode: DesktopMode) {
+  function*(root: string, mode: DesktopMode, appVersion: string) {
     const path = yield* Path.Path
     const cwd = path.join(root, "apps", "desktop")
     if (mode === "dev") {
-      return yield* runCommand(cwd, "electron-vite", ["dev", "-w"])
+      return yield* runCommand(cwd, "electron-vite", ["dev", "-w"], appVersion)
     }
-    yield* runCommand(cwd, "electron-vite", ["build"])
+    yield* runCommand(cwd, "electron-vite", ["build"], appVersion)
     if (mode === "e2e") {
-      yield* runCommand(cwd, "playwright", ["test", "-c", "e2e/playwright.config.ts"])
+      yield* runCommand(cwd, "playwright", ["test", "-c", "e2e/playwright.config.ts"], appVersion)
     }
   }
 )
 
-const atRoot = (mode: DesktopMode) => Path.Path.pipe(
-  Effect.flatMap((path) => path.fromFileUrl(new URL("../", import.meta.url))),
-  Effect.flatMap((root) => runDesktopCommand(root, mode))
-)
+const atRoot = (mode: DesktopMode) => Effect.gen(function*() {
+  const path = yield* Path.Path
+  const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
+  const appVersion = yield* resolveAppVersion(root, "development")
+  yield* runDesktopCommand(root, mode, appVersion)
+})
 
 const command = Command.make("desktop-command").pipe(Command.withSubcommands([
   Command.make("dev", {}, () => atRoot("dev")),

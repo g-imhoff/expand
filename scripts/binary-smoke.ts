@@ -290,6 +290,18 @@ const requireSuccess = (report: CommandReport, label: string): Effect.Effect<Com
     ? Effect.succeed(report)
     : Effect.fail(commandError("command", `${label} exited ${report.exitCode}: ${report.stderr.trim()}`))
 
+export const certifyCompiledVersion = Effect.fn("BinarySmoke.certifyCompiledVersion")(
+  function*(root: string) {
+    const report = yield* runCommand(root, "./dist/expand", ["--version"]).pipe(
+      Effect.flatMap((result) => requireSuccess(result, "compiled version"))
+    )
+    const version = report.stdout.trim()
+    if (!/^expand v0\.0\.0-dev(?:\+[0-9a-f]{12})?$/.test(version)) {
+      return yield* commandError("parse", `compiled version did not match a development build: ${version}`)
+    }
+  }
+)
+
 const JobFactOutput = Schema.Struct({
   job: Schema.String,
   pid: Schema.Number,
@@ -725,6 +737,7 @@ export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
       Effect.flatMap((report) => requireSuccess(report, "binary build")),
       Effect.mapError((cause) => cause.operation === "command" ? new BinarySmokeError({ ...cause, operation: "build" }) : cause)
     )
+    yield* certifyCompiledVersion(root)
     const attempts = yield* Config.int("EXPAND_BINARY_SMOKE_ATTEMPTS").pipe(Config.withDefault(250))
     yield* Effect.scoped(Effect.gen(function*() {
       const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-binary-smoke-" })

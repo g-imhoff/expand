@@ -14,7 +14,12 @@ export interface ProcessSpawnerFixture {
 
 export const processSpawnerFixture = (
   exitCodes: ReadonlyArray<number>,
-  options: { readonly neverExitAt?: number; readonly eventLog?: Array<string> } = {}
+  options: {
+    readonly neverExitAt?: number
+    readonly eventLog?: Array<string>
+    readonly stdout?: ReadonlyArray<string>
+    readonly stderr?: ReadonlyArray<string>
+  } = {}
 ): ProcessSpawnerFixture => {
   const records: Array<{ command: ChildProcess.Command; released: boolean; releaseCount: number }> = []
   let index = 0
@@ -38,8 +43,8 @@ export const processSpawnerFixture = (
           isRunning: Effect.succeed(current === options.neverExitAt),
           kill: () => Effect.void,
           stdin: Sink.drain,
-          stdout: Stream.empty,
-          stderr: Stream.empty,
+          stdout: Stream.make(options.stdout?.[current] ?? "").pipe(Stream.encodeText),
+          stderr: Stream.make(options.stderr?.[current] ?? "").pipe(Stream.encodeText),
           all: Stream.empty,
           getInputFd: () => Sink.drain,
           getOutputFd: () => Stream.empty,

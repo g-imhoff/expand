@@ -10,6 +10,7 @@ import {
   PublishStageError,
   build,
   pack,
+  releaseAtRoot,
   stage
 } from "../scripts/prepare-publish"
 
@@ -36,7 +37,7 @@ const PublishedManifest = Schema.Struct({
 
 const sourceManifest = {
   name: "@expand/contracts",
-  version: "1.2.3",
+  version: "0.0.0",
   private: true,
   type: "module" as const,
   sideEffects: false,
@@ -78,7 +79,7 @@ describe("contracts publish workflow", () => {
       yield* fs.makeDirectory(path.join(root, "dist-publish"))
       yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "old")
 
-      const error = yield* stage(root).pipe(Effect.flip)
+      const error = yield* stage(root, "4.5.6").pipe(Effect.flip)
 
       expect(error).toBeInstanceOf(PublishStageError)
       if (error._tag === "PublishStageError") expect(error.operation).toBe("missing-dist")
@@ -92,7 +93,7 @@ describe("contracts publish workflow", () => {
       const failure = { reason: "injected read failure" }
       yield* fs.makeDirectory(path.join(root, "dist"))
 
-      const error = yield* stage(root).pipe(
+      const error = yield* stage(root, "4.5.6").pipe(
         Effect.provideService(FileSystem.FileSystem, {
           ...fs,
           readFileString: (target, options) => target === path.join(root, "package.json")
@@ -116,7 +117,7 @@ describe("contracts publish workflow", () => {
       yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "old")
       yield* fs.writeFileString(path.join(root, "package.json"), "{")
 
-      const error = yield* stage(root).pipe(Effect.flip)
+      const error = yield* stage(root, "4.5.6").pipe(Effect.flip)
 
       expect(error).toBeInstanceOf(PublishManifestError)
       expect(error).not.toBeInstanceOf(PublishStageError)
@@ -137,7 +138,7 @@ describe("contracts publish workflow", () => {
       yield* fs.makeDirectory(path.join(root, ".dist-publish.previous"))
       yield* fs.writeFileString(path.join(root, ".dist-publish.previous", "marker"), "exact stale bytes")
 
-      const exit = yield* stage(root).pipe(
+      const exit = yield* stage(root, "4.5.6").pipe(
         Effect.provideService(FileSystem.FileSystem, {
           ...fs,
           remove: (target, options) => target === path.join(root, ".dist-publish.previous")
@@ -185,7 +186,7 @@ describe("contracts publish workflow", () => {
             )
           }
 
-          const error = yield* stage(root).pipe(
+          const error = yield* stage(root, "4.5.6").pipe(
             Effect.provideService(FileSystem.FileSystem, injected),
             Effect.flip
           )
@@ -225,7 +226,7 @@ describe("contracts publish workflow", () => {
             )
           }
 
-          yield* stage(root).pipe(
+          yield* stage(root, "4.5.6").pipe(
             Effect.provideService(FileSystem.FileSystem, injected),
             Effect.flip
           )
@@ -249,7 +250,7 @@ describe("contracts publish workflow", () => {
       yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
       yield* fs.makeDirectory(path.join(root, "dist-publish"))
       yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
-      const fiber = yield* stage(root).pipe(
+      const fiber = yield* stage(root, "4.5.6").pipe(
         Effect.provideService(FileSystem.FileSystem, {
           ...fs,
           copy: (from, to, options) => fs.copy(from, to, options).pipe(
@@ -278,7 +279,7 @@ describe("contracts publish workflow", () => {
           yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
           yield* fs.makeDirectory(path.join(root, "dist-publish"))
           yield* fs.writeFileString(path.join(root, "dist-publish", "marker"), "original bytes")
-          const fiber = yield* stage(root).pipe(
+          const fiber = yield* stage(root, "4.5.6").pipe(
             Effect.provideService(FileSystem.FileSystem, {
               ...fs,
               rename: (from, to) => fs.rename(from, to).pipe(
@@ -314,7 +315,7 @@ describe("contracts publish workflow", () => {
       let copied = false
       yield* fs.makeDirectory(path.join(root, "dist"))
       yield* fs.writeFileString(path.join(root, "dist", "index.js"), "new bytes")
-      const exit = yield* stage(root).pipe(
+      const exit = yield* stage(root, "4.5.6").pipe(
         Effect.provideService(FileSystem.FileSystem, {
           ...fs,
           copy: (from, to, options) => fs.copy(from, to, options).pipe(
@@ -344,7 +345,7 @@ describe("contracts publish workflow", () => {
       yield* fs.makeDirectory(path.join(root, "dist-publish"))
       yield* fs.writeFileString(path.join(root, "dist-publish", "stale"), "remove")
 
-      yield* stage(root)
+      yield* stage(root, "4.5.6")
 
       expect(yield* fs.exists(path.join(root, "dist-publish", "stale"))).toBe(false)
       expect(yield* fs.readFileString(path.join(root, "dist-publish", "dist", "events", "domain-event.js"))).toBe("export {}\n")
@@ -353,7 +354,7 @@ describe("contracts publish workflow", () => {
       )
       expect(manifest).toEqual({
         name: "@expand/contracts",
-        version: "1.2.3",
+        version: "4.5.6",
         type: "module",
         sideEffects: false,
         private: false,
@@ -391,10 +392,19 @@ describe("contracts publish workflow", () => {
     )
   })
 
+  it.effect("rejects the stage command path when HEAD has no exact release tag", () => {
+    const fixture = processSpawnerFixture([0, 0])
+    return releaseAtRoot(stage).pipe(
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer, FileSystem.layerNoop({}))),
+      Effect.flip,
+      Effect.map((error) => expect(error).toMatchObject({ _tag: "AppVersionError", reason: "missing-release-tag" }))
+    )
+  })
+
   it.effect("packs by building, staging, then invoking npm pack in one lazy Effect", () => {
     const operations: Array<string> = []
     const fixture = processSpawnerFixture([0, 0], { eventLog: operations })
-    const program = pack("/repo/packages/contracts").pipe(
+    const program = pack("/repo/packages/contracts", "4.5.6").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         exists: (target) => Effect.sync(() => {
           operations.push(`exists:${target}`)
@@ -429,7 +439,7 @@ describe("contracts publish workflow", () => {
   it.effect("returns the exact tagged npm pack nonzero failure after build and stage", () => {
     const events: Array<string> = []
     const fixture = processSpawnerFixture([0, 6], { eventLog: events })
-    return pack("/repo/packages/contracts").pipe(
+    return pack("/repo/packages/contracts", "4.5.6").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, FileSystem.layerNoop({
         exists: () => Effect.succeed(true),
         readFileString: () => Effect.succeed(sourceJson),

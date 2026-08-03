@@ -8,6 +8,7 @@ import {
   inspectPackageArtifact,
   PackageCertificationCommandRunner,
   PackageCertificationError,
+  PackageStager,
   PackMetadataJson,
   resolveContractsWildcardTargets
 } from "./package-certification"
@@ -48,11 +49,15 @@ const withArtifact = Effect.fn("PackageCertificationTest.withArtifact")(
     const files = filesFor(kind)
     const manifest: Record<string, unknown> = {
       name: kind === "contracts" ? "@expand/contracts" : "@expand/client-ts",
-      version: "0.0.0",
+      version: "0.0.0-cert.0",
       private: false,
       type: "module",
       files: ["dist"],
-      exports: kind === "contracts" ? contractsExports() : clientExports()
+      exports: kind === "contracts" ? contractsExports() : clientExports(),
+      dependencies: kind === "contracts" ? { effect: "4.0.0-beta.74" } : {
+        effect: "4.0.0-beta.74",
+        "@expand/contracts": "0.0.0-cert.0"
+      }
     }
     mutate(manifest, files)
     for (const file of files) {
@@ -91,7 +96,10 @@ type Assert<T extends true> = T
 type CertifyPackagesErrorIsExact = Assert<Equal<Effect.Error<ReturnType<typeof certifyPackages>>, PackageCertificationError>>
 const certifyPackagesErrorIsExact: CertifyPackagesErrorIsExact = true
 
-const certificationRunner = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
+const packageStager = Layer.succeed(PackageStager, PackageStager.of({ stage: () => Effect.void }))
+
+const certificationRunner = Layer.merge(
+  Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
   run: (request) => {
     const kind = request.workspace === "@expand/contracts" ? "contracts" : "client"
     const files = filesFor(kind)
@@ -110,20 +118,30 @@ const certificationRunner = Layer.succeed(PackageCertificationCommandRunner, Pac
     }
     return Effect.succeed({ exitCode: 0, stdout: "", stderr: "" })
   }
-}))
+  })),
+  packageStager
+)
 
 const manifestJson = (workspace: "@expand/contracts" | "@expand/client-ts") => Schema.encodeEffect(Schema.UnknownFromJsonString)({
   name: workspace,
-  version: "0.0.0",
+  version: "0.0.0-cert.0",
   private: false,
   type: "module",
   files: ["dist"],
-  exports: workspace === "@expand/contracts" ? contractsExports() : clientExports()
+  exports: workspace === "@expand/contracts" ? contractsExports() : clientExports(),
+  dependencies: workspace === "@expand/contracts" ? { effect: "4.0.0-beta.74" } : {
+    effect: "4.0.0-beta.74",
+    "@expand/contracts": "0.0.0-cert.0"
+  }
 }).pipe(Effect.orDie)
 
 describe("package certification model", () => {
-  it.effect.each(["contracts", "client"] as const)("accepts a valid synthetic %s package", (kind) =>
-    inspect(kind).pipe(Effect.map((report) => expect(report.packageName).toBe(`@expand/${kind === "client" ? "client-ts" : "contracts"}`))))
+  it.effect.each(["contracts", "client"] as const)("reports fixed-group identity for a valid synthetic %s package", (kind) =>
+    inspect(kind).pipe(Effect.map((report) => {
+      expect(report.packageName).toBe(`@expand/${kind === "client" ? "client-ts" : "contracts"}`)
+      expect(report.version).toBe("0.0.0-cert.0")
+      if (kind === "client") expect(report.dependencies["@expand/contracts"]).toBe("0.0.0-cert.0")
+    })))
 
   it.effect("rejects malformed npm pack JSON", () =>
     Schema.decodeUnknownEffect(PackMetadataJson)("not json").pipe(
@@ -275,7 +293,7 @@ describe("package certification resources", () => {
       run: (request) => Effect.succeed({ exitCode: request.phase === "build" ? 9 : 0, stdout: "", stderr: "failed" })
     }))
     return certifyPackages("/fixture").pipe(
-      Effect.provide(Layer.mergeAll(layer, NodeServices.layer)),
+      Effect.provide(Layer.mergeAll(layer, packageStager, NodeServices.layer)),
       Effect.flip,
       Effect.map((error) => expect(error).toMatchObject({ workspace: "@expand/contracts", phase: "build", detail: expect.stringContaining("exited 9") }))
     )
@@ -304,17 +322,10 @@ describe("package certification resources", () => {
       makeTempDirectoryScoped: (options) => fs.makeTempDirectoryScoped(options).pipe(Effect.tap((value) => Deferred.succeed(tempCreated, value))),
       remove: (target, options) => Ref.update(removals, (values) => [...values, target]).pipe(Effect.andThen(fs.remove(target, options)))
     })
-    const layer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
+    const runnerLayer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
       run: (request) => Effect.gen(function*() {
         const kind = request.workspace === "@expand/contracts" ? "contracts" : "client"
         const files = filesFor(kind)
-        if (request.phase === "stage") {
-          for (const name of stagingNames) {
-            const target = path.join(workspaceRoot(request.workspace), name)
-            yield* fs.makeDirectory(target, { recursive: true })
-            yield* fs.writeFileString(path.join(target, "residue"), name)
-          }
-        }
         if (request.phase === "pack") {
           const destination = request.args[request.args.indexOf("--pack-destination") + 1]!
           const archive = path.join(destination, `${kind}.tgz`)
@@ -325,7 +336,7 @@ describe("package certification resources", () => {
             return yield* Effect.never
           }
           return { exitCode: 0, stdout: yield* Schema.encodeEffect(Schema.UnknownFromJsonString)([{
-            id: `${kind}@0.0.0`, name: request.workspace, version: "0.0.0", size: 1, unpackedSize: 1,
+            id: `${kind}@0.0.0-cert.0`, name: request.workspace, version: "0.0.0-cert.0", size: 1, unpackedSize: 1,
             shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
             entryCount: files.length, bundled: []
           }]), stderr: "" }
@@ -344,11 +355,15 @@ describe("package certification resources", () => {
           const destination = request.args[request.args.indexOf("-C") + 1]!
           const manifest = {
             name: request.workspace,
-            version: "0.0.0",
+            version: "0.0.0-cert.0",
             private: false,
             type: "module",
             files: ["dist"],
-            exports: kind === "contracts" ? contractsExports() : clientExports()
+            exports: kind === "contracts" ? contractsExports() : clientExports(),
+            dependencies: kind === "contracts" ? { effect: "4.0.0-beta.74" } : {
+              effect: "4.0.0-beta.74",
+              "@expand/contracts": "0.0.0-cert.0"
+            }
           }
           for (const file of files) {
             const target = path.join(destination, "package", file)
@@ -362,6 +377,16 @@ describe("package certification resources", () => {
         return { exitCode: 0, stdout: "", stderr: "" }
       }).pipe(Effect.orDie)
     }))
+    const stagerLayer = Layer.succeed(PackageStager, PackageStager.of({
+      stage: (workspace, workspacePath) => Effect.gen(function*() {
+        for (const name of stagingNames) {
+          const target = path.join(workspacePath, name)
+          yield* fs.makeDirectory(target, { recursive: true })
+          yield* fs.writeFileString(path.join(target, "residue"), name)
+        }
+      }).pipe(Effect.orDie)
+    }))
+    const layer = Layer.merge(runnerLayer, stagerLayer)
     const fiber = yield* certifyPackages(root).pipe(
       Effect.provide(layer),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
@@ -401,7 +426,7 @@ describe("package certification resources", () => {
     const layer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
       run: () => Effect.die("command must not run")
     }))
-    const exit = yield* certifyPackages(root).pipe(Effect.provide(layer), Effect.exit)
+    const exit = yield* certifyPackages(root).pipe(Effect.provide(Layer.merge(layer, packageStager)), Effect.exit)
     expect(Exit.isFailure(exit)).toBe(true)
     expect(yield* fs.exists(path.join(existing, "owned-elsewhere"))).toBe(true)
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -426,15 +451,16 @@ describe("package certification resources", () => {
           })
           : fs.remove(candidate, options)
     })
-    const layer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
-      run: (request) => request.phase === "stage"
-        ? fs.makeDirectory(target, { recursive: true }).pipe(Effect.as({ exitCode: 0, stdout: "", stderr: "" }), Effect.orDie)
-        : request.phase === "pack"
+    const runnerLayer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
+      run: (request) => request.phase === "pack"
           ? Deferred.succeed(phaseStarted, undefined).pipe(Effect.andThen(Effect.never))
           : Effect.succeed({ exitCode: 0, stdout: "", stderr: "" })
     }))
+    const stagerLayer = Layer.succeed(PackageStager, PackageStager.of({
+      stage: () => fs.makeDirectory(target, { recursive: true }).pipe(Effect.orDie)
+    }))
     const fiber = yield* certifyPackages(root).pipe(
-      Effect.provide(layer),
+      Effect.provide(Layer.merge(runnerLayer, stagerLayer)),
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.forkChild({ startImmediately: true })
     )

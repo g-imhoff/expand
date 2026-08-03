@@ -12,7 +12,8 @@ const pathLayer = Path.layer
 describe("buildBinaries", () => {
   it.effect("is lazy and builds deterministic entries before making them executable", () => {
     const operations: Array<string> = []
-    const program = buildBinaries("/repo")
+    const definitions: Array<unknown> = []
+    const program = buildBinaries("/repo", "1.2.3")
 
     expect(Effect.isEffect(program)).toBe(true)
     expect(operations).toEqual([])
@@ -22,6 +23,7 @@ describe("buildBinaries", () => {
         build: (options) => Effect.sync(() => {
           const firstEntry = Array.isArray(options.entryPoints) ? options.entryPoints[0] : undefined
           operations.push(`build:${String(options.outfile)}:${typeof firstEntry === "string" ? firstEntry : ""}`)
+          definitions.push(options.define)
         })
       }),
       Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
@@ -37,6 +39,10 @@ describe("buildBinaries", () => {
           "chmod:/repo/dist/expand:755",
           "build:/repo/dist/expand-server:/repo/apps/server/main.ts",
           "chmod:/repo/dist/expand-server:755"
+        ])
+        expect(definitions).toEqual([
+          { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"1.2.3"' },
+          { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"1.2.3"' }
         ])
       }))
     )
@@ -57,7 +63,7 @@ describe("buildBinaries", () => {
       expect(esbuildBuild).not.toHaveBeenCalled()
 
       let chmodCalls = 0
-      const error = yield* module.buildBinaries("/repo").pipe(
+      const error = yield* module.buildBinaries("/repo", "1.2.3").pipe(
         Effect.provide(Layer.mergeAll(module.BuildToolLive, FileSystem.layerNoop({
           remove: () => Effect.void,
           makeDirectory: () => Effect.void,
@@ -75,7 +81,7 @@ describe("buildBinaries", () => {
     }))
 
   it("exposes a typed Effect contract", () => {
-    expectTypeOf(buildBinaries("/repo")).toMatchTypeOf<
+    expectTypeOf(buildBinaries("/repo", "1.2.3")).toMatchTypeOf<
       Effect.Effect<void, BuildError, FileSystem.FileSystem | Path.Path | BuildTool>
     >()
   })
