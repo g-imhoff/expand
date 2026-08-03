@@ -62,7 +62,7 @@ CI tests will enforce properties that can be proved mechanically. Luna will revi
 | Domain | Authority | Current value | Consumer | Change rule |
 | --- | --- | --- | --- | --- |
 | Product release | Exact `v<SemVer>` tag at the built commit | No release tag exists yet | CLI, server, desktop, staged packages | New release tag |
-| Tracked workspace manifests | Private development metadata | `0.0.0` where currently required | npm and Electron development tooling | Never used as a release input; remove where tooling permits |
+| Tracked workspace manifests | Private development metadata | `0.0.0` sentinels | npm and Electron development tooling | Never used as a release input; staging replaces the sentinel in copied manifests |
 | CLI JSON envelope | CLI envelope contract | `expand/v1` | CLI JSON consumers | Bump for a breaking output-shape change |
 | Backend protocol | Shared RPC compatibility module | `2` | Server advertisement and client discovery | Bump when old clients and new servers cannot communicate safely |
 | SQLite schema | Ordered server migrations | Baseline migration to be introduced | Server persistence | Add the next migration; never edit an applied migration |
@@ -143,7 +143,7 @@ Declare `__EXPAND_VERSION__` with the existing build globals and expose a small 
 - Publish staging requires a release resolution and writes that value to the staged `@expand/contracts` and `@expand/client-ts` manifests.
 - The staged client manifest rewrites its `@expand/contracts` dependency to the same exact version.
 
-Tracked private package versions remain development workspace metadata, never release inputs. The implementation will remove them where npm and Electron permit; any required sentinel stays `0.0.0` and receives an architecture test proving that release staging overwrites it. The source manifests will never be mutated during a release.
+Tracked private package versions remain explicit `0.0.0` development sentinels because npm workspace linking, package tooling, and Electron metadata consume them. They are never release inputs, and architecture tests prove that release staging overwrites them. The source manifests will never be mutated during a release.
 
 ### P1 acceptance criteria
 
