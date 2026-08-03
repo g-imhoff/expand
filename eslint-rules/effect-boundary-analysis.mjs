@@ -209,6 +209,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
   const estreeToTs = services?.esTreeNodeToTSNodeMap
   const globalNames = new Set([
     "Date",
+    "JSON",
     "Math",
     "Promise",
     "PromiseLike",
@@ -545,6 +546,7 @@ export const analyzeEffectBoundaryProgram = ({ filename, sourceCode, parserServi
       if (rootName === "Date") return `platform:Date${globalMethod ? `.${globalMethod}` : ""}`
       if (rootName === "performance") return `platform:performance${globalMethod ? `.${globalMethod}` : ""}`
       if (rootName === "Math" && globalMethod === "random") return "platform:Math.random"
+      if (rootName === "JSON" && globalMethod === "parse") return `platform:${rootName}.${globalMethod}`
       if (rootName === "crypto" && [undefined, "getRandomValues", "randomUUID", "subtle"].includes(globalMethod)) return `platform:crypto${globalMethod ? `.${globalMethod}` : ""}`
       if (platformFunctions.has(rootName)) return `platform:${rootName}`
       if (platformConstructors.has(rootName)) return `platform:${rootName}`

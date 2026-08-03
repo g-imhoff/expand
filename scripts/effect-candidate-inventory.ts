@@ -133,6 +133,10 @@ const advisoryRationale = (advisory: { readonly excerpt: string }) => {
   return "small-expression" as const
 }
 
+const hasNativeHostProof = (observation: CandidateObservation) =>
+  ["nativeAsync", "nativeAwait"].includes(observation.messageId ?? "")
+  && observation.construct === `native:${observation.messageId!.slice("native".length).toLowerCase()}`
+
 export const validateCandidateRecords = Effect.fn("CandidateInventory.validateRecords")(
   function*(
     input: unknown,
@@ -172,7 +176,10 @@ export const validateCandidateRecords = Effect.fn("CandidateInventory.validateRe
           || boundary.construct !== observation.construct
           || boundary.occurrence !== observation.analyzerOccurrence
         ) return yield* fail(`candidate has a bad host link: ${candidateIdentity(record)}`)
-        if (classification.kind === "host-boundary" && !["runnerOutsideBoundary", "platformEffect"].includes(observation.messageId ?? "")) {
+        if (classification.kind === "host-boundary" && !(
+          ["runnerOutsideBoundary", "platformEffect"].includes(observation.messageId ?? "")
+          || hasNativeHostProof(observation)
+        )) {
           return yield* fail(`host candidate lacks executable analyzer proof: ${candidateIdentity(record)}`)
         }
         if (classification.kind === "host-required-type" && (

@@ -75,7 +75,7 @@ const withAuditFixture = Effect.fn("EffectAuditTest.withAuditFixture")(
       path.join(root, "tsconfig.effect-audit.json"),
       yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
         compilerOptions: { strict: true },
-        include: ["**/*.ts", "**/*.tsx"]
+        include: ["**/*.ts", "**/*.tsx", ".github/**/*.cts"]
       })
     )
     for (const file of allBoundaryFiles) {
@@ -561,7 +561,9 @@ const nodePath = ["node", "path"].join(":")
 const nodeUrl = ["node", "url"].join(":")
 const platformProcessCwd = ["platform:process", "cwd"].join(".")
 const asyncKeyword = ["as", "ync"].join("")
+const awaitKeyword = ["aw", "ait"].join("")
 const nativeAsync = ["native:as", "ync"].join("")
+const jsonParse = ["JSON", "parse"].join(".")
 
 const runnerBoundarySource = `import { NodeRuntime } from "@effect/platform-node"
 declare const program: never
@@ -678,6 +680,26 @@ void (null as Event | null)
 `
 
 const boundarySourceCatalog: Record<string, string> = {
+  ".github/codex/review-comment.cjs": `const parseReview = (raw) => ${jsonParse}(raw)
+const publishReview = ${asyncKeyword} (github) => {
+  const pull = ${awaitKeyword} github.get()
+  const comments = ${awaitKeyword} github.paginate()
+  ${awaitKeyword} github.update()
+  ${awaitKeyword} github.create()
+  ${awaitKeyword} github.finish()
+  return { pull, comments }
+}
+void parseReview
+void publishReview
+`,
+  ".github/codex/review-comment.d.cts": `export interface GitHubClient {
+  paginate(): ${promiseLikeType}<unknown>
+  get(): ${promiseLikeType}<unknown>
+  createComment(): ${promiseLikeType}<unknown>
+  updateComment(): ${promiseLikeType}<unknown>
+}
+export declare function publishReview(): ${promiseLikeType}<unknown>
+`,
   "apps/cli/cli/main.ts": `${boundarySource}const backendCommand = { execPath: ${hostProcessExecPath}, binaryArgs: [${hostProcessExecPath}] }
 void backendCommand
 `,
@@ -832,6 +854,10 @@ Effect.promise(() => import("effect"))
   "scripts/sync-agents.ts": runnerBoundarySource,
   "test/architecture/client-ts-barrel.test.ts": `import { createRequire } from "node:module"
 void createRequire
+`,
+  "test/architecture/codex-review.test.ts": `import { Effect } from "effect"
+const promise = () => ${effectRunPromise}(Effect.void)
+void promise
 `,
   "test/architecture/depcruise-exclude.test.ts": `import { createRequire } from "node:module"
 void createRequire

@@ -39,6 +39,56 @@ const lexical = (entry = observation().candidate) => ({
   classification: { kind: "lexical-false-positive", reason: "effect-composition" }
 })
 
+const asyncMatch = ["as", "ync"].join("")
+const awaitMatch = ["aw", "ait"].join("")
+const jsonParseMatch = ["JSON", "parse"].join(".")
+const jsonStringifyMatch = ["JSON", "stringify"].join(".")
+const promiseLikeMatch = ["Promise", "Like<"].join("")
+const nativePromiseMatch = ["new Pro", "mise"].join("")
+const promiseChainMatch = [".", "then("].join("")
+const nativeAsyncConstruct = ["native:as", "ync"].join("")
+const nativeAwaitConstruct = ["native:aw", "ait"].join("")
+const jsonParseConstruct = ["platform:JSON", "parse"].join(".")
+
+const hostObservation = (
+  match: string,
+  messageId: string,
+  construct: string,
+  declaration: CandidateObservation["candidate"]["declaration"] = { kind: "variable", name: "value" }
+): CandidateObservation => ({
+  candidate: {
+    file: "src/example.ts",
+    declaration,
+    excerpt: `const value = ${match}`,
+    match,
+    occurrence: 0
+  },
+  construct,
+  analyzerOccurrence: 0,
+  messageId,
+  stringSyntax: false
+})
+
+const hostRecord = (entry: CandidateObservation, kind: "host-boundary" | "host-required-type" = "host-boundary") => ({
+  ...entry.candidate,
+  classification: {
+    kind,
+    hostBoundary: [
+      entry.candidate.file,
+      `${entry.candidate.declaration.kind}:${entry.candidate.declaration.name}`,
+      entry.construct,
+      entry.analyzerOccurrence
+    ].join("#")
+  }
+})
+
+const hostBoundary = (entry: CandidateObservation) => ({
+  file: entry.candidate.file,
+  declaration: `${entry.candidate.declaration.kind}:${entry.candidate.declaration.name}`,
+  construct: entry.construct,
+  occurrence: entry.analyzerOccurrence!
+})
+
 describe("final candidate inventory model", () => {
   it("Schema-decodes the exact versioned model without line identities", () => {
     const decoded = Schema.decodeUnknownSync(CandidateInventoryJson)(encodeJson(inventory([lexical()])))
@@ -102,6 +152,72 @@ describe("final candidate inventory model", () => {
         const result = yield* Effect.exit(validateCandidateRecords(candidateInventory, observations, []))
         expect(result._tag).toBe("Failure")
       }))
+  })
+
+  it.effect("accepts only exact analyzer-proven native and JSON host links", () => {
+    const entries = [
+      hostObservation(asyncMatch, "nativeAsync", nativeAsyncConstruct),
+      hostObservation(awaitMatch, "nativeAwait", nativeAwaitConstruct),
+      hostObservation(jsonParseMatch, "platformEffect", jsonParseConstruct)
+    ].sort((left, right) => {
+      const leftKey = candidateIdentity(left.candidate)
+      const rightKey = candidateIdentity(right.candidate)
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0
+    })
+    return validateCandidateRecords(
+      inventory(entries.map((entry) => hostRecord(entry))),
+      entries,
+      [],
+      new Map(),
+      entries.map(hostBoundary)
+    ).pipe(Effect.asVoid)
+  })
+
+  it.effect("rejects inexact, unproved, and misclassified host links", () => {
+    const exact = hostObservation(jsonParseMatch, "platformEffect", jsonParseConstruct)
+    const nativePromise = hostObservation(nativePromiseMatch, "nativePromise", "promise:new")
+    const promiseChain = hostObservation(promiseChainMatch, "promiseChain", "promise-chain:then")
+    const executableJson = observation({
+      candidate: { ...exact.candidate, excerpt: `const value = ${jsonParseMatch}(raw)` },
+      construct: `lexical:${jsonParseMatch}`,
+      lexicalProof: "executable-call"
+    })
+    const promiseSignature = hostObservation(promiseLikeMatch, "promiseSignature", "signature:PromiseLike")
+    const arbitraryMessage = hostObservation(jsonParseMatch, "arbitrary", jsonParseConstruct)
+    const wrongNativeConstruct = hostObservation(asyncMatch, "nativeAsync", nativeAwaitConstruct)
+    const { analyzerOccurrence: _analyzerOccurrence, ...withoutProof } = exact
+    const wrongBoundaries = [
+      { ...hostBoundary(exact), file: "src/moved.ts" },
+      { ...hostBoundary(exact), declaration: "variable:moved" },
+      { ...hostBoundary(exact), construct: `platform:${jsonStringifyMatch}` },
+      { ...hostBoundary(exact), occurrence: 1 }
+    ]
+    const cases = [
+      ...wrongBoundaries.map((boundary) => [hostRecord(exact), exact, [boundary]] as const),
+      [hostRecord(exact), withoutProof, [hostBoundary(exact)]] as const,
+      [hostRecord(arbitraryMessage), arbitraryMessage, [hostBoundary(arbitraryMessage)]] as const,
+      [hostRecord(wrongNativeConstruct), wrongNativeConstruct, [hostBoundary(wrongNativeConstruct)]] as const,
+      [hostRecord(nativePromise), nativePromise, [hostBoundary(nativePromise)]] as const,
+      [hostRecord(promiseChain), promiseChain, [hostBoundary(promiseChain)]] as const,
+      [hostRecord(executableJson), executableJson, [hostBoundary(executableJson)]] as const,
+      [hostRecord(promiseSignature), promiseSignature, [hostBoundary(promiseSignature)]] as const
+    ]
+    return Effect.forEach(cases, ([record, current, boundaries]) =>
+      Effect.gen(function*() {
+        const result = yield* Effect.exit(validateCandidateRecords(inventory([record]), [current], [], new Map(), boundaries))
+        expect(result._tag).toBe("Failure")
+      }))
+  })
+
+  it.effect("keeps Promise signatures in the host-required-type model", () => {
+    const entry = hostObservation(promiseLikeMatch, "promiseSignature", "signature:PromiseLike")
+    return validateCandidateRecords(
+      inventory([hostRecord(entry, "host-required-type")]),
+      [entry],
+      [],
+      new Map(),
+      [hostBoundary(entry)]
+    ).pipe(Effect.asVoid)
   })
 
   it.effect("rejects unknown advisories and stale advisory rationales", () => {

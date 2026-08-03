@@ -210,6 +210,29 @@ it("canonicalizes the platform package NodeRuntime namespace construct", () => {
   ])
 })
 
+it("recognizes only the unshadowed global JSON parser call", () => {
+  const identities = (code) => analyze(code).occurrences.map(({ messageId, identity }) => ({ messageId, identity }))
+  const jsonParse = ["JSON", "parse"].join(".")
+  const jsonStringify = ["JSON", "stringify"].join(".")
+
+  expect(identities(`${jsonParse}(raw)`)).toEqual([{
+    messageId: "platformEffect",
+    identity: {
+      file: "effect-boundary-invalid.ts",
+      declaration: "module:<module>",
+      construct: `platform:${jsonParse}`,
+      occurrence: 0
+    }
+  }])
+  for (const code of [
+    `const JSON = { parse: (value) => value }\n${jsonParse}(raw)`,
+    `${jsonStringify}(raw)`,
+    "JSON.unsupported(raw)",
+    `const value = { JSON: { parse: (input) => input } }\nvalue.${jsonParse}(raw)`,
+    "const value = { parse: (input) => input }\nvalue.parse(raw)"
+  ]) expect(identities(code)).toEqual([])
+})
+
 it("preserves exact curried Effect runner constructs", () => {
   const analysis = analyze('import { Effect } from "effect"\nEffect.runPromiseWith(context)(first)\nEffect.runSyncExitWith(context)(second)')
   expect(analysis.occurrences).toMatchObject([
