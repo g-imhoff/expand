@@ -204,23 +204,26 @@ Add the version-policy test to the existing CI test path. A future tag build or 
 
 ### Trigger and trust boundary
 
-Add `.github/workflows/codex-review.yml` with `pull_request` events `opened`, `synchronize`, `reopened`, and `ready_for_review`. The review runs when:
+Add a tokenless `.github/workflows/codex-review-request.yml` for `pull_request` events `opened`, `synchronize`, `reopened`, and `ready_for_review`. It checks out nothing and completes only for non-draft pull requests whose head repository is Expand. A separate `.github/workflows/codex-review.yml` runs from the default branch on completion of that named request workflow. The privileged workflow validates all of these facts before the OpenAI secret is available to the Codex step:
 
-- The pull request is not a draft.
-- Its head repository is the Expand repository.
+- The completed run has the exact trusted request-workflow path, `pull_request` event, successful conclusion, and one associated pull request.
+- The associated pull request is open, is not a draft, and has a head SHA matching both the association and triggering workflow run.
+- Its head repository is Expand rather than a fork.
 - The actor passes the Codex Action's repository-write authorization.
 
-Concurrency is keyed by pull-request number, and a new push cancels the older run. Fork pull requests are skipped because GitHub does not safely expose the API secret to them. The workflow will not use `pull_request_target`.
+Concurrency is keyed by the triggering head repository and branch, and a new push cancels the older run. Fork pull requests are skipped because GitHub does not safely expose the API secret to them. Neither workflow uses `pull_request_target`. The privileged workflow starts existing only after it is merged to the default branch, so the pull request that first introduces P4 can request a run but cannot supply or modify the privileged processor.
 
-The review job receives only `contents: read`, checks out the reviewed commit with credentials disabled, and runs `openai/codex-action@v1` with:
+The review job receives only `contents: read` and pins its trusted checkout to the immutable default-branch commit in `github.sha`, with credentials disabled, to obtain the trusted schema. A static `actions/github-script` step fetches the current pull-request diff through the API, rejects diffs over 512 KiB, revalidates the head, and writes the diff between explicit untrusted-data delimiters in a dedicated data-only working directory. No pull-request tree is checked out or executed. The publication job uses the same immutable trusted commit. The review job runs `openai/codex-action@v1` with:
 
 - `model: gpt-5.6-luna`
 - `effort: max`
+- `codex-version: 0.146.0`
+- `codex-args` that disable `shell_tool` and `unified_exec` and select ephemeral execution
 - `permission-profile: ":read-only"`
 - `safety-strategy: drop-sudo`
 - `OPENAI_API_KEY` from the repository Actions secret
 
-The job will not install dependencies, execute project scripts, or run PR-provided code. It may inspect the diff and repository text with read-only commands. The authoritative prompt and output schema come from the base workflow revision, not files modified by the pull request.
+The model receives the prompt file as data and has no shell or unified execution tool. The permission profile also denies filesystem mutation and network access. The job will not install dependencies, execute project scripts, or run PR-provided code. The authoritative prompt logic and `.github/codex/review-schema.json` come from the default-branch workflow revision, not files modified by the pull request.
 
 No interactive login is required. A repository administrator must add an Actions secret named `OPENAI_API_KEY`; normal GitHub Actions permissions provide pull-request access. If the secret is absent or the response is malformed, the check fails visibly and posts no unvalidated model text.
 
@@ -240,11 +243,11 @@ The prompt instructs Luna to report only evidence-backed issues introduced by th
 - Architecture boundary violations.
 - Missing regression tests for changed behavior.
 
-Each finding must include a stable rule ID, severity, title, path, line, evidence, impact, and concrete repair. The output schema bounds field sizes and finding count. The model must return an empty findings array when it cannot prove an issue.
+Each finding must include a stable rule ID, severity, title, path, line, evidence, impact, and concrete repair. The shared schema limits results to 20 findings and bounds rule ID, title, path, evidence, impact, and repair at 64, 120, 240, 240, 160, and 240 Unicode code points. Trusted parsing applies the same schema semantics, rejects control and Unicode format characters, enforces a 96-KiB UTF-8 input limit, and rejects rendered comments over 60,000 Unicode code points. The model must return an empty findings array when it cannot prove an issue.
 
 ### Comment publication
 
-A separate publication job receives `pull-requests: write` and `issues: write`; it receives no API key and does not check out or execute pull-request code. Trusted workflow code validates Luna's JSON, confirms that the pull request still points to the reviewed head SHA, and manages one comment marked with:
+A run-scoped artifact carries only the Codex output file into a separate publication job; model JSON is never transported through an environment variable or interpolated into script source. The publication job receives exactly `contents: read`, `pull-requests: write`, and `issues: write`; it receives no API key and checks out only the default branch to obtain the trusted helper. The helper reads the fixed artifact path as UTF-8, validates the complete result before any write, confirms the current head before comment lookup, and re-fetches the head immediately before every create or update. It manages only comments authored by `github-actions[bot]` with GitHub user type `Bot` and marked with:
 
 ```text
 <!-- expand-codex-review -->
@@ -258,15 +261,16 @@ When findings exist, the job creates or updates that comment with:
 
 The repair prompt will tell an implementation agent to address only the listed findings, preserve unrelated work, follow repository Effect and architecture rules, add regression tests, run named verification commands, and report changed files and results. It will include the exact finding IDs, paths, evidence, and acceptance conditions.
 
-If the latest review is clean and no marker comment exists, the job posts nothing. If an earlier marker comment contains findings, the job updates it to record that the latest reviewed commit has no findings, preventing stale warnings. Infrastructure or schema failures fail the check without posting raw output.
+If duplicate bot-owned marker comments exist, the helper first retires every extra with a marker-free superseded body, revalidating the head before each update, and only then updates the canonical marker. User-authored marker text is ignored. If the latest review is clean and no managed marker exists, the job posts nothing. If an earlier managed marker contains findings, the job updates it to record that the latest reviewed commit has no findings. Infrastructure, schema, size, ownership, or stale-head failures post no raw output and permit no subsequent write.
 
 ### P4 acceptance criteria
 
 - Every new push to an eligible non-draft pull request starts one current review.
-- The Codex process has read-only repository permissions and no pull-request write token.
+- The privileged workflow is default-branch controlled and never checks out or executes pull-request code.
+- The Codex process has read-only repository permissions, disabled command tools, and no pull-request write token.
 - The publication process has no OpenAI secret and executes no pull-request code.
 - A stale review cannot comment on a newer pull-request head.
-- Findings produce one updated comment with evidence, repair guidance, and a copy-ready AI prompt.
+- Findings converge to one bot-owned marker comment with evidence, repair guidance, and a copy-ready AI prompt.
 - Clean first reviews produce no comment; later clean reviews retire stale findings.
 - The initial check remains advisory even when it reports Critical issues.
 

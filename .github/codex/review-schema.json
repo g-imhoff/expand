@@ -1,0 +1,58 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["findings"],
+  "properties": {
+    "findings": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ruleId", "severity", "title", "path", "line", "evidence", "impact", "repair"],
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 64,
+            "pattern": "^[A-Z][A-Z0-9_-]{1,63}$"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "important", "warning"]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "impact": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "repair": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          }
+        }
+      }
+    }
+  }
+}

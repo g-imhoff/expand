@@ -681,15 +681,27 @@ void (null as Event | null)
 
 const boundarySourceCatalog: Record<string, string> = {
   ".github/codex/review-comment.cjs": `const parseReview = (raw) => ${jsonParse}(raw)
+const assertCurrentHead = ${asyncKeyword} (github) => {
+  const pull = ${awaitKeyword} github.get()
+  return pull
+}
+const updateAtCurrentHead = ${asyncKeyword} (github) => {
+  ${awaitKeyword} assertCurrentHead(github)
+  ${awaitKeyword} github.update()
+}
 const publishReview = ${asyncKeyword} (github) => {
   const pull = ${awaitKeyword} github.get()
   const comments = ${awaitKeyword} github.paginate()
   ${awaitKeyword} github.update()
   ${awaitKeyword} github.create()
   ${awaitKeyword} github.finish()
+  ${awaitKeyword} updateAtCurrentHead(github)
+  ${awaitKeyword} updateAtCurrentHead(github)
   return { pull, comments }
 }
 void parseReview
+void assertCurrentHead
+void updateAtCurrentHead
 void publishReview
 `,
   ".github/codex/review-comment.d.cts": `export interface GitHubClient {

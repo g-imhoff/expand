@@ -16,7 +16,11 @@ export interface Review {
 }
 
 export interface GitHubClient {
-  readonly paginate: (method: unknown, parameters: Record<string, unknown>) => Promise<ReadonlyArray<{ readonly id: number, readonly body?: string }>>
+  readonly paginate: (method: unknown, parameters: Record<string, unknown>) => Promise<ReadonlyArray<{
+    readonly id: number
+    readonly body?: string
+    readonly user?: { readonly login: string, readonly type: string } | null
+  }>>
   readonly rest: {
     readonly pulls: {
       readonly get: (parameters: Record<string, unknown>) => Promise<{ readonly data: { readonly head: { readonly sha: string } } }>
@@ -30,6 +34,8 @@ export interface GitHubClient {
 }
 
 export const COMMENT_MARKER: "<!-- expand-codex-review -->"
+export const COMMENT_CODE_POINT_LIMIT: number
+export const RAW_REVIEW_BYTE_LIMIT: number
 export function parseReview(raw: string): Review
 export function renderRepairPrompt(findings: ReadonlyArray<Finding>): string
 export function renderReviewComment(headSha: string, findings: ReadonlyArray<Finding>): string

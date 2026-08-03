@@ -42,6 +42,20 @@ export const effectHostBoundaries = Object.freeze([
   }),
   Object.freeze({
     file: ".github/codex/review-comment.cjs",
+    declaration: "variable:assertCurrentHead",
+    host: "GitHub review publication adapter",
+    construct: "native:async",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
+    declaration: "variable:updateAtCurrentHead",
+    host: "GitHub review publication adapter",
+    construct: "native:async",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
     declaration: "variable:comments",
     host: "GitHub review publication adapter",
     construct: "native:await",
@@ -67,6 +81,34 @@ export const effectHostBoundaries = Object.freeze([
     host: "GitHub review publication adapter",
     construct: "native:await",
     occurrence: 2
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
+    declaration: "variable:publishReview",
+    host: "GitHub review publication adapter",
+    construct: "native:await",
+    occurrence: 3
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
+    declaration: "variable:publishReview",
+    host: "GitHub review publication adapter",
+    construct: "native:await",
+    occurrence: 4
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
+    declaration: "variable:updateAtCurrentHead",
+    host: "GitHub review publication adapter",
+    construct: "native:await",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: ".github/codex/review-comment.cjs",
+    declaration: "variable:updateAtCurrentHead",
+    host: "GitHub review publication adapter",
+    construct: "native:await",
+    occurrence: 1
   }),
   Object.freeze({
     file: ".github/codex/review-comment.cjs",
