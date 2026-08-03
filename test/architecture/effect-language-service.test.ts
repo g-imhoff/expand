@@ -164,6 +164,7 @@ describe("Effect language service diagnostics", () => {
         exclude: [],
         include: [
           "src",
+          "e2e",
           "test/integration",
           "test/ui",
           "test/unit/*.test.ts",
