@@ -338,7 +338,7 @@ const occurrenceRange = (occurrence: { readonly node: unknown }) => {
   return start === undefined || end === undefined ? undefined : { start, end }
 }
 
-export const isRegisteredNodeBuiltinDiagnostic = (options: {
+export const isRegisteredHostDiagnostic = (options: {
   readonly file: string
   readonly diagnostic: {
     readonly name: string
@@ -362,15 +362,18 @@ export const isRegisteredNodeBuiltinDiagnostic = (options: {
     readonly occurrence: number
   }>
 }): boolean => {
-  if (options.diagnostic.name !== "nodeBuiltinImport" || options.diagnostic.severity !== "error") return false
+  if (options.diagnostic.severity !== "error") return false
   const length = options.diagnostic.length
   if (length === undefined || length <= 0) return false
   const end = options.diagnostic.start + length
   if (!Number.isSafeInteger(end)) return false
   const occurrences = options.occurrences.filter((occurrence) => {
     const range = occurrenceRange(occurrence)
+    const matchingConstruct = options.diagnostic.name === "nodeBuiltinImport"
+      ? occurrence.identity.construct.startsWith("platform:import:node:")
+      : options.diagnostic.name === "processEnv" && occurrence.identity.construct === "platform:process.env"
     return occurrence.identity.file === options.file
-      && occurrence.identity.construct.startsWith("platform:import:node:")
+      && matchingConstruct
       && range !== undefined
       && range.start <= options.diagnostic.start
       && range.end >= end
@@ -453,7 +456,7 @@ const collectAudit = Effect.fn("effect-audit.collect")(
 
     const languageFindings = relevantLanguage.flatMap(({ diagnostic, file }) => {
       const parsed = sources.get(file)!
-      if (isRegisteredNodeBuiltinDiagnostic({
+      if (isRegisteredHostDiagnostic({
         file,
         diagnostic,
         occurrences: parsed.analysis.occurrences,

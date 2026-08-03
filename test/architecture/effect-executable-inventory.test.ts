@@ -307,6 +307,16 @@ describe("exact executable inventory architecture", () => {
       ])
     }).pipe(Effect.provide(NodeServices.layer))), 120_000)
 
+  it.live("fails closed for mutually recursive local Electron config factories", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const root = yield* syntheticRepository({
+        "package.json": encodeJson({ scripts: {} }),
+        "apps/desktop/electron.vite.config.ts": `const first = () => second()\nconst second = () => first()\nexport default first()\n`
+      })
+      const error = yield* Effect.flip(discoverExecutableInventory(root))
+      expect(errorDetail(error)).toContain("unresolved executable input")
+    }).pipe(Effect.provide(NodeServices.layer))), 120_000)
+
   it.live("does not accept an unresolved exported Electron section because a dead section is resolvable", () =>
     Effect.scoped(Effect.gen(function*() {
       const root = yield* syntheticRepository({

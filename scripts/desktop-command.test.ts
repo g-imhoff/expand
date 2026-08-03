@@ -3,7 +3,7 @@ import { it } from "@effect/vitest"
 import { Layer, Effect, Fiber, Path } from "effect"
 import { describe, expect, vi } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
-import { DesktopCommandError, runDesktopCommand } from "./desktop-command"
+import { DesktopCommandError, runDesktopCommand, runDesktopCommandAtRoot } from "./desktop-command"
 
 const commandDetails = (fixture: ReturnType<typeof processSpawnerFixture>) => fixture.records.map(({ command }) => {
   expect(command._tag).toBe("StandardCommand")
@@ -13,6 +13,36 @@ const commandDetails = (fixture: ReturnType<typeof processSpawnerFixture>) => fi
 })
 
 describe("desktop command", () => {
+  it.effect("resolves one tagged build identity and transports it to the desktop build", () => {
+    const fixture = processSpawnerFixture([0, 0], { stdout: ["v3.4.5\n", ""] })
+    return runDesktopCommandAtRoot("/repo", "build").pipe(
+      Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
+      Effect.tap(() => Effect.sync(() => {
+        expect(commandDetails(fixture)).toEqual([
+          {
+            command: "git",
+            args: ["tag", "--points-at", "HEAD", "--list", "v*"],
+            cwd: "/repo",
+            env: undefined,
+            stdin: undefined,
+            stdout: undefined,
+            stderr: undefined
+          },
+          {
+            command: "electron-vite",
+            args: ["build"],
+            cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "3.4.5" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          }
+        ])
+        expect(fixture.records.every(({ released }) => released)).toBe(true)
+      }))
+    )
+  })
+
   it.effect("runs dev with the exact electron-vite arguments and desktop cwd", () => {
     const fixture = processSpawnerFixture([0])
     return runDesktopCommand("/repo", "dev", "1.2.3").pipe(

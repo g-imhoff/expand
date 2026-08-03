@@ -75,6 +75,13 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
+    file: "apps/desktop/electron.vite.config.ts",
+    declaration: "module:<module>",
+    host: "Electron Vite transported build identity",
+    construct: "platform:process.env",
+    occurrence: 0
+  }),
+  Object.freeze({
     file: "apps/desktop/e2e/effect-test.ts",
     declaration: "variable:makeTestEffect",
     host: "Playwright Effect test callback ABI",

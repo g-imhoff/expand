@@ -686,6 +686,7 @@ void backendCommand
 import { resolve } from "node:path"
 void builtinModules
 void resolve
+export default process.env.EXPAND_APP_VERSION ?? "0.0.0-dev"
 `,
   "apps/desktop/e2e/effect-test.ts": `import { Effect } from "effect"
 export const makeTestEffect = (): ${promiseLikeType}<void> => ${effectRunPromise}(Effect.void)
@@ -848,6 +849,15 @@ describe("registered Effect language diagnostic command", () => {
     const unregisteredFiles = [...syntheticFiles].filter((file) => !registeredFiles.has(file))
 
     expect({ missing, unregistered: unregisteredFiles }).toEqual({ missing: [], unregistered: [] })
+    expect(effectHostBoundaries.filter(({ file, construct }) =>
+      file === "apps/desktop/electron.vite.config.ts" && construct === "platform:process.env"
+    )).toEqual([{
+      file: "apps/desktop/electron.vite.config.ts",
+      declaration: "module:<module>",
+      host: "Electron Vite transported build identity",
+      construct: "platform:process.env",
+      occurrence: 0
+    }])
 
     const start = serverHttpBoundarySource.indexOf(`"${nodeHttp}"`)
     const registered = `{"diagnostics":[{"file":"apps/server/transport/http-server.ts","start":${start},"length":${nodeHttp.length + 2},"line":2,"column":${start + 1},"severity":"error","name":"nodeBuiltinImport","message":"use Effect HTTP"}]}`

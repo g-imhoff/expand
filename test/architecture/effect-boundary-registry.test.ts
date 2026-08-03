@@ -4,7 +4,7 @@ import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
 import { effectHostBoundaries } from "../../eslint-rules/effect-host-boundaries.mjs"
 import { type HostBoundary } from "../../scripts/effect-policy-model"
-import { isRegisteredNodeBuiltinDiagnostic, validateHostBoundaries } from "../../scripts/effect-audit"
+import { isRegisteredHostDiagnostic, validateHostBoundaries } from "../../scripts/effect-audit"
 import { makeTempDirectoryScoped, writeFixture } from "../support/effect-files"
 import { runCommand } from "../support/effect-process"
 
@@ -22,7 +22,7 @@ const boundary = (overrides: Partial<HostBoundary> = {}): HostBoundary => ({
 
 const platformProcessExit = ["platform:process", "exit"].join(".")
 
-type NodeBuiltinDiagnosticMatcherOptions = Parameters<typeof isRegisteredNodeBuiltinDiagnostic>[0]
+type HostDiagnosticMatcherOptions = Parameters<typeof isRegisteredHostDiagnostic>[0]
 
 const nodeHttpBoundary = {
   file: "apps/server/transport/http-server.ts",
@@ -32,7 +32,7 @@ const nodeHttpBoundary = {
 } as const
 
 const nodeHttpOccurrence = (
-  overrides: Partial<NodeBuiltinDiagnosticMatcherOptions["occurrences"][number]["identity"]> = {},
+  overrides: Partial<HostDiagnosticMatcherOptions["occurrences"][number]["identity"]> = {},
   range: ReadonlyArray<number> = [10, 50]
 ) => ({
   identity: { ...nodeHttpBoundary, ...overrides },
@@ -40,8 +40,27 @@ const nodeHttpOccurrence = (
 })
 
 const nodeBuiltinDiagnostic = (
-  overrides: Partial<NodeBuiltinDiagnosticMatcherOptions["diagnostic"]> = {}
+  overrides: Partial<HostDiagnosticMatcherOptions["diagnostic"]> = {}
 ) => ({ name: "nodeBuiltinImport", start: 25, length: 11, severity: "error" as const, ...overrides })
+
+const processEnvBoundary = {
+  file: "apps/desktop/electron.vite.config.ts",
+  declaration: "module:<module>",
+  construct: "platform:process.env",
+  occurrence: 0
+} as const
+
+const processEnvOccurrence = (
+  overrides: Partial<HostDiagnosticMatcherOptions["occurrences"][number]["identity"]> = {},
+  range: ReadonlyArray<number> = [10, 50]
+) => ({
+  identity: { ...processEnvBoundary, ...overrides },
+  node: { type: "MemberExpression", range }
+})
+
+const processEnvDiagnostic = (
+  overrides: Partial<HostDiagnosticMatcherOptions["diagnostic"]> = {}
+) => ({ name: "processEnv", start: 25, length: 11, severity: "error" as const, ...overrides })
 
 const withRegistryFixture = Effect.fn("EffectBoundaryRegistryTest.withFixture")(
   function* <A>(
@@ -86,7 +105,7 @@ const expectInvalid = (boundaries: ReadonlyArray<HostBoundary>) =>
 
 describe("Effect host-boundary registry", () => {
   it("admits the exact registered Node builtin import occurrence", () => {
-    expect(isRegisteredNodeBuiltinDiagnostic({
+    expect(isRegisteredHostDiagnostic({
       file: nodeHttpBoundary.file,
       diagnostic: nodeBuiltinDiagnostic(),
       occurrences: [nodeHttpOccurrence()],
@@ -104,11 +123,40 @@ describe("Effect host-boundary registry", () => {
     ["missing diagnostic length", { diagnostic: nodeBuiltinDiagnostic({ length: undefined }) }],
     ["different diagnostic name", { diagnostic: nodeBuiltinDiagnostic({ name: "processEnv" }) }]
   ])("keeps %s blocking", (_name, overrides) => {
-    expect(isRegisteredNodeBuiltinDiagnostic({
+    expect(isRegisteredHostDiagnostic({
       file: nodeHttpBoundary.file,
       diagnostic: nodeBuiltinDiagnostic(),
       occurrences: [nodeHttpOccurrence()],
       boundaries: [nodeHttpBoundary],
+      ...overrides
+    })).toBe(false)
+  })
+
+  it("admits the exact registered process environment occurrence", () => {
+    expect(isRegisteredHostDiagnostic({
+      file: processEnvBoundary.file,
+      diagnostic: processEnvDiagnostic(),
+      occurrences: [processEnvOccurrence()],
+      boundaries: [processEnvBoundary]
+    })).toBe(true)
+  })
+
+  it.each([
+    ["unregistered file", { file: "scripts/desktop-command.ts" }],
+    ["wrong declaration", { occurrences: [processEnvOccurrence({ declaration: "variable:appVersion" })] }],
+    ["wrong construct", { occurrences: [processEnvOccurrence({ construct: "platform:process.cwd" })] }],
+    ["wrong occurrence", { occurrences: [processEnvOccurrence({ occurrence: 1 })] }],
+    ["ambiguous occurrence", { occurrences: [processEnvOccurrence(), processEnvOccurrence()] }],
+    ["non-containing range", { diagnostic: processEnvDiagnostic({ start: 55 }) }],
+    ["missing diagnostic length", { diagnostic: processEnvDiagnostic({ length: undefined }) }],
+    ["different diagnostic name", { diagnostic: processEnvDiagnostic({ name: "processCwd" }) }],
+    ["non-error severity", { diagnostic: processEnvDiagnostic({ severity: "message" }) }]
+  ])("keeps mismatched process environment %s blocking", (_name, overrides) => {
+    expect(isRegisteredHostDiagnostic({
+      file: processEnvBoundary.file,
+      diagnostic: processEnvDiagnostic(),
+      occurrences: [processEnvOccurrence()],
+      boundaries: [processEnvBoundary],
       ...overrides
     })).toBe(false)
   })

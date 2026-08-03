@@ -57,5 +57,5 @@ export const makeElectronConfig = (appVersion: string) => {
 }
 
 export default makeElectronConfig(
-  (Reflect.get(globalThis, "process") as NodeJS.Process).env.EXPAND_APP_VERSION ?? "0.0.0-dev"
+  process.env.EXPAND_APP_VERSION ?? "0.0.0-dev"
 )

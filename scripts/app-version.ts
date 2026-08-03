@@ -1,4 +1,4 @@
-import { Data, Effect, Stream } from "effect"
+import { Data, Effect, Option, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 export type AppVersionMode = "development" | "release"
@@ -67,18 +67,32 @@ const gitProbe = Effect.fn("AppVersion.gitProbe")(
   }))
 )
 
+const exactTags = (root: string) => gitProbe(root, ["tag", "--points-at", "HEAD", "--list", "v*"]).pipe(
+  Effect.map((output) => output === "" ? [] : output.split("\n").map((tag) => tag.trim()).filter((tag) => tag !== ""))
+)
+
+const shortSha = (root: string) => gitProbe(root, ["rev-parse", "--short=12", "HEAD"]).pipe(
+  Effect.map((output) => output === "" ? undefined : output)
+)
+
 export const resolveAppVersion = Effect.fn("AppVersion.resolve")(
   function*(root: string, mode: AppVersionMode) {
-    const observation = yield* Effect.all({
-      exactTags: gitProbe(root, ["tag", "--points-at", "HEAD", "--list", "v*"]).pipe(
-        Effect.map((output) => output === "" ? [] : output.split("\n").map((tag) => tag.trim()).filter((tag) => tag !== ""))
-      ),
-      shortSha: gitProbe(root, ["rev-parse", "--short=12", "HEAD"]).pipe(
-        Effect.map((output) => output === "" ? undefined : output)
-      )
-    }, { concurrency: 1 }).pipe(
-      mode === "development" ? Effect.catchTag("AppVersionError", () => Effect.succeed({ exactTags: [], shortSha: undefined })) : (effect) => effect
-    )
-    return yield* resolveAppVersionObservation(observation, mode)
+    if (mode === "release") {
+      const tags = yield* exactTags(root)
+      return yield* resolveAppVersionObservation({ exactTags: tags, shortSha: undefined }, "release")
+    }
+    const sha = Option.getOrUndefined(yield* Effect.option(shortSha(root)))
+    return yield* resolveAppVersionObservation({ exactTags: [], shortSha: sha }, "development")
+  }
+)
+
+export const resolveBuildAppVersion = Effect.fn("AppVersion.resolveBuild")(
+  function*(root: string) {
+    const tags = yield* exactTags(root)
+    if (tags.length > 0) {
+      return yield* resolveAppVersionObservation({ exactTags: tags, shortSha: undefined }, "release")
+    }
+    const sha = Option.getOrUndefined(yield* Effect.option(shortSha(root)))
+    return yield* resolveAppVersionObservation({ exactTags: [], shortSha: sha }, "development")
   }
 )

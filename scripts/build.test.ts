@@ -2,7 +2,8 @@ import * as NodePlatform from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Layer, Effect, FileSystem, Path } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
-import { BuildTool, buildBinaries, type BuildError } from "./build"
+import { processSpawnerFixture } from "../test/support/process-spawner"
+import { BuildTool, buildAtRoot, buildBinaries, type BuildError } from "./build"
 
 const esbuildBuild = vi.hoisted(() => vi.fn())
 vi.mock("esbuild", () => ({ build: esbuildBuild }))
@@ -10,6 +11,29 @@ vi.mock("esbuild", () => ({ build: esbuildBuild }))
 const pathLayer = Path.layer
 
 describe("buildBinaries", () => {
+  it.effect("resolves one tagged build identity and defines it in every executable", () => {
+    const git = processSpawnerFixture([0], { stdout: ["v3.4.5\n"] })
+    const definitions: Array<unknown> = []
+    return buildAtRoot("/repo").pipe(
+      Effect.provideService(BuildTool, {
+        build: (options) => Effect.sync(() => definitions.push(options.define))
+      }),
+      Effect.provide(Layer.mergeAll(git.layer, FileSystem.layerNoop({
+        remove: () => Effect.void,
+        makeDirectory: () => Effect.void,
+        chmod: () => Effect.void
+      }), pathLayer)),
+      Effect.tap(() => Effect.sync(() => {
+        expect(definitions).toEqual([
+          { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"3.4.5"' },
+          { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"3.4.5"' }
+        ])
+        expect(git.records).toHaveLength(1)
+        expect(git.records[0]?.released).toBe(true)
+      }))
+    )
+  })
+
   it.effect("is lazy and builds deterministic entries before making them executable", () => {
     const operations: Array<string> = []
     const definitions: Array<unknown> = []

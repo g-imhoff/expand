@@ -1,7 +1,7 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { build as esbuildBuild, type BuildOptions } from "esbuild"
 import { Context, Data, Effect, FileSystem, Layer, Path } from "effect"
-import { resolveAppVersion } from "./app-version"
+import { resolveBuildAppVersion } from "./app-version"
 
 export const BUILD_ENTRIES = [
   ["apps/cli/cli/main.ts", "dist/expand"],
@@ -72,11 +72,17 @@ const buildTool: BuildToolShape = {
 
 export const BuildToolLive = Layer.succeed(BuildTool, buildTool)
 
+export const buildAtRoot = Effect.fn("scripts.build.buildAtRoot")(
+  function*(root: string) {
+    const appVersion = yield* resolveBuildAppVersion(root)
+    yield* buildBinaries(root, appVersion)
+  }
+)
+
 const program = Effect.gen(function*() {
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
-  const appVersion = yield* resolveAppVersion(root, "development")
-  yield* buildBinaries(root, appVersion)
+  yield* buildAtRoot(root)
 }).pipe(
   Effect.provide(Layer.mergeAll(BuildToolLive, NodeServices.layer))
 )

@@ -1393,9 +1393,9 @@ const staticObjectProperties = (
   }
   if (ts.isCallExpression(unwrapped)) {
     const callable = unwrapExpression(unwrapped.expression)
-    const resolveFunction = (factory: ts.ArrowFunction | ts.FunctionExpression) => {
+    const resolveFunction = (factory: ts.ArrowFunction | ts.FunctionExpression, factorySeen = seen) => {
       const body = factory.body
-      if (ts.isExpression(body)) return staticObjectProperties(body, checker, seen)
+      if (ts.isExpression(body)) return staticObjectProperties(body, checker, factorySeen)
       const returns: Array<ts.Expression> = []
       const visit = (node: ts.Node) => {
         if (node !== body && ts.isFunctionLike(node)) return
@@ -1403,14 +1403,14 @@ const staticObjectProperties = (
         else ts.forEachChild(node, visit)
       }
       visit(body)
-      return returns.length === 1 ? staticObjectProperties(returns[0]!, checker, seen) : undefined
+      return returns.length === 1 ? staticObjectProperties(returns[0]!, checker, factorySeen) : undefined
     }
     if (ts.isArrowFunction(callable) || ts.isFunctionExpression(callable)) return resolveFunction(callable)
     if (!ts.isIdentifier(callable)) return undefined
     const declaration = symbolDeclaration(checker, callable)
-    if (declaration !== undefined && ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
+    if (declaration !== undefined && !seen.has(declaration) && ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined) {
       const initializer = unwrapExpression(declaration.initializer)
-      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) return resolveFunction(initializer)
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) return resolveFunction(initializer, new Set([...seen, declaration]))
     }
     const importDeclaration = declaration === undefined ? undefined : ts.findAncestor(declaration, ts.isImportDeclaration)
     const imported = declaration !== undefined && ts.isImportSpecifier(declaration) ? declaration.propertyName?.text ?? declaration.name.text : undefined

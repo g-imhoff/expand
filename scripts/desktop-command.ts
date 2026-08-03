@@ -2,7 +2,7 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Data, Effect, Path } from "effect"
 import { Command } from "effect/unstable/cli"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import { resolveAppVersion } from "./app-version"
+import { resolveAppVersion, resolveBuildAppVersion } from "./app-version"
 
 export type DesktopMode = "dev" | "build" | "e2e"
 
@@ -51,11 +51,19 @@ export const runDesktopCommand = Effect.fn("DesktopCommand.run")(
   }
 )
 
+export const runDesktopCommandAtRoot = Effect.fn("DesktopCommand.runAtRoot")(
+  function*(root: string, mode: DesktopMode) {
+    const appVersion = yield* mode === "dev"
+      ? resolveAppVersion(root, "development")
+      : resolveBuildAppVersion(root)
+    yield* runDesktopCommand(root, mode, appVersion)
+  }
+)
+
 const atRoot = (mode: DesktopMode) => Effect.gen(function*() {
   const path = yield* Path.Path
   const root = yield* path.fromFileUrl(new URL("../", import.meta.url))
-  const appVersion = yield* resolveAppVersion(root, "development")
-  yield* runDesktopCommand(root, mode, appVersion)
+  yield* runDesktopCommandAtRoot(root, mode)
 })
 
 const command = Command.make("desktop-command").pipe(Command.withSubcommands([
