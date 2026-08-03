@@ -86,6 +86,7 @@ const exportedConstDefinitions = (source: string, name: string) => {
   let definitions = 0
   for (const statement of sourceFile(source).statements) {
     if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) continue
+    if ((statement.declarationList.flags & ts.NodeFlags.Const) === 0) continue
     for (const declaration of statement.declarationList.declarations) {
       if (ts.isIdentifier(declaration.name) && declaration.name.text === name) definitions += 1
     }
@@ -93,9 +94,43 @@ const exportedConstDefinitions = (source: string, name: string) => {
   return definitions
 }
 
+const unwrapExpression = (expression: ts.Expression): ts.Expression => {
+  let current = expression
+  while (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current) || ts.isTypeAssertionExpression(current)) {
+    current = current.expression
+  }
+  return current
+}
+
 const forbiddenGitUses = (source: string) => {
   const parsed = sourceFile(source)
   const findings: Array<string> = []
+  const childProcessBindings = new Set<string>()
+  const processModuleBindings = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const bindings = statement.importClause?.namedBindings
+    if (bindings === undefined) continue
+    if (statement.moduleSpecifier.text === "effect/unstable/process" && ts.isNamespaceImport(bindings)) {
+      processModuleBindings.add(bindings.name.text)
+    }
+    if (statement.moduleSpecifier.text === "effect/unstable/process/ChildProcess" && ts.isNamespaceImport(bindings)) {
+      childProcessBindings.add(bindings.name.text)
+    }
+    if (statement.moduleSpecifier.text === "effect/unstable/process" && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if ((element.propertyName?.text ?? element.name.text) === "ChildProcess") childProcessBindings.add(element.name.text)
+      }
+    }
+  }
+  const isChildProcessBinding = (expression: ts.Expression) => {
+    const unwrapped = unwrapExpression(expression)
+    if (ts.isIdentifier(unwrapped)) return childProcessBindings.has(unwrapped.text)
+    if (!ts.isPropertyAccessExpression(unwrapped) || unwrapped.name.text !== "ChildProcess") return false
+    const owner = unwrapExpression(unwrapped.expression)
+    return ts.isIdentifier(owner) && processModuleBindings.has(owner.text)
+  }
   visit(parsed, (node) => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
       ["child_process", "node:child_process"].includes(node.moduleSpecifier.text)) {
@@ -116,11 +151,8 @@ const forbiddenGitUses = (source: string) => {
     if (command === undefined || args === undefined || !ts.isStringLiteral(command) || command.text !== "git" || !ts.isArrayLiteralExpression(args)) return
     const subcommand = args.elements[0]
     if (subcommand === undefined || !ts.isStringLiteral(subcommand) || !["describe", "tag", "rev-parse"].includes(subcommand.text)) return
-    const callee = node.expression
-    if (ts.isPropertyAccessExpression(callee) && callee.name.text === "make") {
-      const owner = callee.expression.getText(parsed)
-      if (owner === "ChildProcess" || owner.endsWith(".ChildProcess")) findings.push(`git ${subcommand.text}`)
-    }
+    const callee = unwrapExpression(node.expression)
+    if (ts.isPropertyAccessExpression(callee) && callee.name.text === "make" && isChildProcessBinding(callee.expression)) findings.push(`git ${subcommand.text}`)
   })
   return findings
 }
@@ -207,14 +239,29 @@ describe("version policy", () => {
         "apps/cli/owner.ts",
         "apps/cli/untracked.ts",
         "apps/desktop/e2e/release.spec.ts",
+        "packages/contracts/generated/schema.ts",
         "packages/contracts/runtime.ts"
       ]
     )).toEqual(["apps/cli/owner.ts", "packages/contracts/runtime.ts"])
     expect(exportedConstDefinitions('export { ENVELOPE_VERSION } from "./owner"', "ENVELOPE_VERSION")).toBe(0)
   })
 
-  it("detects executable structured Git calls", () => {
-    expect(hasForbiddenGitUse('ChildProcess.make("git", ["describe", "--tags"])')).toBe(true)
+  it("counts only immutable exported ownership declarations", () => {
+    expect(exportedConstDefinitions("export const PROTOCOL_VERSION = 2", "PROTOCOL_VERSION")).toBe(1)
+    expect(exportedConstDefinitions('export { PROTOCOL_VERSION } from "./owner"', "PROTOCOL_VERSION")).toBe(0)
+    expect(exportedConstDefinitions("export let PROTOCOL_VERSION = 2", "PROTOCOL_VERSION")).toBe(0)
+    expect(exportedConstDefinitions("export var PROTOCOL_VERSION = 2", "PROTOCOL_VERSION")).toBe(0)
+  })
+
+  it("detects parenthesized executable structured Git calls", () => {
+    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/unstable/process"\nChildProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/unstable/process"\n(ChildProcess).make("git", ["describe", "--tags"])')).toBe(true)
+  })
+
+  it("resolves aliased Effect ChildProcess imports", () => {
+    expect(hasForbiddenGitUse('import { ChildProcess as Process } from "effect/unstable/process"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import * as Process from "effect/unstable/process/ChildProcess"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('const ChildProcess = { make: () => undefined }\nChildProcess.make("git", ["describe"])')).toBe(false)
   })
 
   it("ignores forbidden Git text in comments and strings", () => {
