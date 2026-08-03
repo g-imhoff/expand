@@ -7,10 +7,12 @@ import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { withRss } from "../rss"
 import { BenchmarkScenarioError } from "../report"
 import type { Measurement, ScenarioContext } from "../report"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 export const runScanDrain = Effect.fn("Benchmark.runScanDrain")(function*(ctx: ScenarioContext) {
   const sql = SqliteClient.layer({ filename: ctx.dbPath })
-  const base = ReplayFeedLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const base = ReplayFeedLayer.pipe(Layer.provide(database))
   const layer = ctx.chunkSize === undefined ? base : base.pipe(Layer.provide(Layer.succeed(EventScanChunkSize, ctx.chunkSize)))
   const program = Effect.gen(function* () {
     const feed = yield* ReplayFeed

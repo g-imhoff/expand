@@ -10,12 +10,14 @@ import { ProjectEventStoreLayer } from "@expand/server/application/projects/proj
 import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectUseCases, ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(database))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const useCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),

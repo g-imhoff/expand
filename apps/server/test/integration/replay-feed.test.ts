@@ -6,12 +6,14 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectCreated } from "@expand/contracts/events/project"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestLayer = Layer.mergeAll(ReplayFeedLayer, ProjectEventStoreLayer).pipe(Layer.provideMerge(TestSql))
+const TestDatabase = DatabaseReadyLayer.pipe(Layer.provideMerge(TestSql))
+const TestLayer = Layer.mergeAll(ReplayFeedLayer, ProjectEventStoreLayer).pipe(Layer.provideMerge(TestDatabase))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore | SqlClient>) =>
   Effect.provide(eff, TestLayer)

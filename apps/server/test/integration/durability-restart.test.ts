@@ -2,6 +2,8 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem, Path, Fiber, Option, Schedule, Layer } from "effect"
+import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
@@ -24,6 +26,70 @@ const awaitEndpointUp = readEndpoint.pipe(
 )
 
 describe.sequential("durability across a backend restart", () => {
+  it.live("upgrades a revisionless legacy database once and replays ProjectCreated revision 1", () => Effect.gen(function*() {
+    const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
+    const dir = yield* makeTestDirectory("expand-durability-legacy-")
+    const dbPath = path.join(dir, "events.db")
+    const projectId = "00000000-0000-4000-8000-000000000001"
+    const legacySql = SqliteClient.layer({ filename: dbPath, disableWAL: true })
+    yield* Effect.gen(function*() {
+      const sql = yield* SqlClient
+      yield* sql`
+        CREATE TABLE events (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT,
+          stream_id TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        ) STRICT
+      `
+      yield* sql`CREATE INDEX idx_events_stream ON events (stream_id, seq)`
+      yield* sql`
+        CREATE TABLE projection_state (
+          name TEXT PRIMARY KEY,
+          state TEXT,
+          last_seq INTEGER NOT NULL,
+          fold_version TEXT NOT NULL
+        ) STRICT
+      `
+      yield* sql`INSERT INTO events ${sql.insert({
+        stream_id: projectId,
+        event_type: "ProjectCreated",
+        payload: `{"_tag":"ProjectCreated","projectId":"${projectId}","name":"legacy","occurredAt":"t1"}`
+      })}`
+    }).pipe(Effect.provide(legacySql))
+
+    const boot = () => Effect.gen(function*() {
+      const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
+      yield* awaitEndpointUp
+      const listed = yield* withClient(nodeAdapter, (client) => client.ProjectList({ includeArchived: true }))
+      yield* Fiber.join(serverFiber).pipe(
+        Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("no I-4 shutdown") })
+      )
+      return listed
+    })
+
+    const program = Effect.gen(function*() {
+      const first = yield* boot()
+      const second = yield* boot()
+      const migrations = yield* Effect.gen(function*() {
+        const sql = yield* SqlClient
+        return yield* sql<{ readonly migration_id: number }>`
+          SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id
+        `
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath, disableWAL: true })))
+      return { first, second, migrations }
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir))))
+    )
+
+    const result = yield* program
+    expect(result.first.projects).toMatchObject([{ id: projectId, name: "legacy", directory: null }])
+    expect(result.second.projects).toMatchObject([{ id: projectId, name: "legacy", directory: null }])
+    expect(result.migrations.map((migration) => migration.migration_id)).toEqual([1])
+  }))
+
   it.live("re-folds all mutations after a full backend restart on the same db",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-durability-restart-')

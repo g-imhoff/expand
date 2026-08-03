@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
+import { DatabaseReady } from "@expand/server/migrations/sqlite"
 
 /**
  * One projection's persisted checkpoint.
@@ -50,16 +51,8 @@ export class ProjectionStateStore extends Context.Service<ProjectionStateStore, 
   readonly save: (name: string, row: ProjectionStateRow) => Effect.Effect<void, SqlError>
 }>()("expand/ProjectionStateStore", {
   make: Effect.gen(function* () {
+    yield* DatabaseReady
     const sql = yield* SqlClient
-
-    yield* sql`
-      CREATE TABLE IF NOT EXISTS projection_state (
-        name         TEXT PRIMARY KEY,
-        state        TEXT,
-        last_seq     INTEGER NOT NULL,
-        fold_version TEXT    NOT NULL
-      ) STRICT
-    `
 
     const load = Effect.fn("ProjectionStateStore.load")(function*(name: string) {
       const rows = yield* sql<{ readonly state: string | null; readonly last_seq: number; readonly fold_version: string }>`

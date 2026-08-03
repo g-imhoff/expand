@@ -7,20 +7,23 @@ import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/applic
 import { EventBus } from "@expand/server/application/event-bus"
 import { streamHandlers } from "@expand/server/rpc/stream"
 import { ProjectCreated } from "@expand/contracts/events/project"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
 
-const testLayer = (subscribed: Queue.Queue<void>) => Layer.mergeAll(
-  ProjectEventStoreLayer,
-  ReplayFeedLayer,
-  Layer.effect(EventBus, Effect.map(EventBus.make, (bus) => ({
-    ...bus,
-    subscribe: Effect.tap(bus.subscribe, () => Queue.offer(subscribed, undefined))
-  })))
-).pipe(
-  Layer.provideMerge(SqliteClient.layer({ filename: ":memory:", disableWAL: true }))
-)
+const testLayer = (subscribed: Queue.Queue<void>) => {
+  const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  return Layer.mergeAll(
+    ProjectEventStoreLayer,
+    ReplayFeedLayer,
+    Layer.effect(EventBus, Effect.map(EventBus.make, (bus) => ({
+      ...bus,
+      subscribe: Effect.tap(bus.subscribe, () => Queue.offer(subscribed, undefined))
+    })))
+  ).pipe(Layer.provideMerge(database))
+}
 
 const run = <A, E>(
   subscribed: Queue.Queue<void>,

@@ -21,6 +21,8 @@ import { PROJECTION_NAME } from "@expand/server/application/projections"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { EVENT_REVISIONS } from "@expand/server/migrations/events"
 
 const GENERATOR_VERSION = 1
 const PRNG_SEED = 42
@@ -119,10 +121,6 @@ export const buildLayerOnce = Effect.fn("Benchmark.buildLayerOnce")(<ROut, E>(la
 const cachePathFor = (path: Path.Path, benchDir: string, scale: string): string =>
   path.join(benchDir, ".cache", `events-${scale}-seed${PRNG_SEED}-g${GENERATOR_VERSION}.db`)
 
-// Seed (or reuse) the cached DB for a scale. Rows are written with raw batched
-// SQL for speed, but payloads come from the REAL DomainEventFromJson encoder and
-// the schema comes from the REAL ProjectEventStoreLayer DDL — byte-identical to
-// production appends (validated below).
 export const ensureSeed = Effect.fn("Benchmark.ensureSeed")(function*(
   scale: string,
   opts?: { readonly reseed?: boolean }
@@ -138,16 +136,21 @@ export const ensureSeed = Effect.fn("Benchmark.ensureSeed")(function*(
   yield* Effect.forEach([path, `${path}-wal`, `${path}-shm`], (candidate) => fs.remove(candidate, { force: true }))
   if (count >= 10_000_000) yield* Console.log(`seeding ${scale} (${count.toLocaleString()} events) — expect a few minutes…`)
 
-  // 1) production DDL — no schema duplication in bench code
-  yield* buildLayerOnce(ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: path }))))
+  const seedSql = SqliteClient.layer({ filename: path })
+  const seedDatabase = DatabaseReadyLayer.pipe(Layer.provideMerge(seedSql))
+  yield* buildLayerOnce(ProjectEventStoreLayer.pipe(Layer.provide(seedDatabase)))
 
-  // 2) batched inserts (10k per transaction), payloads via the production codec
   const seedRows = Effect.gen(function*() {
     const sql = yield* SqlClient
     const encode = Schema.encodeEffect(DomainEventFromJson)
     let batch: Array<Record<string, unknown>> = []
     for (const event of generateEvents(count)) {
-      batch.push({ stream_id: event.projectId, event_type: event._tag, payload: yield* encode(event) })
+      batch.push({
+        stream_id: event.projectId,
+        event_type: event._tag,
+        event_revision: EVENT_REVISIONS[event._tag],
+        payload: yield* encode(event)
+      })
       if (batch.length >= 10_000) {
         yield* sql.withTransaction(sql`INSERT INTO events ${sql.insert(batch)}`)
         batch = []
@@ -177,7 +180,9 @@ const validateSeed = Effect.fn("Benchmark.validateSeed")(function*(dbPath: strin
       const feed = yield* ReplayFeed
       return yield* Stream.runFold(Stream.take(feed.read(fromSeq), sampleSize), () => 0, (n) => n + 1)
     })
-  const layer = ReplayFeedLayer.pipe(Layer.provide(SqliteClient.layer({ filename: dbPath })))
+  const sql = SqliteClient.layer({ filename: dbPath })
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const layer = ReplayFeedLayer.pipe(Layer.provide(database))
   const counts = yield* Effect.provide(
     Effect.all([sampleAt(0), sampleAt(Math.floor(expected / 2)), sampleAt(Math.max(0, expected - sampleSize))]),
     layer
@@ -195,12 +200,10 @@ const maxSeqOf = Effect.fn("Benchmark.maxSeqOf")(function*(dbPath: string) {
   }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath })))
 })
 
-// "No checkpoint" surgery: drop the whole table — the production layer recreates
-// it via CREATE IF NOT EXISTS at next boot, so no DDL is duplicated here.
 export const deleteCheckpoint = Effect.fn("Benchmark.deleteCheckpoint")(function*(dbPath: string) {
   yield* Effect.gen(function*() {
     const sql = yield* SqlClient
-    yield* sql`DROP TABLE IF EXISTS projection_state`
+    yield* sql`DELETE FROM projection_state`
   }).pipe(Effect.provide(SqliteClient.layer({ filename: dbPath })))
 })
 
@@ -209,7 +212,8 @@ export const deleteCheckpoint = Effect.fn("Benchmark.deleteCheckpoint")(function
 export const plantCheckpoint = Effect.fn("Benchmark.plantCheckpoint")(function*(dbPath: string, tailLength: number) {
   const target = (yield* maxSeqOf(dbPath)) - tailLength
   const sql = SqliteClient.layer({ filename: dbPath })
-  const layer = Layer.mergeAll(ProjectEventStoreLayer, ProjectionStateStoreLayer).pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const layer = Layer.mergeAll(ProjectEventStoreLayer, ProjectionStateStoreLayer).pipe(Layer.provide(database))
   const program = Effect.gen(function* () {
     const events = yield* ProjectEventStore
     const states = yield* ProjectionStateStore

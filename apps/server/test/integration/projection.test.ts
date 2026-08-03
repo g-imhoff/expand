@@ -10,6 +10,7 @@ import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME, CHECKPOINT_DEBOUNCE_MS } from "@expand/server/application/projections"
 import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 import { ProjectCreated, ProjectRenamed } from "@expand/contracts/events/project"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -17,10 +18,21 @@ const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padSta
 // boot-catch-up runs against whatever is already persisted in the file.
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
-  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
-  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Database))
+  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Database))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
-  return Layer.mergeAll(Projection, ProjectEvents, States).pipe(Layer.provideMerge(Sql))
+  return Layer.mergeAll(Projection, ProjectEvents, States).pipe(Layer.provideMerge(Database))
+}
+const eventStoreFor = (dbPath: string) => {
+  const Sql = SqliteClient.layer({ filename: dbPath })
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  return ProjectEventStoreLayer.pipe(Layer.provide(Database))
+}
+const stateStoreFor = (dbPath: string) => {
+  const Sql = SqliteClient.layer({ filename: dbPath })
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  return ProjectionStateStoreLayer.pipe(Layer.provide(Database))
 }
 const on = <A, E>(dbPath: string, eff: Effect.Effect<A, E, ProjectProjection | ProjectEventStore | ProjectionStateStore | SqlClient>) =>
   Effect.provide(eff, layersFor(dbPath))
@@ -47,7 +59,7 @@ describe("ProjectProjection — boot catch-up", () => {
           Effect.flatMap(ProjectEventStore, (events) =>
             events.append(ProjectCreated.make({ projectId: uid(1), name: "a", occurredAt: "t1" }))
           ),
-          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
+          eventStoreFor(db)
         ))
       // Now build the projection: boot finds no snapshot, folds from zero.
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
@@ -66,7 +78,7 @@ describe("ProjectProjection — boot catch-up", () => {
           Effect.flatMap(ProjectEventStore, (events) =>
             events.append(ProjectCreated.make({ projectId: uid(2), name: "b", occurredAt: "t2" }))
           ),
-          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: db })))
+          eventStoreFor(db)
         ))
       // Re-boot: loads snapshot@1, folds tail [seq2], reflects both, advances snapshot.
       const snap = yield* on(db, Effect.flatMap(ProjectProjection, (p) => p.snapshot))
@@ -146,7 +158,7 @@ describe("ProjectProjection — checkpoint cadence", () => {
       ))
       const persisted = yield* (Effect.provide(
         Effect.flatMap(ProjectionStateStore, (s) => s.load(PROJECTION_NAME)),
-        ProjectionStateStoreLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: db })))
+        stateStoreFor(db)
       ))
       expect(persisted?.lastSeq).toBe(1)
     })))

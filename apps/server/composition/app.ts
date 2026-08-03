@@ -14,6 +14,7 @@ import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/en
 import { PROTOCOL_VERSION } from "@expand/contracts/endpoint"
 import { newId } from "@expand/server/application/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 export interface RunServerOptions {
   readonly dbPath: string
@@ -101,9 +102,10 @@ const secureIfPresent = Effect.fn("Server.secureIfPresent")((fs: FileSystem.File
 
 const coreLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(database))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),

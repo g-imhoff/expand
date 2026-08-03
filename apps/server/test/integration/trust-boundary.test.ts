@@ -25,6 +25,7 @@ import { ChildProcess } from "effect/unstable/process"
 import * as Socket from "effect/unstable/socket/Socket"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const nodeAdapter = makeNodeAdapter({
   backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
@@ -49,9 +50,10 @@ const currentEndpoint = readEndpoint.pipe(
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(database))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),

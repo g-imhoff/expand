@@ -9,11 +9,13 @@ import { ProjectProjectionLayer } from "@expand/server/application/projections"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ProjectUseCases, ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const layer = () => {
   const sql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const useCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),

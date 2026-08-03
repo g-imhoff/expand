@@ -4,9 +4,11 @@ import { Effect, Layer } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
-const TestLayer = ProjectionStateStoreLayer.pipe(Layer.provideMerge(TestSql))
+const TestDatabase = DatabaseReadyLayer.pipe(Layer.provideMerge(TestSql))
+const TestLayer = ProjectionStateStoreLayer.pipe(Layer.provideMerge(TestDatabase))
 
 const run = <A, E>(eff: Effect.Effect<A, E, ProjectionStateStore | SqlClient>) =>
   Effect.provide(eff, TestLayer)

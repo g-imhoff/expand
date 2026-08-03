@@ -8,14 +8,16 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { deleteCheckpoint } from "../seed"
 import { timedLayerBuild, withRss } from "../rss"
 import type { Measurement, ScenarioContext } from "../report"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 // The projection boot graph against a file DB — identical shape to
 // apps/server/composition/app.ts coreLayer, minus bus/use-cases/http.
 export const projectionBootLayer = (dbPath: string, chunkSize?: number) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const base = ProjectEventStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const base = ProjectEventStoreLayer.pipe(Layer.provide(database))
   const projectEvents = chunkSize === undefined ? base : base.pipe(Layer.provide(Layer.succeed(EventScanChunkSize, chunkSize)))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   return ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
 }
 

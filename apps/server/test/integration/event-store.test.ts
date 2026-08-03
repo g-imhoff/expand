@@ -7,6 +7,12 @@ import { EventScanChunkSize } from "@expand/server/db/event-store"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectCreated } from "@expand/contracts/events/project"
+import {
+  decodeStoredEventWithRegistry,
+  EVENT_REVISIONS,
+  EVENT_UPCASTERS
+} from "@expand/server/migrations/events"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 const ev = (n: number) => ProjectCreated.make({ projectId: uid(n), name: `p${n}`, occurredAt: `t${n}` })
@@ -17,7 +23,8 @@ const TestSql = SqliteClient.layer({ filename: ":memory:", disableWAL: true })
 // unfiltered read + ProjectEventStore's derived append). Chunk granularity is a
 // build-time Reference now — override it when building the layer.
 const storeWith = (chunkSize?: number) => {
-  const base = Layer.mergeAll(ReplayFeedLayer, ProjectEventStoreLayer).pipe(Layer.provideMerge(TestSql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(TestSql))
+  const base = Layer.mergeAll(ReplayFeedLayer, ProjectEventStoreLayer).pipe(Layer.provideMerge(database))
   return chunkSize === undefined ? base : base.pipe(Layer.provide(Layer.succeed(EventScanChunkSize, chunkSize)))
 }
 
@@ -30,6 +37,18 @@ const runExit = <A, E>(eff: Effect.Effect<A, E, ReplayFeed | ProjectEventStore |
   Effect.provide(Effect.exit(eff), storeWith(undefined))
 
 describe("event-store base (through its specializations)", () => {
+  it.live("stamps new ProjectCreated rows with revision 2", () => Effect.gen(function*() {
+    const rows = yield* run(
+      Effect.gen(function*() {
+        const events = yield* ProjectEventStore
+        const sql = yield* SqlClient
+        yield* events.append(ProjectCreated.make({ projectId: uid(1), name: "alpha", directory: null, occurredAt: "t1" }))
+        return yield* sql<{ readonly event_revision: number }>`SELECT event_revision FROM events`
+      })
+    )
+    expect(rows).toEqual([{ event_revision: 2 }])
+  }))
+
   it.live("append returns the monotonically increasing seq",  () => Effect.gen(function*() {
     const seqs = yield* run(
       Effect.gen(function* () {
@@ -59,6 +78,67 @@ describe("event-store base (through its specializations)", () => {
 })
 
 describe("event-store base (through its specializations) — error paths", () => {
+  it.live("upcasts a revision-1 ProjectCreated payload during replay", () => Effect.gen(function*() {
+    const rows = yield* run(
+      Effect.gen(function*() {
+        const feed = yield* ReplayFeed
+        const sql = yield* SqlClient
+        yield* sql`INSERT INTO events ${sql.insert({
+          stream_id: uid(1),
+          event_type: "ProjectCreated",
+          event_revision: 1,
+          payload: `{"_tag":"ProjectCreated","projectId":"${uid(1)}","name":"alpha","occurredAt":"t1"}`
+        })}`
+        return yield* collect(feed.read(0))
+      })
+    )
+    expect(rows[0]?.event).toMatchObject({ _tag: "ProjectCreated", directory: null })
+  }))
+
+  it.live("dies with row and revision context for a future event revision", () => Effect.gen(function*() {
+    const exit = yield* runExit(
+      Effect.gen(function*() {
+        const feed = yield* ReplayFeed
+        const sql = yield* SqlClient
+        yield* sql`INSERT INTO events ${sql.insert({
+          stream_id: uid(1),
+          event_type: "ProjectCreated",
+          event_revision: 3,
+          payload: `{"_tag":"ProjectCreated","projectId":"${uid(1)}","name":"alpha","directory":null,"occurredAt":"t1"}`
+        })}`
+        return yield* collect(feed.read(0))
+      })
+    )
+    expect(exit._tag).toBe("Failure")
+    if (exit._tag === "Failure") {
+      const message = String(Cause.squash(exit.cause))
+      expect(message).toContain("seq=1")
+      expect(message).toContain(`stream_id=${uid(1)}`)
+      expect(message).toContain("event_type=ProjectCreated")
+      expect(message).toContain("stored_revision=3")
+      expect(message).toContain("target_revision=2")
+    }
+  }))
+
+  it.live("reports the first missing upcaster revision", () => Effect.gen(function*() {
+    const error = yield* Effect.flip(decodeStoredEventWithRegistry(
+      {
+        seq: 1,
+        streamId: uid(1),
+        eventType: "ProjectCreated",
+        eventRevision: 1,
+        payload: `{"_tag":"ProjectCreated","projectId":"${uid(1)}","name":"alpha","occurredAt":"t1"}`
+      },
+      EVENT_REVISIONS,
+      { ...EVENT_UPCASTERS, ProjectCreated: {} }
+    ))
+    expect(error).toMatchObject({
+      reason: "missing-upcaster",
+      targetRevision: 2,
+      failedRevision: 1
+    })
+  }))
+
   it.live("surfaces a SQL failure (defect) when the events table is missing — never silent corruption",  () => Effect.gen(function*() {
     const exit = yield* runExit(
       Effect.gen(function* () {

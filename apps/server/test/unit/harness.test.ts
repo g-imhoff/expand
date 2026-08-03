@@ -22,6 +22,7 @@ import { httpServerLayer } from "@expand/server/transport/http-server"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const probeTcp = (host: string, port: number) =>
   Effect.scoped(Effect.gen(function*() {
@@ -38,9 +39,10 @@ const probeTcp = (host: string, port: number) =>
 
 const harnessServerLayer = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(database))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),
@@ -55,7 +57,7 @@ const harnessServerLayer = (dbPath: string) => {
     projection,
     replay
   )
-  return Layer.mergeAll(httpServerLayer(0, "harness-token").pipe(Layer.provide(core)), sql)
+  return Layer.mergeAll(httpServerLayer(0, "harness-token").pipe(Layer.provide(core)), database)
 }
 
 const makeHarnessFixture = Effect.gen(function*() {

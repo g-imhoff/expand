@@ -14,6 +14,7 @@ import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { ProjectProjection, ProjectProjectionLayer, PROJECTION_NAME } from "@expand/server/application/projections"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
 
@@ -34,10 +35,23 @@ const script: ReadonlyArray<DomainEvent> = [
 
 const layersFor = (dbPath: string) => {
   const Sql = SqliteClient.layer({ filename: dbPath })
-  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Sql))
-  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Sql))
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  const ProjectEvents = ProjectEventStoreLayer.pipe(Layer.provide(Database))
+  const States = ProjectionStateStoreLayer.pipe(Layer.provide(Database))
   const Projection = ProjectProjectionLayer.pipe(Layer.provide(ProjectEvents), Layer.provide(States))
-  return Layer.mergeAll(Projection, States).pipe(Layer.provideMerge(Sql))
+  return Layer.mergeAll(Projection, States).pipe(Layer.provideMerge(Database))
+}
+
+const eventStoreFor = (dbPath: string) => {
+  const Sql = SqliteClient.layer({ filename: dbPath })
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  return ProjectEventStoreLayer.pipe(Layer.provide(Database))
+}
+
+const replayAndStateFor = (dbPath: string) => {
+  const Sql = SqliteClient.layer({ filename: dbPath })
+  const Database = DatabaseReadyLayer.pipe(Layer.provideMerge(Sql))
+  return Layer.mergeAll(ReplayFeedLayer, ProjectionStateStoreLayer).pipe(Layer.provide(Database))
 }
 
 describe("snapshot+tail equivalence", () => {
@@ -54,7 +68,7 @@ describe("snapshot+tail equivalence", () => {
           Effect.flatMap(ProjectEventStore, (events) =>
             Effect.forEach(script, (e) => events.append(e), { discard: true })
           ),
-          ProjectEventStoreLayer.pipe(Layer.provide(SqliteClient.layer({ filename: fresh })))
+          eventStoreFor(fresh)
         ))
         // Force a snapshot exactly at seq k (k===0 means "no snapshot": skip the save).
         if (k > 0) {
@@ -67,7 +81,7 @@ describe("snapshot+tail equivalence", () => {
               const state = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Array(Project)))(foldAll(prefix)).pipe(Effect.orDie)
               yield* snapshots.save(PROJECTION_NAME, { state, lastSeq: k, foldVersion: FOLD_VERSIONS.projects })
             }),
-            Layer.mergeAll(ReplayFeedLayer, ProjectionStateStoreLayer).pipe(Layer.provideMerge(SqliteClient.layer({ filename: fresh })))
+            replayAndStateFor(fresh)
           ))
         }
         // Boot the projection: it loads snapshot@k and folds the tail.

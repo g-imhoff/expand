@@ -15,13 +15,15 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
+import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
   const sql = SqliteClient.layer({ filename: dbPath })
-  const replay = ReplayFeedLayer.pipe(Layer.provide(sql))
-  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(sql))
-  const states = ProjectionStateStoreLayer.pipe(Layer.provide(sql))
+  const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
+  const replay = ReplayFeedLayer.pipe(Layer.provide(database))
+  const projectEvents = ProjectEventStoreLayer.pipe(Layer.provide(database))
+  const states = ProjectionStateStoreLayer.pipe(Layer.provide(database))
   const projection = ProjectProjectionLayer.pipe(Layer.provide(projectEvents), Layer.provide(states))
   const projectUseCases = ProjectUseCasesLayer.pipe(
     Layer.provide(projectEvents),

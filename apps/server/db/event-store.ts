@@ -2,6 +2,8 @@ import { Context, Effect, Schema, Stream } from "effect"
 import { SqlClient } from "effect/unstable/sql/SqlClient"
 import { SqlError } from "effect/unstable/sql/SqlError"
 import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@expand/contracts/events/domain"
+import { DatabaseReady } from "@expand/server/migrations/sqlite"
+import { decodeStoredEvent, EVENT_REVISIONS } from "@expand/server/migrations/events"
 
 /**
  * The raw event-log capability shape.
@@ -97,36 +99,33 @@ export const EventScanChunkSize = Context.Reference<number>("expand/EventScanChu
  */
 export const specializeEventStore = Effect.fn("EventStore.specialize")(function*<S>(
   build: (store: EventStorePrimitives) => S
-): Effect.fn.Return<S, SqlError, SqlClient> {
+): Effect.fn.Return<S, SqlError, SqlClient | DatabaseReady> {
+  yield* DatabaseReady
   const sql = yield* SqlClient
   const chunkSize = yield* EventScanChunkSize
-
-  yield* sql`
-    CREATE TABLE IF NOT EXISTS events (
-      seq        INTEGER PRIMARY KEY AUTOINCREMENT,
-      stream_id  TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      payload    TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    ) STRICT
-  `
-  yield* sql`CREATE INDEX IF NOT EXISTS idx_events_stream ON events (stream_id, seq)`
 
   const append = Effect.fn("EventStore.append")(function*(streamId: string, event: DomainEvent) {
     const payload = yield* Schema.encodeEffect(DomainEventFromJson)(event).pipe(Effect.orDie)
     const rows = yield* sql<{ readonly seq: number }>`INSERT INTO events ${sql.insert({
       stream_id: streamId,
       event_type: event._tag,
+      event_revision: EVENT_REVISIONS[event._tag],
       payload
     })} RETURNING seq`
     return rows[0]!.seq
   })
 
   const decodeRowStrict = Effect.fnUntraced(function* decodeRowStrict(row: EventRow): Effect.fn.Return<SequencedEvent> {
-    return yield* Schema.decodeUnknownEffect(DomainEventFromJson)(row.payload).pipe(
-      Effect.mapError((e) =>
-        new Error(`undecodable event row seq=${row.seq} stream_id=${row.stream_id} event_type=${row.event_type}: ${e.message}`)
-      ),
+    return yield* decodeStoredEvent({
+      seq: row.seq,
+      streamId: row.stream_id,
+      eventType: row.event_type,
+      eventRevision: row.event_revision,
+      payload: row.payload
+    }).pipe(
+      Effect.mapError((error) => new Error(
+        `undecodable event row seq=${row.seq} stream_id=${row.stream_id} event_type=${row.event_type} stored_revision=${row.event_revision} target_revision=${error.targetRevision ?? "unknown"} reason=${error.reason}`
+      )),
       Effect.orDie,
       Effect.map((event) => ({ seq: row.seq, event }))
     )
@@ -139,11 +138,11 @@ export const specializeEventStore = Effect.fn("EventStore.specialize")(function*
   ) =>
     eventTypes === undefined
       ? sql<EventRow>`
-          SELECT seq, stream_id, event_type, payload FROM events
+          SELECT seq, stream_id, event_type, event_revision, payload FROM events
           WHERE seq > ${afterSeq} ORDER BY seq ASC LIMIT ${limit}
         `
       : sql<EventRow>`
-          SELECT seq, stream_id, event_type, payload FROM events
+          SELECT seq, stream_id, event_type, event_revision, payload FROM events
           WHERE seq > ${afterSeq} AND ${sql.in("event_type", eventTypes)}
           ORDER BY seq ASC LIMIT ${limit}
         `
@@ -170,5 +169,6 @@ interface EventRow {
   readonly seq: number
   readonly stream_id: string
   readonly event_type: string
+  readonly event_revision: number
   readonly payload: string
 }
