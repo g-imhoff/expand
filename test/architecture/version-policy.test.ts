@@ -8,9 +8,14 @@ import {
 } from "../../apps/server/migrations/events"
 import { CURRENT_DATABASE_MIGRATION, DATABASE_MIGRATIONS } from "../../apps/server/migrations/sqlite"
 import { PROTOCOL_VERSION } from "../../packages/contracts/rpc/version"
-import { BUILD_ENTRIES } from "../../scripts/build"
+import { stage as stageClientPackage } from "../../packages/client-ts/scripts/prepare-publish"
+import { stage as stageContractsPackage } from "../../packages/contracts/scripts/prepare-publish"
+import { makeElectronConfig } from "../../apps/desktop/electron.vite.config"
+import { BUILD_ENTRIES, BuildTool, buildBinaries } from "../../scripts/build"
 import { resolveAppVersionObservation } from "../../scripts/app-version"
-import { Effect, FileSystem, Path, Schema } from "effect"
+import { runCommand } from "../support/effect-process"
+import { Effect, FileSystem, Layer, Path, Schema } from "effect"
+import ts from "typescript"
 import { describe, expect } from "vitest"
 
 const manifestPaths = [
@@ -43,21 +48,140 @@ const Manifest = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
 })
 
-const walkTypeScript = Effect.fn("VersionPolicy.walkTypeScript")(function*(
-  directory: string
-): Effect.fn.Return<ReadonlyArray<string>, unknown, FileSystem.FileSystem | Path.Path> {
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const files: Array<string> = []
-  for (const entry of yield* fs.readDirectory(directory)) {
-    if (["node_modules", "dist", "dist-publish", "out", "test", "test-results"].includes(entry)) continue
-    const child = path.join(directory, entry)
-    const info = yield* fs.stat(child)
-    if (info.type === "Directory") files.push(...yield* walkTypeScript(child))
-    else if (/\.(?:ts|tsx)$/.test(entry) && !/\.(?:test|generated)\.(?:ts|tsx)$/.test(entry)) files.push(child)
-  }
-  return files
+const PublishedVersion = Schema.Struct({
+  version: Schema.String,
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
 })
+
+const databaseMigrationIdsAreContiguous = (migrationIds: ReadonlyArray<number>, currentMigration: number) =>
+  migrationIds.length === currentMigration &&
+  migrationIds.every((id, index) => id === index + 1)
+
+const isPolicySourcePath = (relative: string) =>
+  /^(?:apps|packages)\/.+\.(?:ts|tsx)$/.test(relative) &&
+  !relative.split("/").some((segment) => ["test", "tests", "e2e", "generated", "__tests__"].includes(segment)) &&
+  !/\.(?:test|spec|generated)\.(?:ts|tsx)$/.test(relative)
+
+const selectPolicySources = (
+  tracked: ReadonlyArray<string>,
+  available: ReadonlyArray<string> = tracked
+) => {
+  const availableSet = new Set(available)
+  return tracked.filter((relative) => availableSet.has(relative) && isPolicySourcePath(relative))
+}
+
+const propertyName = (name: ts.PropertyName) => ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined
+
+const visit = (node: ts.Node, use: (node: ts.Node) => void) => {
+  use(node)
+  ts.forEachChild(node, (child) => visit(child, use))
+}
+
+const hasExportModifier = (node: ts.Node) =>
+  ts.canHaveModifiers(node) && ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) === true
+
+const sourceFile = (source: string) => ts.createSourceFile("fixture.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+
+const exportedConstDefinitions = (source: string, name: string) => {
+  let definitions = 0
+  for (const statement of sourceFile(source).statements) {
+    if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) definitions += 1
+    }
+  }
+  return definitions
+}
+
+const forbiddenGitUses = (source: string) => {
+  const parsed = sourceFile(source)
+  const findings: Array<string> = []
+  visit(parsed, (node) => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+      ["child_process", "node:child_process"].includes(node.moduleSpecifier.text)) {
+      findings.push(node.moduleSpecifier.text)
+    }
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression !== undefined && ts.isStringLiteral(node.moduleReference.expression) &&
+      ["child_process", "node:child_process"].includes(node.moduleReference.expression.text)) {
+      findings.push(node.moduleReference.expression.text)
+    }
+    if (ts.isCallExpression(node) && node.arguments[0] !== undefined && ts.isStringLiteral(node.arguments[0]) &&
+      ["child_process", "node:child_process"].includes(node.arguments[0].text) &&
+      ((ts.isIdentifier(node.expression) && node.expression.text === "require") || node.expression.kind === ts.SyntaxKind.ImportKeyword)) {
+      findings.push(node.arguments[0].text)
+    }
+    if (!ts.isCallExpression(node) || node.arguments.length < 2) return
+    const [command, args] = node.arguments
+    if (command === undefined || args === undefined || !ts.isStringLiteral(command) || command.text !== "git" || !ts.isArrayLiteralExpression(args)) return
+    const subcommand = args.elements[0]
+    if (subcommand === undefined || !ts.isStringLiteral(subcommand) || !["describe", "tag", "rev-parse"].includes(subcommand.text)) return
+    const callee = node.expression
+    if (ts.isPropertyAccessExpression(callee) && callee.name.text === "make") {
+      const owner = callee.expression.getText(parsed)
+      if (owner === "ChildProcess" || owner.endsWith(".ChildProcess")) findings.push(`git ${subcommand.text}`)
+    }
+  })
+  return findings
+}
+
+const hasForbiddenGitUse = (source: string) => forbiddenGitUses(source).length > 0
+
+const findExportedFunction = (parsed: ts.SourceFile, exportName: string) => {
+  for (const statement of parsed.statements) {
+    if (ts.isFunctionDeclaration(statement) && hasExportModifier(statement) && statement.name?.text === exportName) return statement
+    if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName || declaration.initializer === undefined) continue
+      let found: ts.FunctionExpression | ts.ArrowFunction | undefined
+      visit(declaration.initializer, (node) => {
+        if (found === undefined && (ts.isFunctionExpression(node) || ts.isArrowFunction(node))) found = node
+      })
+      if (found !== undefined) return found
+    }
+  }
+}
+
+const stageUsesReleaseParameter = (parsed: ts.SourceFile, property: string = "version") => {
+  const stage = findExportedFunction(parsed, "stage")
+  const parameter = stage?.parameters[1]?.name
+  if (stage === undefined || parameter === undefined || !ts.isIdentifier(parameter) || stage.body === undefined) return false
+  let usesParameter = false
+  visit(stage.body, (node) => {
+    if (ts.isPropertyAssignment(node) && propertyName(node.name) === property &&
+      ts.isIdentifier(node.initializer) && node.initializer.text === parameter.text) usesParameter = true
+    if (ts.isShorthandPropertyAssignment(node) && node.name.text === property && node.name.text === parameter.text) usesParameter = true
+  })
+  return usesParameter
+}
+
+const exportedFunctionPassesParameter = (
+  parsed: ts.SourceFile,
+  exportName: string,
+  parameterIndex: number,
+  calleeName: string,
+  argumentIndex: number
+) => {
+  const fn = findExportedFunction(parsed, exportName)
+  const parameter = fn?.parameters[parameterIndex]?.name
+  if (fn === undefined || parameter === undefined || !ts.isIdentifier(parameter) || fn.body === undefined) return false
+  const calls: Array<ts.CallExpression> = []
+  visit(fn.body, (node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === calleeName) calls.push(node)
+  })
+  return calls.length > 0 && calls.every((call) => {
+    const argument = call.arguments[argumentIndex]
+    return argument !== undefined && ts.isIdentifier(argument) && argument.text === parameter.text
+  })
+}
+
+const usesRuntimeIdentifier = (source: string, name: string) => {
+  let found = false
+  visit(sourceFile(source), (node) => {
+    if (ts.isIdentifier(node) && node.text === name) found = true
+  })
+  return found
+}
 
 const atRepositoryRoot = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>) =>
   Effect.gen(function*() {
@@ -67,10 +191,51 @@ const atRepositoryRoot = <A, E, R>(use: (root: string) => Effect.Effect<A, E, R>
   }).pipe(Effect.provide(NodeServices.layer))
 
 describe("version policy", () => {
+  it("rejects a database migration gap before the current migration", () => {
+    expect(databaseMigrationIdsAreContiguous([1, 3], 3)).toBe(false)
+  })
+
+  it("limits policy ownership and runtime scans to tracked non-test sources", () => {
+    expect(selectPolicySources(
+      [
+        "apps/cli/owner.ts",
+        "apps/desktop/e2e/release.spec.ts",
+        "packages/contracts/generated/schema.ts",
+        "packages/contracts/runtime.ts"
+      ],
+      [
+        "apps/cli/owner.ts",
+        "apps/cli/untracked.ts",
+        "apps/desktop/e2e/release.spec.ts",
+        "packages/contracts/runtime.ts"
+      ]
+    )).toEqual(["apps/cli/owner.ts", "packages/contracts/runtime.ts"])
+    expect(exportedConstDefinitions('export { ENVELOPE_VERSION } from "./owner"', "ENVELOPE_VERSION")).toBe(0)
+  })
+
+  it("detects executable structured Git calls", () => {
+    expect(hasForbiddenGitUse('ChildProcess.make("git", ["describe", "--tags"])')).toBe(true)
+  })
+
+  it("ignores forbidden Git text in comments and strings", () => {
+    expect(hasForbiddenGitUse('const example = "git describe"\n// node:child_process')).toBe(false)
+  })
+
+  it("recognizes staged release flow independently of parameter names and formatting", () => {
+    const fixture = sourceFile(`
+      export const stage = Effect.fn("stage")(function* (directory: string, version: string) {
+        const manifest = {
+          version
+        }
+        return manifest
+      })
+    `)
+    expect(stageUsesReleaseParameter(fixture)).toBe(true)
+  })
+
   it.live("keeps compatibility literals under one approved owner", () =>
     atRepositoryRoot((root) => Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
       expect(ENVELOPE_VERSION).toBe("expand/v1")
       expect(PROTOCOL_VERSION).toBe(2)
       expect(EVENT_REVISIONS.ProjectCreated).toBe(2)
@@ -80,12 +245,12 @@ describe("version policy", () => {
         ENVELOPE_VERSION: [] as Array<string>,
         PROTOCOL_VERSION: [] as Array<string>
       }
-      for (const relative of [...yield* walkTypeScript(path.join(root, "apps")), ...yield* walkTypeScript(path.join(root, "packages"))]) {
-        const source = yield* fs.readFileString(relative)
+      const tracked = yield* runCommand("git", ["ls-files", "-z", "--", "apps", "packages"], { cwd: root })
+      expect(tracked.exitCode).toBe(0)
+      for (const relative of selectPolicySources(tracked.stdout.split("\0").filter(Boolean))) {
+        const source = yield* fs.readFileString(`${root}/${relative}`)
         for (const name of Object.keys(definitions) as Array<keyof typeof definitions>) {
-          if (new RegExp(`\\bexport\\s+const\\s+${name}\\b`).test(source)) {
-            definitions[name].push(path.relative(root, relative))
-          }
+          definitions[name].push(...Array.from({ length: exportedConstDefinitions(source, name) }, () => relative))
         }
       }
 
@@ -106,9 +271,7 @@ describe("version policy", () => {
         expect(key).toMatch(/^\d+_/)
         return Number.parseInt(key, 10)
       })
-      expect(new Set(migrationIds).size).toBe(migrationIds.length)
-      expect(migrationIds).toEqual([...migrationIds].sort((left, right) => left - right))
-      expect(migrationIds.at(-1)).toBe(CURRENT_DATABASE_MIGRATION)
+      expect(databaseMigrationIdsAreContiguous(migrationIds, CURRENT_DATABASE_MIGRATION)).toBe(true)
 
       expect(yield* resolveAppVersionObservation({ exactTags: ["v1.2.3"], shortSha: undefined }, "release")).toBe("1.2.3")
       expect(yield* resolveAppVersionObservation({ exactTags: [], shortSha: "0123456789ab" }, "development")).toBe("0.0.0-dev+0123456789ab")
@@ -123,35 +286,60 @@ describe("version policy", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const read = (relative: string) => fs.readFileString(path.join(root, relative))
-      const build = yield* read("scripts/build.ts")
-      const desktopCommand = yield* read("scripts/desktop-command.ts")
-      const desktopConfig = yield* read("apps/desktop/electron.vite.config.ts")
       const contractsStage = yield* read("packages/contracts/scripts/prepare-publish.ts")
       const clientStage = yield* read("packages/client-ts/scripts/prepare-publish.ts")
       const buildInfo = yield* read("packages/contracts/build-info.ts")
+      const desktopCommandSource = sourceFile(yield* read("scripts/desktop-command.ts"))
 
       expect(BUILD_ENTRIES).toHaveLength(2)
-      const buildBinaries = build.slice(build.indexOf("export const buildBinaries"), build.indexOf("const buildTool"))
-      expect(buildBinaries).toMatch(/function\*\s*\(rootDir:\s*string,\s*appVersion:\s*string\)/)
-      expect(buildBinaries).toMatch(/buildOptions\(rootDir,\s*path\.join\(rootDir,\s*entry\),\s*outfile,\s*appVersion\)/)
-      expect(buildBinaries).not.toMatch(/resolve(?:Build)?AppVersion/)
-      expect(build).toMatch(/define:\s*\{[^}]*__EXPAND_VERSION__:\s*`"\$\{appVersion\}"`/)
-      expect(desktopCommand).toMatch(/function\*\s*\(root:\s*string,\s*mode:\s*DesktopMode,\s*appVersion:\s*string\)/)
-      expect(desktopCommand).toMatch(/EXPAND_APP_VERSION:\s*appVersion/)
-      expect(desktopConfig.match(/__EXPAND_VERSION__/g)).toHaveLength(3)
-      expect(buildInfo).toMatch(/__EXPAND_VERSION__/)
+      const binaryDefinitions: Array<unknown> = []
+      yield* buildBinaries("/repo", "9.8.7").pipe(
+        Effect.provideService(BuildTool, {
+          build: (options) => Effect.sync(() => binaryDefinitions.push(options.define))
+        }),
+        Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
+          remove: () => Effect.void,
+          makeDirectory: () => Effect.void,
+          chmod: () => Effect.void
+        }), Path.layer))
+      )
+      expect(binaryDefinitions).toEqual([
+        { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' },
+        { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' }
+      ])
+      const desktopConfig = makeElectronConfig("9.8.7")
+      expect([desktopConfig.main?.define, desktopConfig.preload?.define, desktopConfig.renderer?.define]).toEqual([
+        { __EXPAND_VERSION__: '"9.8.7"' },
+        { __EXPAND_VERSION__: '"9.8.7"' },
+        { __EXPAND_VERSION__: '"9.8.7"' }
+      ])
+      expect(usesRuntimeIdentifier(buildInfo, "__EXPAND_VERSION__")).toBe(true)
+      expect(stageUsesReleaseParameter(sourceFile(contractsStage))).toBe(true)
+      expect(stageUsesReleaseParameter(sourceFile(clientStage))).toBe(true)
+      expect(stageUsesReleaseParameter(sourceFile(clientStage), "@expand/contracts")).toBe(true)
+      expect(exportedFunctionPassesParameter(desktopCommandSource, "runDesktopCommand", 2, "runCommand", 3)).toBe(true)
 
-      for (const source of [contractsStage, clientStage]) {
-        expect(source).toMatch(/version:\s*releaseVersion/)
-        expect(source).not.toMatch(/version:\s*source\.version/)
+      for (const [relative, stage] of [
+        ["packages/contracts", stageContractsPackage],
+        ["packages/client-ts", stageClientPackage]
+      ] as const) {
+        const fixture = yield* fs.makeTempDirectoryScoped({ prefix: "expand-version-policy-" })
+        yield* fs.writeFileString(path.join(fixture, "package.json"), yield* read(`${relative}/package.json`))
+        yield* fs.makeDirectory(path.join(fixture, "dist"))
+        yield* stage(fixture, "9.8.7")
+        const published = yield* fs.readFileString(path.join(fixture, "dist-publish", "package.json")).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(PublishedVersion)))
+        )
+        expect(published.version).toBe("9.8.7")
+        if (relative === "packages/client-ts") expect(published.dependencies?.["@expand/contracts"]).toBe("9.8.7")
       }
-      expect(clientStage).toMatch(/"@expand\/contracts":\s*releaseVersion/)
 
-      const forbidden = /\bgit (?:describe|tag|rev-parse)\b|node:child_process|child_process/
-      for (const relative of [...yield* walkTypeScript(path.join(root, "apps")), ...yield* walkTypeScript(path.join(root, "packages"))]) {
-        expect(yield* fs.readFileString(relative), path.relative(root, relative)).not.toMatch(forbidden)
+      const tracked = yield* runCommand("git", ["ls-files", "-z", "--", "apps", "packages"], { cwd: root })
+      expect(tracked.exitCode).toBe(0)
+      for (const relative of selectPolicySources(tracked.stdout.split("\0").filter(Boolean))) {
+        expect(forbiddenGitUses(yield* fs.readFileString(path.join(root, relative))), relative).toEqual([])
       }
-    })))
+    }).pipe(Effect.scoped)))
 
   it.live("keeps tracked manifests as sentinels and documents every version domain", () =>
     atRepositoryRoot((root) => Effect.gen(function*() {
@@ -182,6 +370,6 @@ describe("version policy", () => {
       expect(documentation).toContain("v<SemVer>")
       expect(documentation).toContain("expand/v1")
       expect(documentation).toContain("gpt-5.6-luna")
-      expect(documentation).toContain("max")
+      expect(documentation).toContain("`max`")
     })))
 })
