@@ -1,15 +1,8 @@
-# Reviewing `feat/architectural-foundation`
+# Reviewing `feature/effect-only-migration`
 
-This file has two review scopes. Start with **Current change-set re-review**:
-it covers every staged, unstaged, added, and deleted path in the current cleanup
-and must be completed again for this change. The longer dependency-ordered path
-that follows remains the guide for reviewing the architectural foundation as a
-whole.
+A guided reading path for reviewing this branch. It is large, so treat everything here as *newly built*, not as a small diff on top of `develop`.
 
-The whole-branch guide orders review by the **dependency graph**: read each layer
-only after the layers it is built on. By the time you reach a frontend, you
-already understand the vocabulary, backend, and connection logic it relies on,
-so nothing is reviewed in a vacuum.
+This guide orders the review by the **dependency graph**: you read each layer only after the layers it is built on. By the time you reach a frontend, you already understand the vocabulary, the backend, and the connection logic it relies on, so nothing is reviewed in a vacuum.
 
 > **How to use this**
 > - Each stage has a *plain-language summary*, *why it comes here*, a *file-by-file reading order*, the *handful of things worth scrutinizing hardest*, and the *tests that best prove intent*.
@@ -17,353 +10,26 @@ so nothing is reviewed in a vacuum.
 > - Time estimates are for a careful human review. The full path is ~14–17 hours. If you can't spend that, jump to **[The fast path](#the-fast-path)**.
 > - The whole branch is built to satisfy four load-bearing invariants (**I-1 … I-4**). Stage 0 explains them; every later stage references them.
 
-## Current change-set re-review
-
-The `DONE` labels in the historical path do not apply to files listed here.
-Every listed path is reopened. Review staged and unstaged hunks together because
-`docs/architecture/BOUNDARIES.md` currently participates in both the state-root
-lock change and the Effect-enforcement cleanup. Added files must be inspected
-explicitly; they do not appear in a plain `git diff` until tracked.
-
-Start by establishing the exact scope:
-
-```bash
-git status --short
-git diff --name-status HEAD
-git diff --cached --name-status
-git diff --check HEAD
-```
-
-For a pull request, compare the head with its merge base instead of local
-`HEAD`, then confirm that the resulting paths still fit the five waves below.
-An unexpected path reopens the relevant wave and must be added to this guide.
-
-### Wave 1 — state-root spawn-lock ownership · 🔴 high
-
-**Changed scope:**
-
-- `packages/contracts/app-context.ts`
-- `packages/contracts/test/app-context.test.ts`
-- `docs/architecture/BOUNDARIES.md`
-
-**Intent:** every state root, including the implicit or explicitly selected
-channel default, now derives its client spawn lock as
-`<state-root>/server.json.lock`. The external `<home>/.expand-locks/*` location
-remains only for legacy migration coordination.
-
-**Read next:** `packages/client-ts/spawn.ts`,
-`packages/client-ts/spawn-lock.ts`,
-`packages/client-ts/test/integration/find-or-spawn.test.ts`,
-`packages/client-ts/test/integration/spawn-lock.test.ts`,
-`apps/cli/test/contract/contract.test.ts`, and
-`apps/desktop/e2e/helpers.ts`.
-
-**Scrutinize hardest:**
-
-- Implicit and explicit-equal defaults must resolve to the same data directory,
-  endpoint, and spawn lock; different roots must never share a lock.
-- The lock parent must exist or be created before acquisition, and success,
-  failure, interruption, stale-owner recovery, and contention must leave no
-  lock artifacts.
-- Mixed old/new clients may coordinate through different spawn-lock paths. The
-  state-root ownership lock and endpoint handshake must still prevent two live
-  writers or an incorrect endpoint from winning.
-- Confirm whether this operational compatibility change needs a product,
-  protocol, schema, migration, or cache version change. If no bump is needed,
-  the review should record why none of those compatibility domains changed.
-- `BOUNDARIES.md`, the derived `AppContext`, compiled CLI behavior, and tests
-  must describe the same rule with no surviving default-root exception.
-
-**Focused evidence:**
-
-```bash
-npx vitest run packages/contracts/test/app-context.test.ts \
-  packages/client-ts/test/integration/find-or-spawn.test.ts \
-  packages/client-ts/test/integration/spawn-lock.test.ts \
-  apps/cli/test/contract/contract.test.ts
-npm run cert:cli:build
-```
-
-### Wave 2 — executable source cleanup · 🟢 low
-
-**Changed scope:**
-
-- `apps/cli/cli/commands/project/create.ts`
-- `apps/cli/cli/commands/project/resolve-project-target.ts`
-- `packages/client-ts/project/client.ts`
-
-**Intent:** remove repository-owned explanatory comments and make no runtime,
-type, public API, validation, or error-mapping change.
-
-Review the word diff. The `ProjectClientApi`, service identity, command options,
-UUID/name resolution, backend validation boundary, and generated output must be
-identical. Any change beyond comments or whitespace is out of scope and reopens
-the owning CLI/client tests.
-
-```bash
-git diff --word-diff=plain HEAD -- \
-  apps/cli/cli/commands/project/create.ts \
-  apps/cli/cli/commands/project/resolve-project-target.ts \
-  packages/client-ts/project/client.ts
-npx vitest run apps/cli/test/unit/resolve-target.test.ts \
-  apps/cli/test/contract/contract.test.ts \
-  packages/client-ts/test/integration/client-layer.test.ts
-```
-
-### Wave 3 — permanent Effect enforcement without audit inventories · 🔴 high
-
-**Removed scope:**
-
-- `effect-candidate-inventory.json` and `effect-executable-inventory.json`
-- `scripts/effect-audit*`, `scripts/effect-candidate-inventory*`,
-  `scripts/effect-executable-inventory*`, and `scripts/effect-policy-model.ts`
-- `test/architecture/effect-audit.test.ts`,
-  `test/architecture/effect-boundary-registry.test.ts`,
-  `test/architecture/effect-candidate-inventory.test.ts`, and
-  `test/architecture/effect-executable-inventory.test.ts`
-- `tsconfig.effect-audit.json`
-
-**Added scope:**
-
-- `tsconfig.workspace.json`
-- `test/architecture/effect-host-boundaries.test.ts`
-- `test/architecture/effect-policy.test.ts`
-
-**Modified scope:** `.githooks/pre-commit`, `.github/workflows/ci.yml`,
-`CODEOWNERS`, `docs/architecture/BOUNDARIES.md`,
-`docs/architecture/EFFECT_ONLY.md`, the sibling `VERSIONING.md`,
-`eslint-rules/effect-host-boundaries.mjs`, `eslint.effect.config.mjs`,
-`knip.jsonc`, `package.json`, `package-lock.json`, `tsconfig.json`,
-`vitest.config.ts`, and these architecture suites:
-
-- `effect-boundary-coverage.test.ts`
-- `effect-certification.test.ts`
-- `effect-final-ratchet.test.ts`
-- `effect-language-service.test.ts`
-- `manifest-orchestration.test.ts`
-- `node-only.test.ts`
-- `test-colocation.test.ts`
-- `version-policy.test.ts`
-
-**Intent:** replace the generated JSON ledgers and custom `effect:audit` program
-with permanent, directly inspectable enforcement: whole-tree semantic ESLint,
-patched TypeScript language-service diagnostics, an exact host-boundary
-registry, source-coverage tests, architecture policy tests, and human review for
-judgment-heavy adoption decisions.
-
-**Scrutinize hardest:**
-
-- `tsconfig.workspace.json` and ESLint must cover every existing tracked or
-  newly added first-party TS/JS source while excluding only generated output,
-  dependencies, reports, and separate worktrees.
-- `npm run typecheck:all` must run through patched TypeScript and fail on Effect
-  errors, warnings, suggestions, and `effectFnOpportunity` diagnostics. The
-  lifecycle split between `postinstall` (Git hooks) and `prepare` (language
-  service patching) must work after a clean `npm ci`.
-- Disabling duplicate language-service checks for Node builtins and bare
-  `process.env` must not create a gap: the semantic ESLint rule and exact host
-  registry must reject unapproved occurrences.
-- Every remaining host-boundary record must identify one tracked file,
-  declaration, construct, occurrence, and consumer. Removed entries must
-  correspond only to files deleted in this change.
-- Deleting the candidate/executable inventories must not delete behavioral
-  guarantees for typed failures, resource ownership, interruption, cleanup,
-  runner placement, or complete `Cause` preservation. Those are now explicit
-  manual-review responsibilities backed by focused behavior tests.
-- Pre-commit must retain lint and aggregate typecheck. CI must retain lint,
-  aggregate typecheck, architecture, Knip, tests, package certification,
-  benchmarks, desktop E2E, and compiled-binary certification.
-
-**Focused evidence:**
-
-```bash
-npx vitest run \
-  test/architecture/effect-policy.test.ts \
-  test/architecture/effect-host-boundaries.test.ts \
-  test/architecture/effect-boundary-coverage.test.ts \
-  test/architecture/effect-language-service.test.ts \
-  test/architecture/effect-final-ratchet.test.ts \
-  test/architecture/effect-certification.test.ts \
-  test/architecture/manifest-orchestration.test.ts \
-  test/architecture/node-only.test.ts \
-  test/architecture/test-colocation.test.ts \
-  test/architecture/version-policy.test.ts
-```
-
-### Wave 4 — repository-local agent definitions removed · 🟡 medium
-
-**Changed scope:**
-
-- all tracked files under `.claude/agents/` and `.codex/agents/`
-- `.codex/config.toml`
-- `scripts/sync-agents.ts` and `scripts/sync-agents.test.ts`
-- `AGENTS.md`, `.githooks/pre-commit`, `.github/workflows/ci.yml`,
-  `package.json`, `package-lock.json`, and
-  `test/architecture/manifest-orchestration.test.ts`
-
-**Intent:** agent profiles and routing live outside the product repository. The
-repository keeps only its code-authoring rules; installs, commits, and CI no
-longer synchronize editor-specific agent definitions.
-
-Confirm that no product, build, hook, test, or workflow imports the removed
-files; `smol-toml` is no longer a direct project dependency now that the
-synchronizer is gone, even though Knip still owns it transitively; the lockfile
-matches the manifest; and the install lifecycle still both configures hooks and
-patches TypeScript. The external plugin is not evidence for repository
-correctness: this tree must remain buildable and testable without it.
-
-```bash
-! rg -n --hidden \
-  'agents:(sync|check)|sync-agents|\.codex/agents|\.claude/agents' \
-  -g '!.git/**' -g '!REVIEW.md' .
-node -e "const p=require('./package.json'); process.exit(p.dependencies?.['smol-toml'] || p.devDependencies?.['smol-toml'] ? 1 : 0)"
-npm run knip
-```
-
-The search should return no active repository reference. Historical text, if
-deliberately retained later, must not be executable configuration.
-
-### Wave 5 — automated Codex pull-request review removed · 🟡 medium
-
-**Removed scope:**
-
-- `.github/workflows/codex-review-request.yml`
-- `.github/workflows/codex-review.yml`
-- `.github/codex/review-comment.cjs`
-- `.github/codex/review-comment.d.cts`
-- `.github/codex/review-schema.json`
-- `test/architecture/codex-review.test.ts`
-- `docs/superpowers/plans/2026-08-03-versioning-p0-p4.md`
-- `docs/superpowers/plans/2026-08-03-versioning-p4-codex-review.md`
-- `docs/superpowers/specs/2026-08-03-versioning-and-codex-review-design.md`
-
-**Updated scope:** `.github/workflows/ci.yml`,
-`docs/architecture/BOUNDARIES.md`, `docs/architecture/EFFECT_ONLY.md`,
-the sibling `VERSIONING.md`, `REVIEW.md`,
-`docs/superpowers/plans/2026-08-03-versioning-p2-compatibility-ownership.md`,
-`docs/superpowers/plans/2026-08-03-versioning-p3-policy-enforcement.md`,
-`eslint-rules/effect-host-boundaries.mjs`,
-`test/architecture/effect-certification.test.ts`,
-`test/architecture/effect-final-ratchet.test.ts`, and
-`test/architecture/version-policy.test.ts`.
-
-**Intent:** no GitHub event launches Codex, no repository code publishes an AI
-review comment, and no Codex credential, CLI pin, model, schema, or self-hosted
-runner is part of the pull-request pipeline. Semantic Effect and versioning
-review is manual for now.
-
-Confirm the ordinary CI workflow remains read-only at repository scope and
-retains its existing product gates; no retired workflow is still referenced;
-the version inventory still documents every product, protocol, migration,
-stored-event, projection, benchmark, and dependency domain; and P2/P3 historical
-plans remain internally coherent after removing P4.
-
-```bash
-! rg -n --hidden \
-  'codex-review|openai/codex-action|CODEX_API_KEY|review-comment\.cjs|review-schema\.json|codex-version|gpt-5\.6-luna' \
-  -g '!.git/**' -g '!REVIEW.md' .
-npx vitest run test/architecture/effect-policy.test.ts \
-  test/architecture/effect-final-ratchet.test.ts \
-  test/architecture/effect-host-boundaries.test.ts \
-  test/architecture/effect-certification.test.ts \
-  test/architecture/version-policy.test.ts
-```
-
-The search should produce no active workflow, configuration, helper, schema, or
-test match.
-
-### Cumulative acceptance for this change set
-
-Focused tests prove intent; they do not replace the repository gates. Complete
-the review only after `git diff --check HEAD` is clean, every deleted-path
-reference is either removed or deliberately historical, and these commands
-pass from the same checkout:
-
-```bash
-npm run lint
-npm run typecheck:all
-npm run arch
-npm run knip
-NODE_ENV=test npm test
-npm run cert:packages
-npm run cert:cli:build
-```
-
-For each failure, decide whether the implementation, the replacement gate, or
-this review guide is wrong; do not weaken an assertion only to restore green.
-Record the exact command, exit code, and relevant test count in the pull-request
-review.
-
-### Latest local evidence — 2026-08-11
-
-This evidence applies to the exact working tree used to update this guide and
-must be regenerated after any further source, configuration, or test change:
-
-- Both retired-reference searches returned no match, and `smol-toml` was absent
-  from the root dependency sets.
-- The 16 focused suites passed 166 tests.
-- ESLint, aggregate TypeScript/Effect diagnostics, dependency-cruiser, Knip,
-  package certification, and compiled CLI/server certification exited 0.
-- Full Vitest passed 166 files and 1,261 tests plus one expected failure with
-  `NODE_ENV=test`.
-- `git diff --check HEAD` reported no whitespace error.
-
 ## Effect-only migration certification
 
 The Effect-only implementation range is `dd83af88c04159ac6847c62271078e607ff3e3fd..e7d9fc62cc0460d1a402a1bff654c8a75ab24743`. It was reviewed and certified at `e7d9fc62cc0460d1a402a1bff654c8a75ab24743` relative to merge base `9a5fa7830d9445b1ef0b9c7682481a5b45acb57d`. The later `417959203caba414853949caa2903b000c769480` commit records documentation-only certification and is not part of the implementation range.
 
 ### Permanent guarantees
 
-- The npm `prepare` lifecycle patches both local TypeScript binaries, and `npm run typecheck:all` fails on configured Effect language-service errors, warnings, and suggestions.
-- Pull-request review manually applies the complete Effect adoption and lifecycle policy.
+- The Effect language-service gate collects `error`, `warning`, and `message` and rejects unregistered diagnostics and advisories.
+- `npm run effect:audit` is a permanent zero-finding gate. The migration baseline, updater command, and comparison APIs are removed.
+- `effect-candidate-inventory.json` permanently requires a bijection between every lexical candidate or language-service advisory and one exact reviewed classification.
+- `effect-executable-inventory.json` permanently requires a bijection between executable discovery and exact fingerprinted entrypoint/invocation records across manifests, runners, child APIs, wrappers, exports, Electron, esbuild, and shebangs.
 - HTTP transport teardown is bounded while its separately owned core scope closes without abandonment. Failed backend spawners release election ownership so a contender can take over within the original deadline.
 - Packaged renderer loading, navigation, and IPC admission share one exact canonical file identity. MessagePort, callback, synchronization, mutation, process, and cleanup lifecycles are scoped and supervised, with cleanup failure, defect, and interruption Causes preserved.
 - `docs/architecture/BOUNDARIES.md` and `docs/architecture/EFFECT_ONLY.md` are complementary load-bearing policies. Architecture tests require the complete I-1 through I-4 enforcement map and every mapped path to exist.
 
-### Manual pull-request gate
-
-No repository workflow performs the semantic review. For every non-draft pull
-request, the reviewer must:
-
-1. Read the complete diff and the relevant sections of
-   `docs/architecture/BOUNDARIES.md`, `docs/architecture/EFFECT_ONLY.md`, and
-   the central `VERSIONING.md` inventory.
-2. Check every affected compatibility owner: product tag derivation, CLI
-   envelope, backend protocol, SQLite migrations, stored-event revisions and
-   upcasters, projection folds, and benchmark seed data.
-3. Apply the Effect policy to changed executable code, including adapter
-   legitimacy, `Effect.fn` ownership, resource scopes, interruption, cleanup,
-   typed failures, and complete `Cause` preservation.
-4. Confirm that behavior changes have focused regressions and that tests prove
-   failure, cleanup, and compatibility paths rather than only happy paths.
-5. Run the deterministic gates appropriate to the change. The minimum
-   repository-wide set is:
-
-   ```bash
-   npm run lint
-   npm run typecheck:all
-   npm run arch
-   npm run knip
-   NODE_ENV=test npm test
-   ```
-
-6. Record actionable findings and exact verification evidence on the pull
-   request. A passing automated gate is evidence, not a substitute for review
-   judgment.
-
-### Evidence boundary
-
-The certification below predates the current change set. It remains useful for
-understanding the architectural baseline, but it does not certify the new
-state-root lock rule or the replacement Effect enforcement. Current evidence is
-valid only when gathered after all five re-review waves above are present in the
-same checkout.
-
-### Historical certification evidence at `e7d9fc6`
+### Fresh final evidence at `e7d9fc6`
 
 - The language-service gate reported zero warnings and messages; its residual errors were the exact registered `nodeBuiltinImport` diagnostics.
+- The candidate inventory contained 261 exact candidates and zero advisories: 60 host boundaries, 61 analyzer-proven lexical false positives, 133 audit fixtures, and 7 host-required types. The executable inventory contained 28 entrypoints and 94 invocation links.
 - Clean root and architecture-doc installs preserved lockfiles at SHA-256 `e7dd3a5af435971242555c24123d97d0c3f76e1be6205b2e380199bda258f1dc` and `a838b86b2eb505de4e8d07fc9c05c196462491189ddfbca8dfd82076c56f3e7b`.
-- Diagnostics, ESLint, all TypeScript projects, dependency-cruiser, root/docs Knip, and the five-manifest policy passed.
+- Agent synchronization, diagnostics, audit, raw grep, candidate and executable inventories, ESLint, all TypeScript projects, dependency-cruiser, root/docs Knip, and the five-manifest policy passed.
 - Full Vitest passed 167 files and 1,423 tests plus one expected failure. Benchmark self-check and all six smoke scenarios passed.
 - Root, contracts, client SDK, CLI/server binary, and desktop builds passed. Package certification, compiled-binary certification, and Electron E2E passed 6/6.
 - Named manual runtime certification passed 20/20: all 16 CLI rows plus endpoint advertisement, wrong-token rejection, backend reuse, and final-client shutdown.
@@ -416,7 +82,7 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 - **Event sourcing + one shared fold.** The backend stores immutable domain events; current project state is *derived* by folding them. The fold lives in **one place** (`Project.foldList` in contracts) and is reused verbatim by the server and the framework-neutral project-sync controller, so synchronized UI state follows the same transition rules as the authoritative read model.
 - **Server read-model cache (optimization).** The server no longer re-folds the whole log on every read. It keeps an **in-memory live read model** (a `SubscriptionRef`) seeded at boot from a **persisted `projection_state` row** (name-keyed: serialized state + `last_seq` + per-projection fold version) and advanced per commit — reads are O(rows), boot is O(tail-since-checkpoint). Checkpoints are written at boot, **debounced during the session (500ms quiet)**, and **once more at graceful I-4 shutdown**. Crash recovery starts from the last completed checkpoint; sustained sub-500ms updates may starve the debounce and grow the replay tail, while graceful scoped shutdown performs the final checkpoint. The row is a disposable cache stamped with `FOLD_VERSIONS.projects` (rebuild-from-zero on mismatch) and proven equal to a full replay by `snapshot-equivalence.test.ts` — *snapshot can never disagree with replay* still holds as a **checked invariant**. See the deleted historical path `docs/architecture/decisions/2026-07-05-event-store-foundation-design.md` in pre-migration history; it is not present at HEAD.
 - **Protocol v2.** Long-lived clients bootstrap by (1) listing a `{projects, seq}` snapshot, (2) publishing that snapshot atomically, and (3) opening `Events({ fromSeq: seq })`. The server replays anything committed after the list cursor, while the client ignores stale or duplicate sequences, so the bootstrap window loses and double-applies nothing.
-- **One explicit state root.** `AppContext` normalizes one data directory to an absolute path and derives the database, endpoint, log, and coordination paths from supplied inputs. The CLI exposes it as a true global `--data-dir` flag; the desktop and standalone server acquire raw argv at their host roots; and every spawned backend receives the same selected directory. Every implicit or explicit root uses its root-local `server.json.lock`; the separate external lock coordinates only legacy default-root migration. Ownership and migration evidence is validated fail closed: malformed, incomplete, replaced, or changing records are not reclaimed.
+- **One explicit state root.** `AppContext` normalizes one data directory to an absolute path and derives the database, endpoint, log, and coordination paths from supplied inputs. The CLI exposes it as a true global `--data-dir` flag; the desktop and standalone server acquire raw argv at their host roots; and every spawned backend receives the same selected directory. The normalized default root, even when selected explicitly, uses the external default-root spawn lock; a non-default explicit root uses its root-local lock. Ownership and migration evidence is validated fail closed: malformed, incomplete, replaced, or changing records are not reclaimed.
 - **Branded scalars.** `ProjectId` / `ProjectName` / `Tag` are nominal types validated at the schema boundary — the system's trust boundary for untrusted input.
 - **Effects-as-data / dependency injection.** UI logic and Electron wiring are kept pure and testable; side effects and platform primitives are isolated to a single seam each.
 
@@ -433,8 +99,8 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 **Why here:** Everything downstream is justified by these rules. Read them so each later module maps to a named invariant.
 
 **Read in order:**
-UPDATED 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it is enforced. Re-review the root-local spawn-lock rule, manual Effect review responsibility, and replacement enforcement path. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
-UPDATED 2. `docs/architecture/EFFECT_ONLY.md` — the permanent Effect boundary, host-adapter rules, commands, ratchets, and the new division between objective local gates and human review.
+RE-REVIEW 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it is enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
+RE-REVIEW 2. `docs/architecture/EFFECT_ONLY.md` — the permanent Effect boundary, host-adapter rules, commands, and ratchets.
 DONE 3. `docs/architecture/expand.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
 
 Effect is required for I/O, ambient inputs, async/cancellation, recoverable failure, mutable concurrency, and acquisition/release. Pure folds, reducers, routing, formatting, validation, and path calculations over supplied inputs remain ordinary functions.
@@ -456,7 +122,7 @@ DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryC
 DONE 4. `events/domain-event.ts` → `events/domain.ts` — the internal module constructs the `DomainEvent` union and JSON codec once; the public module constructs `SequencedEvent {seq, event}` and re-exports those exact schema identities. The helper subpath is explicitly blocked from the source and staged package exports.
 DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-UPDATED 7. `app-context.ts` — the pure path derivation contract: `defaultDataDir(path, homeDir, channel)` chooses the channel home, `makeAppContext(path, { homeDir, cwd, dataDir, channel })` derives every runtime path from explicit inputs, and every root now owns its local `server.json.lock`. The required `AppContext` `Context.Service` has no ambient default. Application-owned Node adapters acquire home, cwd, and arguments before providing the service.
+RE-REVIEW 7. `app-context.ts` — the pure path derivation contract: `defaultDataDir(path, homeDir, channel)` chooses the channel home, `makeAppContext(path, { homeDir, cwd, dataDir, channel })` derives every runtime path from explicit inputs, and the required `AppContext` `Context.Service` has no ambient default. Application-owned Node adapters acquire home, cwd, and arguments before providing the service.
 DONE 8. `apps/cli/cli/contract/envelope.ts` — the stable `expand/v1` JSON envelopes the CLI prints; the former contracts-owned `cli.ts` path was deleted.
 
 **Scrutinize hardest:**
@@ -520,7 +186,7 @@ DONE 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the pres
 DONE 6. `adapters/node.ts` — the sole platform implementation (socket + spawn); the platform subpath entrypoint (public alongside `/project` and `/server`).
 DONE 7. `client-session.ts` — the reconnect loop, per-transport-attempt lifecycle, connection status, active epoch, and scope teardown.
 DONE 8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
-UPDATED 9. `project/client.ts` + the package-root `client-layer.ts` — the session-backed facades and how layers share one session. The current hunk is intended to be comment/whitespace-only; verify exported types and service identity are unchanged.
+RE-REVIEW 9. `project/client.ts` + the package-root `client-layer.ts` — the session-backed facades and how layers share one session.
 
 **Scrutinize hardest:**
 - **Process boundary:** `ProcessServices` and Effect `ChildProcess` own process probing and backend launch. `adapters/node.ts` must not regain direct ambient process or child-process control, and interruption must not leak a pre-acquisition child.
@@ -546,37 +212,22 @@ UPDATED 9. `project/client.ts` + the package-root `client-layer.ts` — the sess
 
 **Read in order:**
 DONE (2026-07-12) 1. `cli/runtime/app-context-layer.ts` + `cli/main.ts` — the parsed `DataDir` setting becomes an `AppContext` layer before the composition root provides the real Node client; `main.ts` then builds the command tree and installs the JSON error formatter (`makeExpand` factory + main-module guard).
-DONE 2. `cli/commands/define-command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
-DONE (2026-07-12) 3. `cli/output.ts` + `cli/commands/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
-UPDATED (2026-07-31) 4. `cli/contract/version.ts` + `cli/contract/envelope.ts` + `cli/contract/project/envelope.ts` + `cli/contract/server/envelope.ts` — `version.ts` owns `ENVELOPE_VERSION`, `contract/envelope.ts` constructs generic versioned envelopes, and the project and server modules own their domain success-envelope schemas. Then follow the focused error-contract path below.
-UPDATED 5. `cli/commands/project/create.ts` — a representative command (the pattern all verbs follow). Its current hunk must remain comment-only.
-UPDATED 6. `cli/commands/project/resolve-project-target.ts` — name-or-UUID target resolution. Its current hunk must remain comment-only.
-UPDATED (2026-07-31) 7. `cli/errors/index.ts` + `cli/errors/render-errors.ts` — the aggregate contract/parser-error → CLI-error boundary and final stderr rendering. Read these after the focused path so the project → server → unexpected precedence and definition-derived exit behavior are already familiar. Parser failures such as an existing file passed to `--data-dir` must still produce one structured `INVALID_ARGUMENT` envelope and exit 2.
-
-**New error-contract mechanism — focused reading path (~20 min):**
-1. `cli/contract/error/definition.ts` — the small `ErrorDefinition` contract. This is the shared shape for one machine-readable error: `code`, `exitCode`, and `retryable`.
-2. `cli/contract/usage/errors.ts` → `cli/contract/project/errors.ts` → `cli/contract/server/errors.ts` → `cli/contract/system/errors.ts` — the domain-owned definition records. These are the only production owners of the raw codes, exit statuses, and retryability flags.
-3. `cli/contract/error/catalog.ts` — combines the domain records into the canonical catalog and derives the `ErrorCode` type and schema. Check that it aggregates definitions without copying their metadata.
-4. `cli/contract/error/envelope.ts` — defines the stable error-envelope schema and `makeErrorEnvelope()`, which receives a selected definition instead of separate raw metadata.
-5. `cli/errors/usage/parser-errors.ts` — translates Effect CLI parser tags into usage definitions and formats parser failures with the same envelope builder.
-6. `cli/errors/project/errors.ts` → `cli/errors/server/errors.ts` → `cli/errors/system/unexpected.ts` — the runtime adapters. Presentation data (`message`, `input`, and `hint`) stays near the domain error class, while machine metadata and the Effect exit code come from its static definition.
-7. `cli/errors/project/map-error.ts` → `cli/errors/server/map-error.ts` → `cli/errors/index.ts` — maps RPC/transport failures into those adapters, then applies the required project → server → unexpected fallback order.
-8. `cli/errors/render-errors.ts` — the final process boundary: it selects the definition for direct parser errors, writes one JSON line to stderr, and returns the definition-derived exit status.
-
-The complete flow to hold in mind is: **source error → domain mapper → runtime adapter → static definition → `makeErrorEnvelope()` → stderr and process exit**. The definition is the single source of truth for machine behavior; the runtime adapter is the single source of truth for human-facing presentation.
+2. `cli/commands/define-command.ts` — the `defineCommand` seam every verb flows through (envelope/text/quiet rendering).
+UPDATED (2026-07-12) 3. `cli/output.ts` + `cli/commands/global-flags.ts` — stdout/stderr discipline and the `--format`/`--quiet` flags plus `DataDir`, a true global directory flag accepted before or after any subcommand and allowed to name a not-yet-created directory.
+4. `cli/contract/version.ts` + `cli/contract/envelope.ts` + `cli/contract/project/envelope.ts` + `cli/contract/server/envelope.ts` + `cli/errors/error-code.ts` + `cli/errors/envelope.ts` — `version.ts` owns `ENVELOPE_VERSION`, `contract/envelope.ts` constructs generic versioned envelopes, the project and server modules own their domain success-envelope schemas, and the error modules own the stable code vocabulary plus error-envelope schema and construction.
+5. `cli/commands/project/create.ts` — a representative command (the pattern all verbs follow).
+6. `cli/commands/project/resolve-project-target.ts` — name-or-UUID target resolution.
+UPDATED (2026-07-12) 7. `cli/errors/index.ts` + `cli/errors/project-errors.ts` + `cli/errors/parser-errors.ts` + `cli/errors/render-errors.ts` — the contract/parser-error → CLI-error mapping (stable codes/exit codes) and the top-level error boundary. Parser failures such as an existing file passed to `--data-dir` must still produce one structured `INVALID_ARGUMENT` envelope and exit 2.
 
 **Scrutinize hardest:**
 - **Effect CLI boundary:** the runner uses `Command.run` and provides `CliOutput.layer(jsonCliErrorFormatter)` with `ProcessServices.layer`; `Path` resolves the backend command, while `Console` owns stdout/stderr. Typed CLI failures render through one top-level mapping without changing the stable `expand/v1` envelope or stdout/stderr contract.
-- **Single metadata owner:** each code, exit status, and retryability flag must appear in exactly one domain definition record. The catalog, envelopes, adapters, and renderer must derive from that record rather than restating literals.
-- **Error-mapping fidelity:** unmapped `_tag`s deliberately fall through to `UNEXPECTED` (exit 1) — verify the project and server switch tables cover the real contract error set and that `cli/errors/index.ts` preserves project → server → unexpected precedence.
+- **Error-mapping fidelity:** unmapped `_tag`s silently fall through to `UNEXPECTED` (exit 1) — verify the switch tables cover the real contract error set.
 - **Exit codes are an external API** for scripting agents — confirm codes (1/2/5/6/7/8/9/10) and `retryable` flags are stable and tested.
 - **stdout/stderr purity:** a failure must emit nothing on stdout and exactly one JSON line on stderr.
-- **Presentation compatibility:** messages, hints, and input objects remain runtime-adapter data. Exact-envelope tests must pin those values while `code`, `exitCode`, and `retryable` continue to come from the associated definition.
-- **Envelope construction is centralized:** `cli/contract/error/envelope.ts` is the only error-envelope builder. The schema snapshot and contract tests guard the stable `expand/v1` shape and accepted ten-code set.
-- **Folder ownership is enforced:** the retired flat files (`error-code.ts`, `envelope.ts`, `parser-errors.ts`, `project-errors.ts`, and `server-errors.ts`) must stay absent; the architecture test pins the domain layout and prevents compatibility aliases from returning.
+- **Envelopes are hand-built** (not `Schema.encode`d), so drift within `cli/contract/envelope.ts` is possible — the snapshot/contract tests are the safety net.
 - **Global data-dir semantics:** help must expose the flag at root and child levels; before/after-subcommand positions must resolve identically; existing and absent directories must work; an existing file must fail before a handler runs; omission must retain the channel default.
 
-**Best tests to read:** `test/unit/error-catalog.test.ts` (exact ten-definition matrix, uniqueness, and derived type/schema), `test/unit/parser-errors.test.ts` (all parser tags and direct `UNKNOWN_COMMAND` coverage), `test/unit/errors.test.ts` (every project/server/system mapping with exact complete envelopes and exits), `test/unit/render-errors.test.ts` (stderr and exit behavior), `test/unit/envelope-schema.test.ts` + `test/contract/envelope.test.ts` (wire shape), and the repository-level `test/architecture/app-folder-convention.test.ts` (required domain files and retired-path absence). Keep `test/contract/contract.test.ts` and `test/unit/global-flags.test.ts` for the broader CLI and global data-directory behavior.
+**Best tests to read:** `test/contract/contract.test.ts` (the behavioral matrix, including the global data-dir contract), `test/unit/global-flags.test.ts`, `test/unit/errors.test.ts`, `test/unit/envelope-schema.test.ts` (freezes the output contract).
 
 ---
 
@@ -635,7 +286,7 @@ Read the IPC framework, then the privileged main process, then the renderer. Thi
 
 **What:** The privileged half of the desktop app — Electron **main** + preload + the shared IPC registry. On window creation it builds a `ManagedRuntime` hosting `ClientSession`, `ProjectClient`, and `ServerClient` (so **main is a client, not a server** — I-2), mints a fresh `MessageChannelMain` per `rpcPort` request, and runs a full Effect `RpcServer` (the same `ExpandRpcs` contract) on the main side of the port. Applies the renderer-hardening security pipeline.
 
-**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime/client-runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/application/main-program.ts` (main lifecycle program; matching test: `test/unit/main-program.test.ts`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
+**Read in order:** `src/shared/ipc/channels.ts` → `src/preload/index.ts` → `src/main/runtime/client-runtime.ts` (proves main is a client and inherits raw `--data-dir` through `AppContext`) → `src/main/application/main-program.ts` (main lifecycle program; matching test: `test/unit/main-program.test.ts`) → `src/main/index.ts` (the wiring hub: CSP, hardened `webPreferences`, navigation denial, `rpcPort` handler`) → `src/main/rpc/server.ts` (`makePortProtocol` adapts `MessagePortMain` into an `RpcServer.Protocol`) → `src/main/rpc/transport.ts` → `src/main/rpc/handlers.ts` → `src/main/rpc/project-handlers.ts` (the proxy logic) → `src/main/rpc/connection-handlers.ts` (Connect status mirror + Events `fromSeq` gating) → `src/main/security/window-options.ts` + `ipc/origin-rules.ts` + `ipc/port-lifecycle.ts`.
 
 **Scrutinize hardest:**
 - **Packaged identity and admission:** production load URL, navigation admission, IPC sender admission, and renderer identity resolve to one exact canonical packaged file, including symlink-safe identity checks.
@@ -665,28 +316,30 @@ Read the IPC framework, then the privileged main process, then the renderer. Thi
 
 ---
 
-### Stage 7 — Enforcement & infra  ·  105–135 min
+### Stage 7 — Enforcement, infra & project agents  ·  105–150 min
 
 The capstone: how the invariants you've been tracking are *mechanically* guaranteed. Reviewing this last lets you judge whether the tests actually pin what the earlier stages claimed.
 
 #### 7a — `test/architecture`  ·  45–60 min  ·  🟡 medium
 
-**What:** The architecture suite turns the prose invariants and Effect-only policy into build failures. Dependency-cruiser checks are combined with filesystem, source analysis, diagnostics, and certification assertions; CODEOWNERS and policy-link checks prevent quiet relaxation. Avoid relying on a fixed test count: this suite is intentionally cumulative.
+**What:** The architecture suite turns the prose invariants and Effect-only policy into build failures. Dependency-cruiser checks are combined with filesystem, source-analysis, inventory, diagnostics, and certification assertions; CODEOWNERS and policy-link checks prevent quiet relaxation. Avoid relying on a fixed test count: this suite is intentionally cumulative.
 
-**Read in order:** `docs/architecture/BOUNDARIES.md` → `docs/architecture/EFFECT_ONLY.md` → `.dependency-cruiser.cjs` → `test/architecture/effect-policy.test.ts` → `test/architecture/effect-final-ratchet.test.ts` → `test/architecture/effect-version-lockstep.test.ts` → the invariant-specific architecture tests → `test/architecture/no-dead-code.test.ts`.
+**Read in order:** `docs/architecture/BOUNDARIES.md` → `docs/architecture/EFFECT_ONLY.md` → `.dependency-cruiser.cjs` → `test/architecture/effect-audit.test.ts` → `test/architecture/effect-candidate-inventory.test.ts` → `test/architecture/effect-executable-inventory.test.ts` → `test/architecture/effect-final-ratchet.test.ts` → `test/architecture/effect-version-lockstep.test.ts` → the invariant-specific architecture tests → `test/architecture/no-dead-code.test.ts`.
 
 **Mandatory gates and the regressions they prevent:**
-- `test/architecture/effect-policy.test.ts` pins the objective local gates, exact policy text, and every I-1 through I-4 policy link; human review handles diff-specific Effect adoption judgments.
+- `test/architecture/effect-audit.test.ts` proves the cumulative audit is wired to diagnostics, semantic analysis, exact host registry, source coverage, candidates, executables, and every I-1 through I-4 policy link; it prevents a narrower or vacuous audit from reporting success.
+- `test/architecture/effect-candidate-inventory.test.ts` proves an exact bijection for every broad-search observation and advisory; it prevents unreviewed syntax, stale classifications, and hidden warning/message debt.
+- `test/architecture/effect-executable-inventory.test.ts` proves executable discovery and invocation resolution fail closed; it prevents an unregistered runner, wrapper, fixture, manifest command, Electron input, or changed fingerprint from escaping review.
 - `test/architecture/effect-final-ratchet.test.ts` rejects the migration baseline, updater, broad exemption, and inline-disable machinery; it prevents permanent policy from silently reverting to accepted debt.
 - `test/architecture/effect-version-lockstep.test.ts` pins all Effect ecosystem versions; it prevents incompatible diagnostics, runtime, or platform packages from drifting independently.
 
 **Scrutinize hardest:**
-- **Semantic non-vacuity:** introduce representative forbidden constructs mentally against the analyzer tests and confirm aliases, nested callbacks, and source consumers cannot evade the rule.
-- **Policy completeness:** reconcile the complete I-1 through I-4 map in `docs/architecture/BOUNDARIES.md`; every documented enforcement path must exist and manual review must retain the Effect-specific contract.
+- **Semantic non-vacuity:** introduce representative forbidden constructs mentally against the analyzer tests and confirm aliases, nested callbacks, launchers, and source consumers cannot evade the rule. Text grep is discovery, not proof.
+- **Policy completeness:** reconcile the complete I-1 through I-4 map in `docs/architecture/BOUNDARIES.md`; every documented enforcement path must exist and the audit must consume it.
 - **Hardcoded path safety:** renamed files and newly tracked sources must fail coverage rather than quietly weaken a list or exclusion.
 - **Existing invariants:** preserve the dependency-cruiser, package-manager, Node-only, frontend isolation, IPC, TUI router, backend ownership, fold lockstep, colocation, and Knip guarantees alongside the Effect gates.
 
-**Best commands:** `npm run lint`, `npm run typecheck:all`, `npm run arch`, and `npm run knip`.
+**Best commands:** `npm run effect:audit`, `npm run effect:candidates`, `npm run effect:launchers`, `npm run arch`, and `npm run knip`.
 
 #### 7b — Infra & module ordering  ·  60–75 min  ·  🟡 medium
 
@@ -700,13 +353,30 @@ Workspace packages resolve through their package exports in Vitest, while app/in
 - **Glob completeness** in `.dependency-cruiser.cjs`: a new frontend or renamed path must not escape I-1, and `renderer-no-node-appcontext` must continue excluding ambient Node context from the renderer.
 - **Binary certification ownership:** `scripts/binary-smoke.ts` is the Effect state machine for compiled CLI/server lifecycle. `scripts/fixtures/job-control.sh` is the narrow registered shell host boundary and may contain only the job-table primitives needed to signal and wait through a stable Bash job spec. Numeric PIDs are identity evidence, never signal authority; uncertain ownership preserves the data directory.
 - **Data-dir isolation:** every compiled CLI/server invocation uses the same explicit directory while a sentinel home proves nothing touched the channel default. This is the end-to-end proof that explicit directories neither migrate nor contaminate default state.
-- **Worker headroom:** the normal lane keeps `maxWorkers: "50%"`; the serial project owns the process-heavy lock and example suites. Direct script tests remain typechecked and collected.
+- **Worker headroom:** the normal lane keeps `maxWorkers: "50%"`; the serial project owns both repository-wide audit/candidate diagnostics and process-heavy lock/example suites. Direct script tests remain typechecked and collected.
 - **Four stable module-order groups:** imports → exported classes/interfaces → other exports → private statements. Confirm import-equals, `export =`, namespace/default/abstract/declared forms, re-exports, and the empty module marker land correctly without reordering declarations inside a group.
 - **Autofix proof:** runtime-bearing statements, module-source requests, and provider→consumer value dependencies constrain the preferred order. Unsafe ordering reports without changing text; safe output is idempotent.
 - **Text ownership and parse safety:** leading/member/trailing comments, directives, shebangs, prologues, CRLF, ASI continuation tokens, and shared-line boundaries either travel with a proven owner or disable the fix.
 - **Migration equivalence:** preserve public names, bodies, eager order, allocation count, schema/layer identity, and package boundaries; do not treat the earlier module-order migration as formatting.
 
 **Best tests and commands:** `test/eslint/module-order.test.mjs`, `test/architecture/depcruise-exclude.test.ts`, `scripts/binary-smoke.test.ts`, `npm run lint`, and `npm run cert:cli:build`. If testing autofix, run `npm exec -- eslint . --fix` twice and require the second pass to leave no diff.
+
+#### 7c — Project agent orchestration  ·  30–45 min  ·  🟡 medium
+
+**What:** A checked-in seven-role roster for deterministic Claude/Codex delegation: `code-reviewer`, `task-reviewer`, `desktop-tester`, `manual-tester`, `tdd-implementer`, `researcher`, and `debugger`. The intended flow keeps the detailed Markdown definitions in `.claude/agents`, renders matching Codex TOML files, pins the controller and worker models/effort/sandboxes, and codifies the Superpowers hand-off rules in `AGENTS.md`.
+
+**Why here:** This is repository execution policy rather than product runtime code. It determines who may edit, review, diagnose, and launch real processes, so review it after understanding the boundaries those agents are expected to preserve.
+
+**Read in order:** the deleted historical design path `docs/superpowers/specs/2026-07-10-codex-claude-agent-roster-design.md` (not present at HEAD; use pre-migration history for the approved design and data-dir amendment) → `AGENTS.md` (role selection, one-writer rule, task/final review gates, controller-only responsibilities) → `.codex/config.toml` (Sol Ultra controller, multi-agent enabled, four threads, depth one) → `scripts/sync-agents.ts` (canonical roster/policy map, validation, deterministic TOML rendering, check/write modes) → `.claude/agents/*.md` (the seven canonical role contracts) → `.codex/agents/*.toml` (the Codex mirrors) → `scripts/sync-agents.test.ts`.
+
+**Scrutinize hardest:**
+- **Pinned policy:** both reviewers are Claude Fable 5/xhigh and Codex Sol Ultra/read-only; the remaining roles are Claude Opus 4.8/xhigh and Codex Sol Medium with role-appropriate sandboxes. The controller stays Sol Ultra, concurrency is capped at four, delegation depth is one, workers cannot spawn workers, and parallel tracked-tree writers are forbidden.
+- **Source-of-truth enforcement:** the sync tool must reject missing, duplicate, unexpected, incorrectly named, wrong-policy, or TOML-unsafe definitions; write mode must replace only expected files atomically and check mode must remain read-only.
+- **Runtime tester safety:** both certification roles must use one explicit `--data-dir`, own processes through stable shell job specs, keep numeric PIDs as identity evidence only, bound shutdown, and preserve state whenever ownership becomes uncertain.
+
+**Best tests:** `scripts/sync-agents.test.ts` (roster, policy, parser, safe rendering, stale/missing/unexpected-file behavior) and `npm run agents:check` (the repository-level drift gate).
+
+---
 
 ### Stage 8 — Migrated development surfaces  ·  60–90 min  ·  🔴 high
 
@@ -730,11 +400,11 @@ The migration also changed the code that proves, builds, packages, exercises, an
 
 **Scrutinize:** Read the host-required Promise adapter and shared UI harnesses completely. Playwright has one exact callback bridge; React/Ink roots, Electron/CDP processes, ports, listeners, runtimes, and temporary data must close on failure or interruption. Repetitive spec bodies may be sampled only after confirming all Page, Locator, Electron, and assertion Promises translate immediately through that bridge. **Matching tests:** `apps/desktop/test/unit/playwright/effect-test.test.ts`, `apps/desktop/test/unit/renderer-root.test.tsx`, `apps/tui/test/ui/use-projects.test.tsx`, and the desktop E2E suite.
 
-#### 4. Build, fold-version, desktop, package, and manifest programs
+#### 4. Build, fold-version, agent-sync, desktop, package, and manifest programs
 
-**Representative files:** `scripts/build.ts`, `scripts/fold-version.ts`, `scripts/desktop-command.ts`, `packages/contracts/scripts/prepare-publish.ts`, `packages/client-ts/scripts/prepare-publish.ts`, `docs/architecture/scripts/build.ts`, and `test/architecture/manifest-orchestration.test.ts`.
+**Representative files:** `scripts/build.ts`, `scripts/fold-version.ts`, `scripts/sync-agents.ts`, `scripts/desktop-command.ts`, `packages/contracts/scripts/prepare-publish.ts`, `packages/client-ts/scripts/prepare-publish.ts`, `docs/architecture/scripts/build.ts`, and `test/architecture/manifest-orchestration.test.ts`.
 
-**Scrutinize:** Read transactional filesystem programs completely. Confirm laziness at import, typed parse/child failures, temporary-write-plus-rename transactions, exact cwd/argv, signal propagation, cleanup on interruption, deterministic generated output, and one first-party Effect entry per manifest command. **Matching tests:** `scripts/build.test.ts`, `scripts/desktop-command.test.ts`, both package `prepare-publish` tests, `docs/architecture/scripts/build.test.ts`, and `test/architecture/manifest-orchestration.test.ts`.
+**Scrutinize:** Read transactional filesystem programs completely. Confirm laziness at import, typed parse/child failures, temporary-write-plus-rename transactions, exact cwd/argv, signal propagation, cleanup on interruption, deterministic generated output, and one first-party Effect entry per manifest command. **Matching tests:** `scripts/build.test.ts`, `scripts/sync-agents.test.ts`, `scripts/desktop-command.test.ts`, both package `prepare-publish` tests, `docs/architecture/scripts/build.test.ts`, and `test/architecture/manifest-orchestration.test.ts`.
 
 #### 5. Public client examples and smoke harnesses
 
@@ -758,19 +428,24 @@ The migration also changed the code that proves, builds, packages, exercises, an
 
 ---
 
-### Stage 9 — Permanent enforcement and certification  ·  75–105 min  ·  🔴 high
+### Stage 9 — Permanent ratchets and certification  ·  75–105 min  ·  🔴 high
 
-**What:** The permanent proof that Effect-only cannot regress through an unreviewed source, host exception, package artifact, or runtime certification path.
+**What:** The permanent proof that Effect-only cannot regress through an unreviewed source, candidate, host exception, launcher, package artifact, or runtime certification path.
 
 **Read in order:**
 1. `docs/architecture/EFFECT_ONLY.md`.
 2. `eslint-rules/effect-boundary-analysis.mjs`, then `eslint-rules/effect-boundary.mjs` and `eslint-rules/effect-host-boundaries.mjs`.
-3. `scripts/package-certification.ts`, `scripts/package-certification.test.ts`, `scripts/binary-smoke.ts`, and `scripts/binary-smoke.test.ts`.
-4. Final repair commits `a0ed15b`, `78ebfce`, `fdda3aa`, and `e7d9fc6`.
+3. `scripts/effect-audit.ts` with `scripts/effect-audit-model.ts` and `scripts/effect-policy-model.ts`.
+4. `effect-candidate-inventory.json`, `scripts/effect-candidate-inventory.ts`, `scripts/effect-candidate-inventory.test.ts`, and `test/architecture/effect-candidate-inventory.test.ts`.
+5. `effect-executable-inventory.json`, `scripts/effect-executable-inventory.ts`, `scripts/effect-executable-inventory.test.ts`, and `test/architecture/effect-executable-inventory.test.ts`.
+6. `scripts/package-certification.ts`, `scripts/package-certification.test.ts`, `scripts/binary-smoke.ts`, and `scripts/binary-smoke.test.ts`.
+7. Final repair commits `a0ed15b`, `78ebfce`, `fdda3aa`, and `e7d9fc6`.
 
 **Scrutinize hardest:**
-- **Semantic non-vacuity and source-consumer coverage:** analyzer fixtures prove real violations; every tracked first-party source and each exact host record has a consumer. The install prepare step patches TypeScript so configured language-service errors, warnings, suggestions, and `Effect.fn` opportunities fail typechecking. Duplicate Node-import and `process.env` diagnostics are delegated to the semantic rule and exact host registry, while human review evaluates diff-specific Effect adoption.
+- **Semantic non-vacuity and source-consumer coverage:** analyzer fixtures prove real violations; every tracked first-party source and each exact host record has a consumer. Language-service warnings fail, only exact reviewed `effectFnOpportunity` messages may be classified, and every other message fails.
 - **Exact host exceptions:** file, declaration, construct, occurrence, host, and consumer must agree. No directory, glob, whole-file exemption, or inline disable is acceptable.
+- **Candidate bijection:** every grep submatch and advisory has exactly one current classification; stale, duplicate, moved, or newly discovered candidates fail rather than update themselves.
+- **Fail-closed executable resolution:** manifests, wrappers, exports, child APIs, Electron/esbuild inputs, shebangs, executable bits, runners, examples, benchmarks, and fixtures resolve exactly; ambiguity, omission, stale selectors, or fingerprint drift fails.
 - **Ownership and cleanup:** package and binary certification own processes, filesystems, tarballs, temporary directories, locks, and process groups; cleanup preserves full failure/defect/interruption Causes.
 - **Final repairs:** `a0ed15b` closes final Effect review findings across host roots, server release, desktop ports, tests, scripts, and examples; `78ebfce` enforces exact desktop trust and cleanup Causes; `fdda3aa` adds symlink-safe directory identity and failed-spawner re-election under the original deadline; `e7d9fc6` guarantees abnormal HTTP/core release and complete architecture policy links.
 - **Renderer trust and runtime release:** packaged renderer identity and IPC admission are exact; HTTP timeout/failure cannot abandon core release; directory aliases cannot bypass identity; a failed elected spawner relinquishes ownership for a contender.
@@ -778,19 +453,24 @@ The migration also changed the code that proves, builds, packages, exercises, an
 **Focused command matrix:**
 
 ```bash
+npm run effect:audit
+npm run effect:candidates
+npm run effect:launchers
 npm run lint
 npm run typecheck:all
 npm run typecheck:desktop
 npm run arch
 npm run knip
 npx knip --directory docs/architecture
-NODE_ENV=test npm test
+npm test
 npm run bench:selfcheck
 npm run bench:events -- --smoke
 npm run cert:cli:build
 npm run cert:packages
 xvfb-run -a npm run e2e:desktop
 ```
+
+`npm run effect:grep` is discovery only. It is not evidence of compliance, and no baseline or updater command exists.
 
 ---
 
@@ -805,9 +485,9 @@ If you cannot do the full pass, review these load-bearing correctness cores in o
 4. **Client session and ProjectSync epochs** — `packages/client-ts/client-session.ts`, `packages/client-ts/spawn.ts`, and `packages/contracts/project-sync.ts`; inspect stale-epoch exclusion, cleanup Causes, and failed-spawner re-election under one deadline (50 min).
 5. **Electron packaged identity and port lifecycle** — `packages/electron-ipc/main.ts`, `apps/desktop/src/main/ipc/origin-rules.ts`, `apps/desktop/src/main/ipc/port-lifecycle.ts`, and `apps/desktop/src/renderer/app/runtime.ts`; verify exact renderer trust and main/preload/renderer scope ownership (55 min).
 6. **Semantic analyzer and exact host registry** — `eslint-rules/effect-boundary-analysis.mjs`, `eslint-rules/effect-boundary.mjs`, and `eslint-rules/effect-host-boundaries.mjs`; require non-vacuity and exact consumers (45 min).
-7. **Permanent architecture gates** — read `test/architecture/effect-policy.test.ts` and `test/architecture/effect-final-ratchet.test.ts`; confirm objective gates and manual diff-specific review compose rather than substitute for one another (40 min).
+7. **Permanent architecture gates** — read `test/architecture/effect-audit.test.ts`, `test/architecture/effect-candidate-inventory.test.ts`, `test/architecture/effect-executable-inventory.test.ts`, and `test/architecture/effect-final-ratchet.test.ts`; confirm audit, candidate, executable, and final-ratchet tests compose rather than substitute for one another (40 min).
 8. **Binary/package certification models** — `scripts/binary-smoke-model.ts`, `scripts/binary-smoke.ts`, `scripts/fixtures/job-control.sh`, and `scripts/package-certification.ts`; inspect process/filesystem ownership and fail-closed artifact checks (45 min).
-9. **Retained foundation checks** — sample the matching behavioral tests, then preserve module-order review via `test/eslint/module-order.test.mjs` (35 min).
+9. **Retained foundation checks** — sample the matching behavioral tests, then preserve module-order and agent-orchestration review via `test/eslint/module-order.test.mjs`, `AGENTS.md`, `scripts/sync-agents.ts`, and `npm run agents:check` (35 min).
 
 Reading the matching tests alongside each item gives the intended behavior fastest.
 
@@ -829,6 +509,7 @@ Reading the matching tests alongside each item gives the intended behavior faste
 | 6c | `apps/desktop` (renderer) | frontend | 🔴 | 75–90 min |
 | 7a | `test/architecture` | enforcement | 🟡 | 45–60 min |
 | 7b | infra + module ordering | infra | 🟡 | 60–75 min |
+| 7c | project agent orchestration | infra | 🟡 | 30–45 min |
 | 8 | migrated development surfaces | evidence | 🔴 | 60–90 min |
 | 9 | permanent ratchets + certification | enforcement | 🔴 | 75–105 min |
 
