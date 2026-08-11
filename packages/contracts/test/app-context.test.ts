@@ -68,12 +68,9 @@ describe("AppContext", () => {
       }).paths.dataDir).toBe("/home/test/.expand/expand")
     }))
 
-  it.effect("uses external coordination locks for implicit and explicit-equal defaults", () =>
+  it.effect("derives default-root spawn locks inside the state directory", () =>
     withPath((path) => {
-      for (const [selectedChannel, lockName] of [
-        ["dev", "expand-dev.spawn.lock"],
-        ["release", "expand.spawn.lock"]
-      ] as const) {
+      for (const selectedChannel of ["dev", "release"] as const) {
         const fallback = defaultDataDir(path, "/home/test", selectedChannel)
         const implicit = makeAppContext(path, {
           homeDir: "/home/test",
@@ -87,8 +84,8 @@ describe("AppContext", () => {
           channel: selectedChannel
         })
 
-        expect(implicit.paths.spawnLockFile).toBe(`/home/test/.expand-locks/${lockName}`)
-        expect(explicit.paths.spawnLockFile).toBe(`/home/test/.expand-locks/${lockName}`)
+        expect(implicit.paths.spawnLockFile).toBe(`${fallback}/server.json.lock`)
+        expect(explicit.paths.spawnLockFile).toBe(`${fallback}/server.json.lock`)
       }
     }))
 

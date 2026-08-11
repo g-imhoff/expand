@@ -49,7 +49,7 @@ export const makeAppContext = (
   const base = path.resolve(input.cwd, input.dataDir ?? fallback)
   return {
     channel: selectedChannel,
-    paths: derivePaths(path, input.homeDir, base, fallback, selectedChannel)
+    paths: derivePaths(path, base)
   }
 }
 
@@ -63,23 +63,16 @@ const NAMES = {
   channel: { dev: "expand-dev", release: "expand" },
   db: "events.db",
   endpoint: "server.json",
-  logs: "logs",
-  coordination: ".expand-locks",
-  spawnLock: { dev: "expand-dev.spawn.lock", release: "expand.spawn.lock" }
+  logs: "logs"
 } as const
 
 const derivePaths = (
   path: AppContextPathOps,
-  homeDir: string,
-  base: string,
-  fallback: string,
-  selectedChannel: Channel
+  base: string
 ): AppPath => ({
   dataDir: base,
   dbPath: path.join(base, NAMES.db),
   endpointFile: path.join(base, NAMES.endpoint),
   logDir: path.join(base, NAMES.logs),
-  spawnLockFile: base === fallback
-    ? path.join(homeDir, NAMES.coordination, NAMES.spawnLock[selectedChannel])
-    : path.join(base, `${NAMES.endpoint}.lock`)
+  spawnLockFile: path.join(base, `${NAMES.endpoint}.lock`)
 })

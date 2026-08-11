@@ -152,9 +152,8 @@ isolation and concurrency between different roots.
 
 **Enforcement.** Discovery, endpoint polling, the spawn lock, and the
 backend spawn argument all derive from the same normalized `AppContext`.
-The normalized default root uses the channel-specific external
-`<home>/.expand-locks/expand[-dev].spawn.lock`, including when explicitly
-selected; every non-default root uses `<state-root>/server.json.lock`.
+Every state root uses `<state-root>/server.json.lock`, including the
+channel-specific default root and an explicitly selected default root.
 Ownership-safe atomic publication selects one cooperating client to spawn while
 the others wait and permits a contender to re-elect if the selected spawner
 fails before advertising. Dead current and legacy owners are reclaimed only
