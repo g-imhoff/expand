@@ -5,7 +5,6 @@ import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
 
 export const createCommand = (() => {
-  // Raw string: the backend validates the name at ingestion (ProjectInvalidInput).
   const name = Argument.string("name")
   const ensure = Flag.boolean("ensure").pipe(Flag.withDefault(false))
   const directory = Flag.string("directory").pipe(Flag.optional)

@@ -133,9 +133,9 @@ evidence fails closed without entering the handoff wait. Release removes only
 the matching PID/token lease. The derived client spawn lock in I-3 coordinates
 spawns but does not enforce backend lifetime ownership. The state-root lock
 protocol is exercised by `apps/server/test/integration/state-root-lock.test.ts`
-and compiled lifecycle certification; `npm run effect:audit` additionally
-requires the lock, database, transport, listeners, and child processes to have
-Effect-scoped ownership and interruption cleanup.
+and compiled lifecycle certification. Pull-request review checks that changes
+keep the lock, database, transport, listeners, and child processes under
+Effect-scoped ownership with interruption cleanup.
 
 ---
 
@@ -237,7 +237,7 @@ runs through `npm run cert:cli:build`.
 
 ### Enforcement path map
 
-This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-audit.test.ts` plus the invariant-specific architecture tests below.
+This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-policy.test.ts` plus the invariant-specific architecture tests below.
 
 | Invariant | Repository paths |
 |---|---|

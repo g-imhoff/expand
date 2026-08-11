@@ -4,8 +4,7 @@
 /.dependency-cruiser.cjs           @g-imhoff
 /test/architecture/                @g-imhoff
 /docs/architecture/EFFECT_ONLY.md  @g-imhoff
-/tsconfig.effect-audit.json        @g-imhoff
+/tsconfig.workspace.json           @g-imhoff
 /eslint.effect.config.mjs          @g-imhoff
 /eslint-rules/effect-*             @g-imhoff
 /scripts/effect-*                  @g-imhoff
-/effect-*.json                     @g-imhoff

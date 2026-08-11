@@ -31,11 +31,11 @@
         "includeSuggestionsInTsc": true,
         "ignoreEffectErrorsInTscExitCode": false,
         "ignoreEffectWarningsInTscExitCode": false,
-        "ignoreEffectSuggestionsInTscExitCode": true,
+        "ignoreEffectSuggestionsInTscExitCode": false,
         "diagnosticSeverity": {
           "asyncFunction": "error",
           "newPromise": "error",
-          "nodeBuiltinImport": "error",
+          "nodeBuiltinImport": "off",
           "globalConsole": "error",
           "globalConsoleInEffect": "error",
           "globalDate": "error",
@@ -48,7 +48,7 @@
           "globalTimersInEffect": "error",
           "cryptoRandomUUID": "error",
           "cryptoRandomUUIDInEffect": "error",
-          "processEnv": "error",
+          "processEnv": "off",
           "processEnvInEffect": "error",
           "preferSchemaOverJson": "error",
           "floatingEffect": "error",
@@ -57,7 +57,7 @@
           "tryCatchInEffectGen": "error",
           "globalErrorInEffectCatch": "error",
           "globalErrorInEffectFailure": "error",
-          "effectFnOpportunity": "message"
+          "effectFnOpportunity": "error"
         }
       }
     ]

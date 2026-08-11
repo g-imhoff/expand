@@ -58,14 +58,6 @@ Expand has separate product, compatibility, migration, cache, tooling, and depen
 - **Compatibility:** A matching hash permits cache restoration. A mismatch discards the checkpoint and rebuilds the projection from stored events; it does not change event or RPC compatibility.
 - **Examples:** Changing `Project` fold logic requires hash regeneration and causes old caches to rebuild. Changing a renderer component requires no fold-version change.
 
-## Audit inventories
-
-- **Owner:** `scripts/effect-candidate-inventory.ts` owns `effect-candidate-inventory.json`, and `scripts/effect-executable-inventory.ts` owns `effect-executable-inventory.json`.
-- **Consumers:** `scripts/effect-audit.ts` and architecture tests decode and validate their respective inventories.
-- **Current value or rule:** Each inventory schema has epoch `1`. The two epochs remain independent.
-- **Compatibility:** Bump only the inventory whose serialized schema changes, then migrate or regenerate that inventory as its owner requires. Record-content changes under the same schema do not change the epoch.
-- **Examples:** Replacing a candidate inventory field with a new representation requires bumping only its schema epoch. Adding a newly discovered executable entry to the existing array requires no epoch bump.
-
 ## Benchmark seed cache
 
 - **Owner:** `bench/seed.ts` owns `GENERATOR_VERSION` and the deterministic seed-cache filename.
@@ -76,7 +68,7 @@ Expand has separate product, compatibility, migration, cache, tooling, and depen
 
 ## Internal Effect commands
 
-- **Owner:** `scripts/desktop-command.ts`, `scripts/sync-agents.ts`, and each `packages/*/scripts/prepare-publish.ts` invocation owns its Effect CLI metadata.
+- **Owner:** `scripts/desktop-command.ts` and each `packages/*/scripts/prepare-publish.ts` invocation owns its Effect CLI metadata.
 - **Consumers:** Repository contributors see these values in development-only command help and version output.
 - **Current value or rule:** These internal commands use the development sentinel `0.0.0`. The shipped CLI instead receives `appVersion` from `packages/contracts/build-info.ts`.
 - **Compatibility:** Internal command metadata is independent from the product release. Give a command a supported product version only if it becomes a shipped product artifact.
@@ -89,19 +81,3 @@ Expand has separate product, compatibility, migration, cache, tooling, and depen
 - **Current value or rule:** Node is `24.17.0`, npm is `11.12.1`, and runtime Effect packages stay in lockstep at `4.0.0-beta.74`. The documentation toolchain has its own pinned manifest and lockfile.
 - **Compatibility:** Update each pin through its existing manifest, lockfile, lockstep, and architecture checks. Dependency pins neither derive from nor set the product release or compatibility epochs.
 - **Examples:** Upgrading Effect requires updating its lockstep pins and lockfiles together. Releasing unchanged dependencies under a new product tag requires no dependency-pin bump.
-
-## Codex CLI
-
-- **Owner:** The `codex-version` input in `.github/workflows/codex-review.yml` pins the Codex CLI used by pull-request review.
-- **Consumers:** `openai/codex-action@v1` installs and runs the pinned CLI in the advisory review job.
-- **Current value or rule:** The Codex CLI is pinned to `0.146.0`.
-- **Compatibility:** Bump the pin only through reviewed workflow configuration, and update the version-policy coverage in the same change. This tooling pin does not set a product or compatibility version.
-- **Examples:** Adopting a Codex CLI release requires updating `codex-version` and its architecture assertion together. Changing the review prompt requires no CLI bump.
-
-## Codex review model
-
-- **Owner:** The trusted pull-request review workflow, `.github/workflows/codex-review.yml`, owns its model and reasoning configuration.
-- **Consumers:** The advisory, read-only pull-request review job uses the configured model; a separate publishing job may report its structured findings.
-- **Current value or rule:** The review model is `gpt-5.6-luna` with reasoning effort `max`.
-- **Compatibility:** Change the model or effort only through reviewed workflow configuration. This tooling choice is independent from product and runtime compatibility.
-- **Examples:** Moving the trusted reviewer to a different model requires a reviewed workflow configuration change. Editing the review prompt without changing the model or effort requires no model-version bump.

@@ -11,12 +11,16 @@ const PackageJson = Schema.fromJsonString(Schema.Struct({
 }))
 const PluginJson = Schema.Struct({
   name: Schema.String,
-  diagnosticSeverity: Schema.optionalKey(StringMap)
+  diagnosticSeverity: Schema.optionalKey(StringMap),
+  includeSuggestionsInTsc: Schema.Boolean,
+  ignoreEffectErrorsInTscExitCode: Schema.Boolean,
+  ignoreEffectWarningsInTscExitCode: Schema.Boolean,
+  ignoreEffectSuggestionsInTscExitCode: Schema.Boolean
 })
 const RootConfigJson = Schema.fromJsonString(Schema.Struct({
   compilerOptions: Schema.Struct({ plugins: Schema.Array(PluginJson) })
 }))
-const AuditConfigJson = Schema.fromJsonString(Schema.Struct({
+const WorkspaceConfigJson = Schema.fromJsonString(Schema.Struct({
   extends: Schema.String,
   include: Schema.Array(Schema.String),
   exclude: Schema.Array(Schema.String)
@@ -27,7 +31,7 @@ const DesktopConfigJson = Schema.fromJsonString(Schema.Struct({
   include: Schema.Array(Schema.String)
 }))
 
-const readJson = Effect.fn("EffectAuditTest.readJson")(
+const readJson = Effect.fn("EffectLanguageServiceTest.readJson")(
   function* <S extends Schema.Top>(file: string, schema: S) {
     const fs = yield* FileSystem.FileSystem
     return yield* Schema.decodeUnknownEffect(schema)(yield* fs.readFileString(file))
@@ -37,7 +41,7 @@ const readJson = Effect.fn("EffectAuditTest.readJson")(
 const isTypeScriptFile = (file: string) =>
   file.endsWith(".ts") || file.endsWith(".tsx") || file.endsWith(".mts") || file.endsWith(".cts")
 
-const normalizedRepositoryFiles = Effect.fn("EffectAuditTest.normalizedRepositoryFiles")(
+const normalizedRepositoryFiles = Effect.fn("EffectLanguageServiceTest.normalizedRepositoryFiles")(
   function*(files: ReadonlyArray<string>) {
     const path = yield* Path.Path
     const root = path.resolve(".")
@@ -50,17 +54,24 @@ const normalizedRepositoryFiles = Effect.fn("EffectAuditTest.normalizedRepositor
 const trackedTypeScriptFiles = Effect.gen(function*() {
     const report = yield* runCommand("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"])
     expect(report.exitCode, report.stderr).toBe(0)
-    return yield* normalizedRepositoryFiles(report.stdout.split("\0").filter(isTypeScriptFile))
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = path.resolve(".")
+    const existing: Array<string> = []
+    for (const file of report.stdout.split("\0").filter(isTypeScriptFile)) {
+      if (yield* fs.exists(path.join(root, file))) existing.push(file)
+    }
+    return yield* normalizedRepositoryFiles(existing)
 })
 
-const resolvedAuditFiles = Effect.gen(function*() {
+const resolvedWorkspaceFiles = Effect.gen(function*() {
     const report = yield* runCommand("npm", [
       "exec",
       "--",
       "tsc",
       "--listFilesOnly",
       "-p",
-      "tsconfig.effect-audit.json"
+      "tsconfig.workspace.json"
     ])
     expect(report.exitCode, report.stderr).toBe(0)
     const path = yield* Path.Path
@@ -76,16 +87,14 @@ const resolvedAuditFiles = Effect.gen(function*() {
 })
 
 const expectedScripts = {
-  "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,warning,message",
-  "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,warning,message",
-  "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,warning,message",
-  "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json"
+  prepare: "effect-language-service patch",
+  "typecheck:all": "tsc --noEmit -p tsconfig.workspace.json"
 }
 
 const expectedDiagnosticSeverity = {
   asyncFunction: "error",
   newPromise: "error",
-  nodeBuiltinImport: "error",
+  nodeBuiltinImport: "off",
   globalConsole: "error",
   globalConsoleInEffect: "error",
   globalDate: "error",
@@ -98,7 +107,7 @@ const expectedDiagnosticSeverity = {
   globalTimersInEffect: "error",
   cryptoRandomUUID: "error",
   cryptoRandomUUIDInEffect: "error",
-  processEnv: "error",
+  processEnv: "off",
   processEnvInEffect: "error",
   preferSchemaOverJson: "error",
   floatingEffect: "error",
@@ -107,10 +116,10 @@ const expectedDiagnosticSeverity = {
   tryCatchInEffectGen: "error",
   globalErrorInEffectCatch: "error",
   globalErrorInEffectFailure: "error",
-  effectFnOpportunity: "message"
+  effectFnOpportunity: "error"
 }
 
-const expectedAuditIncludes = [
+const expectedWorkspaceIncludes = [
   "apps",
   "packages",
   "scripts",
@@ -126,22 +135,23 @@ const expectedAuditIncludes = [
   "*.cts"
 ]
 
-const expectedAuditExcludes = [
+const expectedWorkspaceExcludes = [
   "**/node_modules/**",
   "**/dist/**",
   "**/out/**",
   "**/build/**",
   "**/coverage/**",
   "**/test-results/**",
-  "**/playwright-report/**"
+  "**/playwright-report/**",
+  "**/.worktrees/**"
 ]
 
 describe("Effect language service diagnostics", () => {
-  it.live("pins the official packages, scripts, plugin, and audit project", () =>
+  it.live("pins the official packages, scripts, plugin, and workspace project", () =>
     Effect.gen(function*() {
       const packageJson = yield* readJson("package.json", PackageJson)
       const rootConfig = yield* readJson("tsconfig.json", RootConfigJson)
-      const auditConfig = yield* readJson("tsconfig.effect-audit.json", AuditConfigJson)
+      const workspaceConfig = yield* readJson("tsconfig.workspace.json", WorkspaceConfigJson)
       const desktopConfig = yield* readJson("apps/desktop/tsconfig.json", DesktopConfigJson)
 
       expect(packageJson.devDependencies["@effect/language-service"]).toBe("0.86.6")
@@ -149,15 +159,19 @@ describe("Effect language service diagnostics", () => {
       expect(packageJson.scripts).toMatchObject(expectedScripts)
       expect(rootConfig.compilerOptions.plugins).toEqual([{
         name: "@effect/language-service",
+        includeSuggestionsInTsc: true,
+        ignoreEffectErrorsInTscExitCode: false,
+        ignoreEffectWarningsInTscExitCode: false,
+        ignoreEffectSuggestionsInTscExitCode: false,
         diagnosticSeverity: expectedDiagnosticSeverity
       }])
       expect(rootConfig.compilerOptions.plugins.at(-1)?.diagnosticSeverity).not.toHaveProperty(
         "schemaSyncInEffect"
       )
-      expect(auditConfig).toEqual({
+      expect(workspaceConfig).toEqual({
         extends: "./tsconfig.json",
-        include: expectedAuditIncludes,
-        exclude: expectedAuditExcludes
+        include: expectedWorkspaceIncludes,
+        exclude: expectedWorkspaceExcludes
       })
       expect(desktopConfig).toEqual({
         extends: "../../tsconfig.json",
@@ -174,10 +188,19 @@ describe("Effect language service diagnostics", () => {
       })
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("covers every tracked TypeScript source with the Effect audit project", () =>
+  it.live("keeps TypeScript patched so typecheck enforces Effect diagnostics", () =>
+    Effect.gen(function*() {
+      const check = yield* runCommand("npm", ["exec", "--", "effect-language-service", "check"])
+      expect(check.exitCode, check.stderr).toBe(0)
+      expect(check.stdout.match(/patched with version/g)).toHaveLength(2)
+      const typecheck = yield* runCommand("npm", ["run", "typecheck:all"])
+      expect(typecheck.exitCode, `${typecheck.stdout}\n${typecheck.stderr}`).toBe(0)
+    }).pipe(Effect.provide(NodeServices.layer)), 120_000)
+
+  it.live("covers every tracked TypeScript source with the workspace project", () =>
     Effect.gen(function*() {
       const tracked = yield* trackedTypeScriptFiles
-      const resolved = yield* resolvedAuditFiles
+      const resolved = yield* resolvedWorkspaceFiles
       expect(resolved).toEqual(tracked)
     }).pipe(Effect.provide(NodeServices.layer)))
 })

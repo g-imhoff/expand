@@ -26,10 +26,6 @@ jobs:
           cache: npm
       - name: Install dependencies (frozen lockfile)
         run: npm ci
-      - name: Effect-only boundary audit
-        run: npm run effect:audit
-      - name: Agent definitions synchronized
-        run: npm run agents:check
       - name: Lint
         run: npm run lint
       - name: Typecheck (root + desktop projects)

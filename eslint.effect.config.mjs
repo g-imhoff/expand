@@ -10,7 +10,8 @@ const generated = [
   "**/build/**",
   "**/coverage/**",
   "**/test-results/**",
-  "**/playwright-report/**"
+  "**/playwright-report/**",
+  "**/.worktrees/**"
 ]
 
 export default tseslint.config(
@@ -21,7 +22,7 @@ export default tseslint.config(
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: "./tsconfig.effect-audit.json",
+        project: "./tsconfig.workspace.json",
         tsconfigRootDir: import.meta.dirname
       }
     },

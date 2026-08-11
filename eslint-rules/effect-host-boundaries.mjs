@@ -23,135 +23,8 @@ const listenerRemoveEventListener = "platform:listener.removeEventListener"
 const windowExpand = "platform:window.expand"
 const windowLocation = "platform:window.location"
 const windowPostMessage = "platform:window.postMessage"
-const jsonParse = ["platform:JSON", "parse"].join(".")
 
 export const effectHostBoundaries = Object.freeze([
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:parseReview",
-    host: "GitHub review JSON parser",
-    construct: jsonParse,
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:async",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:assertCurrentHead",
-    host: "GitHub review publication adapter",
-    construct: "native:async",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:updateAtCurrentHead",
-    host: "GitHub review publication adapter",
-    construct: "native:async",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:comments",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 1
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 2
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 3
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:publishReview",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 4
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:updateAtCurrentHead",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:updateAtCurrentHead",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 1
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.cjs",
-    declaration: "variable:pull",
-    host: "GitHub review publication adapter",
-    construct: "native:await",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.d.cts",
-    declaration: "function:publishReview",
-    host: "GitHub review Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.d.cts",
-    declaration: "member:GitHubClient.createComment",
-    host: "GitHub review Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.d.cts",
-    declaration: "member:GitHubClient.get",
-    host: "GitHub review Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.d.cts",
-    declaration: "member:GitHubClient.paginate",
-    host: "GitHub review Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: ".github/codex/review-comment.d.cts",
-    declaration: "member:GitHubClient.updateComment",
-    host: "GitHub review Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
   Object.freeze({
     file: "apps/cli/cli/main.ts",
     declaration: "member:backendCommand.binaryArgs",
@@ -986,13 +859,6 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "scripts/effect-audit.ts",
-    declaration: "module:<module>",
-    host: "Node audit entrypoint",
-    construct: "runner:NodeRuntime.runMain",
-    occurrence: 0
-  }),
-  Object.freeze({
     file: "scripts/fold-version.ts",
     declaration: "module:<module>",
     host: "Node fold-version entrypoint",
@@ -1004,27 +870,6 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "module:<module>",
     host: "Package certification entrypoint",
     construct: scriptNodeRuntimeRunMain,
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "scripts/sync-agents.test.ts",
-    declaration: "module:<module>",
-    host: "Vitest controlled dynamic import",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "scripts/sync-agents.ts",
-    declaration: "module:<module>",
-    host: "Node agent-sync entrypoint",
-    construct: scriptNodeRuntimeRunMain,
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "test/architecture/codex-review.test.ts",
-    declaration: "variable:promise",
-    host: "Vitest GitHub client Promise fake",
-    construct: effectRunPromise,
     occurrence: 0
   }),
   Object.freeze({

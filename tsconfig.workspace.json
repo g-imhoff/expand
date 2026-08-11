@@ -19,5 +19,5 @@
     "*.mts",
     "*.cts"
   ],
-  "exclude": ["**/node_modules/**", "**/dist/**", "**/out/**", "**/build/**", "**/coverage/**", "**/test-results/**", "**/playwright-report/**"]
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/out/**", "**/build/**", "**/coverage/**", "**/test-results/**", "**/playwright-report/**", "**/.worktrees/**"]
 }

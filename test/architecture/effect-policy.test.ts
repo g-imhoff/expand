@@ -1,18 +1,8 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Layer, Effect, FileSystem, Path, Schema } from "effect"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import { describe, expect } from "vitest"
 import { parse as parseYaml } from "yaml"
-import { AuditCommandRunner, AuditCommandRunnerLive, runAudit } from "../../scripts/effect-audit"
-import {
-  CandidateInventoryJson,
-  EFFECT_CANDIDATE_HUMAN_COMMAND,
-  candidateIdentity
-} from "../../scripts/effect-candidate-inventory"
-
-const PackageJson = Schema.fromJsonString(Schema.Struct({
-  scripts: Schema.Struct({ "effect:grep": Schema.String })
-}))
 
 const WorkflowSetupNodeWith = Schema.Struct({
   "node-version-file": Schema.String,
@@ -54,7 +44,7 @@ const Workflow = Schema.Struct({
   })
 })
 
-const parseWorkflow = Effect.fn("EffectAuditTest.parseWorkflow")((source: string) =>
+const parseWorkflow = Effect.fn("EffectPolicyTest.parseWorkflow")((source: string) =>
   Effect.try({
     try: () => parseYaml(source),
     catch: (cause) => ({ _tag: "WorkflowYamlError" as const, cause })
@@ -63,12 +53,6 @@ const parseWorkflow = Effect.fn("EffectAuditTest.parseWorkflow")((source: string
 const expectedPreCommit = [
   "#!/bin/sh",
   "set -e",
-  "",
-  "echo \"pre-commit › agent definitions\"",
-  "npm run agents:check",
-  "",
-  "echo \"pre-commit › Effect boundary audit\"",
-  "npm run effect:audit",
   "",
   "echo \"pre-commit › eslint\"",
   "npm run lint",
@@ -83,8 +67,6 @@ const expectedPreCommit = [
 const expectedJobCommands = {
   checks: [
     "npm ci",
-    "npm run effect:audit",
-    "npm run agents:check",
     "npm run lint",
     "npm run typecheck:all",
     "npm run arch",
@@ -142,14 +124,6 @@ const expectedWorkflow = {
         {
           name: "Install dependencies (frozen lockfile)",
           run: "npm ci"
-        },
-        {
-          name: "Effect-only boundary audit",
-          run: "npm run effect:audit"
-        },
-        {
-          name: "Agent definitions synchronized",
-          run: "npm run agents:check"
         },
         {
           name: "Lint",
@@ -253,18 +227,17 @@ const expectedCodeOwners = [
   ["/.dependency-cruiser.cjs", "@g-imhoff"],
   ["/test/architecture/", "@g-imhoff"],
   ["/docs/architecture/EFFECT_ONLY.md", "@g-imhoff"],
-  ["/tsconfig.effect-audit.json", "@g-imhoff"],
+  ["/tsconfig.workspace.json", "@g-imhoff"],
   ["/eslint.effect.config.mjs", "@g-imhoff"],
   ["/eslint-rules/effect-*", "@g-imhoff"],
-  ["/scripts/effect-*", "@g-imhoff"],
-  ["/effect-*.json", "@g-imhoff"]
+  ["/scripts/effect-*", "@g-imhoff"]
 ] as const
 
 const expectedPolicyHeadings = [
   "Effect-only boundary",
   "Pure code stays pure",
   "Required Effect shapes",
-  "Host adapters and launchers",
+  "Host adapters and runners",
   "Commands",
   "Permanent ratchets",
   "Completion"
@@ -284,9 +257,8 @@ const expectedEffectRules = [
 ] as const
 
 const expectedHostRules = [
-  "Host adapters are exact by file, declaration, host, construct, and occurrence. Runners stay in registered entrypoints or bridges, and executable launchers are exact path, mode, classification, host, and source-fingerprint records.",
-  "Fire-and-forget work is owned and supervised so neither rejection nor Effect failure is silently discarded.",
-  "A launcher delegates immediately to the Effect entry program or repository gate and contains only the commands required by that host."
+  "Host adapters are exact by file, declaration, construct, and occurrence. Effect runners stay in registered entrypoints and framework bridges.",
+  "Fire-and-forget work is owned and supervised so neither rejection nor Effect failure is silently discarded."
 ] as const
 
 const expectedBoundaryEnforcement = {
@@ -315,7 +287,7 @@ const expectedBoundaryEnforcement = {
   ]
 } as const
 
-const expectedBoundaryPolicyLink = "This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-audit.test.ts` plus the invariant-specific architecture tests below."
+const expectedBoundaryPolicyLink = "This policy is owner-routed by `CODEOWNERS`, review-ordered by `REVIEW.md`, modeled in `docs/architecture/expand.c4`, executed for I-1 by `.dependency-cruiser.cjs`, and verified by `test/architecture/effect-policy.test.ts` plus the invariant-specific architecture tests below."
 
 const parseBoundaryEnforcementMap = (source: string): Record<string, ReadonlyArray<string>> => {
   const section = markdownSection(source, "### Enforcement path map")
@@ -355,45 +327,7 @@ const bulletItems = (source: string): ReadonlyArray<string> => markdownList(sour
 const paragraphs = (source: string): ReadonlyArray<string> =>
   source.replace(/\r\n/g, "\n").split(/\n\s*\n/).map(normalizeMarkdown).filter(Boolean)
 
-const approvedHumanCommand = EFFECT_CANDIDATE_HUMAN_COMMAND
-
-describe("Effect grep architecture", () => {
-  it.live("keeps the approved human grep command unchanged", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const packageJson = yield* Schema.decodeUnknownEffect(PackageJson)(
-        yield* fs.readFileString(path.join(root, "package.json"))
-      )
-
-      expect(packageJson.scripts["effect:grep"]).toBe(approvedHumanCommand)
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("resolves every indexed grep submatch to exactly one inventory record in both directions", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const result = yield* runAudit(root)
-      const inventory = yield* Schema.decodeUnknownEffect(CandidateInventoryJson)(
-        yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json"))
-      )
-      const currentKeys = result.grepCandidates.map(candidateIdentity)
-      const inventoryKeys = inventory.grep.map(candidateIdentity)
-
-      expect(result.grepAdded).toEqual([])
-      expect(result.grepRemoved).toEqual([])
-      expect(currentKeys.length).toBeGreaterThan(0)
-      expect(new Set(currentKeys).size).toBe(currentKeys.length)
-      expect(currentKeys).toEqual(inventoryKeys)
-    }).pipe(
-      Effect.provide(AuditCommandRunnerLive.pipe(Layer.provideMerge(NodeServices.layer)))
-    ), 120_000)
-
-})
-
-describe("Effect-only enforcement policy", () => {
+describe("Effect policy enforcement", () => {
   it.live("keeps the pre-commit hook at the exact reviewed byte string", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -403,35 +337,7 @@ describe("Effect-only enforcement policy", () => {
       expect(yield* fs.readFileString(path.join(root, ".githooks/pre-commit"))).toBe(expectedPreCommit)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("rejects metadata that can disable the CI audit step", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const source = yield* fs.readFileString(path.join(root, ".github/workflows/ci.yml"))
-      const auditStep = [
-        "      - name: Effect-only boundary audit",
-        "        run: npm run effect:audit"
-      ].join("\n")
-      const disabledSources = [
-        "        if: ${{ false }}",
-        "        continue-on-error: true"
-      ].map((metadata) => source.replace(
-        auditStep,
-        [
-          "      - name: Effect-only boundary audit",
-          metadata,
-          "        run: npm run effect:audit"
-        ].join("\n")
-      ))
-      const results = yield* Effect.all(disabledSources.map((disabledSource) =>
-        Effect.exit(parseWorkflow(disabledSource))))
-
-      expect(disabledSources.every((disabledSource) => disabledSource !== source)).toBe(true)
-      expect(results.map((result) => result._tag)).toEqual(["Failure", "Failure"])
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("runs the complete CI job command sequences with the audit in its exact position", () =>
+  it.live("runs the complete CI job command sequences without the retired Effect audit", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -442,8 +348,6 @@ describe("Effect-only enforcement policy", () => {
       const runCommands = (job: typeof WorkflowJob.Type) =>
         job.steps.flatMap((step) => step.run === undefined ? [] : [step.run])
       const checksSteps = workflow.jobs.checks.steps
-      const auditIndexes = checksSteps.flatMap((step, index) =>
-        step.name === "Effect-only boundary audit" ? [index] : [])
 
       expect(workflow).toEqual(expectedWorkflow)
       expect(Object.keys(workflow.jobs)).toEqual(["checks", "desktop-e2e", "binary-smoke"])
@@ -452,18 +356,14 @@ describe("Effect-only enforcement policy", () => {
         "desktop-e2e": runCommands(workflow.jobs["desktop-e2e"]),
         "binary-smoke": runCommands(workflow.jobs["binary-smoke"])
       }).toEqual(expectedJobCommands)
-      expect(auditIndexes).toEqual([3])
+      expect(checksSteps.flatMap((step) => step.run ?? [])).not.toContain(["npm run effect", "audit"].join(":"))
       expect(checksSteps[2]).toEqual({
         name: "Install dependencies (frozen lockfile)",
         run: "npm ci"
       })
       expect(checksSteps[3]).toEqual({
-        name: "Effect-only boundary audit",
-        run: "npm run effect:audit"
-      })
-      expect(checksSteps[4]).toEqual({
-        name: "Agent definitions synchronized",
-        run: "npm run agents:check"
+        name: "Lint",
+        run: "npm run lint"
       })
     }).pipe(Effect.provide(NodeServices.layer)))
 
@@ -520,7 +420,7 @@ describe("Effect-only enforcement policy", () => {
         "CODEOWNERS",
         "REVIEW.md",
         "docs/architecture/expand.c4",
-        "test/architecture/effect-audit.test.ts",
+        "test/architecture/effect-policy.test.ts",
         ...Object.values(enforcementMap).flat()
       ])]
       for (const enforcementPath of enforcementPaths) {
@@ -549,8 +449,8 @@ describe("Effect-only enforcement policy", () => {
       )
       const policyBoundary = markdownSection(policy, "# Effect-only boundary", "## Pure code stays pure")
       const policyPure = markdownSection(policy, "## Pure code stays pure", "## Required Effect shapes")
-      const policyEffects = markdownSection(policy, "## Required Effect shapes", "## Host adapters and launchers")
-      const policyHosts = markdownSection(policy, "## Host adapters and launchers", "## Commands")
+      const policyEffects = markdownSection(policy, "## Required Effect shapes", "## Host adapters and runners")
+      const policyHosts = markdownSection(policy, "## Host adapters and runners", "## Commands")
       const policyCommands = markdownSection(policy, "## Commands", "## Permanent ratchets")
       const policyRatchets = markdownSection(policy, "## Permanent ratchets", "## Completion")
       const policyCompletion = markdownSection(policy, "## Completion")
@@ -561,21 +461,18 @@ describe("Effect-only enforcement policy", () => {
       expect(numberedItems(designInvariants)).toHaveLength(13)
       expect(numberedItems(policyBoundary)).toEqual(numberedItems(designInvariants))
       expect(paragraphs(policyBoundary).at(-1)).toBe(
-        "Official diagnostics, the local semantic rule, registry validation, source coverage, grep classifications, and launcher fingerprints are cumulative evidence."
+        "Official diagnostics, the local semantic rule, exact host-boundary validation, and tracked source coverage are cumulative evidence."
       )
       expect(bulletItems(policyPure)).toEqual(expectedPureRules)
       expect(bulletItems(policyEffects)).toEqual(expectedEffectRules)
       expect(bulletItems(policyHosts)).toEqual(expectedHostRules)
-      expect(policyCommands).toContain("npm run effect:grep")
-      expect(policyCommands).toContain("npm run effect:audit")
-      expect(policyCommands).toContain("npm run effect:candidates")
-      expect(policyCommands).toContain("npm run effect:launchers")
-      expect(policyRatchets).toContain("zero warnings")
-      expect(policyRatchets).toContain("zero unregistered candidates")
-      expect(policyRatchets).toContain("zero unregistered executables")
-      expect(numberedItems(policyCompletion)).toHaveLength(10)
+      expect(policyCommands).toContain("npm run lint")
+      expect(policyCommands).toContain("npm run typecheck:all")
+      expect(policyCommands).toContain("Pull-request reviewers inspect the diff")
+      expect(policyRatchets).toContain("warnings, and suggestions")
+      expect(numberedItems(policyCompletion)).toHaveLength(7)
       expect(paragraphs(policyCompletion).at(-1)).toBe(
-        "Search output, a narrow test, or the absence of obvious Promise syntax is not sufficient. The permanent audit, candidate gate, executable gate, behavior tests, runtime certification, and review evidence are cumulative."
+        "A narrow test or the absence of obvious Promise syntax is not sufficient. Static checks, behavior tests, runtime certification, and human review are cumulative."
       )
     }).pipe(Effect.provide(NodeServices.layer)))
 })

@@ -10,8 +10,6 @@ import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
 import { ClientSession, ClientSessionLayer } from "../client-session"
 
-// Raw strings in; the backend validates at ingestion (ProjectInvalidInput on
-// failure). The client never references the branded vocabulary.
 export interface ProjectClientApi {
   readonly create: (payload: {
     readonly name: string
@@ -39,7 +37,7 @@ export interface ProjectClientApi {
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientApi>()(
   "expand/ProjectClient"
-) {}
+) { }
 
 /** @internal */
 export const ProjectClientLive: Layer.Layer<ProjectClient, never, ClientSession> = Layer.effect(

@@ -1,9 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { Effect, FileSystem, Path } from "effect"
 import { describe, expect } from "vitest"
-import { CandidateInventoryJson } from "../../scripts/effect-candidate-inventory"
 
 const sourceExtensions = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/
 
@@ -23,25 +21,23 @@ const collectFiles = Effect.fn("EffectFinalRatchetTest.collectFiles")(
 )
 
 describe("final Effect ratchet", () => {
-  it.live("deletes the ledger and every executable or configuration reference", () =>
+  it.live("deletes the legacy ledger and every configuration reference", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
       const baselineName = ["effect-audit", "-baseline.json"].join("")
       const removedSymbols = [
-        ["effect:audit", ":update"].join(""),
+        ["effect", "audit"].join(":"),
         ["canUpdate", "Baseline"].join(""),
         ["Audit", "Baseline", "Json"].join(""),
         ["compare", "Audit"].join(""),
-        ["shrinkGrep", "Inventory"].join(""),
-        ["migration", " ledger"].join(""),
-        ["migration", " inventories"].join("")
+        ["migration", " ledger"].join("")
       ]
       const roots = [
         "package.json",
         "tsconfig.json",
-        "tsconfig.effect-audit.json",
+        "tsconfig.workspace.json",
         "eslint.effect.config.mjs",
         ".dependency-cruiser.cjs",
         "docs/architecture",
@@ -73,15 +69,12 @@ describe("final Effect ratchet", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const policy = yield* fs.readFileString("docs/architecture/EFFECT_ONLY.md")
-      expect(policy).toContain("npm run effect:audit")
-      expect(policy).toContain("npm run effect:candidates")
-      expect(policy).toContain("npm run effect:launchers")
-      expect(policy).toContain("zero warnings")
-      expect(policy).toContain("zero unregistered candidates")
-      expect(policy).toContain("zero unregistered executables")
-      expect(policy).not.toContain(["effect:audit", ":update"].join(""))
+      expect(policy).toContain("npm run lint")
+      expect(policy).toContain("npm run typecheck:all")
+      expect(policy).toContain("Human review")
+      expect(policy).toContain("warnings, and suggestions")
+      expect(policy).not.toContain([["effect", "audit"].join(":"), ":update"].join(""))
       expect(policy).not.toContain(["migration", " ledger"].join(""))
-      expect(policy).not.toContain(["migration", " inventories"].join(""))
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("keeps source coverage free of inline disables and broad Effect exemptions", () =>
@@ -91,7 +84,7 @@ describe("final Effect ratchet", () => {
       const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
       const files = (yield* collectFiles(root, ""))
         .filter((file) => sourceExtensions.test(file))
-        .filter((file) => !/(?:^|\/)(?:node_modules|dist|out|build|coverage|test-results|playwright-report)(?:\/|$)/.test(file))
+        .filter((file) => !/(?:^|\/)(?:node_modules|dist|out|build|coverage|test-results|playwright-report|\.worktrees)(?:\/|$)/.test(file))
       const inlineDisables = [] as Array<string>
       for (const file of files) {
         const source = yield* fs.readFileString(path.join(root, file))
@@ -104,49 +97,20 @@ describe("final Effect ratchet", () => {
       expect(eslintConfig).not.toContain('ignores: ["**/*"]')
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("keeps only the versioned final candidate inventory", () =>
+  it.live("keeps the retired Effect audit implementation absent", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const inventory = yield* fs.readFileString(path.join(root, "effect-candidate-inventory.json"))
-        .pipe(Effect.flatMap(Schema.decodeUnknownEffect(CandidateInventoryJson)))
-
-      expect(inventory.version).toBe(1)
-      expect(inventory.grep.length).toBeGreaterThan(0)
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("keeps one exact scoped NodeRuntime audit entry with Schema parsing", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const source = yield* fs.readFileString(path.join(root, "scripts/effect-audit.ts"))
-
-      expect(source.match(/NodeRuntime\.runMain\(/g)).toHaveLength(1)
-      expect(source.match(/yield\* validateExecutableInventory\(/g)).toHaveLength(1)
-      expect(source).toContain("Schema.fromJsonString")
-      expect(source).not.toMatch(/JSON\.parse\(/)
-      expect(source).toContain("Effect.scoped")
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("rejects every CLI argument before executing the audit", () =>
-    Effect.gen(function*() {
-      const path = yield* Path.Path
-      const root = yield* path.fromFileUrl(new URL("../../", import.meta.url))
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const attempts = yield* Effect.forEach(["--update", "--help", "--version", "unexpected"], (argument) =>
-        Effect.scoped(Effect.gen(function*() {
-          const handle = yield* spawner.spawn(ChildProcess.make("tsx", ["scripts/effect-audit.ts", argument], { cwd: root }))
-          const [exitCode, stdout, stderr] = yield* Effect.all([
-            handle.exitCode,
-            handle.stdout.pipe(Stream.decodeText(), Stream.mkString),
-            handle.stderr.pipe(Stream.decodeText(), Stream.mkString)
-          ], { concurrency: "unbounded" })
-          return { exitCode, stdout, stderr }
-        })))
-
-      expect(attempts.every(({ exitCode }) => exitCode !== 0)).toBe(true)
-      expect(attempts.every(({ stdout, stderr }) => `${stdout}${stderr}`.includes("EffectAuditError"))).toBe(true)
+      const retiredFiles = [
+        "scripts/effect-audit.ts",
+        "scripts/effect-audit.test.ts",
+        "scripts/effect-audit-model.ts",
+        "scripts/effect-audit-test-support.mjs",
+        "scripts/effect-audit-test-support.d.mts"
+      ]
+      expect(yield* Effect.forEach(retiredFiles, (file) => fs.exists(path.join(root, file)))).toEqual(
+        retiredFiles.map(() => false)
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 })

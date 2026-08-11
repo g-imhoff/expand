@@ -111,7 +111,6 @@ Create `docs/architecture/VERSIONING.md` with these sections and exact domain en
 9. `Benchmark seed cache`: generator epoch `1`, cache invalidation rule.
 10. `Internal Effect commands`: development-only CLI metadata, independent from product release.
 11. `Runtime and dependency pins`: Node, npm, Effect lockstep, documentation toolchain, and lockfile ownership.
-12. `Codex review model`: `gpt-5.6-luna` with `max`, owned by the trusted workflow.
 
 For every section, include owner path, consumers, current value or generation rule, compatibility behavior, and one concrete example that does and does not require a bump.
 

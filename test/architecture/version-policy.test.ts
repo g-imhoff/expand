@@ -16,7 +16,6 @@ import { resolveAppVersionObservation } from "../../scripts/app-version"
 import { runCommand } from "../support/effect-process"
 import { Effect, FileSystem, Layer, Path, Schema } from "effect"
 import ts from "typescript"
-import { parse as parseYaml } from "yaml"
 import { describe, expect } from "vitest"
 
 const manifestPaths = [
@@ -35,12 +34,9 @@ const documentedDomains = [
   "SQLite schema",
   "Stored events",
   "Projection folds",
-  "Audit inventories",
   "Benchmark seed cache",
   "Internal Effect commands",
-  "Runtime and dependency pins",
-  "Codex CLI",
-  "Codex review model"
+  "Runtime and dependency pins"
 ] as const
 
 const Manifest = Schema.Struct({
@@ -53,15 +49,6 @@ const Manifest = Schema.Struct({
 const PublishedVersion = Schema.Struct({
   version: Schema.String,
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
-})
-
-const CodexWorkflow = Schema.Struct({
-  jobs: Schema.Record(Schema.String, Schema.Struct({
-    steps: Schema.Array(Schema.Struct({
-      uses: Schema.optional(Schema.String),
-      with: Schema.optional(Schema.Record(Schema.String, Schema.Unknown))
-    }))
-  }))
 })
 
 const databaseMigrationIdsAreContiguous = (migrationIds: ReadonlyArray<number>, currentMigration: number) =>
@@ -427,18 +414,5 @@ describe("version policy", () => {
       }
       expect(documentation).toContain("v<SemVer>")
       expect(documentation).toContain("expand/v1")
-      expect(documentation).toContain("gpt-5.6-luna")
-      expect(documentation).toContain("`max`")
-      expect(documentation).toContain("`0.146.0`")
-      expect(documentation).toContain("codex-version")
-
-      const workflow = yield* fs.readFileString(path.join(root, ".github/workflows/codex-review.yml")).pipe(
-        Effect.map(parseYaml),
-        Effect.flatMap(Schema.decodeUnknownEffect(CodexWorkflow))
-      )
-      const codexVersions = Object.values(workflow.jobs).flatMap(({ steps }) =>
-        steps.filter(({ uses }) => uses === "openai/codex-action@v1").map((step) => step.with?.["codex-version"])
-      )
-      expect(codexVersions).toEqual(["0.146.0"])
     })))
 })

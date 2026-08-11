@@ -247,24 +247,12 @@ describe("manifest orchestration", () => {
       const client = yield* decode("packages/client-ts/package.json")
       const docs = yield* decode("docs/architecture/package.json")
 
-      const { "effect:grep": effectGrep, ...rootScripts } = root.scripts ?? {}
-      expect(effectGrep).toBeTypeOf("string")
-      expect(commandViolations(effectGrep ?? "")).toEqual([])
-      expect(rootScripts).toEqual({
-        "effect:diagnostics": "effect-language-service diagnostics --project tsconfig.effect-audit.json --format json --severity error,warning,message",
-        "effect:audit": "tsx scripts/effect-audit.ts",
-        "effect:candidates": "vitest run test/architecture/effect-candidate-inventory.test.ts",
-        "effect:launchers": "vitest run test/architecture/effect-executable-inventory.test.ts",
-        "effect:diagnostics:root": "effect-language-service diagnostics --project tsconfig.json --format json --severity error,warning,message",
-        "effect:diagnostics:desktop": "effect-language-service diagnostics --project apps/desktop/tsconfig.json --format json --severity error,warning,message",
-        "typecheck:effect-audit": "tsc --noEmit -p tsconfig.effect-audit.json",
+      expect(root.scripts).toEqual({
         typecheck: "tsc --noEmit",
         "gen:fold-version": "tsx scripts/fold-version.ts",
-        "agents:sync": "tsx scripts/sync-agents.ts",
-        "agents:check": "tsx scripts/sync-agents.ts --check",
         "bench:events": "node --expose-gc --import tsx bench/main.ts",
         "bench:selfcheck": "node --expose-gc --import tsx bench/selfcheck.ts",
-        "typecheck:all": "tsc --noEmit -p tsconfig.effect-audit.json",
+        "typecheck:all": "tsc --noEmit -p tsconfig.workspace.json",
         test: "vitest run",
         "test:coverage": "vitest run --coverage",
         "test:watch": "vitest",
@@ -281,7 +269,8 @@ describe("manifest orchestration", () => {
         "typecheck:desktop": "tsc --noEmit -p apps/desktop/tsconfig.json",
         "e2e:desktop": "tsx scripts/desktop-command.ts e2e",
         lint: "eslint .",
-        prepare: "git config core.hooksPath .githooks",
+        postinstall: "git config core.hooksPath .githooks",
+        prepare: "effect-language-service patch",
         doctor: "npx react-doctor@latest"
       })
       expect(desktop.scripts).toBeUndefined()

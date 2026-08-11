@@ -24,6 +24,4 @@ export const resolveProjectTarget = Effect.fn("Cli.resolveProjectTarget")((
     )
 )
 
-// A target token is an id when it looks like a UUID; otherwise it's a name to
-// resolve. This is a transport-level shape check, not Project's private rule.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

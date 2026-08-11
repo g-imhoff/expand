@@ -140,7 +140,9 @@ describe("Node-only repository policy", () => {
       const diagnostics: Array<BunReferenceDiagnostic> = []
       for (const file of report.stdout.split("\0").filter(Boolean)) {
         if (file.startsWith("docs/superpowers/") || exempt.has(file)) continue
-        const source = yield* fs.readFileString(path.join(root, file))
+        const absolute = path.join(root, file)
+        if (!(yield* fs.exists(absolute))) continue
+        const source = yield* fs.readFileString(absolute)
         diagnostics.push(...auditBunReferences(file, source).diagnostics)
       }
       expect(diagnostics).toEqual([])

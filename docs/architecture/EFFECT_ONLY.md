@@ -43,7 +43,7 @@ total deterministic calculations remain ordinary functions. Wrapping them in
 13. Fire-and-forget work is owned and supervised; Promise rejection and Effect
     failure are never silently discarded.
 
-Official diagnostics, the local semantic rule, registry validation, source coverage, grep classifications, and launcher fingerprints are cumulative evidence.
+Official diagnostics, the local semantic rule, exact host-boundary validation, and tracked source coverage are cumulative evidence.
 
 ## Pure code stays pure
 
@@ -58,82 +58,56 @@ Official diagnostics, the local semantic rule, registry validation, source cover
 - Recoverable external failures are translated into tagged errors in the Effect error channel; impossible internal states are explicit defects.
 - Resources have scoped release, finalizers, or interruption cleanup.
 
-## Host adapters and launchers
+## Host adapters and runners
 
-- Host adapters are exact by file, declaration, host, construct, and occurrence. Runners stay in registered entrypoints or bridges, and executable launchers are exact path, mode, classification, host, and source-fingerprint records.
+- Host adapters are exact by file, declaration, construct, and occurrence. Effect runners stay in registered entrypoints and framework bridges.
 - Fire-and-forget work is owned and supervised so neither rejection nor Effect failure is silently discarded.
-- A launcher delegates immediately to the Effect entry program or repository gate and contains only the commands required by that host.
 
 Host-required signatures translate into Effect at the adapter immediately. A
 whole file, directory, or source tree is never an exception.
 
 ## Commands
 
-Run the authoritative cumulative gate locally:
+Run the objective local gates:
 
 ```text
-npm run effect:audit
+npm run lint
+npm run typecheck:all
+npm test
 ```
 
-Validate every broad-search observation against its exact reviewed proof:
-
-```text
-npm run effect:candidates
-```
-
-Validate every executable entrypoint and invocation against its exact reviewed
-host, mode, and source fingerprint:
-
-```text
-npm run effect:launchers
-```
-
-`npm run effect:grep` remains a fast discovery aid. Its output neither proves
-compliance nor authorizes an exception.
+Pull-request reviewers inspect the diff for Effect adoption, host-adapter
+legitimacy, resource ownership, interruption behavior, and Cause preservation.
 
 ## Permanent ratchets
 
-The audit executes the official language service once for errors, warnings, and
-messages, the repository semantic rule, exact host-boundary validation, tracked
-source coverage, candidate validation, and executable validation. It requires
-zero warnings, rejects every unrecognized message, and permits only exact
-registered host diagnostics.
-
-The candidate gate requires zero unregistered candidates. Each retained search
-observation has one exact source identity and reviewed proof. The executable
-gate requires zero unregistered executables and exact entrypoint, invocation,
-mode, host, and fingerprint agreement.
-
-There is no command that rewrites these records. A legitimate permanent change
-requires an explicit reviewed registry edit backed by current analyzer or
-fingerprint evidence.
+The npm `prepare` lifecycle patches the local TypeScript binaries, so
+`npm run typecheck:all` executes the configured Effect language-service errors,
+warnings, and suggestions. Node builtin imports and `process.env` are disabled
+in that duplicate diagnostic layer because the semantic ESLint rule and exact
+host-boundary registry enforce them. The architecture suite pins the patch,
+configuration, registry, and tracked source coverage. Human review covers the
+judgment-heavy cases that cannot be reduced safely to a repository script.
 
 ## Completion
 
 The project remains compliant only when all of the following evidence exists
 from a fresh current checkout:
 
-1. `npm run effect:audit` passes with no blocking findings, zero warnings, and
-   no unrecognized language-service messages.
-2. `npm run effect:candidates` passes with zero unregistered candidates and an
-   exact classification for every discovery observation.
-3. `npm run effect:launchers` passes with zero unregistered executables and an
-   exact fingerprinted invocation for every executable boundary.
-4. Architecture tests prove coverage of every tracked first-party source,
-   canonical policy/configuration root, and executable entrypoint without broad
-   exclusion.
-5. No native asynchronous control flow, ambient platform read, direct I/O, or
-   unowned resource remains outside an approved adapter.
-6. Static analysis, all TypeScript projects, dependency-cruiser, Knip, agent
-   synchronization, and the complete test suite pass.
-7. CLI, server, library, package, Electron, benchmark, and documentation builds
+1. `npm run lint` and `npm run typecheck:all` pass with no blocking findings.
+2. Architecture tests prove coverage of every tracked first-party source and
+   canonical policy or configuration root without broad exclusion.
+3. Human review finds no newly introduced native asynchronous control flow,
+   ambient platform read, direct I/O, or unowned resource outside an approved
+   adapter.
+4. Static analysis, all TypeScript projects, dependency-cruiser, Knip, and the
+   complete test suite pass.
+5. CLI, server, library, package, Electron, benchmark, and documentation builds
    and certifications pass.
-8. Runtime CLI/backend and desktop lifecycle certification passes.
-9. Candidate and executable registries remain canonical and byte-stable under
-   validation.
-10. Review finds no policy gap, exemption drift, resource leak, typed-error
+6. Runtime CLI/backend and desktop lifecycle certification passes.
+7. Review finds no policy gap, exemption drift, resource leak, typed-error
     regression, or behavioral incompatibility.
 
-Search output, a narrow test, or the absence of obvious Promise syntax is not
-sufficient. The permanent audit, candidate gate, executable gate, behavior
-tests, runtime certification, and review evidence are cumulative.
+A narrow test or the absence of obvious Promise syntax is not sufficient.
+Static checks, behavior tests, runtime certification, and human review are
+cumulative.

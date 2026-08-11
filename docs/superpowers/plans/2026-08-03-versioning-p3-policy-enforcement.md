@@ -79,12 +79,11 @@ const documentedDomains = [
   "Audit inventories",
   "Benchmark seed cache",
   "Internal Effect commands",
-  "Runtime and dependency pins",
-  "Codex review model"
+  "Runtime and dependency pins"
 ] as const
 ```
 
-Assert every entry appears once and that the document contains `v<SemVer>`, `expand/v1`, `gpt-5.6-luna`, and `max`.
+Assert every entry appears once and that the document contains `v<SemVer>` and `expand/v1`.
 
 - [ ] **Step 4: Run the new test and confirm the red state**
 

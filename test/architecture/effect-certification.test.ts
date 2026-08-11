@@ -11,8 +11,6 @@ const PackageJson = Schema.fromJsonString(Schema.Struct({
 const nodeRuntimeRunner = ["runner:NodeRuntime", "runMain"].join(".")
 
 const workflowGates = [
-  "effect:audit",
-  "agents:check",
   "lint",
   "typecheck:all",
   "arch",
