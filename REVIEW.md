@@ -99,8 +99,8 @@ Expand is an AI-assisted dev-workflow tool. This branch lays its **architectural
 **Why here:** Everything downstream is justified by these rules. Read them so each later module maps to a named invariant.
 
 **Read in order:**
-RE-REVIEW 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it is enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
-RE-REVIEW 2. `docs/architecture/EFFECT_ONLY.md` — the permanent Effect boundary, host-adapter rules, commands, and ratchets.
+DONE 1. `docs/architecture/BOUNDARIES.md` — I-1…I-4: the rule, *why* it matters, and *how* it is enforced. Note the "Modifying these invariants" clause: changing a rule requires changing the doc, the C4 model, and the enforcement test together.
+DONE 2. `docs/architecture/EFFECT_ONLY.md` — the permanent Effect boundary, host-adapter rules, commands, and ratchets.
 DONE 3. `docs/architecture/expand.c4` — the system/container/component model. Skim the `overall` and `backend` views to see the intended shape.
 
 Effect is required for I/O, ambient inputs, async/cancellation, recoverable failure, mutable concurrency, and acquisition/release. Pure folds, reducers, routing, formatting, validation, and path calculations over supplied inputs remain ordinary functions.
@@ -122,7 +122,7 @@ DONE 3. `events/project.ts` — the 7 event variants (Created/Renamed/DirectoryC
 DONE 4. `events/domain-event.ts` → `events/domain.ts` — the internal module constructs the `DomainEvent` union and JSON codec once; the public module constructs `SequencedEvent {seq, event}` and re-exports those exact schema identities. The helper subpath is explicitly blocked from the source and staged package exports.
 DONE 5. `rpc.ts` — the `ExpandRpcs` group + tagged errors. Focus on Protocol v2: `ProjectList → {projects, seq}` and the `stream:true` `Events`/`Connect` RPCs with `fromSeq`.
 DONE 6. `endpoint.ts` — discovery-file schema + `PROTOCOL_VERSION = 2` (I-3).
-RE-REVIEW 7. `app-context.ts` — the pure path derivation contract: `defaultDataDir(path, homeDir, channel)` chooses the channel home, `makeAppContext(path, { homeDir, cwd, dataDir, channel })` derives every runtime path from explicit inputs, and the required `AppContext` `Context.Service` has no ambient default. Application-owned Node adapters acquire home, cwd, and arguments before providing the service.
+DONE 7. `app-context.ts` — the pure path derivation contract: `defaultDataDir(path, homeDir, channel)` chooses the channel home, `makeAppContext(path, { homeDir, cwd, dataDir, channel })` derives every runtime path from explicit inputs, and the required `AppContext` `Context.Service` has no ambient default. Application-owned Node adapters acquire home, cwd, and arguments before providing the service.
 DONE 8. `apps/cli/cli/contract/envelope.ts` — the stable `expand/v1` JSON envelopes the CLI prints; the former contracts-owned `cli.ts` path was deleted.
 
 **Scrutinize hardest:**
@@ -186,7 +186,7 @@ DONE 5. `rpc-client.ts` — `acquireClient`: builds the protocol layer, the pres
 DONE 6. `adapters/node.ts` — the sole platform implementation (socket + spawn); the platform subpath entrypoint (public alongside `/project` and `/server`).
 DONE 7. `client-session.ts` — the reconnect loop, per-transport-attempt lifecycle, connection status, active epoch, and scope teardown.
 DONE 8. `supervise.ts` — logs a background fiber's death unless it was a clean interrupt.
-RE-REVIEW 9. `project/client.ts` + the package-root `client-layer.ts` — the session-backed facades and how layers share one session.
+DONE 9. `project/client.ts` + the package-root `client-layer.ts` — the session-backed facades and how layers share one session.
 
 **Scrutinize hardest:**
 - **Process boundary:** `ProcessServices` and Effect `ChildProcess` own process probing and backend launch. `adapters/node.ts` must not regain direct ambient process or child-process control, and interruption must not leak a pre-acquisition child.
