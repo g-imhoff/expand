@@ -166,6 +166,35 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       expect(second.token).not.toBe(first.token)
     }))
 
+  test.effect("retries when the owner releases before its record is observed", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = yield* makeTestDirectory()
+      const endpointFile = path.join(dir, "server.json")
+      const first = yield* acquireStateRootLock(dir)
+      let releasedBeforeRead = false
+      const racingFileSystem = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: (target, options) => target === first.path && !releasedBeforeRead
+          ? Effect.sync(() => {
+              releasedBeforeRead = true
+            }).pipe(
+              Effect.andThen(fs.remove(first.path)),
+              Effect.andThen(fs.readFileString(target, options))
+            )
+          : fs.readFileString(target, options)
+      })
+
+      const second = yield* Effect.scoped(stateRootLockForStartup(dir, endpointFile)).pipe(
+        Effect.provideService(FileSystem.FileSystem, racingFileSystem)
+      )
+
+      expect(releasedBeforeRead).toBe(true)
+      expect(second.token).not.toBe(first.token)
+      yield* releaseStateRootLock(first)
+    }))
+
   test.effect("rejects promptly when an endpoint is already advertised", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -1048,7 +1077,7 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       expect(yield* lockArtifacts(lockPath)).toEqual([])
     }))
 
-  test.effect("does not retry or sleep after a non-live-owner failure", () =>
+  test.effect("does not retry or sleep after an unrelated failure", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path

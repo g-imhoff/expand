@@ -26,7 +26,7 @@ export interface StateRootLockOptions {
 
 export class StateRootLockError extends Data.TaggedError("StateRootLockError")<{
   readonly dataDir: string
-  readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner"
+  readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner" | "ownership-changed"
   readonly ownerPid?: number
   readonly reason: string
   readonly cause?: unknown
@@ -150,13 +150,13 @@ const acquireStartupLease: (
 ) {
   return yield* acquireStateRootLock(dataDir, options).pipe(
     Effect.catchIf(
-      (error) => error.kind === "live-owner" && error.ownerPid !== undefined,
-      (error) => retryLiveOwner(dataDir, endpointFile, deadline, options, error)
+      isRetryableHandoff,
+      (error) => retryHandoff(dataDir, endpointFile, deadline, options, error)
     )
   )
 })
 
-const retryLiveOwner: (
+const retryHandoff: (
   dataDir: string,
   endpointFile: string,
   deadline: number,
@@ -166,20 +166,18 @@ const retryLiveOwner: (
   StateRootLease,
   StateRootLockError | PlatformError.PlatformError,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | ProcessControl
-> = Effect.fn("StateRootLock.retryLiveOwner")(function*(
+> = Effect.fn("StateRootLock.retryHandoff")(function*(
   dataDir: string,
   endpointFile: string,
   deadline: number,
   options: StateRootLockOptions,
   error: StateRootLockError
 ) {
-  const ownerPid = error.ownerPid
-  if (ownerPid === undefined) return yield* error
   if (yield* endpointAdvertised(endpointFile)) {
     return yield* endpointAdvertisedError(dataDir)
   }
   if ((yield* Clock.currentTimeMillis) >= deadline) {
-    return yield* handoffTimeoutError(dataDir, ownerPid)
+    return yield* handoffTimeoutError(dataDir, error.ownerPid)
   }
   yield* Effect.sleep(HANDOFF_RETRY_INTERVAL)
   return yield* acquireStartupLease(dataDir, endpointFile, deadline, options)
@@ -257,7 +255,7 @@ const readOwner = Effect.fn("StateRootLock.readOwner")(function*(
   const fs = yield* FileSystem.FileSystem
   const text = yield* fs.readFileString(lockPath).pipe(
     Effect.mapError((cause) => hasSystemReason(cause, "NotFound")
-      ? invalidOwnerError(dataDir, cause)
+      ? missingOwnerError(dataDir, cause)
       : cause)
   )
   return yield* Schema.decodeUnknownEffect(LockOwnerFromJson, strictParseOptions)(text).pipe(
@@ -368,11 +366,26 @@ const invalidOwnerError = (
   cause
 })
 
+const missingOwnerError = (
+  dataDir: string,
+  cause: PlatformError.PlatformError
+): StateRootLockError => new StateRootLockError({
+  dataDir,
+  kind: "ownership-changed",
+  reason: "state root ownership record is incomplete or invalid",
+  cause
+})
+
 const ownershipChangedError = (dataDir: string): StateRootLockError =>
   new StateRootLockError({
     dataDir,
+    kind: "ownership-changed",
     reason: "state root ownership changed while the backend was starting"
   })
+
+const isRetryableHandoff = (error: StateRootLockError): boolean =>
+  error.kind === "ownership-changed" ||
+  (error.kind === "live-owner" && error.ownerPid !== undefined)
 
 const liveOwnerError = (dataDir: string, pid: number): StateRootLockError =>
   new StateRootLockError({
@@ -389,13 +402,21 @@ const endpointAdvertisedError = (dataDir: string): StateRootLockError =>
     reason: "state root endpoint is already advertised"
   })
 
-const handoffTimeoutError = (dataDir: string, ownerPid: number): StateRootLockError =>
-  new StateRootLockError({
-    dataDir,
-    kind: "handoff-timeout",
-    ownerPid,
-    reason: `state root handoff timed out waiting for backend process ${String(ownerPid)}`
-  })
+const handoffTimeoutError = (
+  dataDir: string,
+  ownerPid: number | undefined
+): StateRootLockError => ownerPid === undefined
+  ? new StateRootLockError({
+      dataDir,
+      kind: "handoff-timeout",
+      reason: "state root handoff timed out while ownership was changing"
+    })
+  : new StateRootLockError({
+      dataDir,
+      kind: "handoff-timeout",
+      ownerPid,
+      reason: `state root handoff timed out waiting for backend process ${String(ownerPid)}`
+    })
 
 const asStateRootLockError = (dataDir: string, cause: unknown): StateRootLockError =>
   cause instanceof StateRootLockError
