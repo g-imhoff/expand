@@ -17,6 +17,6 @@ export const metadataBindings = defineBindings<Action>([
   { keys: ["return"], label: "submit", action: { _tag: "SubmitOverlay" } }, { keys: ["escape"], label: "cancel", action: { _tag: "CancelOverlay" } }, { keys: ["tab"], label: "switch field", action: { _tag: "SwitchMetadataField" } }
 ])
 export const confirmDeleteBindings = defineBindings<Action>([
-  { keys: ["y", "Y", "return"], label: "confirm", action: { _tag: "SubmitOverlay" } }, { keys: ["n", "N", "escape"], label: "cancel", action: { _tag: "CancelOverlay" } }
+  { keys: ["y", "shift+Y", "return"], label: "confirm", action: { _tag: "SubmitOverlay" } }, { keys: ["n", "shift+N", "escape"], label: "cancel", action: { _tag: "CancelOverlay" } }
 ])
 export const activeBindings = (ui: UiState): Bindings<unknown> => ui.overlay === null ? ui.focus === "create" ? createBindings : listBindings : ui.overlay.kind === "confirmDelete" ? confirmDeleteBindings : ui.overlay.kind === "metadata" ? metadataBindings : textOverlayBindings

@@ -6,6 +6,7 @@ import { route } from "@expand/tui/input/route"
 import type { KeyEvent } from "@expand/ink-input"
 
 const routeKey = (ui: UiState, projects: ReadonlyArray<Project>, key: string, input: string): Action | null => route(ui, projects, { key, input, ctrl: false, meta: false, shift: false } satisfies KeyEvent)
+const routeShiftedKey = (ui: UiState, projects: ReadonlyArray<Project>, key: string, input: string): Action | null => route(ui, projects, { key, input, ctrl: false, meta: false, shift: true } satisfies KeyEvent)
 
 const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number, over: Partial<Project> = {}): Project => ({
@@ -98,8 +99,10 @@ describe("route — overlays are modal", () => {
 
   it("confirmDelete: y/return confirm, n/escape cancel, everything else ignored", () => {
     expect(routeKey(confirmUi, projects, "y", "y")).toEqual({ _tag: "SubmitOverlay" })
+    expect(routeShiftedKey(confirmUi, projects, "Y", "Y")).toEqual({ _tag: "SubmitOverlay" })
     expect(routeKey(confirmUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
     expect(routeKey(confirmUi, projects, "n", "n")).toEqual({ _tag: "CancelOverlay" })
+    expect(routeShiftedKey(confirmUi, projects, "N", "N")).toEqual({ _tag: "CancelOverlay" })
     expect(routeKey(confirmUi, projects, "escape", "")).toEqual({ _tag: "CancelOverlay" })
     expect(routeKey(confirmUi, projects, "a", "a")).toBeNull() // list keys dead under overlay
     expect(routeKey(confirmUi, projects, "j", "j")).toBeNull()
