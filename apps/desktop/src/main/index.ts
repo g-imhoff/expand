@@ -15,11 +15,14 @@ import type {
 import { NodePath, NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { appVersion } from "@expand/contracts/build-info"
-import { electronBindDeps } from "@expand/electron-ipc/main-electron"
+import { bindElectronIpc } from "@expand/electron-ipc/main"
+import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import { makeRuntime } from "@expand/desktop/main/runtime/client-runtime"
 import {
   DesktopMainError,
+  type DesktopIpcHandlers,
   mainProgram,
+  type RendererIdentity,
   type CspHost,
   type DesktopAppHost,
   type DesktopWindowHost,
@@ -75,7 +78,14 @@ const createWindow = (options: ConstructorParameters<typeof BrowserWindow>[0]): 
   const browserWindow = new BrowserWindow(options)
   const webContents = browserWindow.webContents
   return {
-    ipc: electronBindDeps({ webContents }),
+    bindIpc: <R>(identity: RendererIdentity, handlers: DesktopIpcHandlers<R, MessagePortMain>) =>
+      bindElectronIpc<typeof ExpandIpc, R>(
+        ExpandIpc,
+        handlers,
+        identity._tag === "url"
+          ? { window: browserWindow, rendererUrl: identity.value }
+          : { window: browserWindow, rendererOrigin: identity.value }
+      ).pipe(Effect.asVoid),
     onClosed: (listener) => {
       browserWindow.on("closed", listener)
       let disposed = false
@@ -125,9 +135,7 @@ const deps: MainProgramDeps<MessagePortMain> = {
   createWindow,
   makeMessageChannel: () => new MessageChannelMain(),
   csp,
-  makeRuntime,
-  log: (message, cause) =>
-    cause === undefined ? Effect.logWarning(message) : Effect.logWarning(message, cause)
+  makeRuntime
 }
 
 NodeRuntime.runMain(

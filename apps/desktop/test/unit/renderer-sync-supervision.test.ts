@@ -12,7 +12,6 @@ import type { RendererRunner } from "@expand/desktop/renderer/app/runner"
 import type { ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import type { ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
-import type { MakeIpcClientOptions } from "@expand/electron-ipc/renderer"
 
 const waitForDeferred = Deferred.await
 const emptySnapshot: ProjectSnapshot = { projects: [], seq: 0 }
@@ -30,14 +29,6 @@ const rpc: ProjectRpcApi = {
   list: unavailable,
   status: Stream.never,
   events: () => Stream.never
-}
-
-const ipcOptions = (): MakeIpcClientOptions => {
-  const win = {
-    addEventListener: () => {},
-    removeEventListener: () => {}
-  }
-  return { bridge: () => ({ rpcPort: () => {} }), win }
 }
 
 interface BootHarnessOptions {
@@ -110,7 +101,7 @@ describe("renderer project synchronization supervision", () => {
       const synchronize = Effect.fn("RendererBootTest.firstSnapshot")((target: ProjectSyncSink) =>
         target.snapshot(emptySnapshot).pipe(Effect.andThen(Effect.never)))
       const harness = yield* makeBootHarness({ synchronize, sink })
-      const fiber = yield* Effect.forkChild(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const fiber = yield* Effect.forkChild(boot(harness.mount, harness.dependencies))
       yield* waitForDeferred(sinkStarted)
       expect(Option.isNone(yield* Deferred.poll(harness.mounted))).toBe(true)
       yield* Deferred.succeed(releaseSink, undefined)
@@ -128,7 +119,7 @@ describe("renderer project synchronization supervision", () => {
           Effect.andThen(Effect.never)
         ))
       const harness = yield* makeBootHarness({ synchronize })
-      const fiber = yield* Effect.forkChild(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const fiber = yield* Effect.forkChild(boot(harness.mount, harness.dependencies))
       yield* waitForDeferred(harness.mounted)
       yield* Effect.yieldNow
       expect(harness.mountCount()).toBe(1)
@@ -141,7 +132,7 @@ describe("renderer project synchronization supervision", () => {
       const synchronize = Effect.fn("RendererBootTest.earlyFailure")((_sink: ProjectSyncSink) =>
         Effect.die(syncFailure))
       const harness = yield* makeBootHarness({ synchronize })
-      const exit = yield* Effect.exit(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const exit = yield* Effect.exit(boot(harness.mount, harness.dependencies))
       expect(harness.mountCount()).toBe(0)
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(syncFailure)
@@ -158,7 +149,7 @@ describe("renderer project synchronization supervision", () => {
           Effect.andThen(Effect.die(syncFailure))
         ))
       const harness = yield* makeBootHarness({ synchronize })
-      const fiber = yield* Effect.forkChild(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const fiber = yield* Effect.forkChild(boot(harness.mount, harness.dependencies))
       yield* waitForDeferred(harness.mounted)
       yield* Deferred.succeed(failSync, undefined)
       const exit = yield* Effect.exit(Fiber.join(fiber))
@@ -173,7 +164,7 @@ describe("renderer project synchronization supervision", () => {
       const synchronize = Effect.fn("RendererBootTest.timeout")((_sink: ProjectSyncSink) =>
         Deferred.succeed(syncStarted, undefined).pipe(Effect.andThen(Effect.never)))
       const harness = yield* makeBootHarness({ synchronize })
-      const fiber = yield* Effect.forkChild(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const fiber = yield* Effect.forkChild(boot(harness.mount, harness.dependencies))
       yield* waitForDeferred(syncStarted)
       yield* TestClock.adjust("10 seconds")
       const exit = yield* Effect.exit(Fiber.join(fiber))
@@ -193,7 +184,6 @@ describe("renderer project synchronization supervision", () => {
       const dependencies: RendererBootDependencies = { acquireResources, synchronize }
       let mountCount = 0
       const fiber = yield* Effect.forkChild(boot(
-        ipcOptions(),
         () => {
           mountCount += 1
         },
@@ -225,7 +215,7 @@ describe("renderer project synchronization supervision", () => {
           Effect.ensuring(sink.snapshot({ projects: [], seq: 77 }))
         ))
       const harness = yield* makeBootHarness({ synchronize })
-      const fiber = yield* Effect.forkChild(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const fiber = yield* Effect.forkChild(boot(harness.mount, harness.dependencies))
       yield* waitForDeferred(syncStarted)
       yield* Fiber.interrupt(fiber)
       expect(harness.mountCount()).toBe(0)
@@ -255,7 +245,7 @@ describe("renderer project synchronization supervision", () => {
           throw mountFailure
         }
       })
-      const exit = yield* Effect.exit(boot(ipcOptions(), harness.mount, harness.dependencies))
+      const exit = yield* Effect.exit(boot(harness.mount, harness.dependencies))
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) expect(Cause.squash(exit.cause)).toBe(mountFailure)
       expect(harness.events.slice(-3)).toEqual([

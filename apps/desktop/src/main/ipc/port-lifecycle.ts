@@ -1,6 +1,7 @@
 import { Effect, Exit, Option, Ref, Scope, Semaphore } from "effect"
-import type { IpcSenderInfo } from "@expand/electron-ipc/contract"
+import type { IpcHandlersOf } from "@expand/electron-ipc/contract"
 import type { MainPortLike } from "@expand/desktop/main/rpc/server"
+import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 
 export interface PortEndpoint extends MainPortLike {
   readonly close: () => void
@@ -26,10 +27,7 @@ export interface PortLifecycleDeps<Port extends PortEndpoint, R> {
 }
 
 export interface WiredPortLifecycle<Port extends PortEndpoint, R> {
-  readonly rpcPort: (
-    sender: IpcSenderInfo,
-    grant: (port: Port) => Effect.Effect<void>
-  ) => Effect.Effect<void, never, R>
+  readonly rpcPort: IpcHandlersOf<typeof ExpandIpc, R, Port>["rpcPort"]
   readonly close: Effect.Effect<void, never, R>
 }
 
