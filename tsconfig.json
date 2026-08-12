@@ -19,8 +19,6 @@
       "@expand/tui/*": ["apps/tui/*"],
       "@expand/desktop/*": ["apps/desktop/src/*"],
       "@expand/server/*": ["apps/server/*"],
-      "@expand/electron-ipc/*": ["packages/electron-ipc/*"],
-      "@expand/ink-input/*": ["packages/ink-input/*"],
       "@expand/*": ["apps/cli/*"]
     },
     "plugins": [

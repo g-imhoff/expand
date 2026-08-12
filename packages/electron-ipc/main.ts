@@ -7,12 +7,12 @@ import type { AnyChannel, Result } from "./internal/contract"
 import { grantWire, requestWire, wire } from "./internal/contract"
 import { exactUrl, utf8Bytes } from "./internal/wire"
 
-export const bindElectronIpc = <C extends IpcContract, R = never>(contract: C, handlers: IpcHandlersOf<C, R, MessagePortMain>, options: {
+export const bindElectronIpc = Effect.fn("ElectronIpc.bindElectronIpc")(function* <C extends IpcContract, R = never>(contract: C, handlers: IpcHandlersOf<C, R, MessagePortMain>, options: {
   readonly window: BrowserWindow
   readonly rendererOrigin?: string
   readonly rendererUrl?: string
   readonly maxPayloadBytes?: number
-}): Effect.Effect<IpcEmitterOf<C>, unknown, R | Scope.Scope> => Effect.gen(function* () {
+}): Effect.fn.Return<IpcEmitterOf<C>, unknown, R | Scope.Scope> {
   const fibers = yield* FiberSet.make<unknown, never>()
   const runPromise: <A>(effect: Effect.Effect<A, never, R>) => Promise<A> = yield* FiberSet.runtimePromise(fibers)<R>()
   return yield* Effect.acquireRelease(
@@ -38,7 +38,7 @@ export const bindElectronIpc = <C extends IpcContract, R = never>(contract: C, h
       return { frameUrl: frame.url }
     }
     const run = (effect: Effect.Effect<unknown, unknown, R>) => {
-      void runPromise(effect as Effect.Effect<unknown, never, R>).catch(() => undefined)
+      void runPromise(effect.pipe(Effect.catchCause(() => Effect.void)))
     }
     const stop = () => {
       if (!active) return
@@ -66,7 +66,7 @@ export const bindElectronIpc = <C extends IpcContract, R = never>(contract: C, h
         } else if (channel._kind === "invoke") {
           const invoke = (event: unknown, raw: unknown): Promise<Result> => {
             const sender = admitted(event, raw)
-            if (!active || !sender) return Promise.resolve({ _tag: "IpcDefect", message: "sender rejected" })
+            if (!active || !sender) return runPromise(Effect.succeed<Result>({ _tag: "IpcDefect", message: "sender rejected" }))
             const program = Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
               Effect.flatMap((payload) => (handler as (p: unknown, s: { frameUrl: string }) => Effect.Effect<unknown, unknown, R>)(payload, sender).pipe(Effect.matchEffect({
                 onSuccess: (value) => Schema.encodeUnknownEffect(codec(channel.success))(value).pipe(Effect.map((encoded) => ({ _tag: "IpcSuccess", value: encoded } as Result))),

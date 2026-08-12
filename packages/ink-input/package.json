@@ -1,1 +1,15 @@
-{"name":"@expand/ink-input","version":"0.0.0","private":true,"type":"module","sideEffects":false,"exports":{".":"./index.ts","./package.json":"./package.json"}}
+{
+  "name": "@expand/ink-input",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./index.ts",
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "ink": "7",
+    "react": "19"
+  }
+}

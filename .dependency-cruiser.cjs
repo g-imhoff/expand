@@ -38,12 +38,22 @@ module.exports = {
       to: { path: "^(apps|packages)/", pathNot: "^packages/electron-ipc/" }
     },
     {
+      name: "electron-ipc-public-entrypoints-only",
+      severity: "error",
+      comment: "External code may import only the explicit Electron IPC package entrypoints.",
+      from: { pathNot: "^packages/electron-ipc/" },
+      to: {
+        path: "^packages/electron-ipc/",
+        pathNot: "^packages/electron-ipc/(contract|main|preload|renderer)\\.ts$"
+      }
+    },
+    {
       name: "shared-ipc-stays-pure",
       severity: "error",
       comment:
         "BOUNDARIES.md I-1 (amended): the IPC registry imports only the framework contract.",
       from: { path: "^apps/desktop/src/shared/ipc/" },
-      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc/contract|apps/desktop/src/shared/ipc)" }
+      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc/contract\\.ts|apps/desktop/src/shared/ipc)" }
     },
     {
       name: "preload-imports-allowlist",
@@ -51,7 +61,7 @@ module.exports = {
       comment:
         "BOUNDARIES.md I-1 (amended): the preload may import only the IPC framework and the registry.",
       from: { path: "^apps/desktop/src/preload/" },
-      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc|apps/desktop/src/shared/ipc|apps/desktop/src/preload)/" }
+      to: { path: "^(apps|packages)/", pathNot: "^(packages/electron-ipc/preload\\.ts$|apps/desktop/src/shared/ipc/|apps/desktop/src/preload/)" }
     },
     {
       name: "ink-input-package-isolated",
@@ -60,6 +70,13 @@ module.exports = {
       severity: "error",
       from: { path: "^packages/ink-input" },
       to: { path: "^(apps/|packages/(?!ink-input))" }
+    },
+    {
+      name: "ink-input-public-entrypoint-only",
+      severity: "error",
+      comment: "External code may import only the Ink input package entrypoint.",
+      from: { pathNot: "^packages/ink-input/" },
+      to: { path: "^packages/ink-input/", pathNot: "^packages/ink-input/index\\.ts$" }
     },
     {
       name: "client-ts-no-circular",
