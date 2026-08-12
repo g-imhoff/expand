@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import { ProjectNotFound } from "@expand/contracts/rpc"
 import { ProjectClient } from "@expand/client-ts/project"
@@ -6,7 +6,7 @@ import { ProjectClient } from "@expand/client-ts/project"
 export const resolveProjectTarget = Effect.fn("Cli.resolveProjectTarget")((
   token: string
 ): Effect.Effect<string, RpcClientError.RpcClientError | ProjectNotFound, ProjectClient> =>
-  UUID_RE.test(token)
+  isUUID(token)
     ? Effect.succeed(token)
     : Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: true })).pipe(
       Effect.flatMap(({ projects: ps }) => {
@@ -24,4 +24,4 @@ export const resolveProjectTarget = Effect.fn("Cli.resolveProjectTarget")((
     )
 )
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const isUUID = Schema.is(Schema.String.pipe(Schema.check(Schema.isUUID())))
