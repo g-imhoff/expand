@@ -537,206 +537,395 @@ export const effectHostBoundaries = Object.freeze([
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/contract.ts",
-    declaration: "type:IpcBridgeOf",
-    host: "Electron renderer invoke Promise ABI",
+    file: "packages/electron-ipc/internal/contract.ts",
+    declaration: "type:Bridge",
+    host: "Electron bridge wire ABI",
     construct: "signature:PromiseLike",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
+    file: "packages/electron-ipc/preload.ts",
     declaration: "module:<module>",
-    host: "Electron IPC host adapter",
+    host: "Electron preload IPC host facade",
     construct: "platform:import:electron",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "module:<module>",
-    host: "Electron IPC host adapter types",
-    construct: "platform:import:electron",
-    occurrence: 1
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "member:electronBindDeps.on",
-    host: "Electron IPC listener",
-    construct: "platform:listener.on",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "member:electronBindDeps.on",
-    host: "Electron IPC listener disposal",
-    construct: "platform:listener.off",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "variable:wrapper",
-    host: "Electron IPC invoke Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "member:electronBindDeps.handle",
-    host: "Electron IPC invoke registration",
-    construct: "platform:electron.ipcMain.handle",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main-electron.ts",
-    declaration: "member:electronBindDeps.handle",
-    host: "Electron IPC invoke disposal",
-    construct: "platform:electron.ipcMain.removeHandler",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main.ts",
-    declaration: "member:IpcMainLike.handle",
-    host: "Electron IPC invoke Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main.ts",
-    declaration: "variable:invokeHandler",
-    host: "Electron IPC invoke Promise ABI",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main.ts",
-    declaration: "variable:runPromise",
-    host: "Electron IPC invoke Promise runtime",
-    construct: "signature:PromiseLike",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/main.ts",
-    declaration: "variable:silentInvoke",
-    host: "Electron IPC silent invoke Promise ABI",
-    construct: "signature:Promise",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "module:<module>",
-    host: "Electron preload host adapter",
-    construct: "platform:import:electron",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "module:<module>",
-    host: "Electron preload host adapter types",
-    construct: "platform:import:electron",
-    occurrence: 1
-  }),
-  Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.send",
-    host: "Electron renderer IPC send",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
     construct: "platform:electron.ipcRenderer.send",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.invoke",
-    host: "Electron renderer invoke Promise ABI",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
     construct: "signature:PromiseLike",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.invoke",
-    host: "Electron renderer IPC invoke",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
     construct: "platform:electron.ipcRenderer.invoke",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.on",
-    host: "Electron renderer IPC listener",
-    construct: "platform:listener.on",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
+    construct: "promise:reject",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.on",
-    host: "Electron renderer IPC listener disposal",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:dispose",
+    host: "Electron preload IPC host facade",
     construct: "platform:listener.removeListener",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.exposeInMainWorld",
-    host: "Electron context bridge exposure",
-    construct: "platform:electron.contextBridge.exposeInMainWorld",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
+    construct: "platform:listener.on",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "variable:origin",
-    host: "Preload main-world target origin",
-    construct: windowLocation,
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
+    construct: "platform:electron.ipcRenderer.send",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:wrapped",
+    host: "Electron preload IPC host facade",
+    construct: "platform:window.postMessage",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.postToMainWorld",
-    host: "Preload main-world port relay",
-    construct: windowPostMessage,
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:wrapped",
+    host: "Electron preload IPC host facade",
+    construct: "platform:window.location",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "variable:release",
-    host: "Preload unload listener disposal",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:wrapped",
+    host: "Electron preload IPC host facade",
+    construct: "platform:window.location",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:dispose",
+    host: "Electron preload IPC host facade",
+    construct: "platform:listener.removeListener",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
+    construct: "platform:listener.on",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:unloadDispose",
+    host: "Electron preload IPC host facade",
     construct: "platform:listener.removeEventListener",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload-electron.ts",
-    declaration: "member:electronPreloadDeps.onContextDisposed",
-    host: "Preload unload listener",
+    file: "packages/electron-ipc/preload.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
     construct: "platform:listener.addEventListener",
     occurrence: 0
   }),
   Object.freeze({
     file: "packages/electron-ipc/preload.ts",
-    declaration: "member:PreloadIpcDeps.invoke",
-    host: "Electron renderer invoke Promise ABI",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron preload IPC host facade",
+    construct: "platform:electron.contextBridge.exposeInMainWorld",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "module:<module>",
+    host: "Electron main IPC host facade",
+    construct: "platform:import:electron",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "module:<module>",
+    host: "Electron main IPC host facade",
+    construct: "platform:import:electron",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:runPromise",
+    host: "Electron main IPC host facade",
     construct: "signature:PromiseLike",
     occurrence: 0
   }),
   Object.freeze({
-    file: "packages/electron-ipc/preload.ts",
-    declaration: "variable:exposeBridge",
-    host: "Electron renderer invoke bridge ABI",
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:listener.on",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:listener.off",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:invoke",
+    host: "Electron main IPC host facade",
     construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:electron.ipcMain.handle",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:electron.ipcMain.removeHandler",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:encoded",
+    host: "Electron main IPC host facade",
+    construct: "schema:Schema.encodeSync",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:listener.on",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/main.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron main IPC host facade",
+    construct: "platform:listener.off",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/renderer.ts",
+    declaration: "variable:globalWindow",
+    host: "Electron renderer IPC host facade",
+    construct: "platform:window",
     occurrence: 0
   }),
   Object.freeze({
     file: "packages/electron-ipc/renderer.ts",
-    declaration: "member:browserCrypto.randomBytes",
-    host: "Browser Crypto random-byte adapter",
+    declaration: "member:makeElectronIpcClient.try",
+    host: "Electron renderer IPC host facade",
     construct: "platform:crypto.getRandomValues",
     occurrence: 0
   }),
   Object.freeze({
     file: "packages/electron-ipc/renderer.ts",
-    declaration: "member:browserCrypto.try",
-    host: "Browser SubtleCrypto digest adapter",
-    construct: "platform:crypto.subtle",
+    declaration: "member:makeElectronIpcClient.try",
+    host: "Electron renderer IPC host facade",
+    construct: "platform:listener.addEventListener",
     occurrence: 0
   }),
   Object.freeze({
     file: "packages/electron-ipc/renderer.ts",
-    declaration: "member:browserCrypto.try",
-    host: "Browser SubtleCrypto digest Promise ABI",
+    declaration: "variable:makeElectronIpcClient",
+    host: "Electron renderer IPC host facade",
+    construct: "platform:listener.removeEventListener",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/facade.test.ts",
+    declaration: "variable:contract",
+    host: "Electron IPC test host fixture",
     construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/facade.test.ts",
+    declaration: "variable:main",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/facade.test.ts",
+    declaration: "variable:preload",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/facade.test.ts",
+    declaration: "variable:renderer",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "platform:import:electron",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "type:MainHandler",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "variable:bindElectronIpc",
+    host: "Electron IPC test host fixture",
+    construct: "native:await",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/main.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 2
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "member:ipcRenderer.invoke",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "member:ipcRenderer.invoke",
+    host: "Electron IPC test host fixture",
+    construct: "promise:resolve",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "variable:exposeElectronBridge",
+    host: "Electron IPC test host fixture",
+    construct: "native:await",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 2
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 3
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 4
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/preload.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 5
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/renderer.test.ts",
+    declaration: "member:bridge.invoke",
+    host: "Electron IPC test host fixture",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/renderer.test.ts",
+    declaration: "variable:previousWindow",
+    host: "Electron IPC test host fixture",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/renderer.test.ts",
+    declaration: "variable:previousCrypto",
+    host: "Electron IPC test host fixture",
+    construct: "platform:crypto",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/renderer.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "packages/electron-ipc/test/renderer.test.ts",
+    declaration: "module:<module>",
+    host: "Electron IPC test host fixture",
+    construct: "platform:crypto",
     occurrence: 0
   }),
   Object.freeze({
@@ -885,6 +1074,62 @@ export const effectHostBoundaries = Object.freeze([
     host: "Architecture dependency-cruiser resolution",
     construct: "platform:import:node:module",
     occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-behavior.test.ts",
+    declaration: "variable:previous",
+    host: "Renderer window fixture",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-behavior.test.ts",
+    declaration: "variable:restore",
+    host: "Renderer window fixture cleanup",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-behavior.test.ts",
+    declaration: "variable:previous",
+    host: "Preload window fixture",
+    construct: "platform:window",
+    occurrence: 1
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-behavior.test.ts",
+    declaration: "module:<module>",
+    host: "Preload window fixture cleanup",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-boundaries.test.ts",
+    declaration: "member:readJson.try",
+    host: "Architecture JSON fixture decoder",
+    construct: "platform:JSON.parse",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-boundaries.test.ts",
+    declaration: "variable:config",
+    host: "Architecture TypeScript config decoder",
+    construct: "platform:JSON.parse",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-boundaries.test.ts",
+    declaration: "member:module.try",
+    host: "Architecture public entrypoint import",
+    construct: "signature:PromiseLike",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "test/architecture/strict-library-boundaries.test.ts",
+    declaration: "member:module.try",
+    host: "Architecture public entrypoint import",
+    construct: "signature:PromiseLike",
+    occurrence: 1
   }),
   Object.freeze({
     file: "test/architecture/fold-version-lockstep.test.ts",

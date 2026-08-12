@@ -9,5 +9,9 @@
     "./preload": "./preload.ts",
     "./renderer": "./renderer.ts",
     "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "effect": "4.0.0-beta.74",
+    "electron": "42"
   }
 }

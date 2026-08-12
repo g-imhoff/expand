@@ -206,7 +206,7 @@ describe("app responsibility folder convention", () => {
       expect(directFiles(files, "apps/server")).toEqual(["main.ts"])
       expect(directFiles(files, "apps/tui")).toEqual(["main.tsx"])
       expect(directFiles(files, "apps/desktop/src/main")).toEqual(["index.ts"])
-      expect(directFiles(files, "apps/desktop/src/preload")).toEqual(["api.d.ts", "index.ts"])
+      expect(directFiles(files, "apps/desktop/src/preload")).toEqual(["index.ts"])
       expect(directFiles(files, "apps/desktop/src/renderer")).toEqual(["css.d.ts", "main.tsx"])
       expect(directFiles(files, "apps/desktop/src/shared")).toEqual([])
     }).pipe(Effect.provide(NodeServices.layer)))

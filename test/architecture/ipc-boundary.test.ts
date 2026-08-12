@@ -25,9 +25,9 @@ const walk = Effect.fn("IpcBoundary.walk")(function*(dir: string): Effect.fn.Ret
 })
 
 describe("typed IPC boundary", () => {
-  it.live("pure framework modules never import electron", () =>
+  it.live("contract, internals, and renderer never import electron", () =>
     Effect.gen(function*() {
-      for (const file of ["contract.ts", "preload.ts", "main.ts", "renderer.ts"]) {
+      for (const file of ["contract.ts", "internal/contract.ts", "internal/wire.ts", "renderer.ts"]) {
         const source = yield* read(`packages/electron-ipc/${file}`)
         expect(source, `${file} must stay electron-free`).not.toMatch(/from\s+"electron"/)
       }
@@ -37,8 +37,8 @@ describe("typed IPC boundary", () => {
     Effect.gen(function*() {
       const path = yield* Path.Path
       const allowed = new Set([
-        path.join("packages/electron-ipc", "preload-electron.ts"),
-        path.join("packages/electron-ipc", "main-electron.ts")
+        path.join("packages/electron-ipc", "preload.ts"),
+        path.join("packages/electron-ipc", "main.ts")
       ])
       const files = [...yield* walk("apps/desktop/src"), ...yield* walk("packages")]
       for (const file of files) {

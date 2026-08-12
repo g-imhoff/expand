@@ -6,9 +6,7 @@ import { resolve } from "node:path"
 
 export const makeElectronConfig = (appVersion: string) => {
   const here = import.meta.dirname
-  const repo = resolve(here, "../..")
   const alias = {
-    "@expand/electron-ipc": resolve(repo, "packages/electron-ipc"),
     "@expand/desktop": resolve(here, "src")
   }
 

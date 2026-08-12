@@ -5,8 +5,7 @@
     "types": ["node", "react", "react-dom", "vite/client"],
     "baseUrl": "../..",
     "paths": {
-      "@expand/desktop/*": ["apps/desktop/src/*"],
-      "@expand/electron-ipc/*": ["packages/electron-ipc/*"]
+      "@expand/desktop/*": ["apps/desktop/src/*"]
     },
     "noEmit": true
   },

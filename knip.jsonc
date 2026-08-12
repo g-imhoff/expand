@@ -35,6 +35,12 @@
       "entry": ["test/fixtures/spawn-lock-contender.ts"],
       "ignoreDependencies": ["@effect/platform-node-shared"]
     },
+    "packages/electron-ipc": {
+      "entry": ["contract.ts", "main.ts", "preload.ts", "renderer.ts", "test/**/*.test.ts"]
+    },
+    "packages/ink-input": {
+      "entry": ["index.ts", "test/**/*.test.{ts,tsx}"]
+    },
     "apps/desktop": {
       "entry": [
         "test/**/*.test.{ts,tsx}",
