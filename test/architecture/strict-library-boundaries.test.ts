@@ -150,10 +150,26 @@ const resolverAliases = (file: string, source: string): ReadonlyArray<ResolverAl
 
 const resolverAliasCanMatch = (alias: ResolverAlias, packageName: string): boolean => {
   if (typeof alias === "string") return packageAliasCanMatch(alias, packageName)
-  const words = alias.source.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? []
-  const suffixes = ["contract", "main", "preload", "renderer", "internal", "internal/value", "secret", "x", ...words]
-  const candidates = [packageName, ...suffixes.flatMap((suffix) => [`${packageName}/${suffix}`, `${packageName}/x/${suffix}`])]
-  return candidates.some((candidate) => {
+  const packageManifests = ts.sys.readDirectory("packages", ["package.json"])
+  const packageRoot = packageManifests.find((manifest) => {
+    try {
+      return JSON.parse(ts.sys.readFile(manifest) ?? "{}").name === packageName
+    } catch {
+      return false
+    }
+  })?.replace(/\/package\.json$/, "")
+  const candidates = new Set([packageName])
+  if (packageRoot !== undefined) {
+    for (const file of ts.sys.readDirectory(packageRoot)) {
+      const relative = ts.sys.resolvePath(file).slice(ts.sys.resolvePath(packageRoot).length + 1).replaceAll("\\", "/")
+      if (relative === "") continue
+      const sourcePath = relative.replace(/\.(?:cjs|js|jsx|json|ts|tsx|mts|cts|mjs)$/, "")
+      candidates.add(`${packageName}/${relative}`)
+      candidates.add(`${packageName}/${sourcePath}`)
+      if (relative.endsWith("/index.ts") || relative.endsWith("/index.tsx") || relative.endsWith("/index.js")) candidates.add(`${packageName}/${sourcePath.replace(/\/index$/, "")}`)
+    }
+  }
+  return [...candidates].some((candidate) => {
     alias.lastIndex = 0
     return alias.test(candidate)
   })
@@ -318,8 +334,18 @@ describe("strict private library boundaries", () => {
     }
     expect(packageAliasCanMatch("@expand/cli/*", "@expand/electron-ipc")).toBe(false)
     expect(packageAliasCanMatch("@expand/tui/*", "@expand/ink-input")).toBe(false)
-    const fixture = 'export default { resolve: { alias: [{ find: /^@expand\\/electron-ipc\\/secret$/, replacement: "/tmp/private" }] } }'
+    const fixture = 'export default { resolve: { alias: [{ find: /^@expand\\/electron-ipc\\/internal\\/contract$/, replacement: "/tmp/private" }] } }'
     expect(resolverAliases("fixture.ts", fixture).some((alias) => resolverAliasCanMatch(alias, "@expand/electron-ipc"))).toBe(true)
+  })
+
+  it("allows regular expression aliases for nonexistent private package files", () => {
+    expect(resolverAliasCanMatch(/^@expand\/electron-ipc\/secret$/, "@expand/electron-ipc")).toBe(false)
+  })
+
+  it("recognizes regular expression aliases matching private package files", () => {
+    for (const pattern of [/^@expand\/electron-ipc\/internal\/contract$/, /^@expand\/electron-ipc\/contract\.ts$/]) {
+      expect(resolverAliasCanMatch(pattern, "@expand/electron-ipc"), pattern.toString()).toBe(true)
+    }
   })
 
   it.live("recognizes relative, absolute, and file URL imports into private package files", () => provideNode(Effect.gen(function* () {
