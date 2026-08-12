@@ -1,16 +1,22 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Path } from "effect"
+import { Effect, FileSystem, Path, Schema } from "effect"
 import * as ts from "typescript"
 import { describe, expect } from "vitest"
 import { libraryBoundaryFixtures, privateLibraryPathAliases } from "../support/library-boundary-fixtures"
 
-type PackageManifest = {
-  readonly name?: unknown
-  readonly private?: unknown
-  readonly type?: unknown
-  readonly exports?: unknown
-}
+const PackageManifest = Schema.fromJsonString(Schema.Struct({
+  name: Schema.optional(Schema.Unknown),
+  private: Schema.optional(Schema.Unknown),
+  type: Schema.optional(Schema.Unknown),
+  exports: Schema.optional(Schema.Unknown)
+}))
+
+const TsConfig = Schema.fromJsonString(Schema.Struct({
+  compilerOptions: Schema.optional(Schema.Struct({
+    paths: Schema.optional(Schema.Record(Schema.String, Schema.Unknown))
+  }))
+}))
 
 const provideNode = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, never> => effect.pipe(Effect.provide(NodeServices.layer)) as Effect.Effect<A, E, never>
 
@@ -20,8 +26,8 @@ const read = Effect.fn("StrictLibraryBoundaries.read")(function*(relativePath: s
   return yield* fs.readFileString(path.resolve(relativePath))
 })
 
-const readJson = <A,>(relativePath: string): Effect.Effect<A, unknown, FileSystem.FileSystem | Path.Path> => read(relativePath).pipe(
-  Effect.flatMap((source) => Effect.try({ try: () => JSON.parse(source) as A, catch: (cause) => cause }))
+const readJson = (relativePath: string) => read(relativePath).pipe(
+  Effect.flatMap(Schema.decodeUnknownEffect(PackageManifest))
 )
 
 const readSourceFiles = Effect.fn("StrictLibraryBoundaries.readSourceFiles")(function*(root: string): Effect.fn.Return<ReadonlyArray<string>, unknown, FileSystem.FileSystem | Path.Path> {
@@ -66,6 +72,121 @@ const importedSpecifiers = (file: string, source: string): ReadonlyArray<string>
   }
   visit(sourceFile)
   return specifiers
+}
+
+const resolvesInto = Effect.fn("StrictLibraryBoundaries.resolvesInto")(function* (file: string, specifier: string, root: string, path: Path.Path) {
+  const normalizedRoot = path.resolve(root)
+  const target = specifier.startsWith("file:")
+    ? yield* Effect.try({ try: () => new URL(specifier), catch: String }).pipe(Effect.flatMap(path.fromFileUrl))
+    : specifier.startsWith("/")
+      ? path.resolve(specifier)
+      : specifier.startsWith(".")
+        ? path.resolve(path.dirname(file), specifier)
+        : undefined
+  if (target === undefined) return false
+  return target === normalizedRoot || target.startsWith(`${normalizedRoot}${path.sep}`)
+})
+
+const packageAliasCanMatch = (pattern: string, packageName: string): boolean => {
+  const prefix = pattern.split("*")[0] ?? pattern
+  return packageName.startsWith(prefix) || prefix === packageName || prefix.startsWith(`${packageName}/`)
+}
+
+type ResolverAlias = string | RegExp
+
+const propertyName = (name: ts.PropertyName): string | undefined => ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name) ? name.text : undefined
+
+const resolverAliases = (file: string, source: string): ReadonlyArray<ResolverAlias> => {
+  const node = sourceFile(file, source)
+  const variables = new Map<string, ts.Expression>()
+  const aliases: Array<ResolverAlias> = []
+  const remember = (current: ts.Node): void => {
+    if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name) && current.initializer !== undefined) variables.set(current.name.text, current.initializer)
+    ts.forEachChild(current, remember)
+  }
+  remember(node)
+  const matcher = (expression: ts.Expression): ResolverAlias | undefined => {
+    if (ts.isStringLiteral(expression)) return expression.text
+    if (!ts.isRegularExpressionLiteral(expression)) return undefined
+    const literal = expression.getText(node)
+    const separator = literal.lastIndexOf("/")
+    return separator <= 0 ? undefined : new RegExp(literal.slice(1, separator), literal.slice(separator + 1))
+  }
+  const extract = (expression: ts.Expression): void => {
+    if (ts.isIdentifier(expression)) {
+      const resolved = variables.get(expression.text)
+      if (resolved === undefined) aliases.push("*")
+      else extract(resolved)
+      return
+    }
+    if (ts.isArrayLiteralExpression(expression)) {
+      for (const element of expression.elements) if (ts.isExpression(element)) extract(element)
+      return
+    }
+    if (!ts.isObjectLiteralExpression(expression)) {
+      aliases.push("*")
+      return
+    }
+    const find = expression.properties.find((property) => ts.isPropertyAssignment(property) && propertyName(property.name) === "find")
+    if (find !== undefined && ts.isPropertyAssignment(find)) {
+      aliases.push(matcher(find.initializer) ?? "*")
+      return
+    }
+    for (const property of expression.properties) {
+      if (ts.isSpreadAssignment(property)) aliases.push("*")
+      else if (ts.isShorthandPropertyAssignment(property)) extract(property.name)
+      else if (ts.isPropertyAssignment(property)) aliases.push(propertyName(property.name) ?? "*")
+    }
+  }
+  const visit = (current: ts.Node): void => {
+    if (ts.isVariableDeclaration(current) && ts.isIdentifier(current.name) && current.name.text === "alias" && current.initializer !== undefined) extract(current.initializer)
+    if (ts.isPropertyAssignment(current) && propertyName(current.name) === "alias") extract(current.initializer)
+    if (ts.isShorthandPropertyAssignment(current) && current.name.text === "alias") extract(current.name)
+    ts.forEachChild(current, visit)
+  }
+  visit(node)
+  return aliases.filter((value, index) => aliases.findIndex((candidate) => String(candidate) === String(value)) === index)
+}
+
+const resolverAliasCanMatch = (alias: ResolverAlias, packageName: string): boolean => {
+  if (typeof alias === "string") return packageAliasCanMatch(alias, packageName)
+  const words = alias.source.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? []
+  const suffixes = ["contract", "main", "preload", "renderer", "internal", "internal/value", "secret", "x", ...words]
+  const candidates = [packageName, ...suffixes.flatMap((suffix) => [`${packageName}/${suffix}`, `${packageName}/x/${suffix}`])]
+  return candidates.some((candidate) => {
+    alias.lastIndex = 0
+    return alias.test(candidate)
+  })
+}
+
+const hasAnyValueImport = (file: string, source: string, moduleName: string): boolean => {
+  for (const statement of sourceFile(file, source).statements) {
+    if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteral(statement.moduleReference.expression) && statement.moduleReference.expression.text === moduleName) return true
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== moduleName) continue
+    const clause = statement.importClause
+    if (clause === undefined || clause.isTypeOnly) continue
+    if (clause.name !== undefined || clause.namedBindings === undefined || ts.isNamespaceImport(clause.namedBindings)) return true
+    if (clause.namedBindings.elements.some((element) => !element.isTypeOnly)) return true
+  }
+  return importedSpecifiers(file, source).some((specifier) => specifier === moduleName) && /(?:require(?:\.resolve)?|import)\s*\(/.test(source)
+}
+
+const reducerBoundaryViolations = (file: string, source: string): ReadonlyArray<string> => {
+  const node = sourceFile(file, source)
+  const violations: Array<string> = []
+  const visit = (current: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(current) && ["key", "input", "event"].includes(current.name.text)) violations.push(current.name.text)
+    if (ts.isElementAccessExpression(current) && ts.isStringLiteral(current.argumentExpression) && ["key", "input", "event"].includes(current.argumentExpression.text)) violations.push(current.argumentExpression.text)
+    if (ts.isBindingElement(current) && ts.isIdentifier(current.name)) {
+      const property = current.propertyName
+      const name = property !== undefined && (ts.isIdentifier(property) || ts.isStringLiteral(property)) ? property.text : current.name.text
+      if (["key", "input", "event"].includes(name)) violations.push(name)
+    }
+    ts.forEachChild(current, visit)
+  }
+  visit(node)
+  if (hasAnyValueImport(file, source, "@expand/tui/input/text-field")) violations.push("editor-import")
+  return violations
 }
 
 const makeChecker = (file: string): { readonly sourceFile: ts.SourceFile; readonly checker: ts.TypeChecker } => {
@@ -190,9 +311,40 @@ describe("strict private library boundaries", () => {
     ])
   })
 
+  it("recognizes broad and nested aliases that can shadow private packages", () => {
+    for (const pattern of ["@expand/*", "@expand/electron-ipc", "@expand/electron-ipc/*", "@expand/electron-ipc/internal/*"]) {
+      expect(packageAliasCanMatch(pattern, "@expand/electron-ipc"), pattern).toBe(true)
+    }
+    expect(packageAliasCanMatch("@expand/cli/*", "@expand/electron-ipc")).toBe(false)
+    expect(packageAliasCanMatch("@expand/tui/*", "@expand/ink-input")).toBe(false)
+    const fixture = 'export default { resolve: { alias: [{ find: /^@expand\\/electron-ipc\\/secret$/, replacement: "/tmp/private" }] } }'
+    expect(resolverAliases("fixture.ts", fixture).some((alias) => resolverAliasCanMatch(alias, "@expand/electron-ipc"))).toBe(true)
+  })
+
+  it.live("recognizes relative, absolute, and file URL imports into private package files", () => provideNode(Effect.gen(function* () {
+    const path = yield* Path.Path
+    const target = path.resolve("packages/electron-ipc/internal/contract.ts")
+    const targetUrl = yield* path.toFileUrl(target)
+    expect(yield* resolvesInto("scripts/check.ts", "../packages/electron-ipc/internal/contract.ts", "packages/electron-ipc", path)).toBe(true)
+    expect(yield* resolvesInto("scripts/check.ts", target, "packages/electron-ipc", path)).toBe(true)
+    expect(yield* resolvesInto("scripts/check.ts", targetUrl.href, "packages/electron-ipc", path)).toBe(true)
+    expect(yield* resolvesInto("scripts/check.ts", "../packages/contracts/endpoint.ts", "packages/electron-ipc", path)).toBe(false)
+  })))
+
+  it("recognizes namespace editor imports and destructured or element key access", () => {
+    const fixture = [
+      'import * as editor from "@expand/tui/input/text-field"',
+      "const reduce = (event: { key: string; input: string }) => {",
+      "  const { key } = event",
+      '  return [key, event["input"], editor.editTextField] ',
+      "}"
+    ].join("\n")
+    expect(reducerBoundaryViolations("fixture.ts", fixture)).toEqual(expect.arrayContaining(["editor-import", "key", "input"]))
+  })
+
   it.live("publishes private package manifests with explicit, non-wildcard export maps", () => provideNode(Effect.gen(function* () {
     for (const fixture of [libraryBoundaryFixtures.electronIpc, libraryBoundaryFixtures.inkInput]) {
-      const manifest = yield* readJson<PackageManifest>(fixture.packagePath)
+      const manifest = yield* readJson(fixture.packagePath)
       expect(manifest.name, fixture.packagePath).toBe(fixture === libraryBoundaryFixtures.electronIpc ? "@expand/electron-ipc" : "@expand/ink-input")
       expect(manifest.private, fixture.packagePath).toBe(true)
       expect(manifest.type, fixture.packagePath).toBe("module")
@@ -203,25 +355,31 @@ describe("strict private library boundaries", () => {
     }
   })))
 
-  it.live("removes wildcard TS aliases for private libraries from every workspace compiler config", () => provideNode(Effect.gen(function* () {
+  it.live("removes resolver aliases that can shadow either private library", () => provideNode(Effect.gen(function* () {
     const files = yield* readAll(["."])
-    const tsconfigSources = files.filter(([file]) => /(?:^|\/)tsconfig(?:\.[^/]*)?\.json$/.test(file))
-    for (const [file, source] of tsconfigSources) {
-      const config = JSON.parse(source) as { readonly compilerOptions?: { readonly paths?: Record<string, unknown> } }
-      for (const alias of privateLibraryPathAliases) expect(config.compilerOptions?.paths?.[`${alias}/*`], `${file} retains ${alias}/*`).toBeUndefined()
+    for (const [file, source] of files.filter(([file]) => /(?:^|\/)tsconfig(?:\.[^/]*)?\.json$/.test(file))) {
+      const paths = (yield* Schema.decodeUnknownEffect(TsConfig)(source)).compilerOptions?.paths ?? {}
+      for (const pattern of Object.keys(paths)) {
+        for (const packageName of privateLibraryPathAliases) expect(packageAliasCanMatch(pattern, packageName), `${file} alias ${pattern} shadows ${packageName}`).toBe(false)
+      }
+    }
+    for (const [file, source] of files.filter(([file]) => /(?:vite|vitest)(?:\.[^/]*)?\.config\.[cm]?[jt]s$/.test(file))) {
+      for (const alias of resolverAliases(file, source)) {
+        for (const packageName of privateLibraryPathAliases) expect(resolverAliasCanMatch(alias, packageName), `${file} alias ${String(alias)} shadows ${packageName}`).toBe(false)
+      }
     }
   })))
 
   for (const entry of Object.values(libraryBoundaryFixtures.electronIpc.publicEntries)) {
     it.live(`exposes only the accepted runtime names from ${entry.specifier}`, () => provideNode(Effect.gen(function* () {
-      const module = yield* Effect.tryPromise({ try: () => import(entry.specifier), catch: (cause) => cause })
+      const module = yield* Effect.tryPromise({ try: () => import(entry.specifier), catch: String })
       expect(Object.keys(module).sort(), entry.specifier).toEqual([...entry.runtimeExports].sort())
     })))
   }
 
   const inkEntry = libraryBoundaryFixtures.inkInput.publicEntries.root
   it.live(`exposes only the accepted runtime names from ${inkEntry.specifier}`, () => provideNode(Effect.gen(function* () {
-    const module = yield* Effect.tryPromise({ try: () => import(inkEntry.specifier), catch: (cause) => cause })
+    const module = yield* Effect.tryPromise({ try: () => import(inkEntry.specifier), catch: String })
     expect(Object.keys(module).sort(), inkEntry.specifier).toEqual([...inkEntry.runtimeExports].sort())
   })))
 
@@ -262,6 +420,7 @@ describe("strict private library boundaries", () => {
 
   it.live("rejects external deep imports into either private library", () => provideNode(Effect.gen(function* () {
     const sourceFiles = yield* readAll(["."])
+    const path = yield* Path.Path
     const offenders: Array<string> = []
     const allowedElectron = new Set([
       "@expand/electron-ipc/contract",
@@ -272,8 +431,13 @@ describe("strict private library boundaries", () => {
     for (const [file, source] of sourceFiles) {
       const normalizedFile = file.replace(/^\.\//, "")
       if (normalizedFile.startsWith("packages/electron-ipc/") || normalizedFile.startsWith("packages/ink-input/")) continue
-      for (const specifier of importedSpecifiers(file, source).filter((value) => value.startsWith("@expand/electron-ipc") || value.startsWith("@expand/ink-input"))) {
-        const allowed = specifier === "@expand/ink-input" || allowedElectron.has(specifier)
+      for (const specifier of importedSpecifiers(file, source)) {
+        const packageImport = specifier.startsWith("@expand/electron-ipc") || specifier.startsWith("@expand/ink-input")
+        const electronPathImport = yield* resolvesInto(normalizedFile, specifier, "packages/electron-ipc", path)
+        const inkPathImport = yield* resolvesInto(normalizedFile, specifier, "packages/ink-input", path)
+        const pathImport = electronPathImport || inkPathImport
+        if (!packageImport && !pathImport) continue
+        const allowed = !pathImport && (specifier === "@expand/ink-input" || allowedElectron.has(specifier))
         if (!allowed) offenders.push(`${file}: ${specifier}`)
       }
     }
@@ -292,13 +456,6 @@ describe("strict private library boundaries", () => {
     expect(hasValueImport("apps/tui/input/reduce.ts", reducer, "@expand/tui/input/text-field", "editTextField")).toBe(false)
     expect(hasValueCall("apps/tui/input/reduce.ts", reducer, "editTextField")).toBe(false)
     expect(hasValueImport("fixture.ts", 'import type { editTextField } from "@expand/tui/input/text-field"', "@expand/tui/input/text-field", "editTextField")).toBe(false)
-    const reducerNode = sourceFile("apps/tui/input/reduce.ts", reducer)
-    const reinterpretations: string[] = []
-    const visit = (node: ts.Node): void => {
-      if (ts.isPropertyAccessExpression(node) && ["key", "input", "event"].includes(node.name.text)) reinterpretations.push(node.name.text)
-      ts.forEachChild(node, visit)
-    }
-    visit(reducerNode)
-    expect(reinterpretations).toEqual([])
+    expect(reducerBoundaryViolations("apps/tui/input/reduce.ts", reducer)).toEqual([])
   })))
 })

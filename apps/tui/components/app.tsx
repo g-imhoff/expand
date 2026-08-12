@@ -22,8 +22,9 @@ export type AppAction =
   | { readonly _tag: "Key"; readonly event: KeyEvent; readonly projects: ReadonlyArray<Project> }
   | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }
   | { readonly _tag: "Acknowledge"; readonly ids: ReadonlyArray<number> }
-export const initialAppState: AppState = { ui: initialUiState, effects: [], nextId: 0 }
-export const appReduce = (state: AppState, action: AppAction): AppState => {
+export { App }
+const initialAppState: AppState = { ui: initialUiState, effects: [], nextId: 0 }
+const appReduce = (state: AppState, action: AppAction): AppState => {
   if (action._tag === "Acknowledge") return { ...state, effects: state.effects.filter((item) => !action.ids.includes(item.id)) }
   const resolved = action._tag === "Key" ? route(state.ui, action.projects, action.event) : { _tag: "Reconcile", projects: action.projects } as const
   if (resolved === null) return state
@@ -32,7 +33,7 @@ export const appReduce = (state: AppState, action: AppAction): AppState => {
   return { ui: result.ui, effects: [...state.effects, ...effects], nextId: state.nextId + effects.length }
 }
 
-export const App = () => {
+const App = () => {
 
   const {
     projects, error, create, rename, changeDirectory,

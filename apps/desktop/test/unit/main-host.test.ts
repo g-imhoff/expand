@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, vi } from "vitest"
+import { it } from "@effect/vitest"
 import { Effect } from "effect"
 import type { MainProgramDeps } from "@expand/desktop/main/application/main-program"
 import { windowOptions } from "@expand/desktop/main/security/window-options"
@@ -164,7 +165,7 @@ const binding = vi.hoisted(() => {
     },
     bindElectronIpc: (contract: unknown, handlers: unknown, options: { readonly window: unknown; readonly rendererOrigin?: string; readonly rendererUrl?: string }) => {
       calls.push({ contract, handlers, options })
-      return Effect.succeed(undefined)
+      return Effect.void
     }
   }
 })
@@ -195,15 +196,15 @@ const listenerFor = (
   return record.listener
 }
 
-const makeWindowHost = () => {
+const makeWindowHost = Effect.fn("DesktopMainHostTest.makeWindowHost")(function* () {
   const host = program.deps().createWindow(windowOptions("/app/preload.cjs"))
   const browserWindow = electron.currentWindow()
-  Effect.runSync(Effect.scoped(host.bindIpc(
+  yield* Effect.scoped(host.bindIpc(
     { _tag: "url", value: "file:///app/index.html" },
     { rpcPort: (_sender, _grant) => Effect.void }
-  )))
+  ))
   return { host, browserWindow, webContents: browserWindow.contents }
-}
+})
 
 beforeEach(() => {
   electron.reset()
@@ -211,21 +212,21 @@ beforeEach(() => {
 })
 
 describe("desktop main window host", () => {
-  it("passes an origin identity to the public IPC binder without widening it to a URL", () => {
-    const { host, browserWindow } = makeWindowHost()
-    Effect.runSync(Effect.scoped(host.bindIpc(
+  it.effect("passes an origin identity to the public IPC binder without widening it to a URL", () => Effect.gen(function* () {
+    const { host, browserWindow } = yield* makeWindowHost()
+    yield* Effect.scoped(host.bindIpc(
       { _tag: "origin", value: "http://localhost:5173" },
       { rpcPort: (_sender, _grant) => Effect.void }
-    )))
+    ))
 
     expect(binding.calls[1]?.options).toEqual({
       window: browserWindow,
       rendererOrigin: "http://localhost:5173"
     })
-  })
+  }))
 
-  it("skips exact listener removal after Electron destroys both sources", () => {
-    const { host, browserWindow, webContents } = makeWindowHost()
+  it.effect("skips exact listener removal after Electron destroys both sources", () => Effect.gen(function* () {
+    const { host, browserWindow, webContents } = yield* makeWindowHost()
     const disposeClosed = host.onClosed(() => {})
     const disposeNavigation = host.onNavigation(() => {})
     const disposeWillNavigate = host.onWillNavigate(() => {})
@@ -250,10 +251,10 @@ describe("desktop main window host", () => {
     expect(browserWindow.getterReads).toBe(1)
     expect(browserWindow.offAttempts).toEqual([])
     expect(webContents.offAttempts).toEqual([])
-  })
+  }))
 
-  it("removes each exact live listener wrapper once", () => {
-    const { host, browserWindow, webContents } = makeWindowHost()
+  it.effect("removes each exact live listener wrapper once", () => Effect.gen(function* () {
+    const { host, browserWindow, webContents } = yield* makeWindowHost()
     const closed = () => {}
     const disposeClosed = host.onClosed(closed)
     const disposeNavigation = host.onNavigation(() => {})
@@ -276,10 +277,10 @@ describe("desktop main window host", () => {
     expect(browserWindow.offAttempts).toEqual(browserWindow.removals)
     expect(webContents.offAttempts).toEqual(webContents.removals)
     expect(browserWindow.getterReads).toBe(1)
-  })
+  }))
 
-  it("propagates a live web contents removal defect", () => {
-    const { host, webContents } = makeWindowHost()
+  it.effect("propagates a live web contents removal defect", () => Effect.gen(function* () {
+    const { host, webContents } = yield* makeWindowHost()
     const defect = new Error("live removal failed")
     const disposeNavigation = host.onNavigation(() => {})
     webContents.offFailures.set("did-start-navigation", defect)
@@ -287,5 +288,5 @@ describe("desktop main window host", () => {
     expect(disposeNavigation).toThrow(defect)
     expect(webContents.offAttempts).toHaveLength(1)
     expect(webContents.removals).toEqual([])
-  })
+  }))
 })

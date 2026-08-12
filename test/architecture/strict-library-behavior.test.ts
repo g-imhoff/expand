@@ -104,6 +104,7 @@ const failedText = (exit: Exit.Exit<unknown, unknown>): string => {
 }
 
 const provideNode = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, never> => effect.pipe(Effect.provide(NodeServices.layer)) as Effect.Effect<A, E, never>
+const showUnknown = Schema.encodeSync(Schema.UnknownFromJsonString)
 
 describe("Electron public behavioral contract", () => {
   it.live("acquires a port with internally supplied browser crypto and no Crypto environment", () => provideNode(Effect.gen(function* () {
@@ -198,8 +199,8 @@ describe("Electron public behavioral contract", () => {
       yield* withRendererWindow(fixture, { invoke: () => settled(envelope) }, Effect.gen(function* () {
         const client = makeElectronIpcClient(contract) as Record<string, unknown>
         const exit = yield* (client.invoke as (value: number) => Effect.Effect<unknown, unknown, never>)(1).pipe(Effect.exit)
-        expect(Exit.isFailure(exit), JSON.stringify(envelope)).toBe(true)
-        expect(failedText(exit), JSON.stringify(envelope)).toContain("IpcTransportError")
+        expect(Exit.isFailure(exit), showUnknown(envelope)).toBe(true)
+        expect(failedText(exit), showUnknown(envelope)).toContain("IpcTransportError")
       }))
     }
   })))
@@ -218,11 +219,15 @@ describe("Electron public behavioral contract", () => {
   it.live("measures the payload cap in UTF-8 bytes", () => provideNode(Effect.gen(function* () {
     const { bindElectronIpc } = electronMain
     const calls: Array<string> = []
+    const accepted = yield* Deferred.make<void>()
     const mainFrame = { url: "https://app.example/", detached: false }
     const target = { webContents: { mainFrame, send: () => {} }, loadURL: () => undefined }
     yield* Effect.scoped(Effect.gen(function* () {
       const emitter = yield* bindElectronIpc(contract, {
-        send: (value: string) => Effect.sync(() => { calls.push(value) }),
+        send: (value: string) => Effect.sync(() => { calls.push(value) }).pipe(
+          Effect.andThen(Deferred.succeed(accepted, undefined)),
+          Effect.asVoid
+        ),
         invoke: () => Effect.succeed(0),
         port: () => Effect.void
       }, { window: target as unknown as ElectronWindow, rendererOrigin: "https://app.example", maxPayloadBytes: 2 })
@@ -230,7 +235,7 @@ describe("Electron public behavioral contract", () => {
       const event = { sender: target.webContents, senderFrame: target.webContents.mainFrame }
       electron.listeners.get("sample:send")?.(event, "é")
       electron.listeners.get("sample:send")?.(event, "😀")
-      yield* Effect.sleep("10 millis")
+      yield* Deferred.await(accepted)
     }))
     expect(calls).toEqual(["é"])
   })))
@@ -242,10 +247,14 @@ describe("Electron public behavioral contract", () => {
     const foreign = { mainFrame: target.webContents.mainFrame }
     const sameUrlOtherFrame = { url: target.webContents.mainFrame.url, detached: false }
     const calls: Array<string> = []
+    const accepted = yield* Deferred.make<void>()
     electron.listeners.clear()
     yield* Effect.scoped(Effect.gen(function* () {
       const emitter = yield* bindElectronIpc(contract, {
-        send: (value: string) => Effect.sync(() => { calls.push(value) }),
+        send: (value: string) => Effect.sync(() => { calls.push(value) }).pipe(
+          Effect.andThen(Deferred.succeed(accepted, undefined)),
+          Effect.asVoid
+        ),
         invoke: () => Effect.succeed(0),
         port: () => Effect.void
       }, { window: target as unknown as ElectronWindow, rendererOrigin: "https://app.example", maxPayloadBytes: 20 })
@@ -261,17 +270,21 @@ describe("Electron public behavioral contract", () => {
       listener?.({ sender: target.webContents, senderFrame: mainFrame }, "wrong-origin")
       mainFrame.url = "https://app.example/"
       listener?.({ sender: target.webContents, senderFrame: target.webContents.mainFrame }, "trusted")
-      yield* Effect.sleep("10 millis")
+      yield* Deferred.await(accepted)
     }))
     expect(calls).toEqual(["trusted"])
 
     const fileFrame = { url: "file:///app/index.html", detached: false }
     const fileTarget = { webContents: { mainFrame: fileFrame, send: () => {} }, loadURL: () => undefined }
     const fileCalls: Array<string> = []
+    const fileAccepted = yield* Deferred.make<void>()
     electron.listeners.clear()
     yield* Effect.scoped(Effect.gen(function* () {
       const emitter = yield* bindElectronIpc(contract, {
-        send: (value: string) => Effect.sync(() => { fileCalls.push(value) }),
+        send: (value: string) => Effect.sync(() => { fileCalls.push(value) }).pipe(
+          Effect.andThen(Deferred.succeed(fileAccepted, undefined)),
+          Effect.asVoid
+        ),
         invoke: () => Effect.succeed(0),
         port: () => Effect.void
       }, { window: fileTarget as unknown as ElectronWindow, rendererUrl: "file:///app/index.html", maxPayloadBytes: 20 })
@@ -280,7 +293,7 @@ describe("Electron public behavioral contract", () => {
       electron.listeners.get("sample:send")?.({ sender: fileTarget.webContents, senderFrame: fileFrame }, "wrong-file")
       fileFrame.url = "file:///app/index.html"
       electron.listeners.get("sample:send")?.({ sender: fileTarget.webContents, senderFrame: fileTarget.webContents.mainFrame }, "trusted-file")
-      yield* Effect.sleep("10 millis")
+      yield* Deferred.await(fileAccepted)
     }))
     expect(fileCalls).toEqual(["trusted-file"])
   })))
@@ -303,7 +316,7 @@ describe("Electron public behavioral contract", () => {
       { rendererUrl: "file://" }
     ]) {
       const exit = yield* bind(options).pipe(Effect.exit)
-      expect(Exit.isFailure(exit), JSON.stringify(options)).toBe(true)
+      expect(Exit.isFailure(exit), showUnknown(options)).toBe(true)
     }
     const fileTarget = { webContents: { mainFrame: { url: "file:///app/index.html", detached: false }, send: () => {} }, loadURL: () => undefined }
     const emitter = yield* Effect.scoped(bindElectronIpc(contract, { send: () => Effect.void, invoke: () => Effect.succeed(0), port: () => Effect.void }, { window: fileTarget as unknown as ElectronWindow, rendererUrl: "file:///app/index.html" }))
@@ -332,12 +345,18 @@ describe("Electron public behavioral contract", () => {
       ;(api?.invoke as (value: number) => unknown)(1)
       ;(api?.port as (value: string) => void)("before")
       lifecycle.get("unload")?.()
-      try { ;(api?.send as (value: string) => void)("after") } catch {}
+      yield* Effect.try({
+        try: () => Reflect.apply(api?.send as Function, api, ["after"]),
+        catch: () => undefined
+      }).pipe(Effect.ignore)
       yield* Effect.tryPromise({
         try: () => Reflect.apply(api?.invoke as Function, api, [2]),
         catch: () => undefined
       }).pipe(Effect.ignore)
-      try { ;(api?.port as (value: string) => void)("after") } catch {}
+      yield* Effect.try({
+        try: () => Reflect.apply(api?.port as Function, api, ["after"]),
+        catch: () => undefined
+      }).pipe(Effect.ignore)
     })
     yield* Effect.ensuring(action, Effect.sync(() => {
       if (previous === undefined) delete globalObject.window
@@ -352,14 +371,18 @@ describe("Ink public behavioral contract", () => {
   it.live("preserves modifiers on special-key events as one event object", () => provideNode(Effect.gen(function* () {
     const { useGlobalKeyRouter } = inkInput
     const events: Array<Record<string, unknown>> = []
+    const received = yield* Deferred.make<Record<string, unknown>>()
     const Probe = () => {
-      useGlobalKeyRouter((event: Record<string, unknown>) => { events.push(event) })
+      useGlobalKeyRouter((event: Record<string, unknown>) => {
+        events.push(event)
+        Deferred.doneUnsafe(received, Effect.succeed(event))
+      })
       return React.createElement(Text, null, "probe")
     }
     const instance = render(React.createElement(Probe))
-    yield* Effect.ensuring(Effect.sleep("20 millis").pipe(Effect.andThen(Effect.sync(() => {
+    yield* Effect.ensuring(Effect.sync(() => {
       instance.stdin.write("\u001b[1;2A")
-    })), Effect.andThen(Effect.sleep("20 millis"))), Effect.sync(() => { instance.unmount() }))
+    }).pipe(Effect.andThen(Deferred.await(received))), Effect.sync(() => { instance.unmount() }))
     expect(events).toEqual([expect.objectContaining({ key: "up", input: "", shift: true })])
   })))
 

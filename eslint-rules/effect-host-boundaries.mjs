@@ -20,7 +20,6 @@ const effectRunFork = "runner:Effect.runFork"
 const effectRunPromise = "runner:Effect.runPromise"
 const listenerAddEventListener = "platform:listener.addEventListener"
 const listenerRemoveEventListener = "platform:listener.removeEventListener"
-const windowExpand = "platform:window.expand"
 const windowLocation = "platform:window.location"
 const windowPostMessage = "platform:window.postMessage"
 
@@ -286,13 +285,6 @@ export const effectHostBoundaries = Object.freeze([
   }),
   Object.freeze({
     file: "apps/desktop/src/renderer/main.tsx",
-    declaration: "variable:getBridge",
-    host: "Renderer preload bridge host adapter",
-    construct: windowExpand,
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "apps/desktop/src/renderer/main.tsx",
     declaration: "variable:retry",
     host: "Renderer reload host adapter",
     construct: windowLocation,
@@ -324,6 +316,34 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "variable:useCommandPaletteHotkey",
     host: "Renderer command-palette keyboard listener disposal",
     construct: listenerRemoveEventListener,
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/test/unit/renderer-boot-port.test.ts",
+    declaration: "variable:previous",
+    host: "Renderer window fixture",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/test/unit/renderer-boot-port.test.ts",
+    declaration: "variable:installWindow",
+    host: "Renderer window fixture cleanup",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/test/unit/renderer-root.test.tsx",
+    declaration: "variable:previousWindow",
+    host: "Renderer window fixture",
+    construct: "platform:window",
+    occurrence: 0
+  }),
+  Object.freeze({
+    file: "apps/desktop/test/unit/renderer-root.test.tsx",
+    declaration: "module:<module>",
+    host: "Renderer window fixture cleanup",
+    construct: "platform:window",
     occurrence: 0
   }),
   Object.freeze({
@@ -1101,20 +1121,6 @@ export const effectHostBoundaries = Object.freeze([
     declaration: "module:<module>",
     host: "Preload window fixture cleanup",
     construct: "platform:window",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "test/architecture/strict-library-boundaries.test.ts",
-    declaration: "member:readJson.try",
-    host: "Architecture JSON fixture decoder",
-    construct: "platform:JSON.parse",
-    occurrence: 0
-  }),
-  Object.freeze({
-    file: "test/architecture/strict-library-boundaries.test.ts",
-    declaration: "variable:config",
-    host: "Architecture TypeScript config decoder",
-    construct: "platform:JSON.parse",
     occurrence: 0
   }),
   Object.freeze({

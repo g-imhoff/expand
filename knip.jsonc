@@ -26,7 +26,6 @@
         "apps/cli/**/*.{ts,tsx}",
         "apps/server/**/*.{ts,tsx}",
         "apps/tui/**/*.{ts,tsx}",
-        "packages/**/*.{ts,tsx}",
         "scripts/**/*.ts",
         "bench/**/*.ts"
       ]
@@ -36,10 +35,10 @@
       "ignoreDependencies": ["@effect/platform-node-shared"]
     },
     "packages/electron-ipc": {
-      "entry": ["contract.ts", "main.ts", "preload.ts", "renderer.ts", "test/**/*.test.ts"]
+      "entry": ["test/**/*.test.ts"]
     },
     "packages/ink-input": {
-      "entry": ["index.ts", "test/**/*.test.{ts,tsx}"]
+      "entry": ["test/**/*.test.{ts,tsx}"]
     },
     "apps/desktop": {
       "entry": [
@@ -49,7 +48,9 @@
       ]
     },
     "docs/architecture": {
-      "project": ["scripts/**/*.ts"]
+      "project": ["scripts/**/*.ts"],
+      "ignoreDependencies": ["likec4"],
+      "ignoreBinaries": ["likec4"]
     }
   }
 }

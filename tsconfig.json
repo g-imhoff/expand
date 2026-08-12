@@ -19,7 +19,7 @@
       "@expand/tui/*": ["apps/tui/*"],
       "@expand/desktop/*": ["apps/desktop/src/*"],
       "@expand/server/*": ["apps/server/*"],
-      "@expand/*": ["apps/cli/*"]
+      "@expand/cli/*": ["apps/cli/cli/*"]
     },
     "plugins": [
       {

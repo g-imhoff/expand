@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { NodePath } from "@effect/platform-node"
-import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
+import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber, FiberSet } from "effect"
 import { describe, expect } from "vitest"
 import {
   DesktopMainError,
@@ -52,6 +52,8 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const releasePortFinalization = yield* Deferred.make<void>()
   const portFinalizationDone = yield* Deferred.make<void>()
   const windowFinalizationReached = yield* Deferred.make<void>()
+  const callbackFibers = yield* FiberSet.make<void, never>()
+  const dispatchCallback = yield* FiberSet.runtime(callbackFibers)<never>()
   let beforeQuit: ((event: { preventDefault: () => void }) => void) | undefined
   let windowAllClosed: (() => void) | undefined
   let closed: (() => void) | undefined
@@ -143,7 +145,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       boundIdentity = identity
       boundRpcPort = handlers.rpcPort as DesktopIpcHandlers<never, TestPort>["rpcPort"]
       return Effect.acquireRelease(
-        Effect.succeed(undefined),
+        Effect.void,
         () => Effect.sync(() => {
           boundRpcPort = undefined
           append("ipc:off")
@@ -282,7 +284,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
         ? new URL(url).href === boundIdentity.value
         : boundIdentity?._tag === "origin" && new URL(url).origin === boundIdentity.value
       if (!trusted) return
-      Effect.runFork(boundRpcPort(
+      dispatchCallback(boundRpcPort(
         { frameUrl: url },
         () => Effect.sync(() => { portGrants += 1 })
       ))

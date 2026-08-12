@@ -16,7 +16,6 @@ export type EventKeys<C extends Contract> = { [K in keyof C["channels"] & string
 export type Emitter<C extends Contract> = { readonly [K in EventKeys<C>]: C["channels"][K] extends EventChannel<infer P> ? (payload: P["Type"]) => void : never }
 export type Bridge<C extends Contract> = { readonly [K in keyof C["channels"] & string]: C["channels"][K] extends InvokeChannel ? (payload: C["channels"][K]["payload"]["Encoded"]) => Promise<unknown> : C["channels"][K] extends SendChannel ? (payload: C["channels"][K]["payload"]["Encoded"]) => void : C["channels"][K] extends EventChannel ? (listener: (payload: C["channels"][K]["payload"]["Encoded"]) => void) => () => void : C["channels"][K] extends PortExchangeChannel ? (nonce: string) => void : never }
 export type Result = { readonly _tag: "IpcSuccess"; readonly value: unknown } | { readonly _tag: "IpcFailure"; readonly error: unknown } | { readonly _tag: "IpcDefect"; readonly message: string }
-export const validName = /^[a-z][a-zA-Z0-9]*$/
 export const isStrictResult = (value: unknown): value is Result => {
   if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) return false
   const keys = Reflect.ownKeys(value)
