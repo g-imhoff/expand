@@ -211,44 +211,4 @@ describe("app responsibility folder convention", () => {
       expect(directFiles(files, "apps/desktop/src/shared")).toEqual([])
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("documents current and optional future folder responsibilities", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const source = yield* fs.readFileString("docs/architecture/APP_STRUCTURE.md")
-      for (const name of [
-        "app",
-        "application",
-        "commands",
-        "components",
-        "composition",
-        "contract",
-        "data",
-        "db",
-        "errors",
-        "features",
-        "input",
-        "ipc",
-        "model",
-        "output",
-        "pages",
-        "rpc",
-        "runtime",
-        "security",
-        "shared",
-        "shell",
-        "transport",
-        "adapters",
-        "assets",
-        "config",
-        "domain",
-        "hooks",
-        "jobs",
-        "migrations",
-        "observability",
-        "styles",
-        "workers"
-      ]) {
-        expect(source).toContain(`- \`${name}\`:`)
-      }
-    }).pipe(Effect.provide(NodeServices.layer)))
 })

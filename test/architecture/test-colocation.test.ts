@@ -93,9 +93,7 @@ describe("test colocation", () => {
           /^apps\/[^/]+\/test\//.test(rel) ||
           /^packages\/[^/]+\/test\//.test(rel) ||
           /^examples\/[^/]+\/test\//.test(rel) ||
-          /^scripts\/[^/]+\.test\.tsx?$/.test(rel) ||
-          rel === "bench/bench.test.ts" ||
-          rel === "docs/architecture/scripts/build.test.ts"
+          /^scripts\/[^/]+\.test\.tsx?$/.test(rel)
         return !ok
       })
       expect(misplaced).toEqual([])

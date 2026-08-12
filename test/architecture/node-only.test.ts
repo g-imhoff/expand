@@ -6,7 +6,6 @@ import { runCommand } from "../support/effect-process"
 
 const exempt = new Set([
   "package-lock.json",
-  "docs/architecture/package-lock.json",
   "test/architecture/node-only.test.ts"
 ])
 const containsBunReference = (source: string) =>
@@ -125,7 +124,7 @@ describe("Node-only repository policy", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const root = path.resolve(".")
-      for (const file of [".bun-version", "bun.lock", "docs/architecture/bun.lock", "packages/client-ts/adapters/bun.ts"]) {
+      for (const file of [".bun-version", "bun.lock", "packages/client-ts/adapters/bun.ts"]) {
         expect(yield* fs.exists(path.join(root, file)), file).toBe(false)
       }
     }).pipe(Effect.provide(NodeServices.layer)))
@@ -139,7 +138,7 @@ describe("Node-only repository policy", () => {
       expect(report.exitCode, report.stderr).toBe(0)
       const diagnostics: Array<BunReferenceDiagnostic> = []
       for (const file of report.stdout.split("\0").filter(Boolean)) {
-        if (file.startsWith("docs/superpowers/") || exempt.has(file)) continue
+        if (exempt.has(file)) continue
         const absolute = path.join(root, file)
         if (!(yield* fs.exists(absolute))) continue
         const source = yield* fs.readFileString(absolute)

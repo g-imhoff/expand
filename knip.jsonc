@@ -26,8 +26,7 @@
         "apps/cli/**/*.{ts,tsx}",
         "apps/server/**/*.{ts,tsx}",
         "apps/tui/**/*.{ts,tsx}",
-        "scripts/**/*.ts",
-        "bench/**/*.ts"
+        "scripts/**/*.ts"
       ]
     },
     "packages/client-ts": {
@@ -46,11 +45,6 @@
         "e2e/**/*.spec.ts",
         "e2e/playwright.config.ts"
       ]
-    },
-    "docs/architecture": {
-      "project": ["scripts/**/*.ts"],
-      "ignoreDependencies": ["likec4"],
-      "ignoreBinaries": ["likec4"]
     }
   }
 }

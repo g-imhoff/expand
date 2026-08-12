@@ -1,12 +1,12 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { ENVELOPE_VERSION } from "../../apps/cli/cli/contract/envelope"
 import {
   EVENT_REVISIONS,
   EVENT_UPCASTERS,
   type EventUpcasterRegistry
 } from "../../apps/server/migrations/events"
 import { CURRENT_DATABASE_MIGRATION, DATABASE_MIGRATIONS } from "../../apps/server/migrations/sqlite"
+import { ENVELOPE_VERSION } from "../../packages/contracts/cli/version"
 import { PROTOCOL_VERSION } from "../../packages/contracts/rpc/version"
 import { stage as stageClientPackage } from "../../packages/client-ts/scripts/prepare-publish"
 import { stage as stageContractsPackage } from "../../packages/contracts/scripts/prepare-publish"
@@ -22,21 +22,7 @@ const manifestPaths = [
   "package.json",
   "apps/desktop/package.json",
   "packages/contracts/package.json",
-  "packages/client-ts/package.json",
-  "docs/architecture/package.json"
-] as const
-
-const documentedDomains = [
-  "Product release",
-  "Tracked workspace manifests",
-  "CLI envelope",
-  "Backend protocol",
-  "SQLite schema",
-  "Stored events",
-  "Projection folds",
-  "Benchmark seed cache",
-  "Internal Effect commands",
-  "Runtime and dependency pins"
+  "packages/client-ts/package.json"
 ] as const
 
 const Manifest = Schema.Struct({
@@ -386,7 +372,7 @@ describe("version policy", () => {
       }
     }).pipe(Effect.scoped)))
 
-  it.live("keeps tracked manifests as sentinels and documents every version domain", () =>
+  it.live("keeps tracked manifests as version sentinels", () =>
     atRepositoryRoot((root) => Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -406,13 +392,5 @@ describe("version policy", () => {
       expect(contracts?.version).toBe("0.0.0")
       expect(client?.version).toBe("0.0.0")
       expect(client?.dependencies?.["@expand/contracts"]).toBe(contracts?.version)
-
-      const documentation = yield* fs.readFileString(path.join(root, "docs/architecture/VERSIONING.md"))
-      for (const domain of documentedDomains) {
-        const occurrences = documentation.split("\n").filter((line) => line === `## ${domain}`).length
-        expect(occurrences, domain).toBe(1)
-      }
-      expect(documentation).toContain("v<SemVer>")
-      expect(documentation).toContain("expand/v1")
     })))
 })

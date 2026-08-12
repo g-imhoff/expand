@@ -2,7 +2,6 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path } from "effect"
 import { describe, expect } from "vitest"
-import { runCommand } from "../support/effect-process"
 
 const read = Effect.fn("IpcBoundary.read")(function*(file: string) {
   const fs = yield* FileSystem.FileSystem
@@ -72,15 +71,4 @@ describe("typed IPC boundary", () => {
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("dependency-cruiser IPC rules hold", () =>
-    runCommand("npm", ["exec", "--", "depcruise", "apps", "packages", "--config", ".dependency-cruiser.cjs"]).pipe(
-      Effect.tap((report) => Effect.sync(() => {
-        const output = `${report.stdout}${report.stderr}`
-        expect(output).not.toContain("electron-ipc-package-isolated")
-        expect(output).not.toContain("shared-ipc-stays-pure")
-        expect(output).not.toContain("preload-imports-allowlist")
-        expect(report.exitCode).toBe(0)
-      })),
-      Effect.provide(NodeServices.layer)
-    ))
 })

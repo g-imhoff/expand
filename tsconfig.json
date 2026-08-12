@@ -60,7 +60,7 @@
       }
     ]
   },
-  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "migrations", "vitest.config.ts", "test/architecture", "test/support", "bench", "examples", "scripts", "docs/architecture"],
+  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "vitest.config.ts", "test/architecture", "test/support", "examples", "scripts"],
   "exclude": [
     "apps/desktop"
   ]
