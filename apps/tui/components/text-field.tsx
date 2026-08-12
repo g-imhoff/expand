@@ -1,7 +1,7 @@
 // Render-only — receives state via props, registers NO input handler.
 import React from "react"
 import { Box, Text } from "ink"
-import type { TextFieldState } from "@expand/ink-input/text-field"
+import type { TextFieldState } from "@expand/tui/input/text-field"
 
 export const TextField = ({
   label, state, focused, color = "green"
