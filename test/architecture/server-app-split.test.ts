@@ -27,10 +27,10 @@ describe("server app split", () => {
       expect(yield* read("scripts/build.ts")).toContain('["apps/server/main.ts", "dist/expand-server"]')
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("keeps the compiled-binary smoke inside cert:cli:build", () =>
+  it.live("keeps the compiled-binary smoke inside verify:compiled-binaries", () =>
     Effect.gen(function*() {
       const pkg = yield* Schema.decodeUnknownEffect(PackageJson)(yield* read("package.json"))
-      expect(pkg.scripts["cert:cli:build"]).toBe("tsx scripts/binary-smoke.ts")
+      expect(pkg.scripts["verify:compiled-binaries"]).toBe("tsx scripts/binary-smoke.ts")
       expect(yield* read("scripts/binary-smoke.ts")).toContain('runCommand(root, "tsx", ["scripts/build.ts"])')
       expect(yield* read("scripts/binary-smoke.ts")).toContain("scripts/fixtures/job-control.sh")
     }).pipe(Effect.provide(NodeServices.layer)))

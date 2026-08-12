@@ -4,15 +4,18 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { stage as stageContracts } from "../packages/contracts/scripts/prepare-publish"
 import { stage as stageClient } from "../packages/client-ts/scripts/prepare-publish"
 
+export const Workspace = Schema.Literals(["@expand/contracts", "@expand/client-ts", "@expand/electron-ipc", "@expand/ink-input"])
+export type Workspace = typeof Workspace.Type
+
 export class PackageCertificationError extends Data.TaggedError("PackageCertificationError")<{
-  readonly workspace: "@expand/contracts" | "@expand/client-ts"
+  readonly workspace: Workspace
   readonly phase: "build" | "stage" | "pack" | "inspect"
   readonly detail: string
   readonly cause?: unknown
 }> {}
 
 export interface PackageCertificationReport {
-  readonly workspace: string
+  readonly workspace: Workspace
   readonly packageName: string
   readonly filename: string
   readonly files: ReadonlyArray<string>
@@ -22,7 +25,7 @@ export interface PackageCertificationReport {
 }
 
 export interface PackageCertificationCommandRequest {
-  readonly workspace: "@expand/contracts" | "@expand/client-ts"
+  readonly workspace: Workspace
   readonly phase: "build" | "stage" | "pack" | "inspect"
   readonly command: string
   readonly args: ReadonlyArray<string>
@@ -38,9 +41,6 @@ export interface PackageCertificationCommandResult {
 export class PackageCertificationCommandRunner extends Context.Service<PackageCertificationCommandRunner, {
   readonly run: (request: PackageCertificationCommandRequest) => Effect.Effect<PackageCertificationCommandResult, PackageCertificationError>
 }>()("expand/PackageCertificationCommandRunner") {}
-
-export const Workspace = Schema.Literals(["@expand/contracts", "@expand/client-ts"])
-export type Workspace = typeof Workspace.Type
 
 export class PackageStager extends Context.Service<PackageStager, {
   readonly stage: (workspace: Workspace, root: string, version: string) => Effect.Effect<void, PackageCertificationError>
@@ -78,14 +78,38 @@ const PublishedManifest = Schema.Struct({
   dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
 })
 
+const SourceManifest = Schema.Struct({
+  name: Schema.String,
+  type: Schema.Literal("module"),
+  sideEffects: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
+})
+
 export interface TarEntry {
   readonly path: string
   readonly type: "file" | "directory" | "link"
 }
 
 const workspaces = [
-  { name: "@expand/contracts", directory: "packages/contracts" },
-  { name: "@expand/client-ts", directory: "packages/client-ts" }
+  { name: "@expand/contracts", directory: "packages/contracts", build: "workspace" },
+  { name: "@expand/client-ts", directory: "packages/client-ts", build: "workspace" },
+  {
+    name: "@expand/electron-ipc",
+    directory: "packages/electron-ipc",
+    build: [
+      "contract.ts", "main.ts", "preload.ts", "renderer.ts",
+      "--format", "esm", "--dts", "--out-dir", "dist", "--target", "es2022",
+      "--platform", "neutral", "--external", "effect", "--external", "electron", "--clean", "--splitting"
+    ]
+  },
+  {
+    name: "@expand/ink-input",
+    directory: "packages/ink-input",
+    build: [
+      "index.ts", "--format", "esm", "--dts", "--out-dir", "dist", "--target", "es2022",
+      "--platform", "neutral", "--external", "ink", "--external", "react", "--clean"
+    ]
+  }
 ] as const
 
 const clientExports = {
@@ -102,19 +126,90 @@ const contractsExports = {
   "./*": { types: "./dist/*.d.ts", import: "./dist/*.js", default: "./dist/*.js" }
 } as const
 
+const electronIpcExports = {
+  "./contract": { types: "./dist/contract.d.ts", import: "./dist/contract.js", default: "./dist/contract.js" },
+  "./main": { types: "./dist/main.d.ts", import: "./dist/main.js", default: "./dist/main.js" },
+  "./preload": { types: "./dist/preload.d.ts", import: "./dist/preload.js", default: "./dist/preload.js" },
+  "./renderer": { types: "./dist/renderer.d.ts", import: "./dist/renderer.js", default: "./dist/renderer.js" },
+  "./package.json": "./package.json"
+} as const
+
+const inkInputExports = {
+  ".": { types: "./dist/index.d.ts", import: "./dist/index.js", default: "./dist/index.js" },
+  "./package.json": "./package.json"
+} as const
+
+const expectedExportsFor = (workspace: Workspace): Readonly<Record<string, unknown>> => workspace === "@expand/contracts"
+  ? contractsExports
+  : workspace === "@expand/client-ts"
+    ? clientExports
+    : workspace === "@expand/electron-ipc"
+      ? electronIpcExports
+      : inkInputExports
+
 const failure = (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string, cause?: unknown) =>
   new PackageCertificationError({ workspace, phase, detail, ...(cause === undefined ? {} : { cause }) })
+
+const stageBuiltLibrary = Effect.fn("PackageCertification.stageBuiltLibrary")(
+  function*(workspace: "@expand/electron-ipc" | "@expand/ink-input", root: string, version: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const dist = path.join(root, "dist")
+    if (!(yield* fs.exists(dist).pipe(Effect.mapError((cause) => failure(workspace, "stage", "built package could not be checked", cause))))) {
+      return yield* failure(workspace, "stage", "built package was missing")
+    }
+    const source = yield* fs.readFileString(path.join(root, "package.json")).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(SourceManifest))),
+      Effect.mapError((cause) => failure(workspace, "stage", "source package manifest could not be read", cause))
+    )
+    if (source.name !== workspace) return yield* failure(workspace, "stage", "source package name did not match workspace")
+    const target = path.join(root, "dist-publish")
+    yield* fs.makeDirectory(target, { recursive: true }).pipe(
+      Effect.mapError((cause) => failure(workspace, "stage", "publish staging directory could not be created", cause))
+    )
+    yield* fs.copy(dist, path.join(target, "dist")).pipe(
+      Effect.mapError((cause) => failure(workspace, "stage", "built package could not be staged", cause))
+    )
+    const manifest = yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
+      name: workspace,
+      version,
+      private: false,
+      type: source.type,
+      sideEffects: source.sideEffects,
+      files: ["dist"],
+      exports: expectedExportsFor(workspace),
+      ...(source.dependencies === undefined ? {} : { dependencies: source.dependencies })
+    }).pipe(Effect.mapError((cause) => failure(workspace, "stage", "publish package manifest could not be encoded", cause)))
+    yield* fs.writeFileString(path.join(target, "package.json"), `${manifest}\n`).pipe(
+      Effect.mapError((cause) => failure(workspace, "stage", "publish package manifest could not be written", cause))
+    )
+  }
+)
 
 export const PackageStagerLive = Layer.effect(PackageStager, Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   return PackageStager.of({
-    stage: Effect.fn("PackageCertification.stagePackage")((workspace, root, version) =>
-      (workspace === "@expand/contracts" ? stageContracts(root, version) : stageClient(root, version)).pipe(
+    stage: Effect.fn("PackageCertification.stagePackage")((workspace, root, version) => {
+      if (workspace === "@expand/contracts") {
+        return stageContracts(root, version).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError((cause) => failure(workspace, "stage", "package staging failed", cause))
+        )
+      }
+      if (workspace === "@expand/client-ts") {
+        return stageClient(root, version).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.mapError((cause) => failure(workspace, "stage", "package staging failed", cause))
+        )
+      }
+      return stageBuiltLibrary(workspace, root, version).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
-        Effect.provideService(Path.Path, path),
-        Effect.mapError((cause) => failure(workspace, "stage", "package staging failed", cause))
-      ))
+        Effect.provideService(Path.Path, path)
+      )
+    })
   })
 }))
 
@@ -234,7 +329,7 @@ export const inspectPackageArtifact = Effect.fn("PackageCertification.inspectPac
       return yield* failure(input.workspace, "inspect", "files must equal [\"dist\"]")
     }
     if (manifest.name !== input.workspace) return yield* failure(input.workspace, "inspect", "package name did not match workspace")
-    const expectedExports = input.workspace === "@expand/client-ts" ? clientExports : contractsExports
+    const expectedExports = expectedExportsFor(input.workspace)
     if (!sameValue(manifest.exports, expectedExports)) return yield* failure(input.workspace, "inspect", "wrong export surface")
     for (const target of exportTargets(manifest.exports)) {
       if (!targetExists(input.metadataFiles, target)) return yield* failure(input.workspace, "inspect", `missing export target: ${target}`)
@@ -337,9 +432,24 @@ const runWorkspaceLifecycle = <A, E, R>(
   return yield* retainCleanup(program, cleanupStage(root, directory, workspace))
 })
 
-const smokeTargets = (workspace: Workspace, files: ReadonlyArray<string>) => workspace === "@expand/contracts"
-  ? resolveContractsWildcardTargets(files).map((target) => target.subpath)
-  : ["@expand/client-ts", "@expand/client-ts/project", "@expand/client-ts/server", "@expand/client-ts/adapters/node"]
+const smokeTargets = (workspace: Workspace, files: ReadonlyArray<string>) => {
+  if (workspace === "@expand/contracts") {
+    const targets = resolveContractsWildcardTargets(files).map((target) => target.subpath)
+    return { runtime: targets, types: targets }
+  }
+  if (workspace === "@expand/client-ts") {
+    const targets = ["@expand/client-ts", "@expand/client-ts/project", "@expand/client-ts/server", "@expand/client-ts/adapters/node"]
+    return { runtime: targets, types: targets }
+  }
+  if (workspace === "@expand/electron-ipc") {
+    return {
+      runtime: ["@expand/electron-ipc/contract", "@expand/electron-ipc/renderer"],
+      types: ["@expand/electron-ipc/contract", "@expand/electron-ipc/main", "@expand/electron-ipc/preload", "@expand/electron-ipc/renderer"]
+    }
+  }
+  const targets = ["@expand/ink-input"]
+  return { runtime: targets, types: targets }
+}
 
 export const certifyPackages = Effect.fn("PackageCertification.run")(
   (root: string) => Effect.scoped(Effect.gen(function*() {
@@ -353,7 +463,15 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
     const tarballs: Array<string> = []
     for (const workspace of workspaces) {
       const work = Effect.gen(function*() {
-        yield* run({ workspace: workspace.name, phase: "build", command: "npm", args: ["run", "build", "--workspace", workspace.name], cwd: root })
+        yield* (workspace.build === "workspace"
+          ? run({ workspace: workspace.name, phase: "build", command: "npm", args: ["run", "build", "--workspace", workspace.name], cwd: root })
+          : run({
+            workspace: workspace.name,
+            phase: "build",
+            command: path.join(root, "node_modules", ".bin", "tsup"),
+            args: workspace.build,
+            cwd: path.join(root, workspace.directory)
+          }))
         yield* stager.stage(workspace.name, path.join(root, workspace.directory), "0.0.0-cert.0")
         const packed = yield* run({
           workspace: workspace.name,
@@ -373,7 +491,7 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
         const verbose = yield* run({ workspace: workspace.name, phase: "inspect", command: "tar", args: ["-tvzf", tarball], cwd: root })
         const tarEntries = yield* parseTarEntries(workspace.name, listed.stdout, verbose.stdout)
         yield* validateTarEntries(workspace.name, tarEntries)
-        const unpacked = path.join(temp, workspace.name === "@expand/contracts" ? "contracts" : "client")
+        const unpacked = path.join(temp, workspace.name.slice("@expand/".length))
         yield* fs.makeDirectory(unpacked, { recursive: true }).pipe(
           Effect.mapError((cause) => failure(workspace.name, "inspect", "unpack directory could not be created", cause))
         )
@@ -391,7 +509,13 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
     }
     const contracts = reports.find((report) => report.workspace === "@expand/contracts")
     const client = reports.find((report) => report.workspace === "@expand/client-ts")
-    if (contracts === undefined || client === undefined || contracts.version !== client.version || client.dependencies["@expand/contracts"] !== contracts.version) {
+    if (
+      reports.length !== workspaces.length ||
+      contracts === undefined ||
+      client === undefined ||
+      reports.some((report) => report.version !== contracts.version) ||
+      client.dependencies["@expand/contracts"] !== contracts.version
+    ) {
       return yield* failure("@expand/client-ts", "inspect", "fixed-group package versions were not aligned")
     }
     const consumer = path.join(temp, "consumer")
@@ -414,19 +538,25 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
       args: ["install", "--ignore-scripts", "--no-package-lock", "--no-audit", "--no-fund", ...tarballs],
       cwd: consumer
     })
-    const targets = reports.flatMap((report) => smokeTargets(report.workspace as Workspace, report.files))
-    const encodedTargets = yield* Effect.forEach(targets, (target) => encodeCertificationJson(
+    const targets = reports.map((report) => smokeTargets(report.workspace, report.files))
+    const runtimeTargets = yield* Effect.forEach(targets.flatMap(({ runtime }) => runtime), (target) => encodeCertificationJson(
       "@expand/client-ts",
       "inspect",
       "smoke target could not be encoded",
       target
     ))
-    const importSource = `${encodedTargets.map((target) => `import ${target}`).join("\n")}\n`
+    const importSource = `${runtimeTargets.map((target) => `import ${target}`).join("\n")}\n`
     yield* fs.writeFileString(path.join(consumer, "smoke.mjs"), importSource).pipe(
       Effect.mapError((cause) => failure("@expand/client-ts", "inspect", "import smoke could not be written", cause))
     )
     yield* run({ workspace: "@expand/client-ts", phase: "inspect", command: "node", args: ["smoke.mjs"], cwd: consumer })
-    const typeSource = `${encodedTargets.map((target, index) => `import type * as T${index} from ${target}\ntype V${index} = typeof T${index}`).join("\n")}\n`
+    const typeTargets = yield* Effect.forEach(targets.flatMap(({ types }) => types), (target) => encodeCertificationJson(
+      "@expand/client-ts",
+      "inspect",
+      "type smoke target could not be encoded",
+      target
+    ))
+    const typeSource = `${typeTargets.map((target, index) => `import type * as T${index} from ${target}\ntype V${index} = typeof T${index}`).join("\n")}\n`
     yield* fs.writeFileString(path.join(consumer, "smoke.ts"), typeSource).pipe(
       mapCertificationError("@expand/client-ts", "inspect", "type smoke could not be written")
     )

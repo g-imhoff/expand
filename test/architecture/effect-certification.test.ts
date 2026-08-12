@@ -14,7 +14,7 @@ describe("package certification architecture", () => {
     const manifest = yield* fs.readFileString("package.json").pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(PackageJson))
     )
-    expect(manifest.scripts["cert:packages"]).toBe("tsx scripts/package-certification.ts")
+    expect(manifest.scripts["verify:package-artifacts"]).toBe("tsx scripts/package-certification.ts")
     expect(source.match(/NodeRuntime(?:\["runMain"\]|\.runMain)\(/g)).toHaveLength(1)
   }).pipe(Effect.provide(NodeServices.layer)))
 })

@@ -88,7 +88,7 @@ const resolvedWorkspaceFiles = Effect.gen(function*() {
 
 const expectedScripts = {
   prepare: "effect-language-service patch",
-  "typecheck:all": "tsc --noEmit -p tsconfig.workspace.json"
+  typecheck: "tsc --noEmit -p tsconfig.workspace.json"
 }
 
 const expectedDiagnosticSeverity = {
@@ -190,7 +190,7 @@ describe("Effect language service diagnostics", () => {
       const check = yield* runCommand("npm", ["exec", "--", "effect-language-service", "check"])
       expect(check.exitCode, check.stderr).toBe(0)
       expect(check.stdout.match(/patched with version/g)).toHaveLength(2)
-      const typecheck = yield* runCommand("npm", ["run", "typecheck:all"])
+      const typecheck = yield* runCommand("npm", ["run", "typecheck"])
       expect(typecheck.exitCode, `${typecheck.stdout}\n${typecheck.stderr}`).toBe(0)
     }).pipe(Effect.provide(NodeServices.layer)), 120_000)
 

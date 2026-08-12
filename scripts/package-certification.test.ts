@@ -10,8 +10,12 @@ import {
   PackageCertificationError,
   PackageStager,
   PackMetadataJson,
-  resolveContractsWildcardTargets
+  resolveContractsWildcardTargets,
+  type PackageCertificationCommandRequest,
+  type Workspace
 } from "./package-certification"
+
+type PackageKind = "contracts" | "client" | "electron-ipc" | "ink-input"
 
 const clientExports = () => ({
   ".": { types: "./dist/index.d.ts", import: "./dist/index.js", default: "./dist/index.js" },
@@ -27,19 +31,82 @@ const contractsExports = () => ({
   "./*": { types: "./dist/*.d.ts", import: "./dist/*.js", default: "./dist/*.js" }
 })
 
-const filesFor = (kind: "contracts" | "client") => kind === "contracts"
+const electronIpcExports = () => ({
+  "./contract": { types: "./dist/contract.d.ts", import: "./dist/contract.js", default: "./dist/contract.js" },
+  "./main": { types: "./dist/main.d.ts", import: "./dist/main.js", default: "./dist/main.js" },
+  "./preload": { types: "./dist/preload.d.ts", import: "./dist/preload.js", default: "./dist/preload.js" },
+  "./renderer": { types: "./dist/renderer.d.ts", import: "./dist/renderer.js", default: "./dist/renderer.js" },
+  "./package.json": "./package.json"
+})
+
+const inkInputExports = () => ({
+  ".": { types: "./dist/index.d.ts", import: "./dist/index.js", default: "./dist/index.js" },
+  "./package.json": "./package.json"
+})
+
+const workspaceFor = (kind: PackageKind): Workspace => kind === "contracts"
+  ? "@expand/contracts"
+  : kind === "client"
+    ? "@expand/client-ts"
+    : kind === "electron-ipc"
+      ? "@expand/electron-ipc"
+      : "@expand/ink-input"
+
+const kindFor = (workspace: Workspace): PackageKind => workspace === "@expand/contracts"
+  ? "contracts"
+  : workspace === "@expand/client-ts"
+    ? "client"
+    : workspace === "@expand/electron-ipc"
+      ? "electron-ipc"
+      : "ink-input"
+
+const workspaceFromPath = (target: string): Workspace => target.includes("electron-ipc")
+  ? "@expand/electron-ipc"
+  : target.includes("ink-input")
+    ? "@expand/ink-input"
+    : target.includes("contracts")
+      ? "@expand/contracts"
+      : "@expand/client-ts"
+
+const exportsFor = (kind: PackageKind): Record<string, unknown> => kind === "contracts"
+  ? contractsExports()
+  : kind === "client"
+    ? clientExports()
+    : kind === "electron-ipc"
+      ? electronIpcExports()
+      : inkInputExports()
+
+const dependenciesFor = (kind: PackageKind): Record<string, string> => kind === "contracts"
+  ? { effect: "4.0.0-beta.74" }
+  : kind === "client"
+    ? { effect: "4.0.0-beta.74", "@expand/contracts": "0.0.0-cert.0" }
+    : kind === "electron-ipc"
+      ? { effect: "4.0.0-beta.74", electron: "42" }
+      : { ink: "7", react: "19" }
+
+const filesFor = (kind: PackageKind) => kind === "contracts"
   ? ["package.json", "dist/process-control.js", "dist/process-control.d.ts"]
-  : [
+  : kind === "client"
+    ? [
       "package.json",
       "dist/index.js", "dist/index.d.ts",
       "dist/project/index.js", "dist/project/index.d.ts",
       "dist/server/index.js", "dist/server/index.d.ts",
       "dist/adapters/node.js", "dist/adapters/node.d.ts"
     ]
+    : kind === "electron-ipc"
+      ? [
+          "package.json",
+          "dist/contract.js", "dist/contract.d.ts",
+          "dist/main.js", "dist/main.d.ts",
+          "dist/preload.js", "dist/preload.d.ts",
+          "dist/renderer.js", "dist/renderer.d.ts"
+        ]
+      : ["package.json", "dist/index.js", "dist/index.d.ts"]
 
 const withArtifact = Effect.fn("PackageCertificationTest.withArtifact")(
   function* <A>(
-    kind: "contracts" | "client",
+    kind: PackageKind,
     mutate: (manifest: Record<string, unknown>, files: Array<string>) => void,
     use: (input: { readonly root: string; readonly files: ReadonlyArray<string> }) => Effect.Effect<A, unknown, FileSystem.FileSystem | Path.Path>
   ) {
@@ -48,16 +115,13 @@ const withArtifact = Effect.fn("PackageCertificationTest.withArtifact")(
     const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-artifact-" })
     const files = filesFor(kind)
     const manifest: Record<string, unknown> = {
-      name: kind === "contracts" ? "@expand/contracts" : "@expand/client-ts",
+      name: workspaceFor(kind),
       version: "0.0.0-cert.0",
       private: false,
       type: "module",
       files: ["dist"],
-      exports: kind === "contracts" ? contractsExports() : clientExports(),
-      dependencies: kind === "contracts" ? { effect: "4.0.0-beta.74" } : {
-        effect: "4.0.0-beta.74",
-        "@expand/contracts": "0.0.0-cert.0"
-      }
+      exports: exportsFor(kind),
+      dependencies: dependenciesFor(kind)
     }
     mutate(manifest, files)
     for (const file of files) {
@@ -72,14 +136,14 @@ const withArtifact = Effect.fn("PackageCertificationTest.withArtifact")(
 )
 
 const artifact = <A>(
-  kind: "contracts" | "client",
+  kind: PackageKind,
   mutate: (manifest: Record<string, unknown>, files: Array<string>) => void,
   use: Parameters<typeof withArtifact<A>>[2]
 ) => withArtifact(kind, mutate, use).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
-const inspect = (kind: "contracts" | "client", mutate: (manifest: Record<string, unknown>, files: Array<string>) => void = () => {}) =>
+const inspect = (kind: PackageKind, mutate: (manifest: Record<string, unknown>, files: Array<string>) => void = () => {}) =>
   artifact(kind, mutate, ({ root, files }) => inspectPackageArtifact({
-    workspace: kind === "contracts" ? "@expand/contracts" : "@expand/client-ts",
+    workspace: workspaceFor(kind),
     unpackedRoot: root,
     filename: `${kind}-0.0.0.tgz`,
     metadataFiles: files,
@@ -101,7 +165,7 @@ const packageStager = Layer.succeed(PackageStager, PackageStager.of({ stage: () 
 const certificationRunner = Layer.merge(
   Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
   run: (request) => {
-    const kind = request.workspace === "@expand/contracts" ? "contracts" : "client"
+    const kind = kindFor(request.workspace)
     const files = filesFor(kind)
     if (request.phase === "pack") {
       return Schema.encodeEffect(Schema.UnknownFromJsonString)([{
@@ -122,23 +186,22 @@ const certificationRunner = Layer.merge(
   packageStager
 )
 
-const manifestJson = (workspace: "@expand/contracts" | "@expand/client-ts") => Schema.encodeEffect(Schema.UnknownFromJsonString)({
+const manifestFor = (workspace: Workspace) => ({
   name: workspace,
   version: "0.0.0-cert.0",
   private: false,
   type: "module",
   files: ["dist"],
-  exports: workspace === "@expand/contracts" ? contractsExports() : clientExports(),
-  dependencies: workspace === "@expand/contracts" ? { effect: "4.0.0-beta.74" } : {
-    effect: "4.0.0-beta.74",
-    "@expand/contracts": "0.0.0-cert.0"
-  }
-}).pipe(Effect.orDie)
+  exports: exportsFor(kindFor(workspace)),
+  dependencies: dependenciesFor(kindFor(workspace))
+})
+
+const manifestJson = (workspace: Workspace) => Schema.encodeEffect(Schema.UnknownFromJsonString)(manifestFor(workspace)).pipe(Effect.orDie)
 
 describe("package certification model", () => {
-  it.effect.each(["contracts", "client"] as const)("reports fixed-group identity for a valid synthetic %s package", (kind) =>
+  it.effect.each(["contracts", "client", "electron-ipc", "ink-input"] as const)("reports fixed-group identity for a valid synthetic %s package", (kind) =>
     inspect(kind).pipe(Effect.map((report) => {
-      expect(report.packageName).toBe(`@expand/${kind === "client" ? "client-ts" : "contracts"}`)
+      expect(report.packageName).toBe(workspaceFor(kind))
       expect(report.version).toBe("0.0.0-cert.0")
       if (kind === "client") expect(report.dependencies["@expand/contracts"]).toBe("0.0.0-cert.0")
     })))
@@ -227,13 +290,17 @@ describe("package certification model", () => {
       Effect.map((error) => expect(error).toMatchObject({ detail: expect.stringContaining("export surface") }))
     ))
 
-  it.effect.each(["contracts", "client"] as const)("rejects wrong %s export target mappings", (kind) =>
+  it.effect.each(["contracts", "client", "electron-ipc", "ink-input"] as const)("rejects wrong %s export target mappings", (kind) =>
     inspect(kind, (manifest) => {
       const exports = manifest.exports as Record<string, unknown>
       if (kind === "contracts") {
         exports["./*"] = { types: "./dist/*.d.ts", import: "./dist/*.js", default: "./dist/*.d.ts" }
-      } else {
+      } else if (kind === "client") {
         exports["./project"] = { types: "./dist/index.d.ts", import: "./dist/index.js", default: "./dist/index.js" }
+      } else if (kind === "electron-ipc") {
+        exports["./main"] = { types: "./dist/contract.d.ts", import: "./dist/main.js", default: "./dist/main.js" }
+      } else {
+        exports["."] = { types: "./dist/index.d.ts", import: "./dist/missing.js", default: "./dist/missing.js" }
       }
     }).pipe(
       Effect.flip,
@@ -250,8 +317,8 @@ describe("package certification resources", () => {
     ["temporary directory acquisition", "@expand/contracts", "build", "temporary directory could not be created", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.fail(failure as never) })],
     ["staging existence", "@expand/contracts", "stage", "staging paths could not be checked", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.fail(failure as never) })],
     ["manifest read", "@expand/contracts", "inspect", "package.json could not be read", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: () => Effect.fail(failure as never) })],
-    ["consumer manifest write", "@expand/client-ts", "inspect", "consumer manifest could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(target.includes("contracts") ? "@expand/contracts" : "@expand/client-ts"), writeFileString: () => Effect.fail(failure as never) })],
-    ["import smoke write", "@expand/client-ts", "inspect", "import smoke could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(target.includes("contracts") ? "@expand/contracts" : "@expand/client-ts"), writeFileString: (target) => target.endsWith("smoke.mjs") ? Effect.fail(failure as never) : Effect.void })]
+    ["consumer manifest write", "@expand/client-ts", "inspect", "consumer manifest could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(workspaceFromPath(target)), writeFileString: () => Effect.fail(failure as never) })],
+    ["import smoke write", "@expand/client-ts", "inspect", "import smoke could not be written", (failure: unknown) => FileSystem.layerNoop({ makeTempDirectoryScoped: () => Effect.succeed("/tmp/cert"), exists: () => Effect.succeed(false), makeDirectory: () => Effect.void, remove: () => Effect.void, readFileString: (target) => manifestJson(workspaceFromPath(target)), writeFileString: (target) => target.endsWith("smoke.mjs") ? Effect.fail(failure as never) : Effect.void })]
   ] as const)("maps %s failures at the operation boundary", ([, workspace, phase, detail, fileSystem]) => {
     const cause = { operation: detail }
     return certifyPackages("/fixture").pipe(
@@ -300,10 +367,142 @@ describe("package certification resources", () => {
   })
 
   it.effect.each([
+    ["aligned artifacts", undefined],
+    ["a mismatched added-package version", "@expand/ink-input"]
+  ] as const)("orchestrates %s across every package", ([, mismatchedWorkspace]) => Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "expand-package-success-" })
+    const requests = yield* Ref.make<ReadonlyArray<PackageCertificationCommandRequest>>([])
+    const staged = yield* Ref.make<ReadonlyArray<Workspace>>([])
+    const smokeSources = yield* Ref.make({ runtime: "", types: "" })
+    const workspaceRoot = (workspace: Workspace) => path.join(root, "packages", workspace.slice("@expand/".length))
+    for (const workspace of ["@expand/contracts", "@expand/client-ts", "@expand/electron-ipc", "@expand/ink-input"] as const) {
+      yield* fs.makeDirectory(workspaceRoot(workspace), { recursive: true })
+    }
+    const runnerLayer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
+      run: (request) => Effect.gen(function*() {
+        yield* Ref.update(requests, (values) => [...values, request])
+        const kind = kindFor(request.workspace)
+        const files = filesFor(kind)
+        if (request.phase === "pack") {
+          return {
+            exitCode: 0,
+            stdout: yield* Schema.encodeEffect(Schema.UnknownFromJsonString)([{
+              id: `${kind}@0.0.0-cert.0`, name: request.workspace, version: "0.0.0-cert.0", size: 1, unpackedSize: 1,
+              shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
+              entryCount: files.length, bundled: []
+            }]),
+            stderr: ""
+          }
+        }
+        if (request.command === "tar" && request.args[0] === "-tzf") {
+          return { exitCode: 0, stdout: files.map((file) => `package/${file}`).join("\n"), stderr: "" }
+        }
+        if (request.command === "tar" && request.args[0] === "-tvzf") {
+          return { exitCode: 0, stdout: files.map((file) => `-rw-r--r-- user/group 1 date package/${file}`).join("\n"), stderr: "" }
+        }
+        if (request.command === "tar" && request.args[0] === "-xzf") {
+          const destination = request.args[request.args.indexOf("-C") + 1]!
+          for (const file of files) {
+            const target = path.join(destination, "package", file)
+            yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+            yield* fs.writeFileString(target, file === "package.json"
+              ? yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
+                  ...manifestFor(request.workspace),
+                  version: request.workspace === mismatchedWorkspace ? "0.0.0-cert.1" : "0.0.0-cert.0"
+                })
+              : file.endsWith(".d.ts") ? "export declare const value: number\n" : "export const value = 1\n")
+          }
+        }
+        if (request.command === "node" && request.args[0] === "smoke.mjs") {
+          const runtime = yield* fs.readFileString(path.join(request.cwd, "smoke.mjs"))
+          yield* Ref.update(smokeSources, (sources) => ({ ...sources, runtime }))
+        }
+        if (request.command.endsWith("/tsc") && request.args[0] === "-p" && request.args[1] === "tsconfig.json") {
+          const types = yield* fs.readFileString(path.join(request.cwd, "smoke.ts"))
+          yield* Ref.update(smokeSources, (sources) => ({ ...sources, types }))
+        }
+        return { exitCode: 0, stdout: "", stderr: "" }
+      }).pipe(Effect.orDie)
+    }))
+    const stagerLayer = Layer.succeed(PackageStager, PackageStager.of({
+      stage: (workspace, workspacePath) => Ref.update(staged, (values) => [...values, workspace]).pipe(
+        Effect.andThen(fs.makeDirectory(path.join(workspacePath, "dist-publish"), { recursive: true })),
+        Effect.orDie
+      )
+    }))
+    const certification = certifyPackages(root).pipe(Effect.provide(Layer.merge(runnerLayer, stagerLayer)))
+    if (mismatchedWorkspace !== undefined) {
+      const error = yield* Effect.flip(certification)
+      expect(error).toMatchObject({
+        workspace: "@expand/client-ts",
+        phase: "inspect",
+        detail: "fixed-group package versions were not aligned"
+      })
+      expect((yield* Ref.get(requests)).some(({ command, args }) => command === "npm" && args[0] === "install")).toBe(false)
+      return
+    }
+    const reports = yield* certification
+    const expectedWorkspaces = ["@expand/contracts", "@expand/client-ts", "@expand/electron-ipc", "@expand/ink-input"] as const
+    expect(reports.map(({ workspace }) => workspace)).toEqual(expectedWorkspaces)
+    expect(yield* Ref.get(staged)).toEqual(expectedWorkspaces)
+    const recorded = yield* Ref.get(requests)
+    const builds = recorded.filter(({ phase }) => phase === "build")
+    expect(builds.map(({ workspace }) => workspace)).toEqual(expectedWorkspaces)
+    expect(builds.find(({ workspace }) => workspace === "@expand/electron-ipc")).toMatchObject({
+      args: expect.arrayContaining(["contract.ts", "main.ts", "preload.ts", "renderer.ts", "--dts"]),
+      cwd: workspaceRoot("@expand/electron-ipc")
+    })
+    expect(builds.find(({ workspace }) => workspace === "@expand/ink-input")).toMatchObject({
+      args: expect.arrayContaining(["index.ts", "--dts"]),
+      cwd: workspaceRoot("@expand/ink-input")
+    })
+    expect(recorded.filter(({ phase }) => phase === "pack").map(({ workspace }) => workspace)).toEqual(expectedWorkspaces)
+    for (const workspace of expectedWorkspaces) {
+      expect(recorded.filter((request) => request.workspace === workspace && request.command === "tar")).toHaveLength(3)
+      expect(yield* fs.exists(path.join(workspaceRoot(workspace), "dist-publish"))).toBe(false)
+    }
+    const install = recorded.find(({ command, args }) => command === "npm" && args[0] === "install")
+    expect(install?.args.filter((argument) => argument.endsWith(".tgz")).map((argument) => path.basename(argument))).toEqual([
+      "contracts.tgz", "client.tgz", "electron-ipc.tgz", "ink-input.tgz"
+    ])
+    const smoke = yield* Ref.get(smokeSources)
+    for (const target of [
+      "@expand/contracts/process-control",
+      "@expand/client-ts",
+      "@expand/client-ts/project",
+      "@expand/client-ts/server",
+      "@expand/client-ts/adapters/node",
+      "@expand/electron-ipc/contract",
+      "@expand/electron-ipc/renderer",
+      "@expand/ink-input"
+    ]) expect(smoke.runtime).toContain(`import "${target}"`)
+    expect(smoke.runtime).not.toContain("@expand/electron-ipc/main")
+    expect(smoke.runtime).not.toContain("@expand/electron-ipc/preload")
+    for (const target of [
+      "@expand/contracts/process-control",
+      "@expand/client-ts",
+      "@expand/client-ts/project",
+      "@expand/client-ts/server",
+      "@expand/client-ts/adapters/node",
+      "@expand/electron-ipc/contract",
+      "@expand/electron-ipc/main",
+      "@expand/electron-ipc/preload",
+      "@expand/electron-ipc/renderer",
+      "@expand/ink-input"
+    ]) expect(smoke.types).toContain(`from "${target}"`)
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect.each([
     ["@expand/contracts", "pack"],
     ["@expand/contracts", "inspect"],
     ["@expand/client-ts", "pack"],
-    ["@expand/client-ts", "inspect"]
+    ["@expand/client-ts", "inspect"],
+    ["@expand/electron-ipc", "pack"],
+    ["@expand/electron-ipc", "inspect"],
+    ["@expand/ink-input", "pack"],
+    ["@expand/ink-input", "inspect"]
   ] as const)("removes real owned staging, archive, and temporary residue exactly once when %s is interrupted during %s", ([interruptedWorkspace, interruptedPhase]) => Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
@@ -313,7 +512,7 @@ describe("package certification resources", () => {
     const phaseStarted = yield* Deferred.make<void>()
     const removals = yield* Ref.make<ReadonlyArray<string>>([])
     const stagingNames = ["dist-publish", ".dist-publish.next", ".dist-publish.previous"] as const
-    const workspaceRoot = (workspace: "@expand/contracts" | "@expand/client-ts") => path.join(root, workspace === "@expand/contracts" ? "packages/contracts" : "packages/client-ts")
+    const workspaceRoot = (workspace: Workspace) => path.join(root, "packages", workspace.slice("@expand/".length))
     const unowned = path.join(workspaceRoot(interruptedWorkspace), "unowned-residue")
     yield* fs.makeDirectory(unowned, { recursive: true })
     yield* fs.writeFileString(path.join(unowned, "keep"), "keep")
@@ -324,7 +523,7 @@ describe("package certification resources", () => {
     })
     const runnerLayer = Layer.succeed(PackageCertificationCommandRunner, PackageCertificationCommandRunner.of({
       run: (request) => Effect.gen(function*() {
-        const kind = request.workspace === "@expand/contracts" ? "contracts" : "client"
+        const kind = kindFor(request.workspace)
         const files = filesFor(kind)
         if (request.phase === "pack") {
           const destination = request.args[request.args.indexOf("--pack-destination") + 1]!
@@ -359,11 +558,8 @@ describe("package certification resources", () => {
             private: false,
             type: "module",
             files: ["dist"],
-            exports: kind === "contracts" ? contractsExports() : clientExports(),
-            dependencies: kind === "contracts" ? { effect: "4.0.0-beta.74" } : {
-              effect: "4.0.0-beta.74",
-              "@expand/contracts": "0.0.0-cert.0"
-            }
+            exports: exportsFor(kind),
+            dependencies: dependenciesFor(kind)
           }
           for (const file of files) {
             const target = path.join(destination, "package", file)
@@ -397,7 +593,7 @@ describe("package certification resources", () => {
       Deferred.await(archiveCreated),
       Fiber.await(fiber).pipe(Effect.map((exit) => Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "completed"))
     )
-    expect(archive).toBe(path.join(temp, `${interruptedWorkspace === "@expand/contracts" ? "contracts" : "client"}.tgz`))
+    expect(archive).toBe(path.join(temp, `${kindFor(interruptedWorkspace)}.tgz`))
     expect(yield* fs.exists(archive)).toBe(true)
     const readiness = yield* Effect.raceFirst(
       Deferred.await(phaseStarted).pipe(Effect.as("started")),
