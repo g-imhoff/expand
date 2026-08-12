@@ -76,6 +76,7 @@ describe("route — create focus (THE C1 regression)", () => {
   it("backspace/delete edit text, never open confirm", () => {
     expect(routeKey(createUi, projects, "backspace", "")).toEqual({ _tag: "EditField", state: { value: "", cursor: 0 } })
     expect(routeKey(createUi, projects, "delete", "")).toEqual({ _tag: "EditField", state: { value: "", cursor: 0 } })
+    expect(routeKey({ ...createUi, create: textField("a😀b") }, projects, "delete", "")).toEqual({ _tag: "EditField", state: { value: "a😀", cursor: 2 } })
   })
   it("only return/escape/tab fall through", () => {
     expect(routeKey(createUi, projects, "return", "")).toEqual({ _tag: "SubmitCreate" })
