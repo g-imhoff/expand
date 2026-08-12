@@ -1,255 +1,106 @@
-// Renderer interpreter: Effect-based typed client over the preload bridge.
-// Encodes outbound payloads, decodes everything inbound (decode-for-fidelity:
-// structured clone flattens branded types/Dates). MUST NOT import "electron".
-import { Crypto, Data, Effect, Option, PlatformError, Queue, Schema, Stream } from "effect"
-import type {
-  AnyIpcChannel,
-  EventChannel,
-  IpcBridgeOf,
-  InvokeChannel,
-  IpcContract,
-  PortExchangeChannel,
-  SendChannel
-} from "@expand/electron-ipc/contract"
-import { isPortGrantMessage, isResultEnvelope, wireName } from "@expand/electron-ipc/contract"
+import { Cause, Data, Effect, Queue, Schema, Stream } from "effect"
+import type { IpcContract } from "./contract"
+import type { AnyChannel, Bridge, InvokeChannel, SendChannel, EventChannel, PortExchangeChannel } from "./internal/contract"
+import { isStrictResult, wire } from "./internal/contract"
 
-export class IpcTransportError extends Data.TaggedError("IpcTransportError")<{
-  readonly reason: "bridge-missing" | "transport" | "decode" | "timeout"
-  readonly message: string
-}> {}
+export class IpcTransportError extends Data.TaggedError("IpcTransportError")<{ readonly reason: "bridge-missing" | "transport" | "decode" | "timeout"; readonly message: string }> {}
+export type IpcClientOf<C extends IpcContract> = { readonly [K in keyof C["channels"] & string]: C["channels"][K] extends InvokeChannel<infer P, infer S, infer E> ? (payload: P["Type"]) => Effect.Effect<S["Type"], E["Type"] | IpcTransportError> : C["channels"][K] extends SendChannel<infer P> ? (payload: P["Type"]) => Effect.Effect<void, IpcTransportError> : C["channels"][K] extends EventChannel<infer P> ? Stream.Stream<P["Type"], IpcTransportError> : C["channels"][K] extends PortExchangeChannel ? Effect.Effect<MessagePort, IpcTransportError> : never }
 
-export interface MessageEventLike {
-  readonly data: unknown
-  readonly source: unknown
-  readonly ports: ReadonlyArray<MessagePort>
-}
-
-export interface RendererWindowLike {
-  readonly addEventListener: (type: "message", listener: (event: MessageEventLike) => void) => void
-  readonly removeEventListener: (type: "message", listener: (event: MessageEventLike) => void) => void
-}
-
-export interface MakeIpcClientOptions {
-  /** Lazy accessor: the bridge may not exist if the preload failed (→ bridge-missing). */
-  readonly bridge: () => unknown
-  /** The window object — used both to listen for port grants and as the trusted event.source identity. */
-  readonly win: RendererWindowLike
-  readonly nonce?: Effect.Effect<string, unknown, Crypto.Crypto>
-  readonly timeoutMillis?: number
-}
-
-export type IpcClientOf<C extends IpcContract> = {
-  readonly [K in keyof C["channels"] & string]: C["channels"][K] extends InvokeChannel<infer P, infer S, infer E>
-    ? (payload: P["Type"]) => Effect.Effect<S["Type"], E["Type"] | IpcTransportError>
-    : C["channels"][K] extends SendChannel<infer P>
-      ? (payload: P["Type"]) => Effect.Effect<void, IpcTransportError>
-      : C["channels"][K] extends EventChannel<infer P>
-        ? Stream.Stream<P["Type"], IpcTransportError>
-        : C["channels"][K] extends PortExchangeChannel
-          ? Effect.Effect<MessagePort, IpcTransportError>
-          : never
-}
-
-export const browserCrypto = Crypto.make({
-  randomBytes: (size) => crypto.getRandomValues(new Uint8Array(size)),
-  digest: (algorithm, data) => Effect.tryPromise({
-    try: () => crypto.subtle.digest(algorithm, data.slice().buffer),
-    catch: (cause) => PlatformError.systemError({
-      _tag: "Unknown",
-      module: "Crypto",
-      method: "digest",
-      cause
-    })
-  }).pipe(Effect.map((value) => new Uint8Array(value)))
-})
-
-export const makeIpcClient = <C extends IpcContract>(contract: C, options: MakeIpcClientOptions): IpcClientOf<C> => {
-  type InvokeBridgeMember = IpcBridgeOf<IpcContract<string, { readonly invoke: InvokeChannel }>>["invoke"]
-  type SendBridgeMember = (payload: unknown) => void
-  type EventBridgeMember = (listener: (payload: unknown) => void) => () => void
-  type PortBridgeMember = (nonce: string) => void
-
-  const timeoutMillis = options.timeoutMillis ?? 10_000
-  const makeNonce: Effect.Effect<string, unknown, Crypto.Crypto> = options.nonce ?? Crypto.Crypto.pipe(
-    Effect.flatMap((cryptoService) => cryptoService.randomUUIDv4)
-  )
-
-  const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
-    schema as unknown as Schema.Codec<unknown, unknown>
-
-  const bridgeFn = Effect.fn("ElectronIpcRenderer.bridge")(<A>(key: string): Effect.Effect<A, IpcTransportError> =>
-    Effect.suspend(() => {
-      const bridge = options.bridge()
-      const fn = typeof bridge === "object" && bridge !== null
-        ? (bridge as Record<string, unknown>)[key]
-        : undefined
-      return typeof fn === "function"
-        ? Effect.succeed(fn as A)
-        : Effect.fail(new IpcTransportError({ reason: "bridge-missing", message: `bridge function "${key}" missing` }))
-    }))
-
-  const encodePayload = Effect.fn("ElectronIpcRenderer.encode")((key: string, schema: Schema.Top, payload: unknown) =>
-    Schema.encodeUnknownEffect(codec(schema))(payload).pipe(
-      Effect.mapError(
-        (error) => new IpcTransportError({ reason: "decode", message: `encode failed (${key}): ${error}` })
-      )
-    ))
-
-  const decodePayload = Effect.fn("ElectronIpcRenderer.decode")((key: string, schema: Schema.Top, payload: unknown) =>
-    Schema.decodeUnknownEffect(codec(schema))(payload).pipe(
-      Effect.mapError(
-        (error) => new IpcTransportError({ reason: "decode", message: `decode failed (${key}): ${error}` })
-      )
-    ))
-
-  const routeEnvelope = Effect.fn("ElectronIpcRenderer.routeEnvelope")((
-    key: string,
-    success: Schema.Top,
-    failure: Schema.Top,
-    envelope: unknown
-  ): Effect.Effect<unknown, unknown> => {
-    if (!isResultEnvelope(envelope)) {
-      return Effect.fail(new IpcTransportError({ reason: "decode", message: "malformed result envelope" }))
-    }
-    switch (envelope._tag) {
-      case "IpcSuccess":
-        return decodePayload(key, success, envelope.value)
-      case "IpcFailure":
-        return decodePayload(key, failure, envelope.error).pipe(
-          Effect.flatMap((domainError) => Effect.fail(domainError))
-        )
-      case "IpcDefect":
-        return Effect.die(new Error(`ipc handler defect: ${envelope.message}`))
-    }
-  })
-
-  const acquireNonce = Effect.fn("ElectronIpcRenderer.acquireNonce")(() =>
-    makeNonce.pipe(
-      Effect.mapError(
-        (error) => new IpcTransportError({ reason: "transport", message: `nonce acquisition failed: ${error}` })
-      )
-    ))
-
+export const makeElectronIpcClient = <C extends IpcContract>(contract: C, options: { readonly timeoutMillis?: number } = {}): IpcClientOf<C> => {
+  const timeout = options.timeoutMillis ?? 10_000
+  if (!Number.isSafeInteger(timeout) || timeout <= 0) throw new Error("timeoutMillis must be a positive safe integer")
+  const globalWindow = (globalThis as { readonly window?: Window }).window
+  const bridge = globalWindow?.[contract.prefix as keyof Window] as Bridge<C> | undefined
   const client: Record<string, unknown> = {}
-
-  for (const [key, channel] of Object.entries<AnyIpcChannel>(contract.channels)) {
-    const wire = wireName(contract, key as keyof C["channels"] & string)
-
-    switch (channel._kind) {
-      case "send": {
-        client[key] = (payload: unknown) =>
-          Effect.flatMap(bridgeFn<SendBridgeMember>(key), (send) =>
-            encodePayload(key, channel.payload, payload).pipe(
-              Effect.flatMap((encoded) =>
-                Effect.try({
-                  try: () => send(encoded),
-                  catch: (error) =>
-                    new IpcTransportError({ reason: "transport", message: `bridge call failed (${key}): ${error}` })
-                })
-              )
-            )
-          )
-        break
+  const encode = (schema: Schema.Top, payload: unknown, key: string) => Schema.encodeUnknownEffect(codec(schema))(payload).pipe(Effect.mapError((e: unknown) => fail("decode", `encode failed (${key}): ${String(e)}`)))
+  const decode = (schema: Schema.Top, payload: unknown, key: string) => Schema.decodeUnknownEffect(codec(schema))(payload).pipe(Effect.mapError((e: unknown) => fail("decode", `decode failed (${key}): ${String(e)}`)))
+  for (const [key, channel] of Object.entries<AnyChannel>(contract.channels)) {
+    const fn = bridge && (bridge as unknown as Record<string, unknown>)[key]
+    const missing = () => Effect.fail(fail("bridge-missing", `bridge function "${key}" missing`))
+    if (channel._kind === "send") client[key] = (payload: unknown) => typeof fn !== "function" ? missing() : encode(channel.payload, payload, key).pipe(Effect.flatMap((value) => Effect.try({ try: () => fn(value), catch: (e) => fail("transport", String(e)) })))
+    else if (channel._kind === "invoke") client[key] = (payload: unknown) => typeof fn !== "function" ? missing() : encode(channel.payload, payload, key).pipe(Effect.flatMap((value) => Effect.tryPromise({ try: () => fn(value), catch: (e) => fail("transport", String(e)) })), Effect.flatMap((envelope: unknown) => {
+      if (!isStrictResult(envelope)) return Effect.fail(fail("decode", "malformed result envelope"))
+      if (envelope._tag === "IpcSuccess") return decode(channel.success, envelope.value, key)
+      if (envelope._tag === "IpcFailure") return decode(channel.error, envelope.error, key).pipe(Effect.flatMap((e) => Effect.fail(e)))
+      return Effect.fail(fail("decode", envelope.message))
+    }))
+    else if (channel._kind === "event") client[key] = Stream.callback<unknown, IpcTransportError>((queue) => {
+      if (typeof fn !== "function") return Effect.fail(fail("bridge-missing", `bridge function "${key}" missing`))
+      let active = true
+      let removed = false
+      let unsubscribe: (() => void) | undefined
+      let pendingMalformed: IpcTransportError | undefined
+      const remove = () => {
+        if (removed || unsubscribe === undefined) return
+        removed = true
+        unsubscribe()
       }
-
-      case "invoke": {
-        client[key] = (payload: unknown) =>
-          Effect.flatMap(bridgeFn<InvokeBridgeMember>(key), (invoke) =>
-            encodePayload(key, channel.payload, payload).pipe(
-              Effect.flatMap((encoded) =>
-                Effect.tryPromise(() => invoke(encoded)).pipe(
-                  Effect.mapError(
-                    (error) => new IpcTransportError({ reason: "transport", message: String(error.cause) })
-                  )
-                )
-              ),
-              Effect.flatMap((envelope) => routeEnvelope(key, channel.success, channel.error, envelope))
-            )
-          )
-        break
+      const terminateMalformed = (decodeError: IpcTransportError) => {
+        if (unsubscribe === undefined) {
+          pendingMalformed = decodeError
+          return
+        }
+        try { remove() } catch (error) {
+          Queue.failCauseUnsafe(queue, Cause.combine(
+            Cause.fail(decodeError),
+            Cause.fail(fail("transport", `event cleanup failed (${key}): ${String(error)}`))
+          ))
+          return
+        }
+        Queue.failCauseUnsafe(queue, Cause.fail(decodeError))
       }
-
-      case "event": {
-        client[key] = Stream.callback<unknown, IpcTransportError>((queue) =>
-          Effect.flatMap(bridgeFn<EventBridgeMember>(key), (subscribe) =>
-            Effect.acquireRelease(
-              Effect.try({
-                try: () => {
-                  const state = { active: true }
-                  const listener = (encodedPayload: unknown) => {
-                    if (!state.active) return
-                    const decoded = Schema.decodeUnknownOption(codec(channel.payload))(encodedPayload)
-                    if (Option.isSome(decoded)) Queue.offerUnsafe(queue, decoded.value)
-                  }
-                  return { state, unsubscribe: subscribe(listener) }
-                },
-                catch: (error) =>
-                  new IpcTransportError({ reason: "transport", message: `bridge call failed (${key}): ${error}` })
-              }),
-              ({ state, unsubscribe }) =>
-                Effect.sync(() => {
-                  state.active = false
-                  unsubscribe()
-                })
-            )
-          ).pipe(Effect.catchCause((cause) => Queue.failCause(queue, cause)))
-        )
-        break
+      const listener = (payload: unknown) => {
+        if (!active) return
+        const decoded = Schema.decodeUnknownOption(codec(channel.payload))(payload)
+        if (decoded._tag === "Some") Queue.offerUnsafe(queue, decoded.value)
+        else {
+          active = false
+          terminateMalformed(fail("decode", `malformed event payload (${key})`))
+        }
       }
-
-      case "portExchange": {
-        client[key] = Effect.flatMap(bridgeFn<PortBridgeMember>(key), (request) =>
-          Effect.scoped(
-            Effect.gen(function* () {
-              const nonce = yield* acquireNonce()
-              const queue = yield* Effect.acquireRelease(
-                Queue.make<MessagePort>(),
-                Queue.shutdown
-              )
-              const state = { active: true }
-              const listener = (event: MessageEventLike) => {
-                if (!state.active) return
-                if (event.source !== options.win) return
-                if (!isPortGrantMessage(event.data)) return
-                if (event.data.channel !== wire || event.data.nonce !== nonce) return
-                const port = event.ports[0]
-                if (port !== undefined) Queue.offerUnsafe(queue, port)
-              }
-              yield* Effect.acquireRelease(
-                Effect.try({
-                  try: () => {
-                    options.win.addEventListener("message", listener)
-                    return listener
-                  },
-                  catch: (error) =>
-                    new IpcTransportError({ reason: "transport", message: `listener acquisition failed: ${error}` })
-                }),
-                (exactListener) =>
-                  Effect.sync(() => {
-                    state.active = false
-                    options.win.removeEventListener("message", exactListener)
-                  })
-              )
-              yield* Effect.try({
-                try: () => request(nonce),
-                catch: (error) => new IpcTransportError({ reason: "transport", message: String(error) })
-              })
-              return yield* Queue.take(queue)
-            })
-          ).pipe(
-            Effect.timeoutOrElse({
-              duration: `${timeoutMillis} millis`,
-              orElse: () =>
-                Effect.fail(
-                  new IpcTransportError({ reason: "timeout", message: `no port grant within ${timeoutMillis}ms` })
-                )
-            })
-          )
-        )
-        break
-      }
-    }
+      const acquired = Effect.try({
+        try: () => {
+          const dispose = fn(listener) as () => void
+          unsubscribe = dispose
+          if (pendingMalformed !== undefined) {
+            const decodeError = pendingMalformed
+            pendingMalformed = undefined
+            terminateMalformed(decodeError)
+          } else if (!active) remove()
+          return dispose
+        },
+        catch: (e) => fail("transport", String(e))
+      })
+      return Effect.acquireRelease(acquired, () => Effect.sync(() => { active = false; remove() }))
+    })
+    else client[key] = Effect.suspend(() => {
+      if (typeof fn !== "function") return missing()
+      const windowRef = globalWindow
+      if (!windowRef) return missing()
+      return Effect.scoped(Effect.gen(function* () {
+        const nonceBytes = new Uint8Array(16)
+        yield* Effect.try({ try: () => globalThis.crypto.getRandomValues(nonceBytes), catch: (e) => fail("transport", `nonce generation failed: ${String(e)}`) })
+        const nonce = Array.from(nonceBytes, (n) => n.toString(16).padStart(2, "0")).join("")
+        const queue = yield* Effect.acquireRelease(Queue.unbounded<MessagePort>(), Queue.shutdown)
+        const listener = (event: MessageEvent) => { if (event.source !== windowRef || !isGrant(event.data) || event.data.channel !== wire(contract, key) || event.data.nonce !== nonce) return; const port = event.ports[0]; if (port) Queue.offerUnsafe(queue, port) }
+        yield* Effect.acquireRelease(Effect.try({ try: () => { windowRef.addEventListener("message", listener) }, catch: (e) => fail("transport", `message listener acquisition failed: ${String(e)}`) }), () => Effect.sync(() => windowRef.removeEventListener("message", listener)))
+        yield* Effect.try({ try: () => fn(nonce), catch: (e) => fail("transport", String(e)) })
+        return yield* Effect.timeoutOrElse(Queue.take(queue), { duration: `${timeout} millis`, orElse: () => Effect.fail(fail("timeout", `no port grant within ${timeout}ms`)) })
+      }))
+    })
   }
-
   return client as IpcClientOf<C>
 }
+const isGrant = (value: unknown): value is { _tag: "IpcPortGrant"; channel: string; nonce: string } => {
+  if (typeof value !== "object" || value === null || Object.getPrototypeOf(value) !== Object.prototype) return false
+  const keys = Reflect.ownKeys(value)
+  if (keys.length !== 3 || !keys.includes("_tag") || !keys.includes("channel") || !keys.includes("nonce")) return false
+  const tag = Object.getOwnPropertyDescriptor(value, "_tag")
+  const channel = Object.getOwnPropertyDescriptor(value, "channel")
+  const nonce = Object.getOwnPropertyDescriptor(value, "nonce")
+  return tag !== undefined && "value" in tag && tag.value === "IpcPortGrant" &&
+    channel !== undefined && "value" in channel && typeof channel.value === "string" &&
+    nonce !== undefined && "value" in nonce && typeof nonce.value === "string"
+}
+const codec = (schema: Schema.Top): Schema.Encoder<unknown, never> & Schema.Decoder<unknown, never> => schema as unknown as Schema.Encoder<unknown, never> & Schema.Decoder<unknown, never>
+const fail = (reason: IpcTransportError["reason"], message: string) => new IpcTransportError({ reason, message })
