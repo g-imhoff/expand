@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 import * as ts from "typescript"
+import { fileURLToPath } from "url"
 import { describe, expect } from "vitest"
 import { libraryBoundaryFixtures, privateLibraryPathAliases } from "../support/library-boundary-fixtures"
 
@@ -175,17 +176,47 @@ const resolverAliasCanMatch = (alias: ResolverAlias, packageName: string): boole
   })
 }
 
-const hasAnyValueImport = (file: string, source: string, moduleName: string): boolean => {
+const hasAnyValueImport = (file: string, source: string): boolean => {
+  const targetFile = ts.sys.resolvePath("apps/tui/input/text-field.ts")
+  const resolvesToTarget = (specifier: string): boolean => {
+    let target = specifier
+    if (specifier.startsWith("file:")) {
+      try {
+        target = fileURLToPath(new URL(specifier))
+      } catch {
+        return false
+      }
+    }
+    const resolved = ts.resolveModuleName(target, ts.sys.resolvePath(file), {
+          allowJs: true,
+          baseUrl: ts.sys.getCurrentDirectory(),
+          module: ts.ModuleKind.ESNext,
+          moduleResolution: ts.ModuleResolutionKind.Bundler,
+          target: ts.ScriptTarget.ES2022,
+          paths: { "@expand/tui/*": ["apps/tui/*"] }
+        }, ts.sys).resolvedModule?.resolvedFileName
+    return resolved !== undefined && ts.sys.resolvePath(resolved) === targetFile
+  }
   for (const statement of sourceFile(file, source).statements) {
-    if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteral(statement.moduleReference.expression) && statement.moduleReference.expression.text === moduleName) return true
-    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== moduleName) continue
+    if (ts.isImportEqualsDeclaration(statement) && !statement.isTypeOnly && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteralLike(statement.moduleReference.expression) && resolvesToTarget(statement.moduleReference.expression.text)) return true
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || !resolvesToTarget(statement.moduleSpecifier.text)) continue
     const clause = statement.importClause
     if (clause === undefined) return true
     if (clause.isTypeOnly) continue
     if (clause.name !== undefined || clause.namedBindings === undefined || ts.isNamespaceImport(clause.namedBindings)) return true
     if (clause.namedBindings.elements.some((element) => !element.isTypeOnly)) return true
   }
-  return importedSpecifiers(file, source).some((specifier) => specifier === moduleName) && /(?:require(?:\.resolve)?|import)\s*\(/.test(source)
+  const node = sourceFile(file, source)
+  let found = false
+  const visit = (current: ts.Node): void => {
+    if (ts.isCallExpression(current) && (current.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(current.expression) && current.expression.text === "require") || (ts.isPropertyAccessExpression(current.expression) && current.expression.expression.getText(node) === "require" && current.expression.name.text === "resolve"))) {
+      const argument = current.arguments[0]
+      if (argument !== undefined && ts.isStringLiteralLike(argument) && resolvesToTarget(argument.text)) found = true
+    }
+    ts.forEachChild(current, visit)
+  }
+  visit(node)
+  return found
 }
 
 const reducerBoundaryViolations = (file: string, source: string): ReadonlyArray<string> => {
@@ -202,7 +233,7 @@ const reducerBoundaryViolations = (file: string, source: string): ReadonlyArray<
     ts.forEachChild(current, visit)
   }
   visit(node)
-  if (hasAnyValueImport(file, source, "@expand/tui/input/text-field")) violations.push("editor-import")
+  if (hasAnyValueImport(file, source)) violations.push("editor-import")
   return violations
 }
 
@@ -368,6 +399,21 @@ describe("strict private library boundaries", () => {
     ].join("\n")
     expect(reducerBoundaryViolations("fixture.ts", fixture)).toEqual(expect.arrayContaining(["editor-import", "key", "input"]))
     expect(reducerBoundaryViolations("side-effect.ts", 'import "@expand/tui/input/text-field"')).toContain("editor-import")
+  })
+
+  it("recognizes value imports resolving to the centralized editor file", () => {
+    const editor = ts.sys.resolvePath("apps/tui/input/text-field.ts")
+    const fileUrl = new URL(`file://${editor}`).href
+    for (const specifier of ["./text-field", editor.replace(/\.ts$/, ""), `${editor.replace(/\.ts$/, "")}.js`, fileUrl, "@expand/tui/input/text-field.ts", "@expand/tui/input/text-field.js"]) {
+      expect(reducerBoundaryViolations("apps/tui/input/route.ts", `import "${specifier}"`), specifier).toContain("editor-import")
+    }
+    for (const expression of [`import { editTextField } from "./text-field"`, `require("./text-field")`, `require.resolve("./text-field")`, `require.resolve(\`./text-field\`)`, `import("./text-field")`, `require(\`./text-field\`)`, `import(\`./text-field\`)`, `require("${editor}")`, `import("${fileUrl}")`]) {
+      expect(reducerBoundaryViolations("apps/tui/input/route.ts", expression), expression).toContain("editor-import")
+    }
+    for (const expression of ['import type editor = require("./text-field")', 'import "./text-field.json"', 'import "./text-field.mjs"', `import "file://evil${editor}"`, `import "file://${editor.replace("/input/", "/input%2F")}"`]) {
+      expect(reducerBoundaryViolations("apps/tui/input/route.ts", expression), expression).not.toContain("editor-import")
+    }
+    expect(reducerBoundaryViolations("apps/tui/input/route.ts", 'import type { editTextField } from "./text-field"')).not.toContain("editor-import")
   })
 
   it.live("publishes private package manifests with explicit, non-wildcard export maps", () => provideNode(Effect.gen(function* () {
