@@ -26,13 +26,18 @@
         "apps/cli/**/*.{ts,tsx}",
         "apps/server/**/*.{ts,tsx}",
         "apps/tui/**/*.{ts,tsx}",
-        "packages/**/*.{ts,tsx}",
         "scripts/**/*.ts"
       ]
     },
     "packages/client-ts": {
       "entry": ["test/fixtures/spawn-lock-contender.ts"],
       "ignoreDependencies": ["@effect/platform-node-shared"]
+    },
+    "packages/electron-ipc": {
+      "entry": ["test/**/*.test.ts"]
+    },
+    "packages/ink-input": {
+      "entry": ["test/**/*.test.{ts,tsx}"]
     },
     "apps/desktop": {
       "entry": [

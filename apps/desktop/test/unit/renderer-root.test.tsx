@@ -214,7 +214,15 @@ describe("renderer root ownership", () => {
       }) => void> = []
       let messageAdds = 0
       let messageRemoves = 0
+      let requestedNonce = ""
+      const bridge = {
+        rpcPort: (nonce: string) => {
+          requestedNonce = nonce
+          Deferred.doneUnsafe(portRequested, Effect.void)
+        }
+      }
       const win = {
+        expand: bridge,
         addEventListener: (_type: "message", listener: (event: never) => void) => {
           messageAdds += 1
           messageListeners.add(listener as (event: {
@@ -238,13 +246,9 @@ describe("renderer root ownership", () => {
           }) => void)
         }
       }
-      let requestedNonce = ""
-      const bridge = {
-        rpcPort: (nonce: string) => {
-          requestedNonce = nonce
-          Deferred.doneUnsafe(portRequested, Effect.void)
-        }
-      }
+      const globals = globalThis as { window?: unknown }
+      const previousWindow = globals.window
+      Object.defineProperty(globals, "window", { configurable: true, value: win })
       const port = new LifecycleMessagePort()
       let portMessages = 0
       let rootRenders = 0
@@ -258,7 +262,7 @@ describe("renderer root ownership", () => {
         unmount: () => { rootUnmounts += 1 }
       }
       const rootEffect = Effect.scoped(Effect.acquireRelease(
-        acquireRpcPort({ bridge: () => bridge, win, nonce: Effect.succeed("nonce") }),
+        acquireRpcPort(),
         (owned) => Effect.sync(() => owned.close())
       ).pipe(
         Effect.tap((owned) => Effect.sync(() => {
@@ -302,6 +306,8 @@ describe("renderer root ownership", () => {
         return yield* Effect.fail("expected renderer assertion failure")
       })))
 
+      if (previousWindow === undefined) delete globals.window
+      else Object.defineProperty(globals, "window", { configurable: true, value: previousWindow })
       expect(Exit.isFailure(exit)).toBe(true)
       yield* waitForDeferred(runtimeInterrupted)
       expect(rootRenders).toBe(1)

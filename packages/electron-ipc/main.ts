@@ -1,271 +1,119 @@
-import { Cause, Effect, Exit, FiberSet, Schema } from "effect"
+import { Effect, FiberSet, Schema } from "effect"
 import type { Scope } from "effect"
-import type {
-  AnyIpcChannel,
-  EventChannel,
-  IpcContract,
-  IpcEmitterOf,
-  IpcHandlersOf,
-  IpcSenderInfo,
-  ResultEnvelope
-} from "@expand/electron-ipc/contract"
-import { portGrantName, portRequestName, wireName } from "@expand/electron-ipc/contract"
+import { ipcMain } from "electron"
+import type { BrowserWindow, MessagePortMain } from "electron"
+import type { IpcContract, IpcEmitterOf, IpcHandlersOf } from "./contract"
+import type { AnyChannel, Result } from "./internal/contract"
+import { grantWire, requestWire, wire } from "./internal/contract"
+import { exactUrl, utf8Bytes } from "./internal/wire"
 
-export interface FrameLike {
-  readonly url: string
-  readonly detached: boolean
-}
-
-export interface IpcMainEventLike {
-  readonly sender: unknown
-  readonly senderFrame: FrameLike | null
-}
-
-export interface WindowTargetLike<Port = unknown> {
-  readonly webContents: unknown
-  readonly mainFrame: FrameLike | null
-  readonly postToRenderer: (channel: string, payload: unknown, transfer: ReadonlyArray<Port>) => void
-}
-
-export interface FrameSnapshot {
-  readonly url: string | null
-  readonly isMainFrame: boolean
-}
-
-export interface IpcMainLike {
-  readonly on: (channel: string, listener: (event: IpcMainEventLike, payload: unknown) => void) => () => void
-  readonly handle: (
-    channel: string,
-    handler: (event: IpcMainEventLike, payload: unknown) => Promise<unknown>
-  ) => () => void
-}
-
-export interface BindIpcConfig<R, Port = unknown> {
-  readonly ipc: IpcMainLike
-  readonly target: WindowTargetLike<Port>
-  readonly originRules: ReadonlyArray<OriginRule>
+export const bindElectronIpc = Effect.fn("ElectronIpc.bindElectronIpc")(function* <C extends IpcContract, R = never>(contract: C, handlers: IpcHandlersOf<C, R, MessagePortMain>, options: {
+  readonly window: BrowserWindow
+  readonly rendererOrigin?: string
+  readonly rendererUrl?: string
   readonly maxPayloadBytes?: number
-  readonly log?: (message: string, cause: Cause.Cause<unknown> | undefined) => Effect.Effect<void, never, R>
-}
-
-export type OriginRule =
-  | { readonly _tag: "exactOrigin"; readonly origin: string }
-  | { readonly _tag: "exactUrl"; readonly url: string }
-  | { readonly _tag: "fileProtocol" }
-
-export const snapshotSender = (
-  event: IpcMainEventLike,
-  target: Pick<WindowTargetLike, "webContents" | "mainFrame">
-): FrameSnapshot => {
-  if (event.sender !== target.webContents) return { url: null, isMainFrame: false }
-  const frame = event.senderFrame
-  if (frame === null || frame.detached) return { url: null, isMainFrame: false }
-  return { url: frame.url, isMainFrame: target.mainFrame !== null && frame === target.mainFrame }
-}
-
-export const validateSender = (snapshot: FrameSnapshot, rules: ReadonlyArray<OriginRule>): boolean => {
-  if (snapshot.url === null || !snapshot.isMainFrame) return false
-  let parsed: URL
-  try {
-    parsed = new URL(snapshot.url)
-  } catch {
-    return false
-  }
-  return rules.some((rule) => {
-    if (rule._tag === "fileProtocol") return parsed.protocol === "file:"
-    if (rule._tag === "exactUrl") return parsed.href === rule.url
-    if (parsed.origin === "null") return false
-    return parsed.origin === rule.origin
-  })
-}
-
-export const payloadSize = (payload: unknown): number => {
-  if (payload === undefined || payload === null) return 0
-  if (typeof payload === "string") return payload.length
-  try {
-    return encodePayload(payload).length
-  } catch {
-    return Number.MAX_SAFE_INTEGER
-  }
-}
-
-export const bindIpc = Effect.fn("ElectronIpcMain.bindIpc")(function* bindIpc<
-  C extends IpcContract,
-  R,
-  Port
->(
-  contract: C,
-  handlers: IpcHandlersOf<C, R, Port>,
-  config: BindIpcConfig<R, Port>
-) {
-  const maxBytes = config.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES
+}): Effect.fn.Return<IpcEmitterOf<C>, unknown, R | Scope.Scope> {
   const fibers = yield* FiberSet.make<unknown, never>()
-  const runFork = yield* FiberSet.runtime(fibers)<R>()
-  const runPromise: <A>(effect: Effect.Effect<A, never, R>) => Promise<A> =
-    yield* FiberSet.runtimePromise(fibers)<R>()
-  const silentInvoke: Promise<unknown> = runPromise(Effect.void)
-  let unbound = false
-  const emit: Record<string, (payload: unknown) => void> = {}
-  const log = (message: string, cause?: Cause.Cause<unknown>) =>
-    Effect.suspend(() => config.log?.(message, cause) ?? Effect.void).pipe(
-      Effect.catchCause((loggerCause) =>
-        Cause.hasInterrupts(loggerCause) ? Effect.interrupt : Effect.void
-      )
-    )
-  const admit = (
-    name: string,
-    event: IpcMainEventLike,
-    raw: unknown
-  ): { readonly sender: IpcSenderInfo } | { readonly rejection: string } => {
-    const snapshot = snapshotSender(event, config.target)
-    if (!validateSender(snapshot, config.originRules)) return { rejection: `[ipc] ${name}: sender rejected` }
-    if (payloadSize(raw) > maxBytes) return { rejection: `[ipc] ${name}: payload exceeds ${maxBytes} bytes` }
-    return { sender: { frameUrl: snapshot.url ?? "" } }
-  }
-  const dropCause = (name: string, cause: Cause.Cause<unknown>) =>
-    Cause.hasInterruptsOnly(cause)
-      ? Effect.interrupt
-      : log(`[ipc] ${name}: dropped`, cause)
-
-  yield* Effect.gen(function* () {
-    for (const [key, channel] of Object.entries<AnyIpcChannel>(contract.channels)) {
-      const name = wireName(contract, key as keyof C["channels"] & string)
-      const handler = (handlers as Record<string, unknown>)[key]
-      switch (channel._kind) {
-      case "send": {
-        const run = handler as (payload: unknown, sender: IpcSenderInfo) => Effect.Effect<void, never, R>
-        const listener = (event: IpcMainEventLike, raw: unknown) => {
-          if (unbound) return
-          const admission = admit(name, event, raw)
-          if ("rejection" in admission) {
-            runFork(log(admission.rejection))
-            return
-          }
-          runFork(
-            Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
-              Effect.flatMap((payload) => run(payload, admission.sender)),
-              Effect.catchCause((cause) => dropCause(name, cause))
-            )
-          )
-        }
-        yield* Effect.acquireRelease(
-          Effect.sync(() => config.ipc.on(name, listener)),
-          (dispose) => Effect.sync(dispose)
-        )
-        break
-      }
-      case "invoke": {
-        const run = handler as (payload: unknown, sender: IpcSenderInfo) => Effect.Effect<unknown, unknown, R>
-        const invokeHandler = (event: IpcMainEventLike, raw: unknown): Promise<unknown> => {
-          if (unbound) return silentInvoke
-          const admission = admit(name, event, raw)
-          if ("rejection" in admission) {
-            runFork(log(admission.rejection))
-            return silentInvoke
-          }
-          const program = Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
-            Effect.mapError((error) => `payload decode failed: ${String(error)}`),
-            Effect.flatMap((payload) =>
-              run(payload, admission.sender).pipe(
-                Effect.matchEffect({
-                  onFailure: (domainError) =>
-                    Schema.encodeUnknownEffect(codec(channel.error))(domainError).pipe(
-                      Effect.orDie,
-                      Effect.map((encoded): ResultEnvelope => ({ _tag: "IpcFailure", error: encoded }))
-                    ),
-                  onSuccess: (value) =>
-                    Schema.encodeUnknownEffect(codec(channel.success))(value).pipe(
-                      Effect.orDie,
-                      Effect.map((encoded): ResultEnvelope => ({ _tag: "IpcSuccess", value: encoded }))
-                    )
-                })
-              )
-            ),
-            Effect.matchEffect({
-              onFailure: (message) => Effect.succeed<ResultEnvelope>({ _tag: "IpcDefect", message }),
-              onSuccess: (result) => Effect.succeed(result)
-            }),
-            Effect.catchCause((cause) =>
-              Cause.hasInterruptsOnly(cause)
-                ? Effect.interrupt
-                : log(`[ipc] ${name}: defect`, cause).pipe(
-                    Effect.as<ResultEnvelope>({ _tag: "IpcDefect", message: "internal error" })
-                  )
-            )
-          )
-          return runPromise(program)
-        }
-        yield* Effect.acquireRelease(
-          Effect.sync(() => config.ipc.handle(name, invokeHandler)),
-          (dispose) => Effect.sync(dispose)
-        )
-        break
-      }
-      case "event": {
-        emit[key] = (payload: unknown) => {
-          if (unbound) return
-          runFork(
-            Schema.encodeUnknownEffect(codec((channel as EventChannel).payload))(payload).pipe(
-              Effect.flatMap((encoded) =>
-                Effect.sync(() => config.target.postToRenderer(name, encoded, []))
-              ),
-              Effect.catchCause((cause) => dropCause(name, cause))
-            )
-          )
-        }
-        break
-      }
-      case "portExchange": {
-        const run = handler as (
-          sender: IpcSenderInfo,
-          grant: (port: Port) => Effect.Effect<void>
-        ) => Effect.Effect<void, never, R>
-        const requestChannel = portRequestName(contract, key)
-        const grantChannel = portGrantName(contract, key)
-        const listener = (event: IpcMainEventLike, raw: unknown) => {
-          if (unbound) return
-          const admission = admit(requestChannel, event, raw)
-          if ("rejection" in admission) {
-            runFork(log(admission.rejection))
-            return
-          }
-          runFork(
-            Schema.decodeUnknownEffect(PortRequest)(raw).pipe(
-              Effect.flatMap(({ nonce }) =>
-                run(
-                  admission.sender,
-                  (port) => Effect.sync(() => config.target.postToRenderer(grantChannel, { nonce }, [port]))
-                )
-              ),
-              Effect.catchCause((cause) => dropCause(requestChannel, cause))
-            )
-          )
-        }
-        yield* Effect.acquireRelease(
-          Effect.sync(() => config.ipc.on(requestChannel, listener)),
-          (dispose) => Effect.sync(dispose)
-        )
-        break
-      }
-      }
+  const runPromise: <A>(effect: Effect.Effect<A, never, R>) => Promise<A> = yield* FiberSet.runtimePromise(fibers)<R>()
+  return yield* Effect.acquireRelease(
+  Effect.sync(() => {
+    if ((options.rendererOrigin === undefined) === (options.rendererUrl === undefined)) throw new Error("exactly one rendererOrigin or rendererUrl is required")
+    const location = options.rendererOrigin === undefined ? exactUrl(options.rendererUrl!, "url") : exactUrl(options.rendererOrigin, "origin")
+    if (options.rendererOrigin !== undefined && options.rendererOrigin !== new URL(location).origin) throw new Error("rendererOrigin must be canonical")
+    if (options.rendererUrl !== undefined && options.rendererUrl !== location) throw new Error("rendererUrl must be canonical")
+    const max = options.maxPayloadBytes ?? DEFAULT_MAX
+    if (!Number.isSafeInteger(max) || max <= 0) throw new Error("maxPayloadBytes must be a positive safe integer")
+    let active = true
+    const disposers: Array<() => void> = []
+    const emit: Record<string, (payload: unknown) => void> = {}
+    const admitted = (event: unknown, payload: unknown): { frameUrl: string } | undefined => {
+      const source = eventObject(event)
+      const frame = source?.senderFrame
+      const target = options.window.webContents
+      if (source?.sender !== target || frame === null || frame === undefined || frame.detached || frame !== target.mainFrame) return undefined
+      let parsed: URL
+      try { parsed = new URL(frame.url) } catch { return undefined }
+      if (options.rendererOrigin !== undefined ? parsed.origin !== location : parsed.href !== location) return undefined
+      if (utf8Bytes(payload) > max) return undefined
+      return { frameUrl: frame.url }
     }
-    yield* Effect.addFinalizer(() => Effect.sync(() => { unbound = true }))
-  }).pipe(
-    Effect.onExit((exit) => Exit.isFailure(exit)
-      ? Effect.sync(() => { unbound = true })
-      : Effect.void)
-  )
-  return { emit: emit as IpcEmitterOf<C> }
+    const run = (effect: Effect.Effect<unknown, unknown, R>) => {
+      void runPromise(effect.pipe(Effect.catchCause(() => Effect.void)))
+    }
+    const stop = () => {
+      if (!active) return
+      active = false
+      const failures: Array<unknown> = []
+      for (const dispose of disposers.splice(0).reverse()) {
+        try { dispose() } catch (error) { failures.push(error) }
+      }
+      if (failures.length > 0) throw new AggregateError(failures, "ipc binding cleanup failed")
+    }
+    try {
+      for (const [key, channel] of Object.entries<AnyChannel>(contract.channels)) {
+        const name = wire(contract, key)
+        const handler = (handlers as unknown as Record<string, unknown>)[key]
+        if (channel._kind === "send") {
+          const listener = (event: unknown, raw: unknown) => {
+            const sender = admitted(event, raw)
+            if (!active || !sender) return
+            run(Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
+              Effect.flatMap((p: unknown) => (handler as (p: unknown, s: { frameUrl: string }) => Effect.Effect<unknown, unknown, R>)(p, sender))
+            ) as Effect.Effect<unknown, unknown, R>)
+          }
+          ipcMain.on(name, listener)
+          disposers.push(() => ipcMain.off(name, listener))
+        } else if (channel._kind === "invoke") {
+          const invoke = (event: unknown, raw: unknown): Promise<Result> => {
+            const sender = admitted(event, raw)
+            if (!active || !sender) return runPromise(Effect.succeed<Result>({ _tag: "IpcDefect", message: "sender rejected" }))
+            const program = Schema.decodeUnknownEffect(codec(channel.payload))(raw).pipe(
+              Effect.flatMap((payload) => (handler as (p: unknown, s: { frameUrl: string }) => Effect.Effect<unknown, unknown, R>)(payload, sender).pipe(Effect.matchEffect({
+                onSuccess: (value) => Schema.encodeUnknownEffect(codec(channel.success))(value).pipe(Effect.map((encoded) => ({ _tag: "IpcSuccess", value: encoded } as Result))),
+                onFailure: (error) => Schema.encodeUnknownEffect(codec(channel.error))(error).pipe(Effect.map((encoded) => ({ _tag: "IpcFailure", error: encoded } as Result)))
+              }))),
+              Effect.catchCause(() => Effect.succeed<Result>({ _tag: "IpcDefect", message: "internal error" }))
+            )
+            return runPromise(program as Effect.Effect<Result, never, R>)
+          }
+          ipcMain.handle(name, invoke)
+          disposers.push(() => ipcMain.removeHandler(name))
+        } else if (channel._kind === "event") {
+          emit[key] = (payload: unknown) => {
+            if (!active) return
+            try {
+              const encoded = Schema.encodeSync(codec(channel.payload))(payload)
+              if (utf8Bytes(encoded) > max) return
+              options.window.webContents.send(name, encoded)
+            } catch { }
+          }
+        } else {
+          const request = requestWire(contract, key)
+          const listener = (event: unknown, raw: unknown) => {
+            const sender = admitted(event, raw)
+            if (!active || !sender) return
+            run(Schema.decodeUnknownEffect(requestSchema)(raw).pipe(
+              Effect.flatMap(({ nonce }) => (handler as (s: { frameUrl: string }, grant: (port: MessagePortMain) => Effect.Effect<void>) => Effect.Effect<void, never, R>)(sender, (port: MessagePortMain) => Effect.sync(() => options.window.webContents.postMessage(grantWire(contract, key), { nonce }, [port]))))
+            ) as Effect.Effect<unknown, unknown, R>)
+          }
+          ipcMain.on(request, listener)
+          disposers.push(() => ipcMain.off(request, listener))
+        }
+      }
+    } catch (error) {
+      try { stop() } catch (cleanup) {
+        const cleanupErrors = cleanup instanceof AggregateError ? cleanup.errors : [cleanup]
+        throw new AggregateError([error, ...cleanupErrors], "ipc binding acquisition failed")
+      }
+      throw error
+    }
+    return { emit: emit as IpcEmitterOf<C>, stop }
+  }),
+  (bound) => Effect.sync(bound.stop)
+  ).pipe(Effect.map((bound) => bound.emit))
 })
 
-const encodePayload = Schema.encodeSync(Schema.UnknownFromJsonString)
-const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024
-
-const codec = (schema: Schema.Top): Schema.Codec<unknown, unknown> =>
-  schema as unknown as Schema.Codec<unknown, unknown>
-
-const PortRequest = Schema.Struct({ nonce: Schema.String })
-
-interface BoundIpc<C extends IpcContract> {
-  readonly emit: IpcEmitterOf<C>
-}
+const DEFAULT_MAX = 1024 * 1024
+const codec = (schema: Schema.Top): Schema.Encoder<unknown, never> & Schema.Decoder<unknown, never> => schema as unknown as Schema.Encoder<unknown, never> & Schema.Decoder<unknown, never>
+const requestSchema = Schema.Struct({ nonce: Schema.String })
+const eventObject = (value: unknown): { readonly sender?: unknown; readonly senderFrame?: { readonly url: string; readonly detached: boolean } | null } | undefined => typeof value === "object" && value !== null ? value as { readonly sender?: unknown; readonly senderFrame?: { readonly url: string; readonly detached: boolean } | null } : undefined

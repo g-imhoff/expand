@@ -26,14 +26,15 @@ describe("App archive keybinding", () => {
       const harness = yield* makeRuntimeHarnessScoped({
         snapshot: { projects: [fakeProject(1, "alpha")], seq: 0 }
       })
-      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      const view = yield* renderWithRuntimeScoped(<React.StrictMode><App /></React.StrictMode>, harness)
       yield* view.mounted
       yield* ensureInputLive(view, "▸ alpha") // selected + reconciled
       const epoch = yield* view.captureFrameEpoch
       view.stdin.write("a")
       yield* harness.observed.call("archive")
-      const frame = yield* view.awaitFrameAfter(epoch, "r rename")
+      const frame = yield* view.awaitFrameAfter(epoch, (current) => current.includes("[archived]"))
       expect(frame).toContain("[archived]")
+      expect(harness.calls.archive).toHaveLength(1)
     })))
 
   it.effect("shows a project that is ALREADY archived at startup and restores it with 'a'", () =>
@@ -52,5 +53,6 @@ describe("App archive keybinding", () => {
       yield* view.awaitFrameAfter(epoch, (frame) => !frame.includes("[archived]"))
       yield* view.awaitFrame("▸ alpha") // re-rendered after restore
       expect(view.lastFrame()).not.toContain("[archived]")
+      expect(harness.calls.restore).toHaveLength(1)
     })))
 })
