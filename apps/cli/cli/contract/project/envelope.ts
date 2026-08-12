@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { Project, ProjectDeleteResult } from "@expand/contracts/project"
-import { ENVELOPE_VERSION } from "@expand/cli/contract/envelope"
+import { ENVELOPE_VERSION } from "@expand/contracts/cli/version"
 
 export class ProjectEnvelope extends Schema.Opaque<ProjectEnvelope>()(
   Schema.Struct({

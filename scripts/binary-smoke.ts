@@ -1,6 +1,6 @@
 import { NodeRuntime } from "@effect/platform-node"
+import { ENVELOPE_VERSION } from "@expand/contracts/cli/version"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
-import { ENVELOPE_VERSION } from "@expand/contracts/endpoint"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { Cause, Config, Data, Effect, Exit, Fiber, FileSystem, Option, Path, Ref, Schedule, Schema, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
