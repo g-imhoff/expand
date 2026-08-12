@@ -164,7 +164,8 @@ const hasAnyValueImport = (file: string, source: string, moduleName: string): bo
     if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteral(statement.moduleReference.expression) && statement.moduleReference.expression.text === moduleName) return true
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== moduleName) continue
     const clause = statement.importClause
-    if (clause === undefined || clause.isTypeOnly) continue
+    if (clause === undefined) return true
+    if (clause.isTypeOnly) continue
     if (clause.name !== undefined || clause.namedBindings === undefined || ts.isNamespaceImport(clause.namedBindings)) return true
     if (clause.namedBindings.elements.some((element) => !element.isTypeOnly)) return true
   }
@@ -340,6 +341,7 @@ describe("strict private library boundaries", () => {
       "}"
     ].join("\n")
     expect(reducerBoundaryViolations("fixture.ts", fixture)).toEqual(expect.arrayContaining(["editor-import", "key", "input"]))
+    expect(reducerBoundaryViolations("side-effect.ts", 'import "@expand/tui/input/text-field"')).toContain("editor-import")
   })
 
   it.live("publishes private package manifests with explicit, non-wildcard export maps", () => provideNode(Effect.gen(function* () {
