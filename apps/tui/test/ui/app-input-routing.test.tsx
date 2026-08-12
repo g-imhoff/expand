@@ -45,6 +45,19 @@ const ensureInputLive = (view: Effect.Success<ReturnType<typeof renderWithRuntim
   })
 
 describe("App input routing (C1 regression, end-to-end)", () => {
+  it.effect("applies consecutive focused edits before rerender", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const harness = yield* makeRuntimeHarnessScoped({ snapshot: { projects: [seed(1, "alpha")], seq: 0 } })
+      const view = yield* renderWithRuntimeScoped(<App />, harness)
+      yield* view.mounted
+      yield* ensureInputLive(view, "▸ alpha")
+      view.stdin.write("n")
+      yield* view.awaitFrame("return create")
+      view.stdin.write("xy")
+      yield* view.awaitFrame((frame) => frame.includes("xy"))
+      expect(view.lastFrame()).toContain("xy")
+    })) )
+
   it.effect("typing a command-lettered name into the create field mutates nothing", () =>
     Effect.scoped(Effect.gen(function* () {
       const harness = yield* makeRuntimeHarnessScoped({

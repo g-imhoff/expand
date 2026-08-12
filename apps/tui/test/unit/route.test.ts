@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { Project } from "@expand/contracts/project"
-import { textField } from "@expand/ink-input/text-field"
-import { initialUiState, type UiState } from "@expand/tui/input/state"
+import { textField } from "@expand/tui/input/text-field"
+import { initialUiState, type Action, type UiState } from "@expand/tui/input/state"
 import { route } from "@expand/tui/input/route"
+import type { KeyEvent } from "@expand/ink-input"
+
+const routeKey = (ui: UiState, projects: ReadonlyArray<Project>, key: string, input: string): Action | null => route(ui, projects, { key, input, ctrl: false, meta: false, shift: false } satisfies KeyEvent)
 
 const pid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as string
 const project = (n: number, over: Partial<Project> = {}): Project => ({
@@ -16,72 +19,72 @@ const createUi: UiState = { ...listUi, focus: "create" }
 
 describe("route — list focus", () => {
   it("j/down and k/up move a real selection (not projects[0])", () => {
-    expect(route(listUi, projects, "j", "j")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
-    expect(route(listUi, projects, "down", "")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
-    expect(route(listUi, projects, "k", "k")).toEqual({ _tag: "Select", id: pid(1), index: 0 })
+    expect(routeKey(listUi, projects, "j", "j")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
+    expect(routeKey(listUi, projects, "down", "")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
+    expect(routeKey(listUi, projects, "k", "k")).toEqual({ _tag: "Select", id: pid(1), index: 0 })
   })
   it("selection clamps at the edges", () => {
     const atEnd: UiState = { ...listUi, selectedId: pid(3), selectedIndex: 2 }
-    expect(route(atEnd, projects, "j", "j")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
+    expect(routeKey(atEnd, projects, "j", "j")).toEqual({ _tag: "Select", id: pid(3), index: 2 })
     const atStart: UiState = { ...listUi, selectedId: pid(1), selectedIndex: 0 }
-    expect(route(atStart, projects, "k", "k")).toEqual({ _tag: "Select", id: pid(1), index: 0 })
+    expect(routeKey(atStart, projects, "k", "k")).toEqual({ _tag: "Select", id: pid(1), index: 0 })
   })
   it("commands act on the SELECTED project", () => {
-    expect(route(listUi, projects, "r", "r")).toEqual({ _tag: "OpenRename", projectId: pid(2), currentName: "p2" })
-    expect(route(listUi, projects, "d", "d")).toEqual({ _tag: "OpenDirectory", projectId: pid(2) })
-    expect(route(listUi, projects, "x", "x")).toEqual({ _tag: "OpenConfirmDelete", projectId: pid(2) })
-    expect(route(listUi, projects, "delete", "")).toEqual({ _tag: "OpenConfirmDelete", projectId: pid(2) })
+    expect(routeKey(listUi, projects, "r", "r")).toEqual({ _tag: "OpenRename", projectId: pid(2), currentName: "p2" })
+    expect(routeKey(listUi, projects, "d", "d")).toEqual({ _tag: "OpenDirectory", projectId: pid(2) })
+    expect(routeKey(listUi, projects, "x", "x")).toEqual({ _tag: "OpenConfirmDelete", projectId: pid(2) })
+    expect(routeKey(listUi, projects, "delete", "")).toEqual({ _tag: "OpenConfirmDelete", projectId: pid(2) })
   })
   it("a resolves archive vs restore from the selected project's state", () => {
-    expect(route(listUi, projects, "a", "a")).toEqual({ _tag: "ToggleArchive", projectId: pid(2), currentlyArchived: false })
+    expect(routeKey(listUi, projects, "a", "a")).toEqual({ _tag: "ToggleArchive", projectId: pid(2), currentlyArchived: false })
     const archived = [project(1), project(2, { archived: true }), project(3)]
-    expect(route(listUi, archived, "a", "a")).toEqual({ _tag: "ToggleArchive", projectId: pid(2), currentlyArchived: true })
+    expect(routeKey(listUi, archived, "a", "a")).toEqual({ _tag: "ToggleArchive", projectId: pid(2), currentlyArchived: true })
   })
   it("m carries metadata prefill (description, comma-joined tags)", () => {
     const tagged = [project(1), project(2, { description: "desc", tags: ["api", "db"] as unknown as Project["tags"] }), project(3)]
-    expect(route(listUi, tagged, "m", "m")).toEqual({ _tag: "OpenMetadata", projectId: pid(2), description: "desc", tags: "api, db" })
+    expect(routeKey(listUi, tagged, "m", "m")).toEqual({ _tag: "OpenMetadata", projectId: pid(2), description: "desc", tags: "api, db" })
   })
   it("n and tab focus the create field", () => {
-    expect(route(listUi, projects, "n", "n")).toEqual({ _tag: "FocusCreate" })
-    expect(route(listUi, projects, "tab", "")).toEqual({ _tag: "FocusCreate" })
+    expect(routeKey(listUi, projects, "n", "n")).toEqual({ _tag: "FocusCreate" })
+    expect(routeKey(listUi, projects, "tab", "")).toEqual({ _tag: "FocusCreate" })
   })
   it("commands need a selection; focus-create does not", () => {
     const noSel: UiState = { ...initialUiState }
-    expect(route(noSel, [], "r", "r")).toBeNull()
-    expect(route(noSel, [], "a", "a")).toBeNull()
-    expect(route(noSel, [], "j", "j")).toBeNull()
-    expect(route(noSel, [], "n", "n")).toEqual({ _tag: "FocusCreate" })
+    expect(routeKey(noSel, [], "r", "r")).toBeNull()
+    expect(routeKey(noSel, [], "a", "a")).toBeNull()
+    expect(routeKey(noSel, [], "j", "j")).toBeNull()
+    expect(routeKey(noSel, [], "n", "n")).toEqual({ _tag: "FocusCreate" })
   })
   it("unbound keys are ignored", () => {
-    expect(route(listUi, projects, "q", "q")).toBeNull()
-    expect(route(listUi, projects, "backspace", "")).toBeNull() // C1: backspace must NOT open delete-confirm
+    expect(routeKey(listUi, projects, "q", "q")).toBeNull()
+    expect(routeKey(listUi, projects, "backspace", "")).toBeNull() // C1: backspace must NOT open delete-confirm
   })
   it("null selection with non-empty projects: nav and commands are no-ops", () => {
     const noSel: UiState = { ...initialUiState }
-    expect(route(noSel, projects, "j", "j")).toBeNull()
-    expect(route(noSel, projects, "r", "r")).toBeNull()
+    expect(routeKey(noSel, projects, "j", "j")).toBeNull()
+    expect(routeKey(noSel, projects, "r", "r")).toBeNull()
   })
 })
 
 describe("route — create focus (THE C1 regression)", () => {
-  it("typing letters that are command keys yields TextKey, never commands", () => {
+  it("typing letters that are command keys prepares field state, never commands", () => {
     for (const ch of ["d", "a", "t", "a", "r", "m", "x", "n", "j", "k"]) {
-      expect(route(createUi, projects, ch, ch)).toEqual({ _tag: "TextKey", keyName: ch, input: ch })
+      expect(routeKey(createUi, projects, ch, ch)).toEqual({ _tag: "EditField", state: { value: ch, cursor: 1 } })
     }
   })
   it("backspace/delete edit text, never open confirm", () => {
-    expect(route(createUi, projects, "backspace", "")).toEqual({ _tag: "TextKey", keyName: "backspace", input: "" })
-    expect(route(createUi, projects, "delete", "")).toEqual({ _tag: "TextKey", keyName: "delete", input: "" })
+    expect(routeKey(createUi, projects, "backspace", "")).toEqual({ _tag: "EditField", state: { value: "", cursor: 0 } })
+    expect(routeKey(createUi, projects, "delete", "")).toEqual({ _tag: "EditField", state: { value: "", cursor: 0 } })
   })
   it("only return/escape/tab fall through", () => {
-    expect(route(createUi, projects, "return", "")).toEqual({ _tag: "SubmitCreate" })
-    expect(route(createUi, projects, "escape", "")).toEqual({ _tag: "ClearCreate" })
-    expect(route(createUi, projects, "tab", "")).toEqual({ _tag: "FocusList" })
+    expect(routeKey(createUi, projects, "return", "")).toEqual({ _tag: "SubmitCreate" })
+    expect(routeKey(createUi, projects, "escape", "")).toEqual({ _tag: "ClearCreate" })
+    expect(routeKey(createUi, projects, "tab", "")).toEqual({ _tag: "FocusList" })
   })
   it("pasted literal key-name words are text, never actions (text first refusal)", () => {
-    expect(route(createUi, projects, "tab", "tab")).toEqual({ _tag: "TextKey", keyName: "tab", input: "tab" })
-    expect(route(createUi, projects, "return", "return")).toEqual({ _tag: "TextKey", keyName: "return", input: "return" })
-    expect(route(createUi, projects, "escape", "escape")).toEqual({ _tag: "TextKey", keyName: "escape", input: "escape" })
+    expect(routeKey(createUi, projects, "tab", "tab")).toEqual({ _tag: "EditField", state: { value: "tab", cursor: 3 } })
+    expect(routeKey(createUi, projects, "return", "return")).toEqual({ _tag: "EditField", state: { value: "return", cursor: 6 } })
+    expect(routeKey(createUi, projects, "escape", "escape")).toEqual({ _tag: "EditField", state: { value: "escape", cursor: 6 } })
   })
 })
 
@@ -94,25 +97,25 @@ describe("route — overlays are modal", () => {
   }
 
   it("confirmDelete: y/return confirm, n/escape cancel, everything else ignored", () => {
-    expect(route(confirmUi, projects, "y", "y")).toEqual({ _tag: "SubmitOverlay" })
-    expect(route(confirmUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
-    expect(route(confirmUi, projects, "n", "n")).toEqual({ _tag: "CancelOverlay" })
-    expect(route(confirmUi, projects, "escape", "")).toEqual({ _tag: "CancelOverlay" })
-    expect(route(confirmUi, projects, "a", "a")).toBeNull() // list keys dead under overlay
-    expect(route(confirmUi, projects, "j", "j")).toBeNull()
+    expect(routeKey(confirmUi, projects, "y", "y")).toEqual({ _tag: "SubmitOverlay" })
+    expect(routeKey(confirmUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
+    expect(routeKey(confirmUi, projects, "n", "n")).toEqual({ _tag: "CancelOverlay" })
+    expect(routeKey(confirmUi, projects, "escape", "")).toEqual({ _tag: "CancelOverlay" })
+    expect(routeKey(confirmUi, projects, "a", "a")).toBeNull() // list keys dead under overlay
+    expect(routeKey(confirmUi, projects, "j", "j")).toBeNull()
   })
   it("rename overlay: text first refusal; list keys dead", () => {
-    expect(route(renameUi, projects, "a", "a")).toEqual({ _tag: "TextKey", keyName: "a", input: "a" })
-    expect(route(renameUi, projects, "escape", "")).toEqual({ _tag: "CancelOverlay" })
-    expect(route(renameUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
-    expect(route(renameUi, projects, "tab", "")).toBeNull() // tab unbound in rename
+    expect(routeKey(renameUi, projects, "a", "a")).toEqual({ _tag: "EditField", state: { value: "p2a", cursor: 3 } })
+    expect(routeKey(renameUi, projects, "escape", "")).toEqual({ _tag: "CancelOverlay" })
+    expect(routeKey(renameUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
+    expect(routeKey(renameUi, projects, "tab", "")).toBeNull() // tab unbound in rename
   })
   it("metadata overlay: tab switches fields instead of focusing", () => {
-    expect(route(metaUi, projects, "tab", "")).toEqual({ _tag: "SwitchMetadataField" })
-    expect(route(metaUi, projects, "x", "x")).toEqual({ _tag: "TextKey", keyName: "x", input: "x" })
+    expect(routeKey(metaUi, projects, "tab", "")).toEqual({ _tag: "SwitchMetadataField" })
+    expect(routeKey(metaUi, projects, "x", "x")).toEqual({ _tag: "EditField", state: { value: "x", cursor: 1 } })
   })
   it("rename overlay: pasted 'return' is text, real Enter still submits", () => {
-    expect(route(renameUi, projects, "return", "return")).toEqual({ _tag: "TextKey", keyName: "return", input: "return" })
-    expect(route(renameUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
+    expect(routeKey(renameUi, projects, "return", "return")).toEqual({ _tag: "EditField", state: { value: "p2return", cursor: 8 } })
+    expect(routeKey(renameUi, projects, "return", "")).toEqual({ _tag: "SubmitOverlay" })
   })
 })

@@ -2,9 +2,8 @@
 // Pure module — no ink imports. State transitions + descriptive effects.
 // Effects are data; app.tsx's runEffect is the only place they meet useProjects.
 import type { Project } from "@expand/contracts/project"
-import { emptyTextField, textField, textFieldReduce } from "@expand/ink-input/text-field"
 import {
-  assertNever, type Action, type Overlay, type UiState
+  assertNever, emptyTextField, textField, type Action, type Overlay, type UiState
 } from "@expand/tui/input/state"
 
 export type DomainEffect =
@@ -53,8 +52,8 @@ export const uiReduce = (ui: UiState, action: Action): Result => {
         : pure(ui)
     case "SubmitOverlay":
       return ui.overlay === null ? pure(ui) : submitOverlay(ui, ui.overlay)
-    case "TextKey":
-      return pure(editActiveField(ui, action.keyName, action.input))
+    case "EditField":
+      return pure(installField(ui, action.state))
     case "SubmitCreate": {
       const name = ui.create.value.trim()
       if (name.length === 0) return pure(ui)
@@ -126,23 +125,23 @@ const submitOverlay = (ui: UiState, overlay: Overlay): Result => {
   }
 }
 
-const editActiveField = (ui: UiState, keyName: string, input: string): UiState => {
+const installField = (ui: UiState, state: import("./text-field").TextFieldState): UiState => {
   if (ui.overlay !== null) {
     switch (ui.overlay.kind) {
       case "rename":
       case "directory":
-        return { ...ui, overlay: { ...ui.overlay, field: textFieldReduce(ui.overlay.field, keyName, input) } }
+        return { ...ui, overlay: { ...ui.overlay, field: state } }
       case "metadata":
         return ui.overlay.active === "description"
-          ? { ...ui, overlay: { ...ui.overlay, description: textFieldReduce(ui.overlay.description, keyName, input) } }
-          : { ...ui, overlay: { ...ui.overlay, tags: textFieldReduce(ui.overlay.tags, keyName, input) } }
+          ? { ...ui, overlay: { ...ui.overlay, description: state } }
+          : { ...ui, overlay: { ...ui.overlay, tags: state } }
       case "confirmDelete":
-        return ui // route never emits TextKey under confirmDelete; harmless no-op
+        return ui
       default:
         return assertNever(ui.overlay)
     }
   }
-  return { ...ui, create: textFieldReduce(ui.create, keyName, input) }
+  return { ...ui, create: state }
 }
 
 type Result = { readonly ui: UiState; readonly effects: ReadonlyArray<DomainEffect> }

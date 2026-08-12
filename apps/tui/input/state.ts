@@ -1,11 +1,12 @@
 // apps/tui/input/state.ts
 // Pure module — no ink imports. The TUI's input state machine vocabulary.
 import type { Project } from "@expand/contracts/project"
-import { emptyTextField, type TextFieldState } from "@expand/ink-input/text-field"
-import type { KeyName } from "@expand/ink-input/key-name"
+import { emptyTextField as editorEmptyTextField, textField as editorTextField, type TextFieldState } from "@expand/tui/input/text-field"
 import { Schema } from "effect"
 
 export type Focus = "list" | "create"
+export const emptyTextField = editorEmptyTextField
+export const textField = editorTextField
 
 export type Overlay =
   | { readonly kind: "rename"; readonly projectId: string; readonly field: TextFieldState }
@@ -52,7 +53,7 @@ export type Action =
   | { readonly _tag: "CancelOverlay" }
   | { readonly _tag: "SubmitOverlay" }
   | { readonly _tag: "SwitchMetadataField" }
-  | { readonly _tag: "TextKey"; readonly keyName: KeyName; readonly input: string }
+  | { readonly _tag: "EditField"; readonly state: TextFieldState }
   | { readonly _tag: "SubmitCreate" }
   | { readonly _tag: "ClearCreate" }
   | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }

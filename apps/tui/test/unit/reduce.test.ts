@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Project } from "@expand/contracts/project"
-import { textField } from "@expand/ink-input/text-field"
+import { textField } from "@expand/tui/input/text-field"
 import { initialUiState, type UiState } from "@expand/tui/input/state"
 import { uiReduce } from "@expand/tui/input/reduce"
 
@@ -11,30 +11,30 @@ const project = (n: number): Project => ({
 } as Project)
 
 describe("uiReduce — text editing", () => {
-  it("TextKey edits the create draft when create is focused", () => {
+  it("EditField installs prepared create draft state when create is focused", () => {
     const ui: UiState = { ...initialUiState, focus: "create" }
-    const r1 = uiReduce(ui, { _tag: "TextKey", keyName: "d", input: "d" })
-    const r2 = uiReduce(r1.ui, { _tag: "TextKey", keyName: "ata", input: "ata" })
+    const r1 = uiReduce(ui, { _tag: "EditField", state: { value: "d", cursor: 1 } })
+    const r2 = uiReduce(r1.ui, { _tag: "EditField", state: { value: "data", cursor: 4 } })
     expect(r2.ui.create.value).toBe("data")
     expect([...r1.effects, ...r2.effects]).toEqual([]) // C1: zero effects from typing
   })
-  it("TextKey edits the open overlay's field", () => {
+  it("EditField installs the open overlay's field", () => {
     const ui: UiState = {
       ...initialUiState,
       overlay: { kind: "rename", projectId: pid(1), field: textField("p1") }
     }
-    const { ui: next } = uiReduce(ui, { _tag: "TextKey", keyName: "backspace", input: "" })
+    const { ui: next } = uiReduce(ui, { _tag: "EditField", state: { value: "p", cursor: 1 } })
     expect(next.overlay).toMatchObject({ kind: "rename", field: { value: "p" } })
   })
-  it("TextKey edits the ACTIVE metadata field; SwitchMetadataField toggles", () => {
+  it("EditField installs the ACTIVE metadata field; SwitchMetadataField toggles", () => {
     const ui: UiState = {
       ...initialUiState,
       overlay: { kind: "metadata", projectId: pid(1), active: "description", description: textField(""), tags: textField("") }
     }
-    const r1 = uiReduce(ui, { _tag: "TextKey", keyName: "x", input: "x" })
+    const r1 = uiReduce(ui, { _tag: "EditField", state: { value: "x", cursor: 1 } })
     expect(r1.ui.overlay).toMatchObject({ description: { value: "x" }, tags: { value: "" } })
     const r2 = uiReduce(r1.ui, { _tag: "SwitchMetadataField" })
-    const r3 = uiReduce(r2.ui, { _tag: "TextKey", keyName: "y", input: "y" })
+    const r3 = uiReduce(r2.ui, { _tag: "EditField", state: { value: "y", cursor: 1 } })
     expect(r3.ui.overlay).toMatchObject({ description: { value: "x" }, tags: { value: "y" } })
   })
 })

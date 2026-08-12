@@ -2,7 +2,7 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import React from "react"
 import { Effect } from "effect"
-import { textField } from "@expand/ink-input/text-field"
+import { textField } from "@expand/tui/input/text-field"
 import { TextField } from "@expand/tui/components/text-field"
 import { renderInkScoped } from "./runtime-harness"
 
