@@ -53,7 +53,7 @@ export default defineConfig({
         // @expand/* workspace packages resolve to TypeScript source via their
         // package.json "exports". Inline them so Vite transforms that source
         // instead of externalizing it to the runtime loader (which cannot load
-        // a .ts entry). Covers current and future @expand workspace packages.
+        // a .ts entry).
         inline: [/@expand\//]
       }
     },
@@ -87,9 +87,7 @@ export default defineConfig({
       { find: "@expand/tui", replacement: new URL("./apps/tui", import.meta.url).pathname },
       { find: "@expand/desktop", replacement: new URL("./apps/desktop/src", import.meta.url).pathname },
       { find: "@expand/server", replacement: new URL("./apps/server", import.meta.url).pathname },
-      { find: "@expand/electron-ipc", replacement: new URL("./packages/electron-ipc", import.meta.url).pathname },
-      { find: "@expand/ink-input", replacement: new URL("./packages/ink-input", import.meta.url).pathname },
-      { find: /^@expand\/(?!contracts\/|client-ts(?:\/|$))(.*)$/, replacement: new URL("./apps/cli", import.meta.url).pathname + "/$1" }
+      { find: /^@expand\/(?!contracts\/|client-ts(?:\/|$)|electron-ipc(?:\/|$)|ink-input(?:\/|$))(.*)$/, replacement: new URL("./apps/cli", import.meta.url).pathname + "/$1" }
     ]
   }
 })

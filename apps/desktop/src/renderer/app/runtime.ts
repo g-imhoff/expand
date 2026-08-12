@@ -2,7 +2,7 @@ import { Deferred, Effect, Fiber, Ref } from "effect"
 import type { Cause, Scope } from "effect"
 import type { RpcClientError } from "effect/unstable/rpc"
 import { runProjectSync, type ProjectSyncSink } from "@expand/contracts/project-sync"
-import { makeIpcClient, type IpcTransportError, type MakeIpcClientOptions } from "@expand/electron-ipc/renderer"
+import { makeElectronIpcClient, type IpcTransportError } from "@expand/electron-ipc/renderer"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import type { ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
@@ -17,9 +17,7 @@ export interface RendererBootResources {
 }
 
 export interface RendererBootDependencies {
-  readonly acquireResources: (
-    options: MakeIpcClientOptions
-  ) => Effect.Effect<
+  readonly acquireResources: () => Effect.Effect<
     RendererBootResources,
     IpcTransportError | RpcClientError.RpcClientError,
     Scope.Scope
@@ -30,15 +28,12 @@ export interface RendererBootDependencies {
   ) => Effect.Effect<never, RpcClientError.RpcClientError>
 }
 
-export const acquireRpcPort = Effect.fn("DesktopRenderer.acquireRpcPort")((
-  options: MakeIpcClientOptions
-): Effect.Effect<MessagePort, IpcTransportError> =>
-  makeIpcClient(ExpandIpc, options).rpcPort
+export const acquireRpcPort = Effect.fn("DesktopRenderer.acquireRpcPort")((): Effect.Effect<MessagePort, IpcTransportError> =>
+  makeElectronIpcClient(ExpandIpc).rpcPort
 )
 
 export const boot = Effect.fn("DesktopRenderer.boot")(
   function* (
-    options: MakeIpcClientOptions,
     mount: (value: ProjectContextValue, runner: RendererRunner) => void,
     dependencies?: RendererBootDependencies
   ): Effect.fn.Return<
@@ -48,9 +43,8 @@ export const boot = Effect.fn("DesktopRenderer.boot")(
   > {
     const selected = dependencies ?? {
       acquireResources: Effect.fn("DesktopRenderer.acquireResources")(function* (
-        acquireOptions: MakeIpcClientOptions
       ): Effect.fn.Return<RendererBootResources, IpcTransportError, Scope.Scope> {
-        const messagePort = yield* acquireRpcPort(acquireOptions)
+        const messagePort = yield* acquireRpcPort()
         const client = yield* buildRendererClient(makeRendererPort(messagePort))
         const rpc = yield* ProjectRpc.pipe(
           Effect.provide(ProjectRpcLayer),
@@ -74,7 +68,7 @@ export const boot = Effect.fn("DesktopRenderer.boot")(
       )
     }
     const initialized = yield* Effect.gen(function* () {
-      const resources = yield* selected.acquireResources(options)
+      const resources = yield* selected.acquireResources()
       const firstSnapshot = yield* Deferred.make<void>()
       const active = yield* Ref.make(true)
       const sink: ProjectSyncSink = {

@@ -1,10 +1,10 @@
 // apps/tui/components/app.tsx
 // The only stateful component. One key pipeline:
 //   useKeyRouter → route (pure) → uiReduce (pure) → setUi + runEffect.
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useReducer, useRef } from "react"
 import { Box } from "ink"
-import { useKeyRouter } from "@expand/ink-input/use-key-router-ink"
-import { HintBar } from "@expand/ink-input/components/hint-bar-ink"
+import { HintBar, useGlobalKeyRouter } from "@expand/ink-input"
+import type { KeyEvent } from "@expand/ink-input"
 import { ProjectList } from "@expand/tui/components/project-list"
 import { TextField } from "@expand/tui/components/text-field"
 import { ConfirmDelete } from "@expand/tui/components/confirm-delete"
@@ -14,13 +14,33 @@ import { initialUiState, assertNever, type Overlay } from "@expand/tui/input/sta
 import { activeBindings } from "@expand/tui/input/bindings"
 import { route } from "@expand/tui/input/route"
 import { uiReduce, type DomainEffect } from "@expand/tui/input/reduce"
+import type { Project } from "@expand/contracts/project"
 
-export const App = () => {
+export type QueuedEffect = { readonly id: number; readonly effect: DomainEffect }
+export type AppState = { readonly ui: typeof initialUiState; readonly effects: ReadonlyArray<QueuedEffect>; readonly nextId: number }
+export type AppAction =
+  | { readonly _tag: "Key"; readonly event: KeyEvent; readonly projects: ReadonlyArray<Project> }
+  | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }
+  | { readonly _tag: "Acknowledge"; readonly ids: ReadonlyArray<number> }
+export { App }
+const initialAppState: AppState = { ui: initialUiState, effects: [], nextId: 0 }
+const appReduce = (state: AppState, action: AppAction): AppState => {
+  if (action._tag === "Acknowledge") return { ...state, effects: state.effects.filter((item) => !action.ids.includes(item.id)) }
+  const resolved = action._tag === "Key" ? route(state.ui, action.projects, action.event) : { _tag: "Reconcile", projects: action.projects } as const
+  if (resolved === null) return state
+  const result = uiReduce(state.ui, resolved)
+  const effects = result.effects.map((effect, index) => ({ id: state.nextId + index, effect }))
+  return { ui: result.ui, effects: [...state.effects, ...effects], nextId: state.nextId + effects.length }
+}
+
+const App = () => {
+
   const {
     projects, error, create, rename, changeDirectory,
     archive, restore, setMetadata, deleteProject
   } = useProjects()
-  const [ui, setUi] = useState(initialUiState)
+  const [state, dispatch] = useReducer(appReduce, initialAppState)
+  const processedEffects = useRef(new Set<number>())
 
   const runEffect = (effect: DomainEffect): void => {
     switch (effect._tag) {
@@ -35,16 +55,23 @@ export const App = () => {
     }
   }
 
-  useKeyRouter((keyName, input) => {
-    const action = route(ui, projects, keyName, input)
-    if (action === null) return
-    const result = uiReduce(ui, action)
-    setUi(result.ui)
-    for (const effect of result.effects) runEffect(effect)
+  useGlobalKeyRouter((event: KeyEvent) => {
+    dispatch({ _tag: "Key", event, projects })
   })
 
   useEffect(() => {
-    setUi((current) => uiReduce(current, { _tag: "Reconcile", projects }).ui)
+    const effects = state.effects.filter((item) => !processedEffects.current.has(item.id))
+    for (const item of effects) {
+      processedEffects.current.add(item.id)
+      runEffect(item.effect)
+    }
+    if (effects.length > 0) dispatch({ _tag: "Acknowledge", ids: effects.map((item) => item.id) })
+    const live = new Set(state.effects.map((item) => item.id))
+    for (const id of processedEffects.current) if (!live.has(id)) processedEffects.current.delete(id)
+  }, [state.effects, projects])
+
+  useEffect(() => {
+    dispatch({ _tag: "Reconcile", projects })
   }, [projects])
 
   const overlayView = (overlay: Overlay) => {
@@ -71,14 +98,14 @@ export const App = () => {
     <Box flexDirection="column" gap={1}>
       <ProjectList
         projects={projects}
-        selectedId={ui.selectedId ?? undefined}
-        focused={ui.overlay === null && ui.focus === "list"}
+        selectedId={state.ui.selectedId ?? undefined}
+        focused={state.ui.overlay === null && state.ui.focus === "list"}
       />
       <ErrorLine message={error} />
-      {ui.overlay !== null
-        ? overlayView(ui.overlay)
-        : <TextField label="new project ▸ " state={ui.create} focused={ui.focus === "create"} />}
-      <HintBar bindings={activeBindings(ui)} />
+      {state.ui.overlay !== null
+        ? overlayView(state.ui.overlay)
+        : <TextField label="new project ▸ " state={state.ui.create} focused={state.ui.focus === "create"} />}
+      <HintBar bindings={activeBindings(state.ui)} />
     </Box>
   )
 }

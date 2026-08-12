@@ -23,7 +23,7 @@ const walk = Effect.fn("TuiInputBoundary.walk")(function*(dir: string): Effect.f
   return files
 })
 
-const ROUTER_ADAPTER = "packages/ink-input/use-key-router-ink.tsx"
+const ROUTER_ADAPTER = "packages/ink-input/index.ts"
 
 describe("TUI input boundary", () => {
   it.live("ink's useInput appears in exactly one file: the ink-input router adapter", () =>
@@ -35,20 +35,12 @@ describe("TUI input boundary", () => {
       expect(offenders, "raw useInput reintroduces the global-broadcast collision (review finding C1)").toEqual([])
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("ink-input pure modules never import ink", () =>
-    Effect.gen(function*() {
-      for (const file of ["key-name.ts", "text-field.ts", "bindings.ts"]) {
-        const source = yield* read(`packages/ink-input/${file}`)
-        expect(source, `${file} must stay ink-free`).not.toMatch(/from\s+"ink"/)
-      }
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("ink-input is a leaf: no @expand or effect imports", () =>
+  it.live("ink-input is a leaf: no app, sibling package, or effect imports", () =>
     Effect.gen(function*() {
       for (const file of (yield* walk("packages/ink-input")).filter((file) => !file.includes("packages/ink-input/test"))) {
         const source = yield* read(file)
-        expect(source, `${file} must not import @expand/* (except own modules) or effect`)
-          .not.toMatch(/from\s+"(@expand\/(?!ink-input\/)|effect)/)
+        expect(source, `${file} must not import @expand/* or effect`)
+          .not.toMatch(/from\s+"(@expand\/|effect)/)
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 

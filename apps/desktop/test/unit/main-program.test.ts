@@ -1,17 +1,23 @@
 import { it } from "@effect/vitest"
 import { NodePath } from "@effect/platform-node"
-import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber } from "effect"
+import { Cause, ConfigProvider, Deferred, Effect, Exit, Fiber, FiberSet } from "effect"
 import { describe, expect } from "vitest"
-import type { IpcMainLike } from "@expand/electron-ipc/main"
 import {
   DesktopMainError,
+  type DesktopIpcHandlers,
   mainProgram,
+  type RendererIdentity,
   type CspHost,
   type MainProgramDeps
 } from "@expand/desktop/main/application/main-program"
+import type { MainPortLike } from "@expand/desktop/main/rpc/server"
 
 const waitFor = Deferred.await
 const fiberExit = Fiber.await
+
+interface TestPort extends MainPortLike {
+  readonly close: () => void
+}
 
 type ReadyResult = Effect.Effect<void, Error>
 
@@ -46,6 +52,8 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const releasePortFinalization = yield* Deferred.make<void>()
   const portFinalizationDone = yield* Deferred.make<void>()
   const windowFinalizationReached = yield* Deferred.make<void>()
+  const callbackFibers = yield* FiberSet.make<void, never>()
+  const dispatchCallback = yield* FiberSet.runtime(callbackFibers)<never>()
   let beforeQuit: ((event: { preventDefault: () => void }) => void) | undefined
   let windowAllClosed: (() => void) | undefined
   let closed: (() => void) | undefined
@@ -63,29 +71,12 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const loadedUrls: Array<string> = []
   const loadedFiles: Array<string> = []
   let portGrants = 0
-  const ipcListeners = new Map<string, Parameters<IpcMainLike["on"]>[1]>()
-  const ipcHandlers = new Map<string, Parameters<IpcMainLike["handle"]>[1]>()
   const frame = { url: "file:///repo/apps/desktop/out/renderer/index.html", detached: false }
-  const webContents = { id: 1 }
+  let boundIdentity: RendererIdentity | undefined
+  let boundRpcPort: DesktopIpcHandlers<never, TestPort>["rpcPort"] | undefined
   const markAppListener = () => {
     appListenerCount += 1
     if (appListenerCount === 2) Deferred.doneUnsafe(appListenersReady, Effect.void)
-  }
-  const ipc: IpcMainLike = {
-    on: (channel, listener) => {
-      ipcListeners.set(channel, listener)
-      return () => {
-        if (ipcListeners.get(channel) === listener) ipcListeners.delete(channel)
-        append(`ipc:off:${channel}`)
-      }
-    },
-    handle: (channel, handler) => {
-      ipcHandlers.set(channel, handler)
-      return () => {
-        if (ipcHandlers.get(channel) === handler) ipcHandlers.delete(channel)
-        append(`ipc:remove-handler:${channel}`)
-      }
-    }
   }
   const runtime = {
     contextEffect: options.blockPortFinalizer === true
@@ -150,13 +141,16 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     }
   }
   const window = {
-    ipc: {
-      ipc,
-      target: {
-        webContents,
-        mainFrame: frame,
-        postToRenderer: (_channel: string, _payload: unknown, _transfer: ReadonlyArray<unknown>) => { portGrants += 1 }
-      }
+    bindIpc: <R>(identity: RendererIdentity, handlers: DesktopIpcHandlers<R, TestPort>) => {
+      boundIdentity = identity
+      boundRpcPort = handlers.rpcPort as DesktopIpcHandlers<never, TestPort>["rpcPort"]
+      return Effect.acquireRelease(
+        Effect.void,
+        () => Effect.sync(() => {
+          boundRpcPort = undefined
+          append("ipc:off")
+        })
+      )
     },
     onClosed: (listener: () => void) => {
       closed = listener
@@ -203,7 +197,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       append("window:destroy")
     }
   }
-  const deps: MainProgramDeps = {
+  const deps: MainProgramDeps<TestPort> = {
     app,
     platform: options.platform ?? "linux",
     moduleUrl: new URL("file:///repo/apps/desktop/out/main/index.mjs"),
@@ -213,7 +207,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       return window
     },
     makeMessageChannel: () => {
-      const endpoint = () => ({
+      const endpoint = (): TestPort => ({
         postMessage: (_message: unknown) => {},
         on: (
           _event: "message" | "close",
@@ -238,8 +232,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
         }
       }
     },
-    makeRuntime: () => runtime,
-    log: () => Effect.void
+    makeRuntime: () => runtime
   }
   const program = mainProgram(deps).pipe(
     Effect.provide(NodePath.layer),
@@ -286,10 +279,15 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     },
     fireRpcPortRequest: (url = frame.url) => {
       frame.url = url
-      ipcListeners.get("expand:rpcPort:request")?.(
-        { sender: webContents, senderFrame: frame },
-        { nonce: "test" }
-      )
+      if (boundRpcPort === undefined) return
+      const trusted = boundIdentity?._tag === "url"
+        ? new URL(url).href === boundIdentity.value
+        : boundIdentity?._tag === "origin" && new URL(url).origin === boundIdentity.value
+      if (!trusted) return
+      dispatchCallback(boundRpcPort(
+        { frameUrl: url },
+        () => Effect.sync(() => { portGrants += 1 })
+      ))
     },
     destroyCalls: () => destroyCalls,
     finalQuitCalls: () => finalQuitCalls,
@@ -300,8 +298,9 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     loadedUrls,
     loadedFiles,
     portGrants: () => portGrants,
+    boundIdentity: () => boundIdentity,
     isCspInstalled: () => cspListener !== undefined,
-    hasIpcListener: () => ipcListeners.size > 0,
+    hasIpcListener: () => boundRpcPort !== undefined,
     hasNavigationListener: () => navigation !== undefined || willNavigate !== undefined
   }
 })
@@ -323,6 +322,10 @@ describe("mainProgram startup and shutdown", () => {
         yield* waitFor(harness.loadStarted)
         expect(harness.loadedUrls).toEqual([])
         expect(harness.loadedFiles).toEqual(["/repo/apps/desktop/out/renderer/index.html"])
+        expect(harness.boundIdentity()).toEqual({
+          _tag: "url",
+          value: "file:///repo/apps/desktop/out/renderer/index.html"
+        })
         expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html")).toBe(false)
         harness.fireRpcPortRequest("file:///repo/apps/desktop/out/renderer/index.html")
         yield* Effect.yieldNow
@@ -382,6 +385,7 @@ describe("mainProgram startup and shutdown", () => {
         ])
         yield* harness.succeedReady
         yield* waitFor(harness.loadStarted)
+        expect(harness.boundIdentity()).toEqual({ _tag: "origin", value: "http://localhost:5173" })
         expect(yield* Deferred.isDone(harness.contextStarted)).toBe(false)
         yield* harness.succeedLoad
         yield* waitFor(harness.windowLoaded)
@@ -532,7 +536,7 @@ describe("mainProgram window ownership", () => {
         expect(harness.quitRequests()).toBe(1)
         expect(harness.finalQuitCalls()).toBe(1)
         const events = harness.events
-        const ipcOff = events.indexOf("ipc:off:expand:rpcPort:request")
+        const ipcOff = events.indexOf("ipc:off")
         const navigationOff = events.indexOf("window:off:navigation")
         const cspOff = events.indexOf("csp:off")
         const destroy = events.indexOf("window:destroy")
