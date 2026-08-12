@@ -67,7 +67,7 @@ const importedSpecifiers = (file: string, source: string): ReadonlyArray<string>
       specifiers.push(node.moduleSpecifier.text)
     } else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === "require") || (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === "require" && node.expression.name.text === "resolve"))) {
       const argument = node.arguments[0]
-      if (argument !== undefined && ts.isStringLiteral(argument)) specifiers.push(argument.text)
+      if (argument !== undefined && ts.isStringLiteralLike(argument)) specifiers.push(argument.text)
     }
     ts.forEachChild(node, visit)
   }
@@ -346,12 +346,18 @@ describe("strict private library boundaries", () => {
       'const module = import("@expand/ink-input/text-field")',
       'const required = require("@expand/electron-ipc/renderer")',
       'require.resolve("@expand/ink-input/key-name")',
+      'const templateModule = import(`@expand/ink-input/text-field`)',
+      'const templateRequired = require(`@expand/electron-ipc/renderer`)',
+      'require.resolve(`@expand/ink-input/key-name`)',
       'import legacy = require("@expand/electron-ipc/contract")'
     ].join("\n")
     expect(importedSpecifiers("fixture.ts", fixture)).toEqual([
       "@expand/electron-ipc/main-electron",
       "@expand/electron-ipc/main",
       "@expand/electron-ipc/preload",
+      "@expand/ink-input/text-field",
+      "@expand/electron-ipc/renderer",
+      "@expand/ink-input/key-name",
       "@expand/ink-input/text-field",
       "@expand/electron-ipc/renderer",
       "@expand/ink-input/key-name",
