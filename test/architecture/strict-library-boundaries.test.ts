@@ -169,7 +169,6 @@ const resolverAliasCanMatch = (alias: ResolverAlias, packageName: string): boole
       if (relative.endsWith("/index.ts") || relative.endsWith("/index.tsx") || relative.endsWith("/index.js")) candidates.add(`${packageName}/${sourcePath.replace(/\/index$/, "")}`)
     }
   }
-  for (const word of alias.source.match(/[A-Za-z][A-Za-z0-9_-]*/g) ?? []) candidates.add(`${packageName}/${word}`)
   return [...candidates].some((candidate) => {
     alias.lastIndex = 0
     return alias.test(candidate)
@@ -335,8 +334,12 @@ describe("strict private library boundaries", () => {
     }
     expect(packageAliasCanMatch("@expand/cli/*", "@expand/electron-ipc")).toBe(false)
     expect(packageAliasCanMatch("@expand/tui/*", "@expand/ink-input")).toBe(false)
-    const fixture = 'export default { resolve: { alias: [{ find: /^@expand\\/electron-ipc\\/secret$/, replacement: "/tmp/private" }] } }'
+    const fixture = 'export default { resolve: { alias: [{ find: /^@expand\\/electron-ipc\\/internal\\/contract$/, replacement: "/tmp/private" }] } }'
     expect(resolverAliases("fixture.ts", fixture).some((alias) => resolverAliasCanMatch(alias, "@expand/electron-ipc"))).toBe(true)
+  })
+
+  it("allows regular expression aliases for nonexistent private package files", () => {
+    expect(resolverAliasCanMatch(/^@expand\/electron-ipc\/secret$/, "@expand/electron-ipc")).toBe(false)
   })
 
   it("recognizes regular expression aliases matching private package files", () => {
