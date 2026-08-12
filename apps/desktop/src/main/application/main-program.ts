@@ -10,8 +10,7 @@ import {
   Path,
   Scope
 } from "effect"
-import type { IpcMainLike, WindowTargetLike } from "@expand/electron-ipc/main"
-import { bindIpc } from "@expand/electron-ipc/main"
+import type { IpcHandlersOf } from "@expand/electron-ipc/contract"
 import type { MainPortLike } from "@expand/desktop/main/rpc/server"
 import { connectPort, type RpcRuntime } from "@expand/desktop/main/rpc/transport"
 import {
@@ -20,7 +19,6 @@ import {
 } from "@expand/desktop/main/ipc/port-lifecycle"
 import { hardenWebContents } from "@expand/desktop/main/security/harden-web-contents"
 import { windowOptions } from "@expand/desktop/main/security/window-options"
-import { originRulesFor } from "@expand/desktop/main/ipc/origin-rules"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 
 export class DesktopMainError extends Data.TaggedError("DesktopMainError")<{
@@ -43,11 +41,11 @@ export interface DesktopAppHost {
   readonly quit: () => void
 }
 
-export interface DesktopWindowHost<Port extends PortEndpoint> {
-  readonly ipc: {
-    readonly ipc: IpcMainLike
-    readonly target: WindowTargetLike<Port>
-  }
+export interface DesktopWindowHost<Port> {
+  readonly bindIpc: <R>(
+    identity: RendererIdentity,
+    handlers: DesktopIpcHandlers<R, Port>
+  ) => Effect.Effect<unknown, unknown, R | Scope.Scope>
   readonly onClosed: (listener: () => void) => () => void
   readonly onNavigation: (
     listener: (details: { readonly isSameDocument: boolean }) => void
@@ -79,8 +77,13 @@ export interface MainProgramDeps<Port extends PortEndpoint = PortEndpoint> {
   readonly makeMessageChannel: () => { readonly port1: Port; readonly port2: Port }
   readonly csp: CspHost
   readonly makeRuntime: () => DesktopRuntime
-  readonly log: (message: string, cause: Cause.Cause<unknown> | undefined) => Effect.Effect<void>
 }
+
+export type RendererIdentity =
+  | { readonly _tag: "url"; readonly value: string }
+  | { readonly _tag: "origin"; readonly value: string }
+
+export type DesktopIpcHandlers<R, Port> = IpcHandlersOf<typeof ExpandIpc, R, Port>
 
 export const mainProgram = Effect.fn("DesktopMain.mainProgram")(mainProgramEffect)
 
@@ -121,13 +124,14 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
   )
   const packagedRendererPath = path.join(here, "../renderer/index.html")
   const packagedRendererUrl = (yield* path.toFileUrl(packagedRendererPath)).href
+  const rendererIdentity: RendererIdentity = devUrl === undefined
+    ? { _tag: "url", value: packagedRendererUrl }
+    : { _tag: "origin", value: new URL(devUrl).origin }
   if (devUrl === undefined) yield* installCsp(deps.csp)
   yield* hardenWebContents({
     onWillNavigate: browserWindow.onWillNavigate,
     setWindowOpenHandler: browserWindow.setWindowOpenHandler,
-    isAllowed: (url) => devUrl === undefined
-      ? isExactUrl(url, packagedRendererUrl)
-      : isSameOrigin(url, devUrl)
+    isAllowed: (url) => isRendererIdentityAllowed(url, rendererIdentity)
   })
   const ports = yield* wirePortLifecycle({
     onNavigation: browserWindow.onNavigation,
@@ -137,16 +141,7 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
     closeWindow,
     dispatch
   })
-  yield* bindIpc(
-    ExpandIpc,
-    { rpcPort: ports.rpcPort },
-    {
-      ipc: browserWindow.ipc.ipc,
-      target: browserWindow.ipc.target,
-      originRules: originRulesFor(packagedRendererUrl, devUrl),
-      log: deps.log
-    }
-  )
+  yield* browserWindow.bindIpc(rendererIdentity, { rpcPort: ports.rpcPort })
   if (devUrl === undefined) yield* browserWindow.loadFile(packagedRendererPath)
   else yield* browserWindow.loadUrl(devUrl)
 })
@@ -249,17 +244,10 @@ const validateDevelopmentUrl = Effect.fn("DesktopMain.validateDevelopmentUrl")((
   })
 )
 
-const isExactUrl = (value: string, trusted: string): boolean => {
+const isRendererIdentityAllowed = (value: string, identity: RendererIdentity): boolean => {
   try {
-    return new URL(value).href === trusted
-  } catch {
-    return false
-  }
-}
-
-const isSameOrigin = (value: string, trusted: string): boolean => {
-  try {
-    return new URL(value).origin === new URL(trusted).origin
+    const parsed = new URL(value)
+    return identity._tag === "url" ? parsed.href === identity.value : parsed.origin === identity.value
   } catch {
     return false
   }

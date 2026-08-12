@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { Effect } from "effect"
 import type { MainProgramDeps } from "@expand/desktop/main/application/main-program"
 import { windowOptions } from "@expand/desktop/main/security/window-options"
 import "@expand/desktop/main/index"
@@ -154,35 +155,16 @@ const electron = vi.hoisted(() => {
 })
 
 const binding = vi.hoisted(() => {
-  interface WindowLike {
-    readonly webContents: unknown
-  }
-
-  const targets: Array<WindowLike> = []
-  const boundContents: Array<unknown> = []
+  const calls: Array<{ readonly contract: unknown; readonly handlers: unknown; readonly options: { readonly window: unknown; readonly rendererOrigin?: string; readonly rendererUrl?: string } }> = []
 
   return {
-    targets,
-    boundContents,
+    calls,
     reset: () => {
-      targets.length = 0
-      boundContents.length = 0
+      calls.length = 0
     },
-    electronBindDeps: (target: WindowLike) => {
-      const webContents = target.webContents
-      targets.push(target)
-      boundContents.push(webContents)
-      return {
-        ipc: {
-          on: () => () => {},
-          handle: () => () => {}
-        },
-        target: {
-          webContents,
-          mainFrame: null,
-          postToRenderer: () => {}
-        }
-      }
+    bindElectronIpc: (contract: unknown, handlers: unknown, options: { readonly window: unknown; readonly rendererOrigin?: string; readonly rendererUrl?: string }) => {
+      calls.push({ contract, handlers, options })
+      return Effect.succeed(undefined)
     }
   }
 })
@@ -201,7 +183,7 @@ vi.mock("electron", () => ({
 
 vi.mock("@expand/desktop/main/application/main-program", () => ({ mainProgram: program.mainProgram }))
 vi.mock("@expand/desktop/main/runtime/client-runtime", () => ({ makeRuntime: () => ({}) }))
-vi.mock("@expand/electron-ipc/main-electron", () => ({ electronBindDeps: binding.electronBindDeps }))
+vi.mock("@expand/electron-ipc/main", () => ({ bindElectronIpc: binding.bindElectronIpc }))
 vi.mock("@effect/platform-node", () => platform)
 
 const listenerFor = (
@@ -216,6 +198,10 @@ const listenerFor = (
 const makeWindowHost = () => {
   const host = program.deps().createWindow(windowOptions("/app/preload.cjs"))
   const browserWindow = electron.currentWindow()
+  Effect.runSync(Effect.scoped(host.bindIpc(
+    { _tag: "url", value: "file:///app/index.html" },
+    { rpcPort: (_sender, _grant) => Effect.void }
+  )))
   return { host, browserWindow, webContents: browserWindow.contents }
 }
 
@@ -225,6 +211,19 @@ beforeEach(() => {
 })
 
 describe("desktop main window host", () => {
+  it("passes an origin identity to the public IPC binder without widening it to a URL", () => {
+    const { host, browserWindow } = makeWindowHost()
+    Effect.runSync(Effect.scoped(host.bindIpc(
+      { _tag: "origin", value: "http://localhost:5173" },
+      { rpcPort: (_sender, _grant) => Effect.void }
+    )))
+
+    expect(binding.calls[1]?.options).toEqual({
+      window: browserWindow,
+      rendererOrigin: "http://localhost:5173"
+    })
+  })
+
   it("skips exact listener removal after Electron destroys both sources", () => {
     const { host, browserWindow, webContents } = makeWindowHost()
     const disposeClosed = host.onClosed(() => {})
@@ -233,7 +232,9 @@ describe("desktop main window host", () => {
     const openHandler = (): { readonly action: "deny" } => ({ action: "deny" })
     host.setWindowOpenHandler(openHandler)
 
-    expect(binding.boundContents).toStrictEqual([webContents])
+    expect(binding.calls).toHaveLength(1)
+    expect(binding.calls[0]?.contract).toMatchObject({ prefix: "expand" })
+    expect(binding.calls[0]?.options).toEqual({ window: browserWindow, rendererUrl: "file:///app/index.html" })
     expect(webContents.openHandler).toBe(openHandler)
 
     browserWindow.destroySources()
@@ -246,8 +247,6 @@ describe("desktop main window host", () => {
       disposeNavigation()
       disposeWillNavigate()
     }).not.toThrow()
-    expect(binding.targets).toHaveLength(1)
-    expect(binding.targets[0]).not.toBe(browserWindow)
     expect(browserWindow.getterReads).toBe(1)
     expect(browserWindow.offAttempts).toEqual([])
     expect(webContents.offAttempts).toEqual([])

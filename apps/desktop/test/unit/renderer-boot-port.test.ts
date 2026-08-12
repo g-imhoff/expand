@@ -2,11 +2,19 @@ import { it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber } from "effect"
 import { describe, expect } from "vitest"
 import { acquireRpcPort } from "@expand/desktop/renderer/app/runtime"
-import type { MessageEventLike, RendererWindowLike } from "@expand/electron-ipc/renderer"
 
 const waitForDeferred = Deferred.await
 
-interface FakeWindow extends RendererWindowLike {
+interface MessageEventLike {
+  readonly data: unknown
+  readonly source: unknown
+  readonly ports: ReadonlyArray<MessagePort>
+}
+
+interface FakeWindow {
+  readonly expand: { rpcPort: (nonce: string) => void }
+  readonly addEventListener: (type: "message", listener: (event: MessageEventLike) => void) => void
+  readonly removeEventListener: (type: "message", listener: (event: MessageEventLike) => void) => void
   readonly fire: (event: MessageEventLike) => void
 }
 
@@ -62,6 +70,7 @@ class FakeMessagePort implements MessagePort {
 const makeFakeWindow = (): FakeWindow => {
   const listeners = new Set<(event: MessageEventLike) => void>()
   return {
+    expand: { rpcPort: () => {} },
     addEventListener: (_type, listener) => listeners.add(listener),
     removeEventListener: (_type, listener) => listeners.delete(listener),
     fire: (event) => {
@@ -70,27 +79,38 @@ const makeFakeWindow = (): FakeWindow => {
   }
 }
 
+const installWindow = (value: FakeWindow): (() => void) => {
+  const globals = globalThis as { window?: unknown }
+  const previous = globals.window
+  Object.defineProperty(globals, "window", { configurable: true, value })
+  return () => {
+    if (previous === undefined) delete globals.window
+    else Object.defineProperty(globals, "window", { configurable: true, value: previous })
+  }
+}
+
 describe("acquireRpcPort", () => {
   it.effect("requests through the supplied bridge and returns the granted port", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const win = makeFakeWindow()
+        const restoreWindow = installWindow(win)
+        yield* Effect.addFinalizer(() => Effect.sync(restoreWindow))
         const requested = yield* Deferred.make<string>()
-        const bridge = {
-          rpcPort: (nonce: string) => {
-            Deferred.doneUnsafe(requested, Effect.succeed(nonce))
-          }
+        win.expand.rpcPort = (nonce: string) => {
+          Deferred.doneUnsafe(requested, Effect.succeed(nonce))
         }
         const port = yield* Effect.acquireRelease(
           Effect.sync(() => new FakeMessagePort()),
           (owned) => Effect.sync(() => owned.close())
         )
         const fiber = yield* Effect.forkChild(
-          acquireRpcPort({ bridge: () => bridge, win, nonce: Effect.succeed("n-1"), timeoutMillis: 200 })
+          acquireRpcPort()
         )
-        expect(yield* waitForDeferred(requested)).toBe("n-1")
+        const nonce = yield* waitForDeferred(requested)
+        expect(nonce).toMatch(/^[0-9a-f]{32}$/)
         win.fire({
-          data: { _tag: "IpcPortGrant", channel: "expand:rpcPort", nonce: "n-1" },
+          data: { _tag: "IpcPortGrant", channel: "expand:rpcPort", nonce },
           source: win,
           ports: [port]
         })
