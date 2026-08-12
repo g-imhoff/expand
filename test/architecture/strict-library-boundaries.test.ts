@@ -2,6 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Path, Schema } from "effect"
 import * as ts from "typescript"
+import { fileURLToPath } from "url"
 import { describe, expect } from "vitest"
 import { libraryBoundaryFixtures, privateLibraryPathAliases } from "../support/library-boundary-fixtures"
 
@@ -175,13 +176,18 @@ const resolverAliasCanMatch = (alias: ResolverAlias, packageName: string): boole
   })
 }
 
-const hasAnyValueImport = (file: string, source: string, moduleName: string): boolean => {
+const hasAnyValueImport = (file: string, source: string): boolean => {
   const targetFile = ts.sys.resolvePath("apps/tui/input/text-field.ts")
   const resolvesToTarget = (specifier: string): boolean => {
-    const target = specifier.startsWith("file:") ? decodeURIComponent(new URL(specifier).pathname) : specifier
-    const resolved = target.startsWith("/")
-      ? ts.sys.resolvePath(target)
-      : ts.resolveModuleName(target, ts.sys.resolvePath(file), {
+    let target = specifier
+    if (specifier.startsWith("file:")) {
+      try {
+        target = fileURLToPath(new URL(specifier))
+      } catch {
+        return false
+      }
+    }
+    const resolved = ts.resolveModuleName(target, ts.sys.resolvePath(file), {
           allowJs: true,
           baseUrl: ts.sys.getCurrentDirectory(),
           module: ts.ModuleKind.ESNext,
@@ -227,7 +233,7 @@ const reducerBoundaryViolations = (file: string, source: string): ReadonlyArray<
     ts.forEachChild(current, visit)
   }
   visit(node)
-  if (hasAnyValueImport(file, source, "@expand/tui/input/text-field")) violations.push("editor-import")
+  if (hasAnyValueImport(file, source)) violations.push("editor-import")
   return violations
 }
 
@@ -398,13 +404,13 @@ describe("strict private library boundaries", () => {
   it("recognizes value imports resolving to the centralized editor file", () => {
     const editor = ts.sys.resolvePath("apps/tui/input/text-field.ts")
     const fileUrl = new URL(`file://${editor}`).href
-    for (const specifier of ["./text-field", editor, fileUrl, "@expand/tui/input/text-field.ts", "@expand/tui/input/text-field.js"]) {
+    for (const specifier of ["./text-field", editor.replace(/\.ts$/, ""), `${editor.replace(/\.ts$/, "")}.js`, fileUrl, "@expand/tui/input/text-field.ts", "@expand/tui/input/text-field.js"]) {
       expect(reducerBoundaryViolations("apps/tui/input/route.ts", `import "${specifier}"`), specifier).toContain("editor-import")
     }
-    for (const expression of [`import { editTextField } from "./text-field"`, `require("./text-field")`, `require.resolve("./text-field")`, `import("./text-field")`, `require(\`./text-field\`)`, `import(\`./text-field\`)`, `require("${editor}")`, `import("${fileUrl}")`]) {
+    for (const expression of [`import { editTextField } from "./text-field"`, `require("./text-field")`, `require.resolve("./text-field")`, `require.resolve(\`./text-field\`)`, `import("./text-field")`, `require(\`./text-field\`)`, `import(\`./text-field\`)`, `require("${editor}")`, `import("${fileUrl}")`]) {
       expect(reducerBoundaryViolations("apps/tui/input/route.ts", expression), expression).toContain("editor-import")
     }
-    for (const expression of ['import type editor = require("./text-field")', 'import "./text-field.json"', 'import "./text-field.mjs"']) {
+    for (const expression of ['import type editor = require("./text-field")', 'import "./text-field.json"', 'import "./text-field.mjs"', `import "file://evil${editor}"`, `import "file://${editor.replace("/input/", "/input%2F")}"`]) {
       expect(reducerBoundaryViolations("apps/tui/input/route.ts", expression), expression).not.toContain("editor-import")
     }
     expect(reducerBoundaryViolations("apps/tui/input/route.ts", 'import type { editTextField } from "./text-field"')).not.toContain("editor-import")
