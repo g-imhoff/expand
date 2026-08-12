@@ -15,6 +15,7 @@ describe("focused text editing", () => {
   })
   it("deletes complete code points", () => {
     expect(editTextField({ value: "a😀b", cursor: 2 }, event("backspace", ""))).toEqual({ value: "ab", cursor: 1 })
-    expect(editTextField({ value: "a😀b", cursor: 1 }, event("delete", ""))).toEqual({ value: "ab", cursor: 1 })
+    expect(editTextField({ value: "a😀b", cursor: 1 }, event("delete", ""))).toEqual({ value: "😀b", cursor: 0 })
+    expect(editTextField(textField("a😀b"), event("delete", ""))).toEqual({ value: "a😀", cursor: 2 })
   })
 })
