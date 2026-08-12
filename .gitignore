@@ -1,11 +1,5 @@
 # Dependencies
 node_modules/
-/docs/architecture/node_modules/
-
-# Generated architecture diagrams
-/docs/architecture/d2/
-/docs/architecture/out/
-/docs/architecture/out-svg/
 
 # Build/test output
 coverage/
@@ -34,15 +28,10 @@ pnpm-debug.log*
 Thumbs.db
 
 # AI Generated Files
-/docs/superpowers
 /.claude/worktrees
 /.worktrees
 /.claude/skills
-/.superpowers
 
 # Playwright E2E artifacts
 test-results/
 playwright-report/
-
-# Bench harness cache
-/bench/.cache

@@ -35,12 +35,4 @@ describe("server app split", () => {
       expect(yield* read("scripts/binary-smoke.ts")).toContain("scripts/fixtures/job-control.sh")
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("does not keep a dependency-cruiser exception for CLI booting backend composition", () =>
-    read(".dependency-cruiser.cjs").pipe(
-      Effect.tap((config) => Effect.sync(() => {
-        expect(config).not.toContain("composition-only-from-server-subcommand")
-        expect(config).not.toContain("apps/cli/cli/commands/server")
-      })),
-      Effect.provide(NodeServices.layer)
-    ))
 })

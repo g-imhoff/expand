@@ -27,8 +27,7 @@
         "apps/server/**/*.{ts,tsx}",
         "apps/tui/**/*.{ts,tsx}",
         "packages/**/*.{ts,tsx}",
-        "scripts/**/*.ts",
-        "bench/**/*.ts"
+        "scripts/**/*.ts"
       ]
     },
     "packages/client-ts": {
@@ -41,9 +40,6 @@
         "e2e/**/*.spec.ts",
         "e2e/playwright.config.ts"
       ]
-    },
-    "docs/architecture": {
-      "project": ["scripts/**/*.ts"]
     }
   }
 }

@@ -7,22 +7,11 @@ const Manifest = Schema.Struct({
   scripts: Schema.optional(Schema.Record(Schema.String, Schema.String))
 })
 
-const DocsPackage = Schema.Struct({
-  overrides: Schema.Record(Schema.String, Schema.String),
-  devDependencies: Schema.Record(Schema.String, Schema.String)
-})
-
-const LockPackage = Schema.Struct({ version: Schema.String })
-const DocsLock = Schema.Struct({
-  packages: Schema.Record(Schema.String, Schema.Unknown)
-})
-
 const manifests = [
   "package.json",
   "apps/desktop/package.json",
   "packages/contracts/package.json",
-  "packages/client-ts/package.json",
-  "docs/architecture/package.json"
+  "packages/client-ts/package.json"
 ] as const
 
 const commandViolations = (command: string): ReadonlyArray<string> => {
@@ -245,18 +234,14 @@ describe("manifest orchestration", () => {
       const desktop = yield* decode("apps/desktop/package.json")
       const contracts = yield* decode("packages/contracts/package.json")
       const client = yield* decode("packages/client-ts/package.json")
-      const docs = yield* decode("docs/architecture/package.json")
 
       expect(root.scripts).toEqual({
         typecheck: "tsc --noEmit",
         "gen:fold-version": "tsx scripts/fold-version.ts",
-        "bench:events": "node --expose-gc --import tsx bench/main.ts",
-        "bench:selfcheck": "node --expose-gc --import tsx bench/selfcheck.ts",
         "typecheck:all": "tsc --noEmit -p tsconfig.workspace.json",
         test: "vitest run",
         "test:coverage": "vitest run --coverage",
         "test:watch": "vitest",
-        arch: "depcruise apps packages --config .dependency-cruiser.cjs",
         knip: "knip",
         build: "tsx scripts/build.ts",
         "cert:cli:build": "tsx scripts/binary-smoke.ts",
@@ -270,8 +255,7 @@ describe("manifest orchestration", () => {
         "e2e:desktop": "tsx scripts/desktop-command.ts e2e",
         lint: "eslint .",
         postinstall: "git config core.hooksPath .githooks",
-        prepare: "effect-language-service patch",
-        doctor: "npx react-doctor@latest"
+        prepare: "effect-language-service patch"
       })
       expect(desktop.scripts).toBeUndefined()
       expect(contracts.scripts).toEqual({
@@ -284,44 +268,5 @@ describe("manifest orchestration", () => {
         "stage:publish": "tsx scripts/prepare-publish.ts stage",
         "pack:tgz": "tsx scripts/prepare-publish.ts pack"
       })
-      expect(docs.scripts).toEqual({
-        dev: "likec4 start",
-        build: "tsx scripts/build.ts"
-      })
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.live("keeps the architecture toolchain isolated at exact versions", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const docs = yield* fs.readFileString("docs/architecture/package.json").pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(DocsPackage)))
-      )
-      expect(docs.devDependencies).toEqual({
-        "@effect/platform-node": "4.0.0-beta.74",
-        "@effect/vitest": "4.0.0-beta.74",
-        effect: "4.0.0-beta.74",
-        likec4: "1.56.0",
-        tsx: "4.21.0",
-        typescript: "6.0.3",
-        vitest: "4.1.7"
-      })
-      expect(docs.overrides).toEqual({ "@effect/platform-node-shared": "4.0.0-beta.74" })
-
-      const lock = yield* fs.readFileString("docs/architecture/package-lock.json").pipe(
-        Effect.flatMap(Schema.decodeUnknownEffect(Schema.fromJsonString(DocsLock)))
-      )
-      const expected = {
-        "node_modules/@effect/platform-node": "4.0.0-beta.74",
-        "node_modules/@effect/platform-node-shared": "4.0.0-beta.74",
-        "node_modules/@effect/vitest": "4.0.0-beta.74",
-        "node_modules/effect": "4.0.0-beta.74",
-        "node_modules/tsx": "4.21.0",
-        "node_modules/typescript": "6.0.3",
-        "node_modules/vitest": "4.1.7"
-      }
-      for (const [path, version] of Object.entries(expected)) {
-        const entry = yield* Schema.decodeUnknownEffect(LockPackage)(lock.packages[path])
-        expect(entry.version, path).toBe(version)
-      }
     }).pipe(Effect.provide(NodeServices.layer)))
 })

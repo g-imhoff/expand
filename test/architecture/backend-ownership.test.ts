@@ -47,11 +47,4 @@ describe("backend ownership (#11)", () => {
       expect(yield* fs.exists("apps/cli/cli/main.ts")).toBe(true)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("defines backend ownership per state root", () =>
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const model = yield* fs.readFileString("docs/architecture/expand.c4")
-      expect(model).toContain("One live backend per selected state root")
-      expect(model).toContain("backend.lock")
-    }).pipe(Effect.provide(NodeServices.layer)))
 })
