@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "react", "react-dom"]
+  },
+  "include": [
+    "apps",
+    "packages",
+    "scripts",
+    "examples",
+    "test",
+    "eslint-rules",
+    "*.ts",
+    "*.tsx",
+    "*.mts",
+    "*.cts"
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/out/**", "**/build/**", "**/coverage/**", "**/test-results/**", "**/playwright-report/**", "**/.worktrees/**"]
+}

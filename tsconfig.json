@@ -1,0 +1,67 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "ignoreDeprecations": "6.0",
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@expand/tui/*": ["apps/tui/*"],
+      "@expand/desktop/*": ["apps/desktop/src/*"],
+      "@expand/server/*": ["apps/server/*"],
+      "@expand/cli/*": ["apps/cli/cli/*"]
+    },
+    "plugins": [
+      {
+        "name": "@effect/language-service",
+        "diagnostics": true,
+        "diagnosticsName": true,
+        "includeSuggestionsInTsc": true,
+        "ignoreEffectErrorsInTscExitCode": false,
+        "ignoreEffectWarningsInTscExitCode": false,
+        "ignoreEffectSuggestionsInTscExitCode": false,
+        "diagnosticSeverity": {
+          "asyncFunction": "error",
+          "newPromise": "error",
+          "nodeBuiltinImport": "off",
+          "globalConsole": "error",
+          "globalConsoleInEffect": "error",
+          "globalDate": "error",
+          "globalDateInEffect": "error",
+          "globalFetch": "error",
+          "globalFetchInEffect": "error",
+          "globalRandom": "error",
+          "globalRandomInEffect": "error",
+          "globalTimers": "error",
+          "globalTimersInEffect": "error",
+          "cryptoRandomUUID": "error",
+          "cryptoRandomUUIDInEffect": "error",
+          "processEnv": "off",
+          "processEnvInEffect": "error",
+          "preferSchemaOverJson": "error",
+          "floatingEffect": "error",
+          "lazyPromiseInEffectSync": "error",
+          "runEffectInsideEffect": "error",
+          "tryCatchInEffectGen": "error",
+          "globalErrorInEffectCatch": "error",
+          "globalErrorInEffectFailure": "error",
+          "effectFnOpportunity": "error"
+        }
+      }
+    ]
+  },
+  "include": ["apps/cli", "apps/server", "apps/tui", "packages", "vitest.config.ts", "test/architecture", "test/support", "examples", "scripts"],
+  "exclude": [
+    "apps/desktop"
+  ]
+}

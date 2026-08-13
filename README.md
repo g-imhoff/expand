@@ -9,5 +9,3 @@ An AI-assisted development workflow tool: a desktop app, a backend service and a
 - **Desktop app** — Electron · Vite · React, connected to the backend over WebSocket.
 - **Backend service** — owns all state (SQLite, event bus) and spawns the agent (ACP) subprocesses.
 - **CLI** — a thin RPC client over WebSocket, also exposed to coding agents as a tool.
-
-The architecture model lives in [`docs/architecture`](docs/architecture) (LikeC4), and the load-bearing rules of the design in [`docs/architecture/BOUNDARIES.md`](docs/architecture/BOUNDARIES.md).

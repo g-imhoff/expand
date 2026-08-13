@@ -1,0 +1,62 @@
+import { Cause, Console, Effect, Layer, Runtime } from "effect"
+import { CliOutput, Command } from "effect/unstable/cli"
+import { NodeServices } from "@effect/platform-node"
+import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
+import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"
+import { jsonCliErrorFormatter } from "@expand/cli/errors"
+import { renderErrors } from "@expand/cli/errors/render-errors"
+
+export const stubLayer = (stub: object): Layer.Layer<ProjectClient | ServerClient> => {
+  const s = stub as Record<string, any>
+  return Layer.mergeAll(
+    Layer.succeed(ProjectClient, {
+      create: s.ProjectCreate,
+      list: s.ProjectList,
+      rename: s.ProjectRename,
+      changeDirectory: s.ProjectChangeDirectory,
+      archive: s.ProjectArchive,
+      restore: s.ProjectRestore,
+      setMetadata: s.ProjectSetMetadata,
+      delete: s.ProjectDelete
+    } as ProjectClientApi),
+    Layer.succeed(ServerClient, {
+      health: s.Health
+    } as ServerClientApi)
+  )
+}
+
+export const runCli = Effect.fn("CliTest.runCli")(function*(
+  command: Command.Command.Any,
+  argv: ReadonlyArray<string>
+): Effect.fn.Return<CliResult> {
+  const stdout: string[] = []
+  const stderr: string[] = []
+  const infra = Layer.mergeAll(
+    Layer.succeed(Console.Console, capturingConsole(stdout, stderr)),
+    CliOutput.layer(jsonCliErrorFormatter),
+    NodeServices.layer
+  )
+  const exit = yield* renderErrors(
+    Command.runWith(command, { version: "test" })(argv) as Effect.Effect<void, unknown, never>
+  ).pipe(
+    Effect.provide(infra),
+    Effect.exit
+  )
+  return {
+    stdout,
+    stderr,
+    code: exit._tag === "Success" ? 0 : Runtime.getErrorExitCode(Cause.squash(exit.cause))
+  }
+})
+
+interface CliResult { readonly stdout: ReadonlyArray<string>; readonly stderr: ReadonlyArray<string>; readonly code: number }
+
+const capturingConsole = (stdout: string[], stderr: string[]): Console.Console => ({
+  log: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
+  error: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
+  warn: (...a: unknown[]) => { stderr.push(a.map(String).join(" ")) },
+  info: (...a: unknown[]) => { stdout.push(a.map(String).join(" ")) },
+  debug: () => {}, clear: () => {}, assert: () => {}, count: () => {}, countReset: () => {},
+  dir: () => {}, dirxml: () => {}, group: () => {}, groupCollapsed: () => {}, groupEnd: () => {},
+  table: () => {}, time: () => {}, timeEnd: () => {}, timeLog: () => {}, trace: () => {}
+} as unknown as Console.Console)

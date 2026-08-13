@@ -1,0 +1,397 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`envelope contract (expand/v1) > matches the frozen envelope-shape snapshot 1`] = `
+{
+  "ErrorEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "expand/v1",
+          ],
+          "type": "string",
+        },
+        "code": {
+          "enum": [
+            "UNEXPECTED",
+            "INVALID_ARGUMENT",
+            "INVALID_OPTION",
+            "UNKNOWN_COMMAND",
+            "PROJECT_EXISTS",
+            "BACKEND_UNREACHABLE",
+            "PROJECT_NOT_FOUND",
+            "NAME_CONFLICT",
+            "DIRECTORY_INVALID",
+            "DIRECTORY_CONFLICT",
+          ],
+          "type": "string",
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "input": {
+          "anyOf": [
+            {},
+            {
+              "type": "null",
+            },
+          ],
+        },
+        "kind": {
+          "enum": [
+            "Error",
+          ],
+          "type": "string",
+        },
+        "message": {
+          "type": "string",
+        },
+        "retryable": {
+          "type": "boolean",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "code",
+        "message",
+        "retryable",
+      ],
+      "type": "object",
+    },
+  },
+  "HealthEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "expand/v1",
+          ],
+          "type": "string",
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "status",
+          ],
+          "type": "object",
+        },
+        "kind": {
+          "enum": [
+            "ServerHealth",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+  "ProjectDeleteEnvelope": {
+    "definitions": {},
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "expand/v1",
+          ],
+          "type": "string",
+        },
+        "data": {
+          "additionalProperties": false,
+          "properties": {
+            "deleted": {
+              "type": "boolean",
+            },
+            "id": {
+              "type": "string",
+            },
+          },
+          "required": [
+            "id",
+            "deleted",
+          ],
+          "type": "object",
+        },
+        "kind": {
+          "enum": [
+            "ProjectDelete",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+  "ProjectEnvelope": {
+    "definitions": {
+      "Project": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean",
+          },
+          "createdAt": {
+            "type": "string",
+          },
+          "description": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "maxLength": 2048,
+                  },
+                ],
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "id": {
+            "allOf": [
+              {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              },
+            ],
+            "type": "string",
+          },
+          "name": {
+            "allOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              },
+            ],
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "allOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                },
+              ],
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "updatedAt": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+        ],
+        "type": "object",
+      },
+    },
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "expand/v1",
+          ],
+          "type": "string",
+        },
+        "created": {
+          "type": "boolean",
+        },
+        "data": {
+          "$ref": "#/$defs/Project",
+        },
+        "kind": {
+          "enum": [
+            "Project",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "created",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+  "ProjectListEnvelope": {
+    "definitions": {
+      "Project": {
+        "additionalProperties": false,
+        "properties": {
+          "archived": {
+            "type": "boolean",
+          },
+          "createdAt": {
+            "type": "string",
+          },
+          "description": {
+            "anyOf": [
+              {
+                "allOf": [
+                  {
+                    "maxLength": 2048,
+                  },
+                ],
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "directory": {
+            "anyOf": [
+              {
+                "type": "string",
+              },
+              {
+                "type": "null",
+              },
+            ],
+          },
+          "id": {
+            "allOf": [
+              {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$",
+              },
+            ],
+            "type": "string",
+          },
+          "name": {
+            "allOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+              },
+            ],
+            "type": "string",
+          },
+          "tags": {
+            "items": {
+              "allOf": [
+                {
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                },
+              ],
+              "type": "string",
+            },
+            "type": "array",
+          },
+          "updatedAt": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+        ],
+        "type": "object",
+      },
+    },
+    "dialect": "draft-2020-12",
+    "schema": {
+      "additionalProperties": false,
+      "properties": {
+        "apiVersion": {
+          "enum": [
+            "expand/v1",
+          ],
+          "type": "string",
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "number",
+            },
+            {
+              "enum": [
+                "NaN",
+              ],
+              "type": "string",
+            },
+            {
+              "enum": [
+                "Infinity",
+              ],
+              "type": "string",
+            },
+            {
+              "enum": [
+                "-Infinity",
+              ],
+              "type": "string",
+            },
+          ],
+        },
+        "data": {
+          "items": {
+            "$ref": "#/$defs/Project",
+          },
+          "type": "array",
+        },
+        "kind": {
+          "enum": [
+            "ProjectList",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "apiVersion",
+        "kind",
+        "count",
+        "data",
+      ],
+      "type": "object",
+    },
+  },
+}
+`;

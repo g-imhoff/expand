@@ -1,0 +1,31 @@
+{
+  "name": "@expand/client-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./index.ts",
+    "./project": "./project/index.ts",
+    "./server": "./server/index.ts",
+    "./adapters/node": "./adapters/node.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsx scripts/prepare-publish.ts build",
+    "stage:publish": "tsx scripts/prepare-publish.ts stage",
+    "pack:tgz": "tsx scripts/prepare-publish.ts pack"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-beta.74",
+    "@effect/platform-node-shared": "4.0.0-beta.74",
+    "@expand/contracts": "0.0.0",
+    "effect": "4.0.0-beta.74",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.9",
+    "@types/ws": "^8.18.1",
+    "tsup": "^8.5.1"
+  }
+}

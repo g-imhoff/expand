@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+echo "pre-commit › eslint"
+npm run lint
+
+echo "pre-commit › typecheck"
+npm run typecheck
+
+echo "pre-commit › ok"

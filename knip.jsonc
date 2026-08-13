@@ -1,0 +1,46 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // Type/interface exports that are only referenced WITHIN their own file are
+  // internal "plumbing" — this mirrors the repo's own `module-order` ESLint
+  // rule (non-exported type aliases/interfaces live below the exports). This is
+  // narrow ON PURPOSE: it covers ONLY types/interfaces, NOT values. Over-exported
+  // values (const/function/class) are un-exported in code, never hidden here.
+  "ignoreExportsUsedInFile": { "type": true, "interface": true },
+
+  "ignoreDependencies": ["ws", "@types/ws", "tailwindcss"],
+
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.ts",
+        "apps/server/test/fixtures/state-root-lock-contender.ts",
+        "apps/server/test/fixtures/trust-boundary-host.ts"
+      ],
+      "project": [
+        "apps/cli/**/*.{ts,tsx}",
+        "apps/server/**/*.{ts,tsx}",
+        "apps/tui/**/*.{ts,tsx}",
+        "scripts/**/*.ts"
+      ]
+    },
+    "packages/client-ts": {
+      "entry": ["test/fixtures/spawn-lock-contender.ts"],
+      "ignoreDependencies": ["@effect/platform-node-shared"]
+    },
+    "packages/electron-ipc": {
+      "entry": ["test/**/*.test.ts"]
+    },
+    "packages/ink-input": {
+      "entry": ["test/**/*.test.{ts,tsx}"]
+    },
+    "apps/desktop": {
+      "entry": [
+        "test/**/*.test.{ts,tsx}",
+        "e2e/**/*.spec.ts",
+        "e2e/playwright.config.ts"
+      ],
+      "ignoreDependencies": ["desktop-better-sqlite3", "electron-builder"]
+    }
+  }
+}

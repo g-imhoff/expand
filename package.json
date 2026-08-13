@@ -1,0 +1,93 @@
+{
+  "name": "expand",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.12.1",
+  "engines": {
+    "node": ">=24.15",
+    "npm": ">=11"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.0-beta.74"
+  },
+  "workspaces": [
+    "apps/desktop",
+    "packages/contracts",
+    "packages/client-ts",
+    "packages/electron-ipc",
+    "packages/ink-input"
+  ],
+  "module": "apps/cli/cli/main.ts",
+  "bin": {
+    "expand": "dist/expand"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.workspace.json",
+    "gen:fold-version": "tsx scripts/fold-version.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "knip": "knip",
+    "build": "tsx scripts/build.ts",
+    "verify:compiled-binaries": "tsx scripts/binary-smoke.ts",
+    "verify:package-artifacts": "tsx scripts/package-certification.ts",
+    "dev:cli": "tsx apps/cli/cli/main.ts",
+    "dev:server": "tsx apps/server/main.ts",
+    "dev:tui": "tsx apps/tui/main.tsx",
+    "dev:desktop": "tsx scripts/desktop-command.ts dev",
+    "build:desktop": "tsx scripts/desktop-command.ts build",
+    "e2e:desktop": "tsx scripts/desktop-command.ts e2e",
+    "lint": "eslint .",
+    "postinstall": "git config core.hooksPath .githooks",
+    "prepare": "effect-language-service patch"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-beta.74",
+    "@effect/sql-sqlite-node": "4.0.0-beta.74",
+    "@expand/client-ts": "0.0.0",
+    "@expand/contracts": "0.0.0",
+    "@expand/electron-ipc": "0.0.0",
+    "@expand/ink-input": "0.0.0",
+    "@tanstack/react-router": "^1.95.0",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "effect": "4.0.0-beta.74",
+    "ink": "7",
+    "lucide-react": "^1.17.0",
+    "radix-ui": "^1.4.3",
+    "react": "19",
+    "react-dom": "19",
+    "tailwind-merge": "^3.6.0",
+    "ws": "^8.21.0",
+    "yaml": "^2.9.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@effect/language-service": "0.86.6",
+    "@effect/vitest": "4.0.0-beta.74",
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/node": "24.13.3",
+    "@types/react": "19",
+    "@types/react-dom": "19",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "5.2.0",
+    "@vitest/coverage-istanbul": "4.1.7",
+    "@vitest/coverage-v8": "4.1.7",
+    "electron-vite": "5",
+    "esbuild": "^0.27.4",
+    "eslint": "^10.5.0",
+    "fast-check": "4.8.0",
+    "happy-dom": "^20.9.0",
+    "ink-testing-library": "4",
+    "knip": "^6.17.1",
+    "tailwindcss": "^4.3.0",
+    "tsx": "^4.20.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.61.1",
+    "vite": "7.3.6",
+    "vitest": "4.1.7"
+  }
+}

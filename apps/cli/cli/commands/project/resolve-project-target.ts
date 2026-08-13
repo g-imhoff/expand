@@ -1,0 +1,27 @@
+import { Effect, Schema } from "effect"
+import type { RpcClientError } from "effect/unstable/rpc"
+import { ProjectNotFound } from "@expand/contracts/rpc"
+import { ProjectClient } from "@expand/client-ts/project"
+
+export const resolveProjectTarget = Effect.fn("Cli.resolveProjectTarget")((
+  token: string
+): Effect.Effect<string, RpcClientError.RpcClientError | ProjectNotFound, ProjectClient> =>
+  isUUID(token)
+    ? Effect.succeed(token)
+    : Effect.flatMap(ProjectClient, (c) => c.list({ includeArchived: true })).pipe(
+      Effect.flatMap(({ projects: ps }) => {
+        const matches = ps.filter((p) => p.name === token)
+        if (matches.length > 1) {
+          return Effect.die(
+            new Error(`Ambiguous project name "${token}": ${matches.length} live projects share it`)
+          )
+        }
+        const match = matches[0]
+        return match === undefined
+          ? Effect.fail(new ProjectNotFound({ id: token }))
+          : Effect.succeed(match.id)
+      })
+    )
+)
+
+const isUUID = Schema.is(Schema.String.pipe(Schema.check(Schema.isUUID())))
