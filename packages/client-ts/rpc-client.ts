@@ -1,13 +1,12 @@
 import { RpcClient } from "effect/unstable/rpc"
 import type { RpcClientError } from "effect/unstable/rpc"
-import { Cause, Data, Deferred, Effect, Exit, Layer, PlatformError, Stream } from "effect"
+import { Cause, Data, Deferred, Effect, Layer, PlatformError, Stream } from "effect"
 import type { Crypto, FileSystem, Path, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl, ProcessProbeError } from "@expand/contracts/process-control"
 import { BackendUnavailable } from "./errors"
-import { deleteEndpoint } from "./discovery"
 import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
@@ -21,7 +20,10 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > => {
-  const once = findOrSpawnBackend(adapter).pipe(
+  const acquireOnce = (rejectedEndpoints: ReadonlyArray<Endpoint>) => findOrSpawnBackend(
+    adapter,
+    rejectedEndpoints
+  ).pipe(
     Effect.catchIf(
       (e): e is "pending" => e === "pending",
       (e) => Effect.die(e)
@@ -44,7 +46,10 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
             duration: CONNECT_TIMEOUT,
             orElse: () =>
               Effect.fail(
-                new StaleEndpoint({ reason: `no presence from ${endpoint.url} within ${CONNECT_TIMEOUT}` })
+                new StaleEndpoint({
+                  endpoint,
+                  reason: `no presence from ${endpoint.url} within ${CONNECT_TIMEOUT}`
+                })
               )
           })
         )
@@ -53,30 +58,26 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
     )
   )
 
-  const attempt = (retries: number): Effect.Effect<
-    Effect.Success<typeof once>,
-    Effect.Error<typeof once> | PlatformError.PlatformError,
-    Effect.Services<typeof once>
-  > => once.pipe(
+  type Acquisition = ReturnType<typeof acquireOnce>
+  const attempt = (
+    retries: number,
+    rejectedEndpoints: ReadonlyArray<Endpoint>
+  ): Effect.Effect<
+    Effect.Success<Acquisition>,
+    Effect.Error<Acquisition> | PlatformError.PlatformError,
+    Effect.Services<Acquisition>
+  > => acquireOnce(rejectedEndpoints).pipe(
     Effect.catchTag("StaleEndpoint", (stale) =>
-      deleteEndpoint.pipe(
-        Effect.exit,
-        Effect.flatMap((cleanupExit) => {
-          if (Exit.isFailure(cleanupExit)) {
-            return Effect.failCause(Cause.combine(
-              Cause.fail<StaleEndpoint | PlatformError.PlatformError>(stale),
-              cleanupExit.cause
-            ))
-          }
-          return retries > 0
-            ? Effect.suspend(() => attempt(retries - 1))
-            : Effect.fail(stale)
-        })
-      )
+      retries > 0
+        ? Effect.suspend(() => attempt(
+            retries - 1,
+            [...rejectedEndpoints, stale.endpoint]
+          ))
+        : Effect.fail(stale)
     )
   )
 
-  return attempt(MAX_ATTEMPTS - 1).pipe(
+  return attempt(MAX_ATTEMPTS - 1, []).pipe(
     Effect.catchCause((cause) => Effect.failCause(Cause.map(cause, mapAcquisitionFailure)))
   )
 })
@@ -95,11 +96,11 @@ const mapAcquisitionFailure = (error: BackendUnavailable | ProcessProbeError | P
     })
   case "PlatformError":
     return new BackendUnavailable({
-      reason: `stale endpoint cleanup failed: ${String(error)}`,
+      reason: `endpoint discovery failed: ${String(error)}`,
       cause: error
     })
   case "StaleEndpoint":
-    return new BackendUnavailable({ reason: error.reason, cause: error })
+    return new BackendUnavailable({ reason: error.reason })
   }
 }
 
@@ -107,5 +108,6 @@ const CONNECT_TIMEOUT = "3 seconds"
 const MAX_ATTEMPTS = 3
 
 class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
+  readonly endpoint: Endpoint
   readonly reason: string
 }> {}

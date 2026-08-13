@@ -63,6 +63,35 @@ export const buildBinaries = Effect.fn("scripts.build.buildBinaries")(
   }
 )
 
+export const buildDesktopBackend = Effect.fn("scripts.build.buildDesktopBackend")(
+  function*(rootDir: string, appVersion: string) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const tool = yield* BuildTool
+    const buildDir = path.join(rootDir, "apps", "desktop", "build")
+
+    yield* fs.remove(buildDir, { recursive: true, force: true }).pipe(
+      Effect.mapError((cause) => new BuildError({ operation: "remove", cause }))
+    )
+    yield* fs.makeDirectory(buildDir, { recursive: true }).pipe(
+      Effect.mapError((cause) => new BuildError({ operation: "mkdir", cause }))
+    )
+    yield* tool.build({
+      ...buildOptions(
+        rootDir,
+        path.join(rootDir, "apps", "server", "main.ts"),
+        path.join(buildDir, "backend.mjs"),
+        appVersion
+      ),
+      alias: { "better-sqlite3": "desktop-better-sqlite3" },
+      external: ["desktop-better-sqlite3"],
+      sourcemap: false
+    }).pipe(
+      Effect.mapError((cause) => new BuildError({ operation: "esbuild", cause }))
+    )
+  }
+)
+
 const buildTool: BuildToolShape = {
   build: Effect.fn("scripts.build.buildTool")((options) => Effect.tryPromise({
     try: () => esbuildBuild(options),

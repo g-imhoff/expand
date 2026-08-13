@@ -7,6 +7,7 @@ dist/
 dist-publish/
 build/
 apps/desktop/out/
+apps/desktop/release/
 .cache/
 .tmp/
 tmp/

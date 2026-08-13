@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Option, PlatformError, Schema } from "effect"
+import { Effect, FileSystem, Option, Schema } from "effect"
 import { type Endpoint, EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext } from "@expand/contracts/app-context"
@@ -23,16 +23,4 @@ export const readEndpoint: Effect.Effect<
     if (endpoint.protocolVersion !== PROTOCOL_VERSION) return Option.none()
     if ((yield* processControl.probe(endpoint.pid)) === "dead") return Option.none()
     return Option.some(endpoint)
-  })
-
-export const deleteEndpoint: Effect.Effect<void, PlatformError.PlatformError, FileSystem.FileSystem | AppContext> =
-  Effect.gen(function*() {
-    const fs = yield* FileSystem.FileSystem
-    const { paths } = yield* AppContext
-    yield* fs.remove(paths.endpointFile).pipe(
-      Effect.catchIf(
-        (error) => error instanceof PlatformError.PlatformError && error.reason._tag === "NotFound",
-        () => Effect.void
-      )
-    )
   })

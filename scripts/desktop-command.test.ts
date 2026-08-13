@@ -14,7 +14,7 @@ const commandDetails = (fixture: ReturnType<typeof processSpawnerFixture>) => fi
 
 describe("desktop command", () => {
   it.effect("resolves one tagged build identity and transports it to the desktop build", () => {
-    const fixture = processSpawnerFixture([0, 0], { stdout: ["v3.4.5\n", ""] })
+    const fixture = processSpawnerFixture([0, 0, 0, 0], { stdout: ["v3.4.5\n", "", "", ""] })
     return runDesktopCommandAtRoot("/repo", "build").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
@@ -29,8 +29,26 @@ describe("desktop command", () => {
             stderr: undefined
           },
           {
+            command: "tsx",
+            args: ["scripts/desktop-backend.ts"],
+            cwd: "/repo",
+            env: { EXPAND_APP_VERSION: "3.4.5" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
             command: "electron-vite",
             args: ["build"],
+            cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "3.4.5" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
+            command: "electron-builder",
+            args: ["--publish", "never", "--config.extraMetadata.version=3.4.5"],
             cwd: "/repo/apps/desktop",
             env: { EXPAND_APP_VERSION: "3.4.5" },
             stdin: "inherit",
@@ -63,35 +81,73 @@ describe("desktop command", () => {
   })
 
   it.effect("runs build with the exact electron-vite arguments and desktop cwd", () => {
-    const fixture = processSpawnerFixture([0])
+    const fixture = processSpawnerFixture([0, 0, 0])
     const environment = (Reflect.get(globalThis, "process") as NodeJS.Process).env
     const parentVersion = environment.EXPAND_APP_VERSION
     return runDesktopCommand("/repo", "build", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
-        expect(commandDetails(fixture)).toEqual([{
-          command: "electron-vite",
-          args: ["build"],
-          cwd: "/repo/apps/desktop",
-          env: { EXPAND_APP_VERSION: "1.2.3" },
-          stdin: "inherit",
-          stdout: "inherit",
-          stderr: "inherit"
-        }])
+        expect(commandDetails(fixture)).toEqual([
+          {
+            command: "tsx",
+            args: ["scripts/desktop-backend.ts"],
+            cwd: "/repo",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
+            command: "electron-vite",
+            args: ["build"],
+            cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
+            command: "electron-builder",
+            args: ["--publish", "never", "--config.extraMetadata.version=1.2.3"],
+            cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          }
+        ])
         expect(environment.EXPAND_APP_VERSION).toBe(parentVersion)
       }))
     )
   })
 
   it.effect("runs e2e as build followed by Playwright with exact arguments", () => {
-    const fixture = processSpawnerFixture([0, 0])
+    const fixture = processSpawnerFixture([0, 0, 0, 0])
     return runDesktopCommand("/repo", "e2e", "1.2.3").pipe(
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.tap(() => Effect.sync(() => {
         expect(commandDetails(fixture)).toEqual([
           {
+            command: "tsx",
+            args: ["scripts/desktop-backend.ts"],
+            cwd: "/repo",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
             command: "electron-vite",
             args: ["build"],
+            cwd: "/repo/apps/desktop",
+            env: { EXPAND_APP_VERSION: "1.2.3" },
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "inherit"
+          },
+          {
+            command: "electron-builder",
+            args: ["--dir", "--config.extraMetadata.version=1.2.3"],
             cwd: "/repo/apps/desktop",
             env: { EXPAND_APP_VERSION: "1.2.3" },
             stdin: "inherit",
@@ -118,7 +174,7 @@ describe("desktop command", () => {
       Effect.provide(Layer.mergeAll(fixture.layer, Path.layer)),
       Effect.flip,
       Effect.tap((error) => Effect.sync(() => {
-        expect(error).toEqual(new DesktopCommandError({ command: "electron-vite", exitCode: 6 }))
+        expect(error).toEqual(new DesktopCommandError({ command: "tsx", exitCode: 6 }))
         expect(fixture.records).toHaveLength(1)
       }))
     )

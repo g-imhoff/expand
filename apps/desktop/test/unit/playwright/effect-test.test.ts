@@ -9,7 +9,11 @@ import {
   type EffectTestRegistration,
   type PlaywrightFixtures
 } from "../../../e2e/effect-test"
-import { launchApp, type LaunchAppDependencies } from "../../../e2e/helpers"
+import {
+  launchApp,
+  resolveDesktopDistribution,
+  type LaunchAppDependencies
+} from "../../../e2e/helpers"
 
 type RegisteredCallback = Parameters<EffectTestRegistration>[1]
 
@@ -66,6 +70,22 @@ const singleReason = (cause: Cause.Cause<unknown> | undefined) => {
 }
 
 describe("Effect Playwright adapter", () => {
+  it.effect("resolves each unpacked desktop distribution and executable", () =>
+    Effect.gen(function*() {
+      expect(yield* resolveDesktopDistribution("/workspace/apps/desktop", "linux")).toEqual({
+        directory: "/workspace/apps/desktop/release/linux-unpacked",
+        executable: "/workspace/apps/desktop/release/linux-unpacked/expand"
+      })
+      expect(yield* resolveDesktopDistribution("/workspace/apps/desktop", "darwin")).toEqual({
+        directory: "/workspace/apps/desktop/release/mac/Expand.app",
+        executable: "/workspace/apps/desktop/release/mac/Expand.app/Contents/MacOS/Expand"
+      })
+      expect(yield* resolveDesktopDistribution("/workspace/apps/desktop", "win32")).toEqual({
+        directory: "/workspace/apps/desktop/release/win-unpacked",
+        executable: "/workspace/apps/desktop/release/win-unpacked/Expand.exe"
+      })
+    }).pipe(Effect.provide(Path.layer)))
+
   it.effect("invokes the Effect body with Playwright fixtures and TestInfo", () =>
     Effect.gen(function* () {
       const harness = registrationHarness()
@@ -265,7 +285,10 @@ describe("Effect Playwright adapter", () => {
       expect(cleanups.app).toHaveBeenCalledOnce()
       expect(fakeApp.close).toHaveBeenCalledOnce()
       expect(events).toEqual(["listener", "cdp", "backend", "app", "temp", "propagate"])
-      expect(launch.mock.calls[0]?.[0].args?.[1]).toBe(path.resolve("/workspace/apps/desktop/out/main/index.mjs"))
-      expect(launch.mock.calls[0]?.[0].cwd).toBe("/workspace")
+      expect(launch.mock.calls[0]?.[0].executablePath).toBe(
+        path.resolve("/workspace/apps/desktop/release/linux-unpacked/expand")
+      )
+      expect(launch.mock.calls[0]?.[0].args).toEqual(["--no-sandbox", "--data-dir", dataHome])
+      expect(launch.mock.calls[0]?.[0].cwd).toBe("/workspace/apps/desktop/release/linux-unpacked")
     }).pipe(Effect.provide(NodeServices.layer)))
 })

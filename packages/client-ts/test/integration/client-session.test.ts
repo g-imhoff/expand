@@ -14,6 +14,7 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RuntimeAdapter } from "../../adapter"
 import { ClientSession, ClientSessionLayer, type ClientSessionApi } from "../../client-session"
 import { BackendUnavailable } from "../../errors"
+import { acquireClient } from "../../rpc-client"
 
 const acquireControl: { pause: Effect.Effect<void> | undefined } = {
   pause: undefined
@@ -427,6 +428,63 @@ const runInternalAcquireRetryScenario = () =>
     }
   }))
 
+const runEndpointReplacementRaceScenario = () =>
+  Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const processControl = yield* ProcessControl
+    const backend = yield* makeScriptedBackend()
+    const endpointFile = backend.appContext.paths.endpointFile
+    const replacementText = yield* fs.readFileString(endpointFile)
+    const replacement = yield* Schema.decodeUnknownEffect(EndpointFromJson)(replacementText)
+    const staleEndpoint = {
+      url: "ws://127.0.0.1:9/rpc",
+      token: "stale-generation",
+      pid: processControl.currentPid,
+      protocolVersion: PROTOCOL_VERSION
+    }
+    const stale = yield* Schema.encodeEffect(EndpointFromJson)(staleEndpoint)
+    yield* fs.writeFileString(endpointFile, stale)
+    const attempts = yield* Queue.unbounded<string>()
+    const staleAttemptStarted = yield* Deferred.make<void>()
+    let spawnCount = 0
+    const adapter: RuntimeAdapter = {
+      protocolLayer: (url) => {
+        Queue.offerUnsafe(attempts, url)
+        return url.startsWith(staleEndpoint.url)
+          ? Layer.succeed(RpcClient.Protocol, {
+            run: () => Effect.never,
+            send: () => Deferred.succeed(staleAttemptStarted, undefined),
+            supportsAck: false,
+            supportsTransferables: false
+          })
+          : nodeAdapter.protocolLayer(url)
+      },
+      spawnBackend: () => Effect.sync(() => {
+        spawnCount += 1
+      }).pipe(Effect.andThen(Effect.fail(new BackendUnavailable({
+        reason: "replacement endpoint should be discovered without spawning"
+      }))))
+    }
+    const acquisition = yield* acquireClient(adapter).pipe(
+      Effect.provideService(AppContext, backend.appContext),
+      Effect.forkChild
+    )
+    expect(yield* Queue.take(attempts)).toContain("127.0.0.1:9")
+    yield* Deferred.await(staleAttemptStarted)
+    yield* fs.writeFileString(endpointFile, replacementText)
+    const acquired = yield* Fiber.join(acquisition).pipe(Effect.timeout("5 seconds"))
+    const preserved = yield* fs.readFileString(endpointFile).pipe(
+      Effect.flatMap(Schema.decodeUnknownEffect(EndpointFromJson))
+    )
+    return {
+      acquired: acquired.endpoint,
+      health: yield* acquired.client.Health(),
+      preserved,
+      replacement,
+      spawnCount
+    }
+  }))
+
 const runCurrentWaitScenario = () =>
   Effect.scoped(Effect.gen(function*() {
     const backend = yield* makeScriptedBackend()
@@ -563,6 +621,17 @@ describe("ClientSession", () => {
         expect(result.attemptedUrls[0]).toContain("127.0.0.1:9")
         expect(result.health).toBe("ok")
         expect(result.status).toBe("connected")
+      })),
+      Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
+    ), 10_000)
+
+  it.live("preserves and connects to an endpoint replaced while a stale connection times out", () =>
+    runEndpointReplacementRaceScenario().pipe(
+      Effect.tap((result) => Effect.sync(() => {
+        expect(result.acquired).toEqual(result.replacement)
+        expect(result.health).toBe("ok")
+        expect(result.preserved).toEqual(result.replacement)
+        expect(result.spawnCount).toBe(0)
       })),
       Effect.provide(Layer.mergeAll(ProcessServices.layer, NodeServices.layer))
     ), 10_000)

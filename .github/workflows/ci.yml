@@ -94,7 +94,7 @@ jobs:
         run: xvfb-run -a npm run e2e:desktop
 
   dependency-audit:
-    name: Production dependency audit
+    name: Dependency audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -107,5 +107,5 @@ jobs:
         run: npm install --global npm@11.12.1
       - name: Install dependencies
         run: npm ci
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=high

@@ -338,11 +338,11 @@ describe("version policy", () => {
         { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' },
         { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' }
       ])
-      const desktopConfig = makeElectronConfig("9.8.7")
+      const desktopConfig = makeElectronConfig("9.8.7", "release")
       expect([desktopConfig.main?.define, desktopConfig.preload?.define, desktopConfig.renderer?.define]).toEqual([
-        { __EXPAND_VERSION__: '"9.8.7"' },
-        { __EXPAND_VERSION__: '"9.8.7"' },
-        { __EXPAND_VERSION__: '"9.8.7"' }
+        { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' },
+        { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' },
+        { __EXPAND_CHANNEL__: '"release"', __EXPAND_VERSION__: '"9.8.7"' }
       ])
       expect(usesRuntimeIdentifier(buildInfo, "__EXPAND_VERSION__")).toBe(true)
       expect(stageUsesReleaseParameter(sourceFile(contractsStage))).toBe(true)

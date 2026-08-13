@@ -71,6 +71,11 @@ const electron = vi.hoisted(() => {
   }
 
   const windows: Array<FakeBrowserWindow> = []
+  const utilityForks: Array<{
+    readonly modulePath: string
+    readonly args: ReadonlyArray<string>
+    readonly options: unknown
+  }> = []
 
   class FakeBrowserWindow {
     readonly contents = new FakeWebContents()
@@ -125,6 +130,7 @@ const electron = vi.hoisted(() => {
 
   const reset = () => {
     windows.length = 0
+    utilityForks.length = 0
   }
 
   const currentWindow = () => {
@@ -137,6 +143,7 @@ const electron = vi.hoisted(() => {
     BrowserWindow: FakeBrowserWindow,
     MessageChannelMain: class {},
     app: {
+      getAppPath: () => "/staged/Expand/resources/app.asar",
       isPackaged: false,
       whenReady: () => undefined,
       commandLine: { appendSwitch: () => {} },
@@ -150,6 +157,20 @@ const electron = vi.hoisted(() => {
         webRequest: { onHeadersReceived: () => {} }
       }
     },
+    utilityProcess: {
+      fork: (modulePath: string, args: ReadonlyArray<string>, options: unknown) => {
+        utilityForks.push({ modulePath, args, options })
+        const child = {
+          kill: () => true,
+          once: (_event: string, listener: () => void) => {
+            listener()
+            return child
+          }
+        }
+        return child
+      }
+    },
+    utilityForks,
     reset,
     currentWindow
   }
@@ -170,6 +191,17 @@ const binding = vi.hoisted(() => {
   }
 })
 
+const runtime = vi.hoisted(() => ({
+  calls: [] as Array<unknown>,
+  makeRuntime: (host: unknown) => {
+    runtime.calls.push(host)
+    return {}
+  },
+  reset: () => {
+    runtime.calls.length = 0
+  }
+}))
+
 const platform = vi.hoisted(() => ({
   NodePath: { layer: {} },
   NodeRuntime: { runMain: () => {} }
@@ -179,11 +211,12 @@ vi.mock("electron", () => ({
   app: electron.app,
   BrowserWindow: electron.BrowserWindow,
   MessageChannelMain: electron.MessageChannelMain,
-  session: electron.session
+  session: electron.session,
+  utilityProcess: electron.utilityProcess
 }))
 
 vi.mock("@expand/desktop/main/application/main-program", () => ({ mainProgram: program.mainProgram }))
-vi.mock("@expand/desktop/main/runtime/client-runtime", () => ({ makeRuntime: () => ({}) }))
+vi.mock("@expand/desktop/main/runtime/client-runtime", () => ({ makeRuntime: runtime.makeRuntime }))
 vi.mock("@expand/electron-ipc/main", () => ({ bindElectronIpc: binding.bindElectronIpc }))
 vi.mock("@effect/platform-node", () => platform)
 
@@ -209,9 +242,38 @@ const makeWindowHost = Effect.fn("DesktopMainHostTest.makeWindowHost")(function*
 beforeEach(() => {
   electron.reset()
   binding.reset()
+  runtime.reset()
 })
 
 describe("desktop main window host", () => {
+  it.effect("passes the packaged backend location and utility-process launcher to the runtime", () =>
+    Effect.gen(function*() {
+      program.deps().makeRuntime()
+      const host = runtime.calls[0] as {
+        readonly backendEntry: string
+        readonly isPackaged: boolean
+        readonly moduleUrl: URL
+        readonly awaitPackagedBackendShutdown: Effect.Effect<void>
+        readonly spawnPackagedBackend: (
+          backendEntry: string,
+          dataDir: string
+        ) => Effect.Effect<void, unknown>
+      }
+      expect(host).toMatchObject({
+        backendEntry: "/staged/Expand/resources/app.asar/build/backend.mjs",
+        isPackaged: false,
+        moduleUrl: expect.any(URL),
+        awaitPackagedBackendShutdown: expect.anything(),
+        spawnPackagedBackend: expect.any(Function)
+      })
+      yield* host.spawnPackagedBackend(host.backendEntry, "/state")
+      expect(electron.utilityForks).toEqual([{
+        modulePath: "/staged/Expand/resources/app.asar/build/backend.mjs",
+        args: ["--data-dir", "/state"],
+        options: { serviceName: "Expand Backend", stdio: "ignore" }
+      }])
+    }))
+
   it.effect("passes an origin identity to the public IPC binder without widening it to a URL", () => Effect.gen(function* () {
     const { host, browserWindow } = yield* makeWindowHost()
     yield* Effect.scoped(host.bindIpc(

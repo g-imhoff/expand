@@ -1,6 +1,5 @@
 import { it } from "@effect/vitest"
 import {
-  Cause,
   Crypto,
   Effect,
   Exit,
@@ -9,10 +8,9 @@ import {
   Layer,
   Option,
   Path,
-  PlatformError,
   Queue,
-  Scope,
-  Deferred
+  Schema,
+  Scope
 } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, expect, expectTypeOf } from "vitest"
@@ -112,56 +110,6 @@ describe("process control integration", () => {
       }).pipe(Effect.provide(TestClock.layer()))
     }))
 
-  it.effect("preserves stale endpoint and typed cleanup failure causes at acquisition", () =>
-    withFixture((context) => Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const cleanupFailure = PlatformError.systemError({
-        _tag: "PermissionDenied",
-        module: "FileSystem",
-        method: "remove",
-        pathOrDescriptor: context.paths.endpointFile
-      })
-      const exit = yield* runStaleCleanupScenario(
-        context,
-        FileSystem.FileSystem.of({
-          ...fs,
-          remove: () => Effect.fail(cleanupFailure)
-        })
-      )
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) {
-        const failures = exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
-        const primary = failures.find(isStaleBackendUnavailable)
-        expect(primary).toBeInstanceOf(BackendUnavailable)
-        expect(primary?.cause).toMatchObject({ _tag: "StaleEndpoint", reason: expect.stringContaining("no presence") })
-        expect(failures).toContainEqual(expect.objectContaining({
-          _tag: "BackendUnavailable",
-          cause: cleanupFailure
-        }))
-      }
-    })))
-
-  it.effect("preserves stale endpoint and cleanup defect causes at acquisition", () =>
-    withFixture((context) => Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const cleanupDefect = new Error("endpoint cleanup defect")
-      const exit = yield* runStaleCleanupScenario(
-        context,
-        FileSystem.FileSystem.of({
-          ...fs,
-          remove: () => Effect.die(cleanupDefect)
-        })
-      )
-      expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) {
-        const failures = exit.cause.reasons.filter(Cause.isFailReason).map((reason) => reason.error)
-        const primary = failures.find(isStaleBackendUnavailable)
-        expect(primary).toBeInstanceOf(BackendUnavailable)
-        expect(primary?.cause).toMatchObject({ _tag: "StaleEndpoint", reason: expect.stringContaining("no presence") })
-        expect(exit.cause.reasons.filter(Cause.isDieReason).map((reason) => reason.defect)).toContain(cleanupDefect)
-      }
-    })))
-
   it.effect("maps a process probe failure once at the acquisition boundary", () =>
     withFixture((context) => {
       const cause = new TypeError("unknown acquisition probe failure")
@@ -189,6 +137,53 @@ describe("process control integration", () => {
         }))
       )
     }))
+
+  it.effect("does not expose rejected endpoint tokens in acquisition failures", () =>
+    withFixture((context) => Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const attempted = yield* Queue.unbounded<void>()
+      const tokens = ["secret-generation-a", "secret-generation-b", "secret-generation-c"]
+      let generation = 0
+      const advertise = (index: number) => fs.writeFileString(
+        context.paths.endpointFile,
+        JSON.stringify({
+          url: `ws://127.0.0.1:${51797 + index}/rpc`,
+          token: tokens[index],
+          pid: 100,
+          protocolVersion: PROTOCOL_VERSION
+        })
+      )
+      yield* advertise(generation)
+      const adapter: RuntimeAdapter = {
+        protocolLayer: () => Layer.succeed(RpcClient.Protocol, {
+          run: () => Effect.never,
+          send: () => Queue.offer(attempted, undefined).pipe(Effect.asVoid),
+          supportsAck: false,
+          supportsTransferables: false
+        }),
+        spawnBackend: () => Effect.sync(() => {
+          generation += 1
+          return generation
+        }).pipe(
+          Effect.flatMap(advertise),
+          Effect.orDie
+        )
+      }
+      const fiber = yield* acquireClient(adapter).pipe(
+        Effect.provideService(AppContext, context),
+        Effect.provideService(ProcessControl, processControl(() => Effect.succeed("alive"))),
+        Effect.exit,
+        Effect.forkChild
+      )
+      for (const _token of tokens) {
+        yield* Queue.take(attempted)
+        yield* TestClock.adjust("3 seconds")
+      }
+      const exit = yield* Fiber.join(fiber)
+      expect(Exit.isFailure(exit)).toBe(true)
+      const serialized = Schema.encodeSync(Schema.UnknownFromJsonString)(exit)
+      for (const token of tokens) expect(serialized).not.toContain(token)
+    }).pipe(Effect.provide(TestClock.layer()))))
 
   it("exposes explicit host requirements and public boundary errors", () => {
     const nodeAdapter = makeNodeAdapter({ backendCommand: Effect.succeed([]) })
@@ -284,38 +279,3 @@ const writeEndpoint = (context: AppContextShape, pid: number) =>
 const processControl = (
   probe: ProcessControlShape["probe"]
 ): ProcessControlShape => ({ currentPid: 100, probe })
-
-const runStaleCleanupScenario = (
-  context: AppContextShape,
-  fs: FileSystem.FileSystem
-) => Effect.gen(function* () {
-  yield* writeEndpoint(context, 401)
-  const requestSent = yield* Deferred.make<void>()
-  const adapter: RuntimeAdapter = {
-    protocolLayer: () => Layer.succeed(RpcClient.Protocol, {
-      run: () => Effect.never,
-      send: () => Deferred.succeed(requestSent, undefined),
-      supportsAck: false,
-      supportsTransferables: false
-    }),
-    spawnBackend: () => Effect.die("unused")
-  }
-  const fiber = yield* acquireClient(adapter).pipe(
-    Effect.provideService(AppContext, context),
-    Effect.provideService(ProcessControl, processControl(() => Effect.succeed("alive"))),
-    Effect.provideService(FileSystem.FileSystem, fs),
-    Effect.exit,
-    Effect.forkChild
-  )
-  yield* Deferred.await(requestSent)
-  yield* TestClock.adjust("10 seconds")
-  return yield* Fiber.join(fiber)
-}).pipe(Effect.provide(TestClock.layer()))
-
-const isStaleBackendUnavailable = (error: unknown): error is BackendUnavailable & {
-  readonly cause: { readonly _tag: "StaleEndpoint"; readonly reason: string }
-} => error instanceof BackendUnavailable &&
-  typeof error.cause === "object" &&
-  error.cause !== null &&
-  "_tag" in error.cause &&
-  error.cause._tag === "StaleEndpoint"

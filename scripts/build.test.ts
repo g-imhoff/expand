@@ -3,7 +3,13 @@ import { it } from "@effect/vitest"
 import { Layer, Effect, FileSystem, Path } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
-import { BuildTool, buildAtRoot, buildBinaries, type BuildError } from "./build"
+import {
+  BuildTool,
+  buildAtRoot,
+  buildBinaries,
+  buildDesktopBackend,
+  type BuildError
+} from "./build"
 
 const esbuildBuild = vi.hoisted(() => vi.fn())
 vi.mock("esbuild", () => ({ build: esbuildBuild }))
@@ -108,5 +114,35 @@ describe("buildBinaries", () => {
     expectTypeOf(buildBinaries("/repo", "1.2.3")).toMatchTypeOf<
       Effect.Effect<void, BuildError, FileSystem.FileSystem | Path.Path | BuildTool>
     >()
+  })
+
+  it.effect("builds one packaged desktop backend without a checkout source map", () => {
+    const operations: Array<string> = []
+    let options: Parameters<BuildTool["Service"]["build"]>[0] | undefined
+    return buildDesktopBackend("/repo", "1.2.3").pipe(
+      Effect.provideService(BuildTool, {
+        build: (received) => Effect.sync(() => {
+          options = received
+          operations.push(`build:${String(received.outfile)}`)
+        })
+      }),
+      Effect.provide(Layer.mergeAll(FileSystem.layerNoop({
+        remove: (target) => Effect.sync(() => operations.push(`remove:${target}`)),
+        makeDirectory: (target) => Effect.sync(() => operations.push(`mkdir:${target}`))
+      }), pathLayer)),
+      Effect.tap(() => Effect.sync(() => {
+        expect(operations).toEqual([
+          "remove:/repo/apps/desktop/build",
+          "mkdir:/repo/apps/desktop/build",
+          "build:/repo/apps/desktop/build/backend.mjs"
+        ])
+        expect(options).toMatchObject({
+          alias: { "better-sqlite3": "desktop-better-sqlite3" },
+          entryPoints: ["/repo/apps/server/main.ts"],
+          external: ["desktop-better-sqlite3"],
+          sourcemap: false
+        })
+      }))
+    )
   })
 })

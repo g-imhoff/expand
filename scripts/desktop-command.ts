@@ -44,7 +44,15 @@ export const runDesktopCommand = Effect.fn("DesktopCommand.run")(
     if (mode === "dev") {
       return yield* runCommand(cwd, "electron-vite", ["dev", "-w"], appVersion)
     }
+    yield* runCommand(root, "tsx", ["scripts/desktop-backend.ts"], appVersion)
     yield* runCommand(cwd, "electron-vite", ["build"], appVersion)
+    const builderMode = mode === "build" ? ["--publish", "never"] : ["--dir"]
+    yield* runCommand(
+      cwd,
+      "electron-builder",
+      [...builderMode, `--config.extraMetadata.version=${appVersion}`],
+      appVersion
+    )
     if (mode === "e2e") {
       yield* runCommand(cwd, "playwright", ["test", "-c", "e2e/playwright.config.ts"], appVersion)
     }

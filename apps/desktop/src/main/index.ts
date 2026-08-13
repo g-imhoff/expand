@@ -2,7 +2,8 @@ import {
   app,
   BrowserWindow,
   MessageChannelMain,
-  session
+  session,
+  utilityProcess
 } from "electron"
 import type {
   Event,
@@ -13,8 +14,10 @@ import type {
   WebContentsWillNavigateEventParams
 } from "electron"
 import { NodePath, NodeRuntime } from "@effect/platform-node"
+import { join } from "node:path"
 import { Effect } from "effect"
 import { appVersion } from "@expand/contracts/build-info"
+import { BackendUnavailable } from "@expand/client-ts"
 import { bindElectronIpc } from "@expand/electron-ipc/main"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import { makeRuntime } from "@expand/desktop/main/runtime/client-runtime"
@@ -128,6 +131,50 @@ const createWindow = (options: ConstructorParameters<typeof BrowserWindow>[0]): 
   }
 }
 
+const packagedBackends = new Set<ReturnType<typeof utilityProcess.fork>>()
+const packagedBackendWaiters = new Set<() => void>()
+
+const spawnPackagedBackend = (backendEntry: string, dataDir: string) => Effect.try({
+  try: () => {
+    const child = utilityProcess.fork(
+      backendEntry,
+      ["--data-dir", dataDir],
+      { serviceName: "Expand Backend", stdio: "ignore" }
+    )
+    packagedBackends.add(child)
+    child.once("exit", () => {
+      packagedBackends.delete(child)
+      if (packagedBackends.size === 0) {
+        for (const wake of packagedBackendWaiters) wake()
+      }
+    })
+  },
+  catch: (cause) => new BackendUnavailable({
+    reason: `spawn failed: ${backendEntry}: ${String(cause)}`,
+    cause
+  })
+})
+
+const awaitPackagedBackendShutdown = Effect.callback<void>((resume) => {
+  if (packagedBackends.size === 0) {
+    resume(Effect.void)
+    return
+  }
+  const wake = () => {
+    packagedBackendWaiters.delete(wake)
+    resume(Effect.void)
+  }
+  packagedBackendWaiters.add(wake)
+  return Effect.sync(() => packagedBackendWaiters.delete(wake))
+}).pipe(
+  Effect.timeoutOrElse({
+    duration: "5 seconds",
+    orElse: () => Effect.sync(() => {
+      for (const child of packagedBackends) child.kill()
+    })
+  })
+)
+
 const deps: MainProgramDeps<MessagePortMain> = {
   app: appHost,
   platform: process.platform,
@@ -135,7 +182,13 @@ const deps: MainProgramDeps<MessagePortMain> = {
   createWindow,
   makeMessageChannel: () => new MessageChannelMain(),
   csp,
-  makeRuntime
+  makeRuntime: () => makeRuntime({
+    backendEntry: join(app.getAppPath(), "build", "backend.mjs"),
+    isPackaged: app.isPackaged,
+    moduleUrl: new URL(import.meta.url),
+    awaitPackagedBackendShutdown,
+    spawnPackagedBackend
+  })
 }
 
 NodeRuntime.runMain(

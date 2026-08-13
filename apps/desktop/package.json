@@ -2,5 +2,37 @@
   "name": "@expand/desktop",
   "version": "0.0.0",
   "private": true,
-  "main": "out/main/index.mjs"
+  "main": "out/main/index.mjs",
+  "dependencies": {
+    "desktop-better-sqlite3": "npm:better-sqlite3@12.11.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "electron": "42.6.1",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "dev.expand.desktop",
+    "productName": "Expand",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "build/backend.mjs"
+    ],
+    "asarUnpack": [
+      "node_modules/desktop-better-sqlite3/**/*"
+    ],
+    "electronFuses": {
+      "runAsNode": false
+    },
+    "linux": {
+      "executableName": "expand",
+      "target": [
+        "AppImage"
+      ]
+    }
+  }
 }

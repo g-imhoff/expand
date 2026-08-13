@@ -8,11 +8,6 @@
   // values (const/function/class) are un-exported in code, never hidden here.
   "ignoreExportsUsedInFile": { "type": true, "interface": true },
 
-  // ws / @types/ws ARE used: packages/client-ts/adapters/node.ts imports the
-  // Node `WebSocket` and is consumed by the Electron main process (apps/desktop,
-  // a workspace whose package.json declares no deps). tailwindcss is imported
-  // directly from apps/desktop/src/renderer/index.css and compiled by the Vite
-  // plugin, which Knip does not trace. These are false positives, not dead code.
   "ignoreDependencies": ["ws", "@types/ws", "tailwindcss"],
 
   "workspaces": {
@@ -44,7 +39,8 @@
         "test/**/*.test.{ts,tsx}",
         "e2e/**/*.spec.ts",
         "e2e/playwright.config.ts"
-      ]
+      ],
+      "ignoreDependencies": ["desktop-better-sqlite3", "electron-builder"]
     }
   }
 }
