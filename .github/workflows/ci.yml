@@ -50,10 +50,10 @@ jobs:
         run: npm install --global npm@11.12.1
       - name: Install dependencies
         run: npm ci
-      - name: Run tests
+      - name: Run tests with a conflicting inherited environment
         run: npm test
         env:
-          NODE_ENV: test
+          NODE_ENV: production
 
   artifact-certification:
     name: Artifact certification

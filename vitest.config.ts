@@ -41,6 +41,7 @@ export const processHeavyTestProject = {
 
 export default defineConfig({
   test: {
+    env: { NODE_ENV: "test" },
     maxWorkers: "50%",
     projects: [normalTestProject, processHeavyTestProject],
     setupFiles: ["apps/desktop/test/ui/setup.ts"],
