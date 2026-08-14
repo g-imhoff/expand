@@ -5,7 +5,8 @@
     "types": ["node", "react", "react-dom", "vite/client"],
     "baseUrl": "../..",
     "paths": {
-      "@expand/desktop/*": ["apps/desktop/src/*"]
+      "@expand/desktop/*": ["apps/desktop/src/*"],
+      "@expand/server/*": ["apps/server/*"]
     },
     "noEmit": true
   },
