@@ -75,13 +75,14 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
       const appContext = yield* context("pid-reuse")
       const ownerPid = processControl.currentPid
       const ownerIncarnation = yield* processControl.currentIdentity()
+      const staleLock = yield* Schema.encodeEffect(StaleLockFromJson)({
+        pid: ownerPid,
+        token: "00000000-0000-4000-8000-000000000000",
+        incarnation: "stale-boot:1"
+      })
       yield* fs.writeFileString(
         path.join(appContext.paths.dataDir, "backend.lock"),
-        JSON.stringify({
-          pid: ownerPid,
-          token: "00000000-0000-4000-8000-000000000000",
-          incarnation: "stale-boot:1"
-        })
+        staleLock
       )
       const staleEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
         url: "ws://127.0.0.1:51789/rpc",
@@ -413,5 +414,11 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
 
 const makeTestAppContext = (dataDir: string, path: Path.Path) =>
   makeAppContext(path, { homeDir: dataDir, cwd: dataDir, dataDir })
+
+const StaleLockFromJson = Schema.fromJsonString(Schema.Struct({
+  pid: Schema.Number,
+  token: Schema.String,
+  incarnation: Schema.String
+}))
 
 type ProbeFailure = import("@expand/contracts/process-control").ProcessProbeError | "pending"

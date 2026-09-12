@@ -789,7 +789,7 @@ const processControl = (
 ): ProcessControlShape => ({
   currentPid,
   probe,
-  currentIdentity: () => Effect.succeed(undefined),
+  currentIdentity: () => Effect.sync((): undefined => undefined),
   identify: (pid) =>
     Effect.gen(function*() {
       const status = yield* probe(pid)

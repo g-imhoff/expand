@@ -14,7 +14,7 @@ export const ProcessServices = {
     Layer.succeed(ProcessControl, {
       currentPid: 100,
       probe: (pid: number) => Effect.succeed(pid === 2147483647 ? "dead" : "alive"),
-      currentIdentity: () => Effect.succeed(undefined),
+      currentIdentity: () => Effect.sync((): undefined => undefined),
       identify: (pid: number) =>
         Effect.succeed(
           pid === 2147483647

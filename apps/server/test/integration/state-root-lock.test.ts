@@ -91,7 +91,7 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
           return 4242
         },
         probe: () => Effect.succeed("alive"),
-        currentIdentity: () => Effect.succeed(undefined),
+        currentIdentity: () => Effect.sync((): undefined => undefined),
         identify: () => Effect.succeed({ status: "alive", identity: undefined })
       }
       const trackedClock: Clock.Clock = {
@@ -1332,7 +1332,7 @@ const processControl = (
 ): ProcessControlShape => ({
   currentPid,
   probe,
-  currentIdentity: () => Effect.succeed(undefined),
+  currentIdentity: () => Effect.sync((): undefined => undefined),
   identify: (pid) =>
     Effect.gen(function*() {
       const status = yield* probe(pid)

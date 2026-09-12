@@ -75,7 +75,7 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
   const identifiedControl = (observed: ProcessIdentity): ProcessControlShape => ({
     currentPid: 100,
     probe: () => Effect.succeed(observed.status === "dead" ? "dead" : "alive"),
-    currentIdentity: () => Effect.succeed(undefined),
+    currentIdentity: () => Effect.sync((): undefined => undefined),
     identify: () => Effect.succeed(observed)
   })
 

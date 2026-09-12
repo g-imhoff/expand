@@ -127,7 +127,7 @@ describe("endpoint file (I-3)", () => {
           return 4242
         },
         probe: () => Effect.succeed("alive"),
-        currentIdentity: () => Effect.succeed(undefined),
+        currentIdentity: () => Effect.sync((): undefined => undefined),
         identify: () => Effect.succeed({ status: "alive", identity: undefined })
       }
       const program = runServer(options).pipe(
@@ -270,7 +270,7 @@ describe("endpoint file (I-3)", () => {
         return 4242
       },
       probe: () => Effect.succeed("alive"),
-      currentIdentity: () => Effect.succeed(undefined),
+      currentIdentity: () => Effect.sync((): undefined => undefined),
       identify: () => Effect.succeed({ status: "alive", identity: undefined })
     }
 
