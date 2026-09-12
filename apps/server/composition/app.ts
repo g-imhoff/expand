@@ -31,6 +31,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
   const token = yield* newId()
   const processControl = yield* ProcessControl
   const pid = processControl.currentPid
+  const incarnation = yield* processControl.currentIdentity()
   const path = yield* Path.Path
   const composition = yield* ServerComposition
   const coreLayerDefinition = Layer.merge(coreLayer(dbPath), composition.coreLayer)
@@ -63,12 +64,11 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       yield* secureIfPresent(fs, `${dbPath}-wal`)
       yield* secureIfPresent(fs, `${dbPath}-shm`)
 
-      const endpointFile = yield* writeEndpointFile({
-        url,
-        token,
-        pid,
-        protocolVersion: PROTOCOL_VERSION
-      })
+      const endpointFile = yield* writeEndpointFile(
+        incarnation === undefined
+          ? { url, token, pid, protocolVersion: PROTOCOL_VERSION }
+          : { url, token, pid, protocolVersion: PROTOCOL_VERSION, incarnation }
+      )
       yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
       yield* tracker.awaitShutdown

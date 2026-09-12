@@ -126,7 +126,9 @@ describe("endpoint file (I-3)", () => {
           pidReads += 1
           return 4242
         },
-        probe: () => Effect.succeed("alive")
+        probe: () => Effect.succeed("alive"),
+        currentIdentity: () => Effect.sync((): undefined => undefined),
+        identify: () => Effect.succeed({ status: "alive", identity: undefined })
       }
       const program = runServer(options).pipe(
         Effect.provideService(Crypto.Crypto, crypto),
@@ -267,7 +269,9 @@ describe("endpoint file (I-3)", () => {
         pidReads += 1
         return 4242
       },
-      probe: () => Effect.succeed("alive")
+      probe: () => Effect.succeed("alive"),
+      currentIdentity: () => Effect.sync((): undefined => undefined),
+      identify: () => Effect.succeed({ status: "alive", identity: undefined })
     }
 
     return Effect.gen(function*() {

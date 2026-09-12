@@ -22,7 +22,8 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import {
   ProcessControl,
   ProcessProbeError,
-  type ProcessControlShape
+  type ProcessControlShape,
+  type ProcessIdentity
 } from "@expand/contracts/process-control"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import {
@@ -89,7 +90,9 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
           counts.pid += 1
           return 4242
         },
-        probe: () => Effect.succeed("alive")
+        probe: () => Effect.succeed("alive"),
+        currentIdentity: () => Effect.sync((): undefined => undefined),
+        identify: () => Effect.succeed({ status: "alive", identity: undefined })
       }
       const trackedClock: Clock.Clock = {
         currentTimeMillis: Effect.sync(() => {
@@ -278,7 +281,7 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       yield* Fiber.join(interrupter)
 
       expect(interruptedPromptly).toBe(true)
-      expect(yield* readOwner(first.path)).toEqual({ pid: first.pid, token: first.token })
+      expect(yield* readOwner(first.path)).toMatchObject({ pid: first.pid, token: first.token })
       expect(yield* lockArtifacts(first.path)).toEqual([])
       expect(yield* fs.exists(endpointFile)).toBe(false)
       yield* releaseStateRootLock(first)
@@ -435,6 +438,85 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       yield* releaseStateRootLock(lease)
     }))
 
+  test.effect("reclaims a lock whose pid was reused by an unrelated process", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const cryptoService = yield* Crypto.Crypto
+      const dir = yield* makeTestDirectory()
+      const lockPath = path.join(dir, "backend.lock")
+      const staleToken = yield* cryptoService.randomUUIDv4
+      yield* writeOwner(lockPath, { pid: 424_242, token: staleToken, incarnation: "boot:111" })
+      const lease = yield* acquireStateRootLock(dir).pipe(
+        Effect.provideService(
+          ProcessControl,
+          identifiedProcess({ 424242: { status: "alive", identity: "boot:222" } }, processControl.currentPid)
+        )
+      )
+
+      expect(lease.pid).toBe(processControl.currentPid)
+      expect(lease.token).not.toBe(staleToken)
+      expect(yield* readOwner(lockPath)).toMatchObject({ token: lease.token })
+      yield* releaseStateRootLock(lease)
+    }))
+
+  test.effect("protects a live owner whose incarnation still matches", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTestDirectory()
+      const lockPath = path.join(dir, "backend.lock")
+      yield* writeOwner(lockPath, { pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+      const error = yield* acquireStateRootLock(dir).pipe(
+        Effect.provideService(
+          ProcessControl,
+          identifiedProcess({ 424242: { status: "alive", identity: "boot:111" } })
+        ),
+        Effect.flip
+      )
+
+      expect(error).toMatchObject({ kind: "live-owner", ownerPid: 424_242 })
+      expect(yield* readOwner(lockPath)).toEqual({ pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+    }))
+
+  test.effect("fails closed when a recorded incarnation cannot be observed", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTestDirectory()
+      const lockPath = path.join(dir, "backend.lock")
+      yield* writeOwner(lockPath, { pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+      const error = yield* acquireStateRootLock(dir).pipe(
+        Effect.provideService(
+          ProcessControl,
+          identifiedProcess({ 424242: { status: "alive", identity: undefined } })
+        ),
+        Effect.flip
+      )
+
+      expect(error).toMatchObject({ kind: "unverifiable-owner", ownerPid: 424_242 })
+      expect(yield* readOwner(lockPath)).toEqual({ pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+    }))
+
+  test.effect("startup handoff fails fast on an unverifiable owner instead of timing out", () =>
+    Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTestDirectory()
+      const endpointFile = path.join(dir, "server.json")
+      const lockPath = path.join(dir, "backend.lock")
+      yield* writeOwner(lockPath, { pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+      const error = yield* Effect.scoped(
+        stateRootLockForStartup(dir, endpointFile).pipe(Effect.flip)
+      ).pipe(
+        Effect.provideService(
+          ProcessControl,
+          identifiedProcess({ 424242: { status: "inaccessible", identity: undefined } })
+        )
+      )
+
+      expect(error).toMatchObject({ kind: "unverifiable-owner", ownerPid: 424_242 })
+      expect(error.reason).toContain("remove")
+      expect(yield* readOwner(lockPath)).toEqual({ pid: 424_242, token: VALID_TOKEN, incarnation: "boot:111" })
+    }))
+
   test.effect("elects exactly one real process during concurrent stale recovery", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -505,7 +587,7 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
       yield* releaseStateRootLock(lease)
     }))
 
-  test.effect("treats an inaccessible process as a live owner", () =>
+  test.effect("fails with an actionable error for an inaccessible owner instead of timing out", () =>
     Effect.gen(function*() {
       const path = yield* Path.Path
       const dir = yield* makeTestDirectory()
@@ -516,7 +598,9 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
         Effect.flip
       )
 
-      expect(error).toMatchObject({ kind: "live-owner", ownerPid: 424_242 })
+      expect(error).toMatchObject({ kind: "unverifiable-owner", ownerPid: 424_242 })
+      expect(error.reason).toContain("remove")
+      expect(error.reason).toContain(lockPath)
       expect(yield* readOwner(lockPath)).toEqual({ pid: 424_242, token: VALID_TOKEN })
     }))
 
@@ -1214,7 +1298,11 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
 
 const PositiveSafeInteger = Schema.Int.check(Schema.isGreaterThan(0))
 const UuidV4 = Schema.String.check(Schema.isUUID(4))
-const LockOwnerSchema = Schema.Struct({ pid: PositiveSafeInteger, token: UuidV4 })
+const LockOwnerSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  token: UuidV4,
+  incarnation: Schema.optional(Schema.String)
+})
 const LockOwnerFromJson = Schema.fromJsonString(LockOwnerSchema)
 const ContenderResultSchema = Schema.Union([
   Schema.Struct({
@@ -1241,7 +1329,34 @@ const ownerText = (pid: number, token: string) => `{"pid":${pid},"token":"${toke
 const processControl = (
   probe: ProcessControlShape["probe"],
   currentPid = 100
-): ProcessControlShape => ({ currentPid, probe })
+): ProcessControlShape => ({
+  currentPid,
+  probe,
+  currentIdentity: () => Effect.sync((): undefined => undefined),
+  identify: (pid) =>
+    Effect.gen(function*() {
+      const status = yield* probe(pid)
+      if (status === "alive") return { status: "alive" as const, identity: undefined }
+      if (status === "dead") return { status: "dead" as const }
+      return { status: "inaccessible" as const, identity: undefined }
+    })
+})
+
+const identifiedProcess = (
+  identities: Record<number, ProcessIdentity>,
+  currentPid = 100
+): ProcessControlShape => ({
+  currentPid,
+  probe: (pid) => {
+    const observed = identities[pid]
+    if (observed === undefined) return Effect.succeed("dead" as const)
+    if (observed.status === "alive") return Effect.succeed("alive" as const)
+    if (observed.status === "dead") return Effect.succeed("dead" as const)
+    return Effect.succeed("inaccessible" as const)
+  },
+  currentIdentity: () => Effect.succeed("test-boot:1"),
+  identify: (pid) => Effect.succeed(identities[pid] ?? { status: "dead" as const })
+})
 
 const platformFailure = (
   tag: PlatformError.SystemErrorTag,
