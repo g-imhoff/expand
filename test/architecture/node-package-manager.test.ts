@@ -29,7 +29,11 @@ describe("Node and npm baseline", () => {
   it.live("pins the Effect shared platform package to the retained beta", () =>
     fixture.pipe(
       Effect.tap(({ pkg }) => Effect.sync(() => {
-        expect(pkg.overrides).toEqual({ "@effect/platform-node-shared": "4.0.0-beta.74" })
+        expect(pkg.overrides).toEqual({
+          "@effect/platform-node-shared": "4.0.0-beta.74",
+          "smol-toml": "^1.7.1",
+          "toml": "^4.2.0"
+        })
       })),
       Effect.provide(NodeServices.layer)
     ))

@@ -9,7 +9,9 @@
     "npm": ">=11"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0-beta.74"
+    "@effect/platform-node-shared": "4.0.0-beta.74",
+    "smol-toml": "^1.7.1",
+    "toml": "^4.2.0"
   },
   "workspaces": [
     "apps/desktop",
