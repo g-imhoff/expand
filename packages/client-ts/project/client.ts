@@ -5,7 +5,7 @@ import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
-import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
+import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound, EventsLagged } from "@expand/contracts/rpc"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
 import { ClientSession, ClientSessionLayer } from "../client-session"
@@ -32,7 +32,7 @@ export interface ProjectClientApi {
   >
   readonly events: (
     payload?: { readonly fromSeq?: number }
-  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
+  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError | EventsLagged>
 }
 
 export class ProjectClient extends Context.Service<ProjectClient, ProjectClientApi>()(
