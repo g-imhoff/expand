@@ -6,7 +6,7 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl, ProcessProbeError } from "@expand/contracts/process-control"
-import { BackendUnavailable } from "./errors"
+import { BackendUnavailable, type EndpointDiscoveryError } from "./errors"
 import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
@@ -85,10 +85,15 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
 const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`
 
-const mapAcquisitionFailure = (error: BackendUnavailable | ProcessProbeError | PlatformError.PlatformError | StaleEndpoint) => {
+const mapAcquisitionFailure = (error: BackendUnavailable | EndpointDiscoveryError | ProcessProbeError | PlatformError.PlatformError | StaleEndpoint) => {
   switch (error._tag) {
   case "BackendUnavailable":
     return error
+  case "EndpointDiscoveryError":
+    return new BackendUnavailable({
+      reason: `endpoint discovery ${error.operation} failed at ${error.path}: ${String(error.cause)}`,
+      cause: error
+    })
   case "ProcessProbeError":
     return new BackendUnavailable({
       reason: `process probe failed for pid ${error.pid}: ${String(error.cause)}`,
