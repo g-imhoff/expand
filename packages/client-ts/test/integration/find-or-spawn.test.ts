@@ -12,6 +12,10 @@ import { type Endpoint, EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { BackendUnavailable } from "../../errors"
+import {
+  acquireStateRootLock,
+  releaseStateRootLock
+} from "@expand/server/runtime/state-root-lock"
 
 class TestDirectory extends Context.Service<TestDirectory, string>()("expand/FindOrSpawnTest/Directory") {}
 
@@ -61,6 +65,70 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
       )
       expect(endpoint.url).toBe("ws://127.0.0.1:51789/rpc")
       expect(endpoint.pid).toBe(processControl.currentPid)
+    }))
+
+  it.effect("recovers from stale lock and endpoint artifacts whose pid was reused", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("pid-reuse")
+      const ownerPid = processControl.currentPid
+      const ownerIncarnation = yield* processControl.currentIdentity()
+      yield* fs.writeFileString(
+        path.join(appContext.paths.dataDir, "backend.lock"),
+        JSON.stringify({
+          pid: ownerPid,
+          token: "00000000-0000-4000-8000-000000000000",
+          incarnation: "stale-boot:1"
+        })
+      )
+      const staleEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "stale",
+        pid: ownerPid,
+        protocolVersion: PROTOCOL_VERSION,
+        incarnation: "stale-boot:1"
+      })
+      yield* fs.writeFileString(appContext.paths.endpointFile, staleEndpoint)
+      let spawnCount = 0
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.gen(function*() {
+          spawnCount += 1
+          const advertised = yield* Schema.encodeEffect(EndpointFromJson)(
+            ownerIncarnation === undefined
+              ? {
+                url: "ws://127.0.0.1:51790/rpc",
+                token: "fresh",
+                pid: ownerPid,
+                protocolVersion: PROTOCOL_VERSION
+              }
+              : {
+                url: "ws://127.0.0.1:51790/rpc",
+                token: "fresh",
+                pid: ownerPid,
+                protocolVersion: PROTOCOL_VERSION,
+                incarnation: ownerIncarnation
+              }
+          )
+          yield* fs.writeFileString(appContext.paths.endpointFile, advertised)
+        }).pipe(Effect.orDie)
+      }
+      const endpoint = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(AppContext, appContext)
+      )
+
+      expect(spawnCount).toBe(1)
+      expect(endpoint.token).toBe("fresh")
+      if (ownerIncarnation === undefined) {
+        const error = yield* acquireStateRootLock(appContext.paths.dataDir).pipe(Effect.flip)
+        expect(error).toMatchObject({ _tag: "StateRootLockError", kind: "unverifiable-owner" })
+      } else {
+        const lease = yield* acquireStateRootLock(appContext.paths.dataDir)
+        expect(lease.pid).toBe(ownerPid)
+        yield* releaseStateRootLock(lease)
+      }
     }))
 
   it.effect("spawns once for concurrent callers using the same state root", () =>

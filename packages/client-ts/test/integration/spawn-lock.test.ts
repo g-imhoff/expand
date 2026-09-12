@@ -786,7 +786,18 @@ const acquireWithCrypto = Effect.fn("SpawnLockTest.acquireWithCrypto")(function*
 const processControl = (
   probe: ProcessControlShape["probe"],
   currentPid = 100
-): ProcessControlShape => ({ currentPid, probe })
+): ProcessControlShape => ({
+  currentPid,
+  probe,
+  currentIdentity: () => Effect.succeed(undefined),
+  identify: (pid) =>
+    Effect.gen(function*() {
+      const status = yield* probe(pid)
+      if (status === "alive") return { status: "alive" as const, identity: undefined }
+      if (status === "dead") return { status: "dead" as const }
+      return { status: "inaccessible" as const, identity: undefined }
+    })
+})
 
 const platformFailure = (
   tag: PlatformError.SystemErrorTag,

@@ -13,7 +13,14 @@ export const ProcessServices = {
     NodeProcessServices.platformLayer,
     Layer.succeed(ProcessControl, {
       currentPid: 100,
-      probe: (pid: number) => Effect.succeed(pid === 2147483647 ? "dead" : "alive")
+      probe: (pid: number) => Effect.succeed(pid === 2147483647 ? "dead" : "alive"),
+      currentIdentity: () => Effect.succeed(undefined),
+      identify: (pid: number) =>
+        Effect.succeed(
+          pid === 2147483647
+            ? { status: "dead" as const }
+            : { status: "alive" as const, identity: undefined }
+        )
     })
   ),
   alivePid: 101

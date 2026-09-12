@@ -8,6 +8,11 @@ import { readEndpoint } from "../../discovery"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+import {
+  ProcessControl,
+  type ProcessControlShape,
+  type ProcessIdentity
+} from "@expand/contracts/process-control"
 
 class TestDirectory extends Context.Service<TestDirectory, string>()("expand/DiscoveryTest/Directory") {}
 
@@ -53,6 +58,32 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
       yield* fs.writeFileString(context.paths.endpointFile, endpoint)
     })
 
+  const writeIdentifiedEndpoint = (name: string, pid: number, incarnation: string) =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const context = yield* appContext(name)
+      const endpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "t",
+        pid,
+        protocolVersion: PROTOCOL_VERSION,
+        incarnation
+      })
+      yield* fs.writeFileString(context.paths.endpointFile, endpoint)
+    })
+
+  const identifiedControl = (observed: ProcessIdentity): ProcessControlShape => ({
+    currentPid: 100,
+    probe: () => Effect.succeed(observed.status === "dead" ? "dead" : "alive"),
+    currentIdentity: () => Effect.succeed(undefined),
+    identify: () => Effect.succeed(observed)
+  })
+
+  const runIdentified = (name: string, observed: ProcessIdentity) =>
+    run(name, readEndpoint).pipe(
+      Effect.provideService(ProcessControl, identifiedControl(observed))
+    )
+
   it.effect("returns None when the file is missing", () =>
     run("missing", readEndpoint).pipe(
       Effect.tap((result) => Effect.sync(() => expect(Option.isNone(result)).toBe(true)))
@@ -68,6 +99,34 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
     Effect.gen(function*() {
       yield* writeEndpoint("dead", 2_147_483_647)
       expect(Option.isNone(yield* run("dead", readEndpoint))).toBe(true)
+    }))
+
+  it.effect("returns Some for a live pid with a matching incarnation", () =>
+    Effect.gen(function*() {
+      yield* writeIdentifiedEndpoint("incarnation-match", ProcessServices.alivePid, "boot:111")
+      const result = yield* runIdentified("incarnation-match", { status: "alive", identity: "boot:111" })
+      expect(Option.isSome(result)).toBe(true)
+    }))
+
+  it.effect("returns None for a live pid with a reused pid incarnation", () =>
+    Effect.gen(function*() {
+      yield* writeIdentifiedEndpoint("incarnation-reused", ProcessServices.alivePid, "boot:111")
+      const result = yield* runIdentified("incarnation-reused", { status: "alive", identity: "boot:222" })
+      expect(Option.isNone(result)).toBe(true)
+    }))
+
+  it.effect("returns None when a recorded incarnation cannot be observed", () =>
+    Effect.gen(function*() {
+      yield* writeIdentifiedEndpoint("incarnation-unobserved", ProcessServices.alivePid, "boot:111")
+      const result = yield* runIdentified("incarnation-unobserved", { status: "alive", identity: undefined })
+      expect(Option.isNone(result)).toBe(true)
+    }))
+
+  it.effect("returns None for an inaccessible owner with a recorded incarnation", () =>
+    Effect.gen(function*() {
+      yield* writeIdentifiedEndpoint("incarnation-inaccessible", ProcessServices.alivePid, "boot:111")
+      const result = yield* runIdentified("incarnation-inaccessible", { status: "inaccessible", identity: undefined })
+      expect(Option.isNone(result)).toBe(true)
     }))
 
   it.effect("returns None for a protocol-version mismatch", () =>
