@@ -58,6 +58,15 @@ const appHost: DesktopAppHost = {
       app.off("window-all-closed", listener)
     }
   },
+  onActivate: (listener) => {
+    app.on("activate", listener)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      app.off("activate", listener)
+    }
+  },
   quit: () => app.quit()
 }
 
