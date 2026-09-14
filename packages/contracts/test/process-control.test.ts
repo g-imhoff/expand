@@ -5,6 +5,7 @@ import {
   ProcessControl,
   ProcessProbeError,
   type ProcessControlShape,
+  type ProcessIdentity,
   type ProcessStatus
 } from "@expand/contracts/process-control"
 
@@ -19,6 +20,20 @@ describe("ProcessControl", () => {
 
   it("defines the three platform-neutral process states", () => {
     expectTypeOf<ProcessStatus>().toEqualTypeOf<"alive" | "dead" | "inaccessible">()
+  })
+
+  it("identifies a process incarnation separately from liveness", () => {
+    expectTypeOf<ProcessControlShape["currentIdentity"]>().toEqualTypeOf<
+      () => Effect.Effect<string | undefined, ProcessProbeError>
+    >()
+    expectTypeOf<ProcessControlShape["identify"]>().toEqualTypeOf<
+      (pid: number) => Effect.Effect<ProcessIdentity, ProcessProbeError>
+    >()
+    expectTypeOf<ProcessIdentity>().toEqualTypeOf<
+      | { readonly status: "alive"; readonly identity: string | undefined }
+      | { readonly status: "dead" }
+      | { readonly status: "inaccessible"; readonly identity: string | undefined }
+    >()
   })
 
   it.effect("preserves the probed pid and cause in unknown failures", () => {

@@ -5,7 +5,8 @@ export class Endpoint extends Schema.Opaque<Endpoint>()(
     url: Schema.String,
     token: Schema.String,
     pid: Schema.Number,
-    protocolVersion: Schema.Number
+    protocolVersion: Schema.Number,
+    incarnation: Schema.optional(Schema.String)
   })
 ) {}
 

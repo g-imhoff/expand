@@ -3,6 +3,7 @@ import { type Endpoint, EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext } from "@expand/contracts/app-context"
 import { ProcessControl, type ProcessProbeError } from "@expand/contracts/process-control"
+import { incarnationsMatch } from "@expand/contracts/process-incarnation"
 
 export const readEndpoint: Effect.Effect<
   Option.Option<Endpoint>,
@@ -21,6 +22,14 @@ export const readEndpoint: Effect.Effect<
     if (Option.isNone(decoded)) return Option.none()
     const endpoint = decoded.value
     if (endpoint.protocolVersion !== PROTOCOL_VERSION) return Option.none()
-    if ((yield* processControl.probe(endpoint.pid)) === "dead") return Option.none()
-    return Option.some(endpoint)
+    if (endpoint.incarnation === undefined) {
+      if ((yield* processControl.probe(endpoint.pid)) === "dead") return Option.none()
+      return Option.some(endpoint)
+    }
+    const observed = yield* processControl.identify(endpoint.pid)
+    if (observed.status !== "alive") return Option.none()
+    if (observed.identity === undefined) return Option.none()
+    return incarnationsMatch(endpoint.incarnation, observed.identity)
+      ? Option.some(endpoint)
+      : Option.none()
   })

@@ -11,11 +11,13 @@ import {
   Scope
 } from "effect"
 import { ProcessControl } from "@expand/contracts/process-control"
+import { incarnationsMatch } from "@expand/contracts/process-incarnation"
 
 export interface StateRootLease {
   readonly path: string
   readonly pid: number
   readonly token: string
+  readonly incarnation?: string
 }
 
 export interface StateRootLockOptions {
@@ -26,7 +28,7 @@ export interface StateRootLockOptions {
 
 export class StateRootLockError extends Data.TaggedError("StateRootLockError")<{
   readonly dataDir: string
-  readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner" | "ownership-changed"
+  readonly kind?: "endpoint-advertised" | "handoff-timeout" | "live-owner" | "ownership-changed" | "unverifiable-owner"
   readonly ownerPid?: number
   readonly reason: string
   readonly cause?: unknown
@@ -49,10 +51,13 @@ export const releaseStateRootLock = Effect.fn("StateRootLock.release")(function*
   options: Pick<StateRootLockOptions, "afterClaim"> = {}
 ) {
   const dataDir = dataDirFromLockPath(lease.path)
+  const expected = lease.incarnation === undefined
+    ? { pid: lease.pid, token: lease.token }
+    : { pid: lease.pid, token: lease.token, incarnation: lease.incarnation }
   yield* removeOwner(
     lease.path,
     dataDir,
-    { pid: lease.pid, token: lease.token },
+    expected,
     options.afterClaim
   ).pipe(
     Effect.asVoid,
@@ -99,7 +104,11 @@ export const stateRootLockForStartup = Effect.fn("StateRootLock.startup")(functi
 
 const PositiveSafeInteger = Schema.Int.pipe(Schema.check(Schema.isGreaterThan(0)))
 const UuidV4 = Schema.String.pipe(Schema.check(Schema.isUUID(4)))
-const LockOwnerSchema = Schema.Struct({ pid: PositiveSafeInteger, token: UuidV4 })
+const LockOwnerSchema = Schema.Struct({
+  pid: PositiveSafeInteger,
+  token: UuidV4,
+  incarnation: Schema.optional(Schema.String)
+})
 const LockOwnerFromJson = Schema.fromJsonString(LockOwnerSchema)
 
 type LockOwner = typeof LockOwnerSchema.Type
@@ -121,8 +130,26 @@ const acquireLease = Effect.fn("StateRootLock.acquireLease")(function*(
 
   const staleOwner = yield* readOwner(lockPath, dataDir)
   const processControl = yield* ProcessControl
-  const status = yield* processControl.probe(staleOwner.pid)
-  if (status !== "dead") return yield* liveOwnerError(dataDir, staleOwner.pid)
+  const observed = yield* processControl.identify(staleOwner.pid)
+  if (observed.status === "inaccessible") {
+    return yield* unverifiableOwnerError(dataDir, lockPath, staleOwner.pid, "the process exists but cannot be signaled")
+  }
+  if (observed.status === "alive") {
+    if (staleOwner.incarnation === undefined) {
+      return yield* liveOwnerError(dataDir, staleOwner.pid)
+    }
+    if (observed.identity === undefined) {
+      return yield* unverifiableOwnerError(
+        dataDir,
+        lockPath,
+        staleOwner.pid,
+        "the lock records a process incarnation this platform cannot observe"
+      )
+    }
+    if (incarnationsMatch(staleOwner.incarnation, observed.identity)) {
+      return yield* liveOwnerError(dataDir, staleOwner.pid)
+    }
+  }
   if (options.afterObservation !== undefined) yield* options.afterObservation
   if (!(yield* removeOwner(lockPath, dataDir, staleOwner, options.afterClaim))) {
     return yield* ownershipChangedError(dataDir)
@@ -213,8 +240,13 @@ const publishLease = Effect.fn("StateRootLock.publish")(function*(
   return yield* Effect.uninterruptibleMask((restore) =>
     Effect.gen(function*() {
       const token = yield* cryptoService.randomUUIDv4
-      const record: LockOwner = { pid: processControl.currentPid, token }
-      const lease: StateRootLease = { path: lockPath, ...record }
+      const incarnation = yield* processControl.currentIdentity()
+      const record: LockOwner = incarnation === undefined
+        ? { pid: processControl.currentPid, token }
+        : { pid: processControl.currentPid, token, incarnation }
+      const lease: StateRootLease = incarnation === undefined
+        ? { path: lockPath, pid: record.pid, token: record.token }
+        : { path: lockPath, pid: record.pid, token: record.token, incarnation }
       const candidatePath = `${lockPath}.candidate.${record.pid}.${record.token}`
       return yield* Effect.acquireUseRelease(
         Effect.succeed(candidatePath),
@@ -393,6 +425,21 @@ const liveOwnerError = (dataDir: string, pid: number): StateRootLockError =>
     kind: "live-owner",
     ownerPid: pid,
     reason: `state root is already owned by backend process ${pid}`
+  })
+
+const unverifiableOwnerError = (
+  dataDir: string,
+  lockPath: string,
+  pid: number,
+  detail: string
+): StateRootLockError =>
+  new StateRootLockError({
+    dataDir,
+    kind: "unverifiable-owner",
+    ownerPid: pid,
+    reason: `state root owner process ${pid} cannot be verified (${detail}); ` +
+      `refusing to reclaim. Confirm process ${pid} is not the backend with ps, ` +
+      `then remove ${lockPath} and server.json in ${dataDir} and restart`
   })
 
 const endpointAdvertisedError = (dataDir: string): StateRootLockError =>
