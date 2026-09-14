@@ -9,6 +9,7 @@ import { supervised } from "@expand/desktop/main/runtime/supervised"
 import {
   admitRpcIngressFrame,
   RPC_INGRESS_MAX_QUEUED_FRAMES,
+  RpcIngressDecodeError,
   type RpcIngressFrame,
   rpcIngressFrameSize
 } from "@expand/desktop/shared/rpc/ingress-limits"
@@ -125,7 +126,7 @@ const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPo
       const handleOne = (data: RpcIngressFrame) =>
         Effect.try({
           try: () => parser.decode(data) as ReadonlyArray<RpcMessage.FromClientEncoded>,
-          catch: (error) => error
+          catch: (cause) => new RpcIngressDecodeError({ cause })
         }).pipe(
           Effect.flatMap((requests) =>
             Effect.forEach(requests, (request) => writeRequest(0, request), { discard: true })

@@ -13,6 +13,17 @@
  * absorb legitimate bursts, and 8 MiB retained bounds the worst case well
  * below anything that threatens the main process.
  */
+import { Data } from "effect"
+
+/**
+ * Typed decode failure for an admitted ingress frame. The parser throws
+ * `unknown`, so the `Effect.try` catch callback wraps it here instead of
+ * leaking an untyped error channel into the decoding fiber.
+ */
+export class RpcIngressDecodeError extends Data.TaggedError("RpcIngressDecodeError")<{
+  readonly cause?: unknown
+}> {}
+
 export interface RpcIngressLoad {
   readonly queuedFrames: number
   readonly retainedBytes: number
