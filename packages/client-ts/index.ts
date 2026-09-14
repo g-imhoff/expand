@@ -60,7 +60,7 @@ export {
 } from "@expand/contracts/process-control"
 
 // Errors (transport-level; domain errors live on the domain subpaths)
-export { BackendCommandError, BackendUnavailable } from "./errors"
+export { BackendCommandError, BackendUnavailable, EndpointDiscoveryError } from "./errors"
 export type RpcClientError = RpcClientErrorNS.RpcClientError
 
 // Advanced / plumbing — rarely needed directly

@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer as effectLayer } from "@effect/vitest"
-import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, PlatformError, Schema } from "effect"
 import { expect } from "vitest"
 import { ProcessServices } from "../process-services"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
@@ -82,6 +82,102 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
       const context = yield* appContext("malformed")
       yield* fs.writeFileString(context.paths.endpointFile, "{ not json")
       expect(Option.isNone(yield* run("malformed", readEndpoint))).toBe(true)
+    }))
+
+  it.effect("fails with the exists operation when presence cannot be checked (EACCES)", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const context = yield* appContext("exists-denied")
+      const failure = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "exists",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        exists: () => Effect.fail(failure)
+      })
+      const error = yield* run("exists-denied", readEndpoint).pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.flip
+      )
+      expect(error._tag).toBe("EndpointDiscoveryError")
+      if (error._tag !== "EndpointDiscoveryError") throw new Error("expected EndpointDiscoveryError")
+      expect(error.operation).toBe("exists")
+      expect(error.path).toBe(context.paths.endpointFile)
+      expect(error.cause).toBe(failure)
+    }))
+
+  it.effect("fails with the read operation when a live endpoint cannot be read (EACCES)", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* writeEndpoint("read-denied", ProcessServices.alivePid)
+      const context = yield* appContext("read-denied")
+      const failure = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "readFileString",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: () => Effect.fail(failure)
+      })
+      const error = yield* run("read-denied", readEndpoint).pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.flip
+      )
+      expect(error._tag).toBe("EndpointDiscoveryError")
+      if (error._tag !== "EndpointDiscoveryError") throw new Error("expected EndpointDiscoveryError")
+      expect(error.operation).toBe("readFileString")
+      expect(error.path).toBe(context.paths.endpointFile)
+      expect(error.cause).toBe(failure)
+    }))
+
+  it.effect("fails rather than reporting absence when the read hits an I/O error", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      yield* writeEndpoint("read-io-error", ProcessServices.alivePid)
+      const context = yield* appContext("read-io-error")
+      const failure = PlatformError.systemError({
+        _tag: "Unknown",
+        module: "FileSystem",
+        method: "readFileString",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: () => Effect.fail(failure)
+      })
+      const error = yield* run("read-io-error", readEndpoint).pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.flip
+      )
+      expect(error._tag).toBe("EndpointDiscoveryError")
+      if (error._tag !== "EndpointDiscoveryError") throw new Error("expected EndpointDiscoveryError")
+      expect(error.operation).toBe("readFileString")
+      expect(error.path).toBe(context.paths.endpointFile)
+    }))
+
+  it.effect("returns None when the file vanishes between the presence check and the read", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const context = yield* appContext("read-raced-away")
+      const failure = PlatformError.systemError({
+        _tag: "NotFound",
+        module: "FileSystem",
+        method: "readFileString",
+        pathOrDescriptor: context.paths.endpointFile
+      })
+      const racingFs = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: () => Effect.fail(failure)
+      })
+      const result = yield* run("read-raced-away", readEndpoint).pipe(
+        Effect.provideService(FileSystem.FileSystem, racingFs)
+      )
+      expect(Option.isNone(result)).toBe(true)
     }))
 
   it.effect("resolves a relative AppContext root from the supplied current directory", () =>

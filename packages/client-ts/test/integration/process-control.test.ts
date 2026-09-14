@@ -28,7 +28,7 @@ import { makeNodeAdapter } from "../../adapters/node"
 import { ClientLayer } from "../../client-layer"
 import { ClientSession, ClientSessionLayer } from "../../client-session"
 import { readEndpoint } from "../../discovery"
-import { BackendUnavailable, type SpawnLockError } from "../../errors"
+import { BackendUnavailable, type EndpointDiscoveryError, type SpawnLockError } from "../../errors"
 import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { acquireClient, type ExpandRpcClientApi } from "../../rpc-client"
 import { ServerClient, ServerClientLayer } from "../../server/client"
@@ -197,7 +197,7 @@ describe("process control integration", () => {
     expectTypeOf(readEndpoint).toEqualTypeOf<
       Effect.Effect<
         Option.Option<Endpoint>,
-        ProcessProbeError,
+        ProcessProbeError | EndpointDiscoveryError,
         FileSystem.FileSystem | AppContext | ProcessControl
       >
     >()

@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer as effectLayer } from "@effect/vitest"
-import { Clock, Context, Deferred, Effect, Fiber, FileSystem, Layer, Option, Path, Queue, Schema } from "effect"
+import { Clock, Context, Deferred, Effect, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import { expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
@@ -340,6 +340,94 @@ effectLayer(TestLayer, { excludeTestServices: true })("findOrSpawnBackend", (it)
       yield* Fiber.join(reviver)
       expect(endpoint.url).toBe(realEndpoint.url)
       expect(yield* fs.exists(lockPath)).toBe(false)
+    }))
+
+  it.effect("surfaces an exists failure without spawning when presence cannot be checked", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const appContext = yield* context("discovery-exists-failure")
+      let spawnCount = 0
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.sync(() => {
+          spawnCount += 1
+        })
+      }
+      const failure = PlatformError.systemError({
+        _tag: "PermissionDenied",
+        module: "FileSystem",
+        method: "exists",
+        pathOrDescriptor: appContext.paths.endpointFile
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        exists: (target) =>
+          target === appContext.paths.endpointFile ? Effect.fail(failure) : fs.exists(target)
+      })
+      const result = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.result
+      )
+      expect(spawnCount).toBe(0)
+      expect(result._tag).toBe("Failure")
+      if (result._tag !== "Failure") throw new Error("expected discovery failure")
+      expect(result.failure).toBeInstanceOf(BackendUnavailable)
+      const failureReason = (result.failure as BackendUnavailable).reason
+      expect(failureReason).toContain("endpoint discovery exists failed")
+      expect(failureReason).toContain(appContext.paths.endpointFile)
+      expect(failureReason).not.toContain("did not start in time")
+      expect(failureReason).not.toContain("spawn lock")
+    }))
+
+  it.effect("surfaces a read failure without spawning when a live endpoint cannot be read", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const processControl = yield* ProcessControl
+      const appContext = yield* context("discovery-read-failure")
+      const advertisedEndpoint = yield* Schema.encodeEffect(EndpointFromJson)({
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "live-but-unreadable",
+        pid: processControl.currentPid,
+        protocolVersion: PROTOCOL_VERSION
+      })
+      yield* fs.writeFileString(appContext.paths.endpointFile, advertisedEndpoint)
+      let spawnCount = 0
+      const adapter = {
+        ...nodeAdapter,
+        spawnBackend: () => Effect.sync(() => {
+          spawnCount += 1
+        })
+      }
+      const failure = PlatformError.systemError({
+        _tag: "Unknown",
+        module: "FileSystem",
+        method: "readFileString",
+        pathOrDescriptor: appContext.paths.endpointFile
+      })
+      const failingFs = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: (target) =>
+          target === appContext.paths.endpointFile ? Effect.fail(failure) : fs.readFileString(target)
+      })
+      const result = yield* findOrSpawnBackend(adapter).pipe(
+        Effect.provideService(FileSystem.FileSystem, failingFs),
+        Effect.provideService(AppContext, appContext),
+        Effect.result
+      )
+      expect(spawnCount).toBe(0)
+      expect(result._tag).toBe("Failure")
+      if (result._tag !== "Failure") throw new Error("expected discovery failure")
+      expect(result.failure).toBeInstanceOf(BackendUnavailable)
+      const readFailure = result.failure as BackendUnavailable
+      expect(readFailure.reason).toContain("endpoint discovery readFileString failed")
+      expect(readFailure.reason).toContain(appContext.paths.endpointFile)
+      expect(readFailure.reason).not.toContain("did not start in time")
+      expect(readFailure.cause).toMatchObject({
+        _tag: "EndpointDiscoveryError",
+        operation: "readFileString",
+        path: appContext.paths.endpointFile
+      })
     }))
 })
 
