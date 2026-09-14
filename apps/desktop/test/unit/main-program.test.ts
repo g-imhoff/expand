@@ -56,6 +56,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const dispatchCallback = yield* FiberSet.runtime(callbackFibers)<never>()
   let beforeQuit: ((event: { preventDefault: () => void }) => void) | undefined
   let windowAllClosed: (() => void) | undefined
+  let activate: (() => void) | undefined
   let closed: (() => void) | undefined
   let navigation: ((details: { readonly isSameDocument: boolean }) => void) | undefined
   let willNavigate: ((event: { preventDefault: () => void }, url: string) => void) | undefined
@@ -71,12 +72,13 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
   const loadedUrls: Array<string> = []
   const loadedFiles: Array<string> = []
   let portGrants = 0
+  let windowCreates = 0
   const frame = { url: "file:///repo/apps/desktop/out/renderer/index.html", detached: false }
   let boundIdentity: RendererIdentity | undefined
   let boundRpcPort: DesktopIpcHandlers<never, TestPort>["rpcPort"] | undefined
   const markAppListener = () => {
     appListenerCount += 1
-    if (appListenerCount === 2) Deferred.doneUnsafe(appListenersReady, Effect.void)
+    if (appListenerCount === 3) Deferred.doneUnsafe(appListenersReady, Effect.void)
   }
   const runtime = {
     contextEffect: options.blockPortFinalizer === true
@@ -126,6 +128,14 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       return () => {
         if (windowAllClosed === listener) windowAllClosed = undefined
         append("app:off:window-all-closed")
+      }
+    },
+    onActivate: (listener: () => void) => {
+      activate = listener
+      markAppListener()
+      return () => {
+        if (activate === listener) activate = undefined
+        append("app:off:activate")
       }
     },
     quit: () => {
@@ -202,6 +212,8 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     platform: options.platform ?? "linux",
     moduleUrl: new URL("file:///repo/apps/desktop/out/main/index.mjs"),
     createWindow: (_options) => {
+      windowCreates += 1
+      destroyed = false
       Deferred.doneUnsafe(windowCreated, Effect.void)
       append("window:create")
       return window
@@ -267,6 +279,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     releasePortFinalization: Deferred.succeed(releasePortFinalization, undefined),
     fireBeforeQuit,
     fireWindowAllClosed: () => { windowAllClosed?.() },
+    fireActivate: () => { activate?.() },
     fireClosed: () => {
       destroyed = true
       closed?.()
@@ -290,6 +303,7 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
       ))
     },
     destroyCalls: () => destroyCalls,
+    windowCreates: () => windowCreates,
     finalQuitCalls: () => finalQuitCalls,
     quitRequests: () => quitRequests,
     portFinalizerStarts: () => portFinalizerStarts,
@@ -307,6 +321,15 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
 
 const start = (harness: Effect.Success<ReturnType<typeof makeHarness>>) =>
   harness.program.pipe(Effect.forkChild({ startImmediately: true }))
+
+const waitUntil = (check: () => boolean, attempts = 200) =>
+  Effect.gen(function* () {
+    for (let remaining = attempts; remaining > 0; remaining -= 1) {
+      if (check()) return
+      yield* Effect.yieldNow
+    }
+    throw new Error("timed out waiting for test condition")
+  })
 
 describe("mainProgram startup and shutdown", () => {
   it.effect("uses the exact packaged renderer identity for loading, navigation, and IPC", () =>
@@ -516,6 +539,60 @@ describe("mainProgram window ownership", () => {
         expect(harness.destroyCalls()).toBe(0)
         harness.fireWindowAllClosed()
         expect(harness.quitRequests()).toBe(0)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("recreates one working window on Darwin activate after the final window closes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ platform: "darwin" })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.windowCreates()).toBe(1)
+        harness.fireClosed()
+        yield* waitUntil(() => !harness.hasIpcListener())
+        expect(yield* Deferred.isDone(harness.runtimeDisposed)).toBe(false)
+        expect(harness.events).toContain("ipc:off")
+        harness.fireActivate()
+        yield* waitUntil(() => harness.windowCreates() === 2)
+        yield* waitUntil(() => harness.loadedFiles.length === 2)
+        expect(harness.hasIpcListener()).toBe(true)
+        expect(harness.isCspInstalled()).toBe(true)
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html")).toBe(false)
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/hostile.html")).toBe(true)
+        harness.fireRpcPortRequest()
+        yield* Effect.yieldNow
+        expect(harness.portGrants()).toBe(1)
+        harness.fireActivate()
+        harness.fireActivate()
+        yield* Effect.yieldNow
+        yield* Effect.yieldNow
+        expect(harness.windowCreates()).toBe(2)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("ignores activation while a window is already open", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ platform: "darwin" })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        harness.fireActivate()
+        yield* Effect.yieldNow
+        yield* Effect.yieldNow
+        expect(harness.windowCreates()).toBe(1)
         expect(harness.fireBeforeQuit()).toBe(true)
         expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
       })
