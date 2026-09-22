@@ -82,6 +82,7 @@ export const AppSidebar = ({
   const [query, setQuery] = useState("")
 
   const selectedDeviceId = activeDeviceId ?? internalDeviceId
+  const activeDevice = devices.find((device) => device.id === selectedDeviceId) ?? null
   const selectedConversationId = activeConversationId ?? internalConversationId
   const visibleProjects = projects.filter((p) => !p.archived)
   const activeProject = visibleProjects.find((p) => p.id === activeProjectId) ?? null
@@ -124,60 +125,62 @@ export const AppSidebar = ({
       <Sidebar
         collapsible="none"
         className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
-        aria-label="Devices"
       >
         <SidebarHeader>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild className="md:h-8 md:p-0">
-                <span>
-                  <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                    <Command className="size-4" />
-                  </span>
-                  <span className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-medium">Expand</span>
-                    <span className="truncate text-xs">Desktop</span>
-                  </span>
-                </span>
-              </SidebarMenuButton>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    size="lg"
+                    className="md:h-8 md:p-0"
+                    aria-label={
+                      activeDevice ? `Switch device, active: ${activeDevice.name}` : "Switch device"
+                    }
+                  >
+                    <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground [&>svg]:size-4">
+                      {activeDevice ? <DeviceIcon device={activeDevice} /> : <Command className="size-4" />}
+                    </span>
+                    <span className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">{activeDevice?.name ?? "Expand"}</span>
+                      <span className="truncate text-xs">
+                        {activeDevice ? activeDevice.status : "Desktop"}
+                      </span>
+                    </span>
+                    <ChevronsUpDown className="ml-auto size-4" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-64">
+                  <DropdownMenuLabel>Devices</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {devices.length === 0 && (
+                    <DropdownMenuItem disabled>No devices yet</DropdownMenuItem>
+                  )}
+                  {devices.map((device) => {
+                    const isActive = device.id === selectedDeviceId
+                    return (
+                      <DropdownMenuItem
+                        key={device.id}
+                        onSelect={() => selectDevice(device.id)}
+                        aria-current={isActive ? "true" : undefined}
+                        className={isActive ? "font-medium" : undefined}
+                      >
+                        <DeviceIcon device={device} />
+                        <span className="grid flex-1 text-left leading-tight">
+                          <span className="truncate">{device.name}</span>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {device.status}
+                          </span>
+                        </span>
+                        {isActive && <Check className="ml-auto size-4 shrink-0" aria-label="active" />}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>Devices</SidebarGroupLabel>
-            <SidebarGroupContent className="px-1.5 md:px-0">
-              <SidebarMenu>
-                {devices.map((device) => (
-                  <SidebarMenuItem key={device.id}>
-                    <SidebarMenuButton
-                      tooltip={{
-                        children: `${device.name} — ${device.status}`,
-                        hidden: false
-                      }}
-                      onClick={() => selectDevice(device.id)}
-                      isActive={selectedDeviceId === device.id}
-                      aria-pressed={selectedDeviceId === device.id}
-                      aria-label={`${device.name}, ${device.status}`}
-                      className="px-2.5 md:px-2"
-                    >
-                      <DeviceIcon device={device} />
-                      <span>{device.name}</span>
-                      <span
-                        aria-hidden
-                        className={
-                          device.status === "online"
-                            ? "ml-auto size-1.5 shrink-0 rounded-full bg-emerald-500"
-                            : "ml-auto size-1.5 shrink-0 rounded-full bg-muted-foreground"
-                        }
-                      />
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
         <SidebarFooter>
           <NavUser user={user} />
         </SidebarFooter>

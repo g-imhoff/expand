@@ -1,14 +1,11 @@
 // @vitest-environment happy-dom
 import { it } from "@effect/vitest"
 import { beforeEach, describe, expect, vi } from "vitest"
-import { fireEvent, screen, within } from "@testing-library/react"
+import { fireEvent, screen } from "@testing-library/react"
 import { Effect } from "effect"
 import { SidebarProvider } from "@expand/desktop/renderer/components/ui/sidebar"
 import { AppSidebar } from "@expand/desktop/renderer/features/sidebar/components/AppSidebar"
-import {
-  defaultSidebarDevices,
-  defaultSidebarWorktrees
-} from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
+import { defaultSidebarWorktrees } from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
 import { fakeProject, makeFakeProjectContext, renderWithProjectContextScoped, uid } from "./ui-harness"
 
 const projects = [
@@ -47,17 +44,18 @@ beforeEach(() => {
 })
 
 describe("AppSidebar", () => {
-  it.effect("renders the device rail with the active device pressed", () =>
+  it.effect("switches the device from the top-left rail button", () =>
     Effect.scoped(Effect.gen(function* () {
       const onSelectDevice = vi.fn()
-      yield* renderSidebar({ activeDeviceId: "device-studio", onSelectDevice })
-      const rail = screen.getByLabelText("Devices")
-      for (const device of defaultSidebarDevices) {
-        expect(within(rail).getByRole("button", { name: `${device.name}, ${device.status}` })).toBeDefined()
-      }
-      const active = within(rail).getByRole("button", { name: "Studio server, online" })
-      expect(active.getAttribute("aria-pressed")).toBe("true")
-      fireEvent.click(within(rail).getByRole("button", { name: "Field laptop, offline" }))
+      yield* renderSidebar({ activeDeviceId: "device-local", onSelectDevice })
+      const trigger = screen.getByRole("button", { name: "Switch device, active: This machine" })
+      fireEvent.pointerDown(trigger)
+      fireEvent.click(trigger)
+      const active = screen.getByRole("menuitem", { name: /This machine/ })
+      expect(active.getAttribute("aria-current")).toBe("true")
+      const other = screen.getByRole("menuitem", { name: /Field laptop/ })
+      expect(other.getAttribute("aria-current")).toBeNull()
+      fireEvent.click(other)
       expect(onSelectDevice).toHaveBeenCalledWith("device-field")
     })))
 
