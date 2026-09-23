@@ -118,7 +118,7 @@ export const AppSidebar = ({
     >
       <Sidebar
         collapsible="none"
-        className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
+        className="w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-r"
       >
         <SidebarHeader>
           <SidebarMenu>
@@ -180,7 +180,7 @@ export const AppSidebar = ({
         </SidebarFooter>
       </Sidebar>
 
-      <Sidebar collapsible="none" className="hidden flex-1 md:flex" aria-label="Project and conversations">
+      <Sidebar collapsible="none" className="min-w-0 flex-1" aria-label="Project and conversations">
         <SidebarHeader className="gap-3.5 border-b p-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
