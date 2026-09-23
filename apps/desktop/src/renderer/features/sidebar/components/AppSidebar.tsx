@@ -1,8 +1,3 @@
-// Three-zone sidebar adapted from the vendored sidebar-09 block
-// (email-shaped) to the Expand AI-conversation shape: a device-switcher rail,
-// a panel with the project switcher plus the worktree-grouped conversation
-// inbox, and the user footer. Route-neutral: navigation and selection state
-// arrive via props; projects come from the live project store.
 import { useState } from "react"
 import {
   Check,
@@ -121,7 +116,6 @@ export const AppSidebar = ({
       className="overflow-hidden *:data-[sidebar=sidebar]:flex-row"
       {...props}
     >
-      {/* Zone 1: device switcher rail. Non-collapsible, icon width. */}
       <Sidebar
         collapsible="none"
         className="w-[calc(var(--sidebar-width-icon)+1px)]! border-r"
@@ -186,7 +180,6 @@ export const AppSidebar = ({
         </SidebarFooter>
       </Sidebar>
 
-      {/* Zone 2: project switcher plus worktree-grouped conversation inbox. */}
       <Sidebar collapsible="none" className="hidden flex-1 md:flex" aria-label="Project and conversations">
         <SidebarHeader className="gap-3.5 border-b p-4">
           <DropdownMenu>

@@ -1,8 +1,3 @@
-// Placeholder sidebar content for devices and worktree-grouped
-// conversations. No device or worktree/conversation concept exists in the
-// codebase yet, so the sidebar ships deterministic static data with working
-// local-state switching until a backend lands. Projects are NOT here: the
-// sidebar reads the live project store instead.
 export interface SidebarDevice {
   readonly id: string
   readonly name: string

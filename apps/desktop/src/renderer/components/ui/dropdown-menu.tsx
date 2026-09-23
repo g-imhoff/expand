@@ -1,5 +1,3 @@
-// Adapted from the vendored sidebar-09 block (shadcn new-york-v4) for the
-// Expand desktop renderer.
 import * as React from "react"
 import { cn } from "./class-names"
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui"

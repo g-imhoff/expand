@@ -1,5 +1,3 @@
-// Adapted from the vendored sidebar-09 block (shadcn new-york-v4) for the
-// Expand desktop renderer.
 import * as React from "react"
 
 export const useIsMobile = (): boolean => {

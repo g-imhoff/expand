@@ -1,7 +1,3 @@
-// Adapted from the vendored sidebar-09 block (shadcn new-york-v4) for the
-// Expand desktop renderer. Avatar images are intentionally unsupported here:
-// the specimen ships no external assets, so callers use AvatarFallback with
-// initials.
 import * as React from "react"
 import { cn } from "./class-names"
 import { Avatar as AvatarPrimitive } from "radix-ui"

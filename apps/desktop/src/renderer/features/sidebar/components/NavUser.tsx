@@ -1,6 +1,3 @@
-// User footer adapted from the vendored sidebar-09 nav-user. The avatar is
-// initials-only: the specimen ships no external assets, so no avatar image
-// URL is accepted. Menu entries are decorative until account surfaces exist.
 import { BadgeCheck, Bell, ChevronsUpDown, LogOut } from "lucide-react"
 import { Avatar, AvatarFallback } from "@expand/desktop/renderer/components/ui/avatar"
 import {

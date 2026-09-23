@@ -86,7 +86,6 @@ describe("AppSidebar", () => {
       yield* renderSidebar({ onSelectConversation })
       expect(screen.getByText("expand-sidebar")).toBeDefined()
       expect(screen.getByText("expand-auth")).toBeDefined()
-      // The empty worktree renders no group and no global empty state.
       expect(screen.queryByText("expand-empty")).toBeNull()
       expect(screen.queryByText("No conversations found")).toBeNull()
       const row = screen.getByRole("button", { name: "Sidebar three-zone shape, unread" })

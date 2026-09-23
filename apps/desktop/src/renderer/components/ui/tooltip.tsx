@@ -1,8 +1,3 @@
-// Adapted from the vendored sidebar-09 block (shadcn new-york-v4) for the
-// Expand desktop renderer. Keyframe-based animation utilities from the
-// upstream block (animate-in, fade-*, zoom-*, slide-*) are dropped: the
-// animation package is not installed and the candidate degrades to instant
-// show/hide without it.
 import * as React from "react"
 import { cn } from "./class-names"
 import { Tooltip as TooltipPrimitive } from "radix-ui"
