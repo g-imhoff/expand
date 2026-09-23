@@ -306,8 +306,9 @@ export const PromptInput = ({
         releasePromptImageUrl(url)
       }
       throw error
+    } finally {
+      if (fileInputRef.current !== null) fileInputRef.current.value = ""
     }
-    if (fileInputRef.current !== null) fileInputRef.current.value = ""
   }
 
   const removeImage = (id: string) => {

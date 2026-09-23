@@ -55,6 +55,7 @@ interface HarnessProps {
   readonly showClearSentControl?: boolean
   readonly acceptImageChanges?: boolean
   readonly hideComposerOnImageChange?: boolean
+  readonly throwOnImagesChange?: boolean
 }
 
 const ComposerHarness = ({
@@ -73,7 +74,8 @@ const ComposerHarness = ({
   showComposerControl = false,
   showClearSentControl = false,
   acceptImageChanges = true,
-  hideComposerOnImageChange = false
+  hideComposerOnImageChange = false,
+  throwOnImagesChange = false
 }: HarnessProps) => {
   const [selectedModelId, setSelectedModelId] = useState<string>("atlas")
   const [favoriteModelIds, setFavoriteModelIds] = useState<ReadonlyArray<string>>([])
@@ -99,6 +101,7 @@ const ComposerHarness = ({
       }}
       images={images}
       onImagesChange={(next) => {
+        if (throwOnImagesChange) throw new Error("Image change rejected")
         if (acceptImageChanges) setImages(next)
         if (hideComposerOnImageChange) setComposerVisible(false)
         onImagesChange?.(next)
@@ -135,6 +138,11 @@ const ComposerHarness = ({
       <button type="button" onClick={() => setSavedPayload(null)}>Clear sent payload</button>
     )}
   </>
+}
+
+const ImageOwner = ({ images }: { readonly images: ReadonlyArray<PromptImageAttachment> }) => {
+  usePromptImageUrlOwnership(images)
+  return null
 }
 
 const openModelPicker = () => {
@@ -343,6 +351,7 @@ describe("PromptInput", () => {
       fireEvent.click(rendered.getByRole("button", { name: "Remove shot.png" }))
       expect(onImagesChange).toHaveBeenCalledTimes(2)
       expect(onImagesChange.mock.calls[1]?.[0]).toEqual([])
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
       rendered.unmount()
       yield* Effect.promise(() => Promise.resolve())
@@ -364,6 +373,7 @@ describe("PromptInput", () => {
       fireEvent.click(clearImages)
       expect(rendered.queryByRole("button", { name: "Remove local.png" })).toBeNull()
       expect(rendered.queryByRole("dialog", { name: "local.png" })).toBeNull()
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
@@ -404,6 +414,7 @@ describe("PromptInput", () => {
       expect(URL.revokeObjectURL).not.toHaveBeenCalled()
 
       fireEvent.click(rendered.getByRole("button", { name: "Clear images externally" }))
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
@@ -422,6 +433,16 @@ describe("PromptInput", () => {
       expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       rendered.unmount()
       yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("releases created URLs when the image callback rejects them", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness throwOnImagesChange />)
+      vi.spyOn(console, "error").mockImplementation(() => {})
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
@@ -456,6 +477,7 @@ describe("PromptInput", () => {
       fireEvent.click(rendered.getByRole("button", { name: "Clear images externally" }))
       expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       fireEvent.click(rendered.getByRole("button", { name: "Clear sent payload" }))
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
@@ -470,6 +492,65 @@ describe("PromptInput", () => {
       expect(rendered.getByRole("button", { name: "Preview local.png" })).not.toBeNull()
       expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url)
+    })))
+
+  it.effect("keeps a shared URL until both parent owners release it", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const url = createPromptImageUrl(new File(["shared"], "shared.png", { type: "image/png" }))
+      const image: PromptImageAttachment = { id: "shared", name: "shared.png", url }
+      const rendered = yield* renderScoped(
+        <>
+          <ImageOwner key="left" images={[image]} />
+          <ImageOwner key="right" images={[image]} />
+        </>
+      )
+
+      rendered.rerender(
+        <>
+          <ImageOwner key="left" images={[]} />
+          <ImageOwner key="right" images={[image]} />
+        </>
+      )
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      rendered.rerender(<ImageOwner key="right" images={[image]} />)
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      rendered.rerender(<ImageOwner key="right" images={[]} />)
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url)
+    })))
+
+  it.effect("keeps a URL during a same-commit transfer between owners", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const url = createPromptImageUrl(new File(["shared"], "shared.png", { type: "image/png" }))
+      const image: PromptImageAttachment = { id: "shared", name: "shared.png", url }
+      const rendered = yield* renderScoped(
+        <>
+          <ImageOwner key="left" images={[image]} />
+          <ImageOwner key="right" images={[]} />
+        </>
+      )
+
+      rendered.rerender(
+        <>
+          <ImageOwner key="left" images={[]} />
+          <ImageOwner key="right" images={[image]} />
+        </>
+      )
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      rendered.rerender(
+        <>
+          <ImageOwner key="left" images={[]} />
+          <ImageOwner key="right" images={[]} />
+        </>
+      )
       yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url)
     })))
