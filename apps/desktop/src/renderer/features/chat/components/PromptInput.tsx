@@ -24,10 +24,12 @@ import { renderMentionSegments } from "@expand/desktop/renderer/features/chat/co
 import {
   filterMentionItems,
   findActiveMention,
-  parseMentions,
+  reconcileSelectedMentions,
+  resolveMentions,
   type ActiveMention,
   type PromptMention,
-  type PromptMentionItem
+  type PromptMentionItem,
+  type SelectedPromptMention
 } from "@expand/desktop/renderer/features/chat/components/prompt-mentions"
 
 export interface PromptModelOption {
@@ -129,7 +131,9 @@ export const PromptInput = ({
   placeholder = "Message…  ·  @ for folders  ·  $ for skills"
 }: PromptInputProps) => {
   const [draft, setDraft] = useState("")
+  const [selectedMentions, setSelectedMentions] = useState<ReadonlyArray<SelectedPromptMention>>([])
   const [caret, setCaret] = useState(0)
+  const [selectionEnd, setSelectionEnd] = useState(0)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionClosed, setMentionClosed] = useState(false)
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
@@ -157,19 +161,45 @@ export const PromptInput = ({
   const send = () => {
     const text = draft.trim()
     if (text === "" || isLoading) return
-    onSend({ text, modelId: selectedModelId, images, mentions: parseMentions(text) })
+    const leadingWhitespace = draft.length - draft.trimStart().length
+    const shiftedSelections = selectedMentions.map((mention) => ({
+      ...mention,
+      start: mention.start - leadingWhitespace,
+      end: mention.end - leadingWhitespace
+    }))
+    onSend({
+      text,
+      modelId: selectedModelId,
+      images,
+      mentions: resolveMentions(text, shiftedSelections)
+    })
     setDraft("")
+    setSelectedMentions([])
     setCaret(0)
+    setSelectionEnd(0)
     setMentionClosed(false)
   }
 
   const acceptMention = (item: PromptMentionItem, active: ActiveMention) => {
     const marker = active.kind === "folder" ? "@" : "$"
-    const token = `${marker}${item.label} `
-    const next = draft.slice(0, active.start) + token + draft.slice(active.caret)
-    const nextCaret = active.start + token.length
+    const token = `${marker}${item.label}`
+    const replacement = `${token} `
+    const next = draft.slice(0, active.start) + replacement + draft.slice(active.caret)
+    const nextCaret = active.start + replacement.length
+    const shift = replacement.length - (active.caret - active.start)
+    setSelectedMentions((current) => [
+      ...current.flatMap((mention) => {
+        if (mention.end <= active.start) return [mention]
+        if (mention.start >= active.caret) {
+          return [{ ...mention, start: mention.start + shift, end: mention.end + shift }]
+        }
+        return []
+      }),
+      { kind: active.kind, key: item.id, start: active.start, end: active.start + token.length, token }
+    ])
     setDraft(next)
     setCaret(nextCaret)
+    setSelectionEnd(nextCaret)
     setMentionClosed(false)
     const focusTarget = textareaRef.current
     focusTarget?.focus()
@@ -315,15 +345,27 @@ export const PromptInput = ({
           aria-activedescendant={activeMentionOptionId}
           value={draft}
           onChange={(event) => {
-            setDraft(event.target.value)
-            setCaret(event.target.selectionStart ?? event.target.value.length)
+            const nextDraft = event.target.value
+            const nextCaret = event.target.selectionStart ?? nextDraft.length
+            setSelectedMentions((current) =>
+              reconcileSelectedMentions(draft, nextDraft, current, {
+                previousStart: caret,
+                previousEnd: selectionEnd,
+                nextCaret
+              })
+            )
+            setDraft(nextDraft)
+            setCaret(nextCaret)
+            setSelectionEnd(event.target.selectionEnd ?? nextCaret)
             setMentionClosed(false)
           }}
           onSelect={(event) => {
             setCaret(event.currentTarget.selectionStart ?? 0)
+            setSelectionEnd(event.currentTarget.selectionEnd ?? 0)
           }}
           onKeyUp={(event) => {
             setCaret(event.currentTarget.selectionStart ?? 0)
+            setSelectionEnd(event.currentTarget.selectionEnd ?? 0)
           }}
           onScroll={(event) => {
             if (backdropRef.current !== null) {

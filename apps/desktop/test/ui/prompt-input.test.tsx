@@ -451,4 +451,111 @@ describe("PromptInput", () => {
         { kind: "skill", key: "review", start: 14, end: 21 }
       ])
     })))
+
+  it.effect("keeps selected IDs and offsets for duplicate labels across draft edits", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:first", label: "shared", kind: "folder" },
+        { id: "folder:second", label: "shared", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+
+      typeDraft(box, "  inspect @sha")
+      fireEvent.mouseDown(rendered.getAllByRole("option", { name: /shared/ })[1]!)
+      expect(box.value).toBe("  inspect @shared ")
+
+      typeDraft(box, "  inspect @shared and @sha")
+      fireEvent.mouseDown(rendered.getAllByRole("option", { name: /shared/ })[0]!)
+      expect(box.value).toBe("  inspect @shared and @shared ")
+
+      typeDraft(box, "  please inspect @shared and @shared ")
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.text).toBe("please inspect @shared and @shared")
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:second", start: 15, end: 22 },
+        { kind: "folder", key: "folder:first", start: 27, end: 34 }
+      ])
+    })))
+
+  it.effect("drops a selected ID when its token is edited", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [{ id: "folder:shared", label: "shared", kind: "folder" }] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+
+      typeDraft(box, "open @sha")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /shared/ }))
+      typeDraft(box, "open @shored ")
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([{ kind: "folder", key: "shored", start: 5, end: 12 }])
+    })))
+
+  it.effect("keeps the second selected ID when an identical earlier mention is removed", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:first", label: "shared", kind: "folder" },
+        { id: "folder:second", label: "shared", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+
+      typeDraft(box, "@sha")
+      fireEvent.mouseDown(rendered.getAllByRole("option", { name: /shared/ })[0]!)
+      typeDraft(box, "@shared @sha")
+      fireEvent.mouseDown(rendered.getAllByRole("option", { name: /shared/ })[1]!)
+
+      box.setSelectionRange(0, 8)
+      fireEvent.select(box)
+      fireEvent.change(box, { target: { value: "@shared ", selectionStart: 0, selectionEnd: 0 } })
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:second", start: 0, end: 7 }
+      ])
+    })))
+
+  it.effect("uses the full selected label when it contains spaces", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [{ id: "folder:my-docs", label: "My docs", kind: "folder" }] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+
+      typeDraft(box, "open @My")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /My docs/ }))
+      expect(box.value).toBe("open @My docs ")
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:my-docs", start: 5, end: 13 }
+      ])
+    })))
+
+  it.effect("sends the selected skill ID while keeping its label in the text", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const skills = [{ id: "skill:review", label: "review" }] as const
+      const rendered = yield* renderScoped(<ComposerHarness skills={skills} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+
+      typeDraft(box, "run $rev")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /review/ }))
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.text).toBe("run $review")
+      expect(payload.mentions).toEqual([
+        { kind: "skill", key: "skill:review", start: 4, end: 11 }
+      ])
+    })))
 })
