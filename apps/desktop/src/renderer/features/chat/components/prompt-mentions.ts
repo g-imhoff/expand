@@ -124,6 +124,14 @@ export const findActiveMention = (text: string, caret: number): ActiveMention | 
   }
 }
 
+export const findMentionTokenEnd = (text: string, caret: number): number => {
+  let end = caret
+  while (end < text.length && mentionContinuationPattern.test(text[end] ?? "")) {
+    end++
+  }
+  return end
+}
+
 export const filterMentionItems = (
   items: ReadonlyArray<PromptMentionItem>,
   query: string

@@ -2,7 +2,7 @@
 import { useState } from "react"
 import { it } from "@effect/vitest"
 import { afterEach, beforeEach, describe, expect, vi } from "vitest"
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { Effect } from "effect"
 import {
   PromptInput,
@@ -479,6 +479,115 @@ describe("PromptInput", () => {
       expect(onSend).not.toHaveBeenCalled()
       expect(box.value).toBe("look @src ")
       expect(rendered.queryByRole("listbox")).toBeNull()
+    })))
+
+  it.effect("replaces a whole mention when the caret is inside its token", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:src", label: "src", kind: "folder" },
+        { id: "folder:docs", label: "docs", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @sr and @d")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /docs/ }))
+      expect(box.value).toBe("open @sr and @docs ")
+      box.setSelectionRange(7, 7)
+      fireEvent.select(box)
+
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /src/ }))
+      expect(box.value).toBe("open @src and @docs ")
+      yield* Effect.promise(() => waitFor(() => expect(box.selectionStart).toBe(10)))
+      expect(box.selectionEnd).toBe(10)
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:src", start: 5, end: 9 },
+        { kind: "folder", key: "folder:docs", start: 14, end: 19 }
+      ])
+    })))
+
+  it.effect("replaces the full label of an already selected mention", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:my-docs", label: "My docs", kind: "folder" },
+        { id: "folder:my-files", label: "My files", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @My")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /My docs/ }))
+      expect(box.value).toBe("open @My docs ")
+
+      box.setSelectionRange(7, 7)
+      fireEvent.select(box)
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /My files/ }))
+      expect(box.value).toBe("open @My files ")
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:my-files", start: 5, end: 14 }
+      ])
+    })))
+
+  it.effect("replaces a selected token with its chosen folder", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [{ id: "folder:src", label: "src", kind: "folder" }] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @docs now")
+      box.setSelectionRange(5, 10)
+      fireEvent.select(box)
+
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /src/ }))
+      expect(box.value).toBe("open @src now")
+      yield* Effect.promise(() => waitFor(() => expect(box.selectionStart).toBe(10)))
+      expect(box.selectionEnd).toBe(10)
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:src", start: 5, end: 9 }
+      ])
+    })))
+
+  it.effect("keeps punctuation beside a replaced mention", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @sr, now")
+      box.setSelectionRange(7, 7)
+      fireEvent.select(box)
+
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /src/ }))
+      expect(box.value).toBe("open @src, now")
+      yield* Effect.promise(() => waitFor(() => expect(box.selectionStart).toBe(9)))
+      expect(box.selectionEnd).toBe(9)
+    })))
+
+  it.effect("places the caret after a mention accepted at the end of the draft", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [{ id: "folder:src", label: "src", kind: "folder" }] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @s")
+
+      fireEvent.keyDown(box, { key: "Enter" })
+      expect(box.value).toBe("open @src ")
+      yield* Effect.promise(() => waitFor(() => expect(box.selectionStart).toBe(10)))
+      expect(box.selectionEnd).toBe(10)
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:src", start: 5, end: 9 }
+      ])
     })))
 
   it.effect("keeps mention suggestions open while Enter confirms IME text", () =>

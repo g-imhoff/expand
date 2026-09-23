@@ -24,6 +24,7 @@ import { renderMentionSegments } from "@expand/desktop/renderer/features/chat/co
 import {
   filterMentionItems,
   findActiveMention,
+  findMentionTokenEnd,
   reconcileSelectedMentions,
   resolveMentions,
   type ActiveMention,
@@ -147,7 +148,17 @@ export const PromptInput = ({
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const canSend = draft.trim() !== "" && !isLoading
 
-  const activeMention: ActiveMention | null = findActiveMention(draft, caret)
+  const mentionCaret = Math.max(caret, selectionEnd)
+  const mentionCandidate = findActiveMention(draft, mentionCaret)
+  const activeMention: ActiveMention | null =
+    mentionCandidate !== null && caret >= mentionCandidate.start
+      ? {
+          ...mentionCandidate,
+          query: selectionEnd > caret
+            ? draft.slice(mentionCandidate.start + 1, caret)
+            : mentionCandidate.query
+        }
+      : null
   const mentionItems = activeMention === null || activeMention.kind === "folder" ? folders : skills
   const mentionMatches =
     activeMention === null ? [] : filterMentionItems(mentionItems, activeMention.query)
@@ -209,14 +220,19 @@ export const PromptInput = ({
   const acceptMention = (item: PromptMentionItem, active: ActiveMention) => {
     const marker = active.kind === "folder" ? "@" : "$"
     const token = `${marker}${item.label}`
-    const replacement = `${token} `
-    const next = draft.slice(0, active.start) + replacement + draft.slice(active.caret)
-    const nextCaret = active.start + replacement.length
-    const shift = replacement.length - (active.caret - active.start)
+    const selectedEnd = selectedMentions.find(
+      (mention) => mention.start === active.start && mention.end >= active.caret
+    )?.end ?? active.caret
+    const replacementEnd = Math.max(findMentionTokenEnd(draft, active.caret), selectedEnd)
+    const suffix = draft.slice(replacementEnd)
+    const replacement = `${token}${suffix === "" ? " " : ""}`
+    const next = draft.slice(0, active.start) + replacement + suffix
+    const nextCaret = active.start + replacement.length + (/^\s/.test(suffix) ? 1 : 0)
+    const shift = replacement.length - (replacementEnd - active.start)
     setSelectedMentions((current) => [
       ...current.flatMap((mention) => {
         if (mention.end <= active.start) return [mention]
-        if (mention.start >= active.caret) {
+        if (mention.start >= replacementEnd) {
           return [{ ...mention, start: mention.start + shift, end: mention.end + shift }]
         }
         return []
