@@ -22,7 +22,7 @@ export const DialogContent = ({
     >
       {children}
       {showCloseButton && (
-        <DialogPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:outline-hidden">
+        <DialogPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 outline-none transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2">
           <XIcon className="size-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>
