@@ -2,6 +2,7 @@ export interface PromptMentionItem {
   readonly id: string
   readonly label: string
   readonly description?: string
+  readonly kind?: "file" | "folder"
 }
 
 export interface PromptMention {

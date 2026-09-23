@@ -16,8 +16,9 @@ import {
 import { renderScoped } from "./ui-harness"
 
 const fixtureFolders: ReadonlyArray<PromptMentionItem> = [
-  { id: "src", label: "src", description: "Project sources" },
-  { id: "docs", label: "docs", description: "Documentation" }
+  { id: "src", label: "src", kind: "folder" },
+  { id: "docs", label: "docs", kind: "folder" },
+  { id: "package.json", label: "package.json", kind: "file" }
 ]
 
 const fixtureSkills: ReadonlyArray<PromptMentionItem> = [
@@ -265,6 +266,7 @@ describe("PromptInput", () => {
       expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
       expect(rendered.getByRole("option", { name: /src/ })).not.toBeNull()
       expect(rendered.queryByRole("option", { name: /docs/ })).toBeNull()
+      expect(rendered.getByRole("option", { name: /src/ }).textContent).toContain("Folder")
       fireEvent.keyDown(box, { key: "Enter", shiftKey: false })
       expect(onSend).not.toHaveBeenCalled()
       expect(box.value).toBe("look @src ")
@@ -279,6 +281,16 @@ describe("PromptInput", () => {
       expect(rendered.getByRole("listbox", { name: "Skills" })).not.toBeNull()
       fireEvent.mouseDown(rendered.getByRole("option", { name: /commit/ }))
       expect(box.value).toBe("run $commit ")
+    })))
+
+  it.effect("labels file entries as File in folder suggestions", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @package")
+      const option = rendered.getByRole("option", { name: /package/ })
+      expect(option.textContent).toContain("package.json")
+      expect(option.textContent).toContain("File")
     })))
 
   it.effect("includes typed mentions with offsets in the send payload", () =>

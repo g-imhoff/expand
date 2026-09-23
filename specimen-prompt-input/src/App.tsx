@@ -23,9 +23,10 @@ const fixtureModels: ReadonlyArray<FixtureModels> = [
 ]
 
 const fixtureFolders: ReadonlyArray<PromptMentionItem> = [
-  { id: "src", label: "src", description: "Project sources" },
-  { id: "docs", label: "docs", description: "Documentation" },
-  { id: "tests", label: "tests", description: "Test suites" }
+  { id: "src", label: "src", kind: "folder" },
+  { id: "docs", label: "docs", kind: "folder" },
+  { id: "tests", label: "tests", kind: "folder" },
+  { id: "package.json", label: "package.json", kind: "file" }
 ]
 
 const fixtureSkills: ReadonlyArray<PromptMentionItem> = [

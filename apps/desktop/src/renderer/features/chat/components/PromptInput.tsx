@@ -353,8 +353,14 @@ export const PromptInput = ({
                     </span>
                     {item.label}
                   </span>
-                  {item.description !== undefined && (
-                    <span className="text-muted-foreground text-xs">{item.description}</span>
+                  {activeMention.kind === "folder" ? (
+                    <span className="text-muted-foreground text-xs">
+                      {item.kind === "file" ? "File" : "Folder"}
+                    </span>
+                  ) : (
+                    item.description !== undefined && (
+                      <span className="text-muted-foreground text-xs">{item.description}</span>
+                    )
                   )}
                 </div>
               ))
