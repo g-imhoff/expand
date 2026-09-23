@@ -66,7 +66,7 @@ export const AppSidebar = ({
   onSelectConversation,
   ...props
 }: AppSidebarProps) => {
-  const { setOpen, state, toggleSidebar } = useSidebar()
+  const { isMobile, setOpen, state, toggleSidebar } = useSidebar()
   const { data: projects = [] } = useProjects()
   const [internalDeviceId, setInternalDeviceId] = useState<string | undefined>(devices[0]?.id)
   const [internalConversationId, setInternalConversationId] = useState<string | null>(null)
@@ -80,6 +80,7 @@ export const AppSidebar = ({
   const activeProject = visibleProjects.find((p) => p.id === activeProjectId) ?? null
   const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
   const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
+  const paneIsCollapsed = state === "collapsed" && !isMobile
 
   const selectDevice = (deviceId: string) => {
     if (onSelectDevice) {
@@ -196,7 +197,13 @@ export const AppSidebar = ({
         )}
       </Sidebar>
 
-      <Sidebar collapsible="none" className="min-w-0 flex-1" aria-label="Project and conversations">
+      <Sidebar
+        collapsible="none"
+        className="min-w-0 flex-1"
+        aria-label="Project and conversations"
+        aria-hidden={paneIsCollapsed ? true : undefined}
+        inert={paneIsCollapsed}
+      >
         <SidebarHeader className="gap-3.5 border-b p-4">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
