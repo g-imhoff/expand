@@ -146,6 +146,7 @@ export const PromptInput = ({
   const composingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const previewOpenerRef = useRef<HTMLButtonElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const canSend = draft.trim() !== "" && !isLoading
 
@@ -323,7 +324,10 @@ export const PromptInput = ({
             <li key={image.id} className="relative size-16">
               <button
                 type="button"
-                onClick={() => setPreviewImage(image)}
+                onClick={(event) => {
+                  previewOpenerRef.current = event.currentTarget
+                  setPreviewImage(image)
+                }}
                 aria-label={`Preview ${image.name}`}
                 className="border-border focus-visible:outline-ring block size-16 overflow-hidden rounded-md border outline-none focus-visible:outline-2"
               >
@@ -358,7 +362,16 @@ export const PromptInput = ({
           if (!open) setPreviewImage(null)
         }}
       >
-        <DialogContent className="rounded-xl sm:max-w-xl">
+        <DialogContent
+          className="rounded-xl sm:max-w-xl"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault()
+            const opener = previewOpenerRef.current
+            if (opener?.isConnected && !opener.disabled) opener.focus()
+            else textareaRef.current?.focus()
+            previewOpenerRef.current = null
+          }}
+        >
           <DialogHeader className="min-w-0">
             <DialogTitle className="min-w-0 truncate pr-6">{previewImage?.name ?? "Image preview"}</DialogTitle>
             <DialogDescription>Full-size preview of the attached image.</DialogDescription>

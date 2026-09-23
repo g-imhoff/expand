@@ -584,7 +584,8 @@ describe("PromptInput", () => {
       const picker = rendered.getByLabelText("Add images") as HTMLInputElement
       const file = new File(["fake-bytes"], "shot.png", { type: "image/png" })
       fireEvent.change(picker, { target: { files: [file] } })
-      fireEvent.click(rendered.getByRole("button", { name: "Preview shot.png" }))
+      const thumbnail = rendered.getByRole("button", { name: "Preview shot.png" })
+      fireEvent.click(thumbnail)
       const preview = yield* Effect.promise(() => rendered.findByRole("dialog", { name: "shot.png" }))
       const large = preview.querySelector("img") as HTMLImageElement
       expect(large.getAttribute("src")).toBe("blob:preview")
@@ -594,6 +595,40 @@ describe("PromptInput", () => {
       expect(title.parentElement?.className).toContain("min-w-0")
       fireEvent.click(rendered.getByRole("button", { name: "Close" }))
       expect(rendered.queryByRole("dialog", { name: "shot.png" })).toBeNull()
+      yield* Effect.promise(() => waitFor(() => expect(document.activeElement).toBe(thumbnail)))
+    })))
+
+  it.effect("restores thumbnail focus when Escape closes an image preview", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["fake-bytes"], "shot.png", { type: "image/png" })] }
+      })
+      const thumbnail = rendered.getByRole("button", { name: "Preview shot.png" })
+      fireEvent.click(thumbnail)
+      const dialog = yield* Effect.promise(() => rendered.findByRole("dialog", { name: "shot.png" }))
+
+      fireEvent.keyDown(dialog, { key: "Escape" })
+      yield* Effect.promise(() => waitFor(() => expect(rendered.queryByRole("dialog")).toBeNull()))
+      yield* Effect.promise(() => waitFor(() => expect(document.activeElement).toBe(thumbnail)))
+    })))
+
+  it.effect("focuses the draft when a preview thumbnail is removed", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness showClearImagesControl />)
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["fake-bytes"], "shot.png", { type: "image/png" })] }
+      })
+      const thumbnail = rendered.getByRole("button", { name: "Preview shot.png" })
+      const draft = rendered.getByRole("combobox", { name: "Message" })
+      const clearImages = rendered.getByRole("button", { name: "Clear images externally" })
+      fireEvent.click(thumbnail)
+      yield* Effect.promise(() => rendered.findByRole("dialog", { name: "shot.png" }))
+
+      fireEvent.click(clearImages)
+      yield* Effect.promise(() => waitFor(() => expect(rendered.queryByRole("dialog")).toBeNull()))
+      expect(thumbnail.isConnected).toBe(false)
+      yield* Effect.promise(() => waitFor(() => expect(document.activeElement).toBe(draft)))
     })))
 
   it.effect("disables the composer and announces status while loading", () =>
