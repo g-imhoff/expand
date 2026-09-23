@@ -1,0 +1,4 @@
+@import "../../../apps/desktop/src/renderer/index.css";
+
+@source "../../../apps/desktop/src/renderer/**/*.tsx";
+@source "./**/*.tsx";

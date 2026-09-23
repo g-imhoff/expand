@@ -42,6 +42,13 @@
   Folders/Skills listbox (arrows + Enter/Tab accept, Esc dismisses); accepted
   tokens insert `label + space`. Placeholder now advertises both triggers.
   Send payload gains `mentions[]` (`kind/key/start/end`). 4 new tests (14/14).
+- Iteration v8: repo-gate compliance — knip-clean (dropped unused
+  Portal/Anchor re-exports, option catalogs covered by tests), specimen moved
+  to `examples/prompt-input-specimen/` so the pinned workspace-coverage
+  architecture test passes; composer mounted on the homepage (`ProjectsView`
+  “New conversation” section, local fixture state) so `dev:desktop` shows it.
+  Package versions intentionally untouched (`0.0.0` sentinels enforced by the
+  version-policy test). 16/16 component tests.
 
 ## 1. Objective
 
@@ -133,7 +140,7 @@ token counting, auth, i18n, host-page integration, PR/commit.
 - `apps/desktop/test/ui/prompt-input.test.tsx` — 10 component tests (v1's 7, with the
   model-select test replaced: picker grouping + change, search filter, favorite toggle
   without selection change, image lightbox open/close).
-- `specimen-prompt-input/` — isolated Vite React TS specimen (synthetic SVG data-URL fixtures only),
+- `examples/prompt-input-specimen/` — isolated Vite React TS specimen (synthetic SVG data-URL fixtures only),
   imports the real candidate + real renderer tokens.
 
 ## 8. Gate evidence (exact candidate, v4 2026-09-22 ~19:35 UTC)
@@ -149,7 +156,7 @@ token counting, auth, i18n, host-page integration, PR/commit.
 - Typecheck: `tsc --noEmit -p tsconfig.workspace.json` — PASS, exit 0.
 - Specimen typecheck + `vite build` — PASS (3 files).
 - Tests: 10/10 PASS (incl. lightbox truncation tripwire).
-- Preview: `yodea push --dir ./specimen-prompt-input` → 3 files, 360835 bytes.
+- Preview: `yodea push --dir ./examples/prompt-input-specimen` → 3 files, 368551 bytes, live at `https://dev-guillaume-imhoff-prompt-input-specimen.ui.getyodea.com/`.
   Live bundle re-fetched with session auth: HTTP 200, asset names match local
   dist, served JS contains the `min-w-0` fix + `bg-primary`, served CSS contains
   the green primary tokens. An earlier `Forbidden` streak on push/list was a

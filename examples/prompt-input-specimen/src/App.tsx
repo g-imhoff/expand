@@ -9,6 +9,56 @@ import {
   type ThinkingLevel
 } from "@expand/desktop/renderer/features/chat/components/PromptInput"
 
+export const App = () => {
+  const [dark, setDark] = useState(false)
+  const [sent, setSent] = useState<ReadonlyArray<PromptSubmitPayload>>([])
+  if (dark) document.documentElement.classList.add("dark")
+  else document.documentElement.classList.remove("dark")
+  return (
+    <div className="bg-background text-foreground mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-8 px-4 py-8">
+      <header className="flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-lg font-semibold">PromptInput specimen</h1>
+          <p className="text-muted-foreground text-sm">
+            Synthetic fixtures only. Enter sends, Shift+Enter adds a newline. Viewport width:{" "}
+            {typeof window === "undefined" ? "?" : window.innerWidth}px.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setDark(!dark)}
+          className="border-border focus-visible:outline-ring rounded-md border px-3 py-1.5 text-sm outline-none focus-visible:outline-2"
+        >
+          {dark ? "Light theme" : "Dark theme"}
+        </button>
+      </header>
+      <section aria-labelledby="spec-live" className="flex flex-col gap-2">
+        <h2 id="spec-live" className="text-sm font-medium">
+          Live composer (prefilled images, send log)
+        </h2>
+        <LiveComposer onSent={(payload) => setSent([...sent, payload])} />
+        <div aria-live="polite" className="text-muted-foreground text-xs">
+          {sent.length === 0
+            ? "No messages sent yet."
+            : `Sent ${sent.length}: “${sent[sent.length - 1]?.text}” with model ${sent[sent.length - 1]?.modelId} and ${sent[sent.length - 1]?.images.length} image(s).`}
+        </div>
+      </section>
+      <section aria-labelledby="spec-empty" className="flex flex-col gap-2">
+        <h2 id="spec-empty" className="text-sm font-medium">
+          Empty state (send disabled)
+        </h2>
+        <EmptyComposer />
+      </section>
+      <section aria-labelledby="spec-loading" className="flex flex-col gap-2">
+        <h2 id="spec-loading" className="text-sm font-medium">
+          Loading state (composer disabled)
+        </h2>
+        <LoadingComposer />
+      </section>
+    </div>
+  )
+}
+
 interface FixtureModels {
   readonly id: string
   readonly label: string
@@ -133,52 +183,3 @@ const EmptyComposer = () => {
   )
 }
 
-export const App = () => {
-  const [dark, setDark] = useState(false)
-  const [sent, setSent] = useState<ReadonlyArray<PromptSubmitPayload>>([])
-  if (dark) document.documentElement.classList.add("dark")
-  else document.documentElement.classList.remove("dark")
-  return (
-    <div className="bg-background text-foreground mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-8 px-4 py-8">
-      <header className="flex flex-wrap items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-lg font-semibold">PromptInput specimen</h1>
-          <p className="text-muted-foreground text-sm">
-            Synthetic fixtures only. Enter sends, Shift+Enter adds a newline. Viewport width:{" "}
-            {typeof window === "undefined" ? "?" : window.innerWidth}px.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setDark(!dark)}
-          className="border-border focus-visible:outline-ring rounded-md border px-3 py-1.5 text-sm outline-none focus-visible:outline-2"
-        >
-          {dark ? "Light theme" : "Dark theme"}
-        </button>
-      </header>
-      <section aria-labelledby="spec-live" className="flex flex-col gap-2">
-        <h2 id="spec-live" className="text-sm font-medium">
-          Live composer (prefilled images, send log)
-        </h2>
-        <LiveComposer onSent={(payload) => setSent([...sent, payload])} />
-        <div aria-live="polite" className="text-muted-foreground text-xs">
-          {sent.length === 0
-            ? "No messages sent yet."
-            : `Sent ${sent.length}: “${sent[sent.length - 1]?.text}” with model ${sent[sent.length - 1]?.modelId} and ${sent[sent.length - 1]?.images.length} image(s).`}
-        </div>
-      </section>
-      <section aria-labelledby="spec-empty" className="flex flex-col gap-2">
-        <h2 id="spec-empty" className="text-sm font-medium">
-          Empty state (send disabled)
-        </h2>
-        <EmptyComposer />
-      </section>
-      <section aria-labelledby="spec-loading" className="flex flex-col gap-2">
-        <h2 id="spec-loading" className="text-sm font-medium">
-          Loading state (composer disabled)
-        </h2>
-        <LoadingComposer />
-      </section>
-    </div>
-  )
-}
