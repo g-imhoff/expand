@@ -1,7 +1,7 @@
 # PromptInput design brief
 
 Status: implemented as a desktop renderer design candidate.
-Code pin: `2fe10ce4deca15a818a1f52cab8ca36f08b9cf42`.
+Code pin: `37acfd2360df3d7ac1d7a83daec5d4ee6179072c`.
 
 ## Purpose and scope
 
@@ -81,8 +81,10 @@ hook with every attachment it retains, including images in saved send payloads.
 A generated URL remains valid while any owner retains it. It also stays valid
 when ownership moves between components during the same UI update. The hook
 revokes it after the last owner releases it and leaves other URLs alone. The
-composer releases newly generated URLs if `onImagesChange` throws, or on
-unmount if the parent never accepted them. A remove button requests a change
+composer releases newly generated URLs if `onImagesChange` throws. If the
+callback returns without placing them in `images` or another owner, the
+composer releases those unowned URLs while it remains mounted. It releases
+still unowned pending URLs on unmount. A remove button requests a change
 through `onImagesChange`. Each attachment has a thumbnail, a remove control,
 and a dialog preview.
 
@@ -132,8 +134,9 @@ instance gives its textarea a unique ID linked to its persistent accessible
 label. The textarea reports its open mention list as a combobox with an active
 option. Image controls include filenames in their accessible names, and a live
 status announces sending. The dialog close button shows an outline when
-keyboard focused. The picker and menus use their shared keyboard and focus
-behavior.
+keyboard focused. Closing the image preview returns focus to its thumbnail if
+the thumbnail is still present, or to the draft if it was removed. The picker
+and menus use their shared keyboard and focus behavior.
 
 ## Implementation and examples
 
@@ -155,10 +158,10 @@ behavior.
 
 ## Verification
 
-These are full SHA-256 content hashes for the files at code pin `2fe10ce4deca15a818a1f52cab8ca36f08b9cf42`:
+These are full SHA-256 content hashes for the files at code pin `37acfd2360df3d7ac1d7a83daec5d4ee6179072c`:
 
 ```text
-f051a6a1f93141533d41dc9755f3fd1c7da1f861cddccef0ba616b4b8257b254  apps/desktop/src/renderer/features/chat/components/PromptInput.tsx
+b2b6527919f3b78720b3c70550dd891a1f66ccf062b0f6f184191becc3b96f2e  apps/desktop/src/renderer/features/chat/components/PromptInput.tsx
 f9001e68f0b9ced09bf4eedffdd86998db9bf5cb0e168231da58c85d83fe468f  apps/desktop/src/renderer/features/chat/components/ModelPicker.tsx
 8976e8509f5458b29c49d001739d24d341492a80f46ccfe3f9b4b184a3101b48  apps/desktop/src/renderer/features/chat/components/provider-logos.tsx
 2f7eac093d8064e1cabfae4c0817bed5e43846e84cbf695bbe7565bfc096cf55  apps/desktop/src/renderer/features/chat/components/prompt-mentions.ts
@@ -166,7 +169,7 @@ f9001e68f0b9ced09bf4eedffdd86998db9bf5cb0e168231da58c85d83fe468f  apps/desktop/s
 3535c92a20c989c48da7e150deeea5becc50145af57b434ffcd24d6117e6f33d  apps/desktop/src/renderer/features/chat/components/prompt-image-urls.ts
 ca623a6ec31d02908d10c21a04b7ff67fa385593270bbd602c853038123c89ad  apps/desktop/src/renderer/features/projects/pages/ProjectsView.tsx
 a7310ecf28955a8596c565dcbf31a7849cc25733d9ac727d021bcbeb6ed5c088  apps/desktop/src/renderer/components/ui/dialog.tsx
-b477c91f952eb8dec508eb3326e932b1ae254686a66080a1efb1db03f18c67e5  apps/desktop/test/ui/prompt-input.test.tsx
+ba1c3aeb637d999b2b8d6456d05a91b2255b030a0b72f3722b5ff2bc4682e904  apps/desktop/test/ui/prompt-input.test.tsx
 31931e24d5d9f830056e1b6749e066c1f15e4380eddc9e573179c22791a94482  apps/desktop/test/ui/prompt-mentions.test.tsx
 779141ffa17804d8ac915c12575a674fc1efe4146c735f07360c80b66bf53e04  examples/prompt-input-specimen/src/App.tsx
 ```
@@ -174,13 +177,13 @@ b477c91f952eb8dec508eb3326e932b1ae254686a66080a1efb1db03f18c67e5  apps/desktop/t
 The checks below ran against that pin in the documentation worktree:
 
 - `npm test -- apps/desktop/test/ui/prompt-input.test.tsx apps/desktop/test/ui/prompt-mentions.test.tsx`:
-  51 tests passed across 2 files.
+  54 tests passed across 2 files.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
 - `npm run knip`: passed.
 - `tsc --noEmit -p examples/prompt-input-specimen/tsconfig.json`: passed.
 - `vite build examples/prompt-input-specimen --config examples/prompt-input-specimen/vite.config.ts`:
-  passed. The local build has 3 files and 372287 bytes.
+  passed. The local build has 3 files and 372688 bytes.
 
 `design/prompt-input-hosted-preview.json` records the earlier hosted bundle and
 the local build separately. The hosted bundle has not been redeployed or
