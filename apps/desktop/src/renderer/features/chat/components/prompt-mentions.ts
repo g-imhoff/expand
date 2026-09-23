@@ -133,7 +133,7 @@ export const filterMentionItems = (
   return items.filter((item) => item.label.toLowerCase().includes(needle))
 }
 
-export const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
+const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
   const mentions: Array<PromptMention> = []
   for (const match of text.matchAll(mentionPattern)) {
     const prefix = match[1] ?? ""

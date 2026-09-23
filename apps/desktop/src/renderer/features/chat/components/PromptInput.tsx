@@ -359,7 +359,7 @@ export const PromptInput = ({
           ref={backdropRef}
           className="text-foreground pointer-events-none absolute inset-0 overflow-hidden px-3 py-2.5 text-sm break-words whitespace-pre-wrap"
         >
-          {renderMentionSegments(draft)}
+          {renderMentionSegments(draft, selectedMentions)}
         </div>
         <textarea
           id="prompt-input-textarea"

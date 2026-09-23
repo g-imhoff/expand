@@ -72,4 +72,44 @@ describe("prompt mentions", () => {
     ).toEqual([])
     expect(resolveMentions("open x@src", [{ ...selected, start: 6, end: 10 }])).toEqual([])
   })
+
+  it("highlights a selected numeric skill while leaving ordinary currency plain", () => {
+    const text = "pay $100 with $100"
+    const selected: SelectedPromptMention = {
+      kind: "skill",
+      key: "skill:100",
+      start: 14,
+      end: 18,
+      token: "$100"
+    }
+    expect(resolveMentions(text, [selected])).toEqual([
+      { kind: "skill", key: "skill:100", start: 14, end: 18 }
+    ])
+
+    const markup = renderToStaticMarkup(renderMentionSegments(text, [selected]))
+    expect(markup).toContain("pay $100 with ")
+    expect(markup.match(/data-mention="skill"/g)).toHaveLength(1)
+    expect(markup).toMatch(/data-mention="skill"[^>]*>\$100<\/span>/)
+    expect(markup.replace(/<[^>]*>/g, "")).toBe(text)
+  })
+
+  it("highlights the full selected label and leaves email plain", () => {
+    const text = "alice@example.com opens @My docs"
+    const selected: SelectedPromptMention = {
+      kind: "folder",
+      key: "folder:my-docs",
+      start: 24,
+      end: 32,
+      token: "@My docs"
+    }
+    expect(resolveMentions(text, [selected])).toEqual([
+      { kind: "folder", key: "folder:my-docs", start: 24, end: 32 }
+    ])
+
+    const markup = renderToStaticMarkup(renderMentionSegments(text, [selected]))
+    expect(markup).toContain("alice@example.com opens ")
+    expect(markup.match(/data-mention="folder"/g)).toHaveLength(1)
+    expect(markup).toMatch(/data-mention="folder"[^>]*>@My docs<\/span>/)
+    expect(markup.replace(/<[^>]*>/g, "")).toBe(text)
+  })
 })
