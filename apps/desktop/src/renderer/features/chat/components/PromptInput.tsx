@@ -140,6 +140,7 @@ export const PromptInput = ({
   const mentionListboxId = useId()
   const nextImageId = useRef(0)
   const ownedImageUrls = useRef(new Map<string, { url: string; observed: boolean }>())
+  const composingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
@@ -237,6 +238,9 @@ export const PromptInput = ({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (composingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+      return
+    }
     if (mentionOpen) {
       if (event.key === "Escape") {
         event.preventDefault()
@@ -366,6 +370,12 @@ export const PromptInput = ({
           aria-controls={mentionOpen ? mentionListboxId : undefined}
           aria-activedescendant={activeMentionOptionId}
           value={draft}
+          onCompositionStart={() => {
+            composingRef.current = true
+          }}
+          onCompositionEnd={() => {
+            composingRef.current = false
+          }}
           onChange={(event) => {
             const nextDraft = event.target.value
             const nextCaret = event.target.selectionStart ?? nextDraft.length

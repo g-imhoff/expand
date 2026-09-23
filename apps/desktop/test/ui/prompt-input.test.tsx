@@ -164,6 +164,29 @@ describe("PromptInput", () => {
       expect(onSend).not.toHaveBeenCalled()
     })))
 
+  it.effect("keeps the draft while Enter confirms IME text", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const { getByLabelText } = yield* renderScoped(<ComposerHarness onSend={onSend} />)
+      const box = getByLabelText("Message") as HTMLTextAreaElement
+      fireEvent.change(box, { target: { value: "hello" } })
+
+      fireEvent.compositionStart(box)
+      fireEvent.keyDown(box, { key: "Enter", isComposing: false })
+      expect(onSend).not.toHaveBeenCalled()
+      expect(box.value).toBe("hello")
+
+      fireEvent.compositionEnd(box)
+      fireEvent.keyDown(box, { key: "Enter", keyCode: 229 })
+      fireEvent.keyDown(box, { key: "Enter", isComposing: true })
+      expect(onSend).not.toHaveBeenCalled()
+      expect(box.value).toBe("hello")
+
+      fireEvent.keyDown(box, { key: "Enter" })
+      expect(onSend).toHaveBeenCalledTimes(1)
+      expect(box.value).toBe("")
+    })))
+
   it.effect("keeps Send disabled for blank input", () =>
     Effect.scoped(Effect.gen(function* () {
       const onSend = vi.fn()
@@ -436,6 +459,26 @@ describe("PromptInput", () => {
       expect(onSend).not.toHaveBeenCalled()
       expect(box.value).toBe("look @src ")
       expect(rendered.queryByRole("listbox")).toBeNull()
+    })))
+
+  it.effect("keeps mention suggestions open while Enter confirms IME text", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const rendered = yield* renderScoped(<ComposerHarness onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "look @sr")
+
+      fireEvent.compositionStart(box)
+      fireEvent.keyDown(box, { key: "Enter", isComposing: false })
+      expect(onSend).not.toHaveBeenCalled()
+      expect(box.value).toBe("look @sr")
+      expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
+
+      fireEvent.compositionEnd(box)
+      fireEvent.keyDown(box, { key: "Enter" })
+      expect(box.value).toBe("look @src ")
+      expect(rendered.queryByRole("listbox")).toBeNull()
+      expect(onSend).not.toHaveBeenCalled()
     })))
 
   it.effect("reports mention suggestions and arrow selection from the focused textarea", () =>
