@@ -113,7 +113,8 @@ export const ModelPicker = ({
                   return (
                     <CommandItem
                       key={model.id}
-                      value={`${model.label} ${model.provider} ${model.description ?? ""}`}
+                      value={model.id}
+                      keywords={[model.label, model.provider, model.description ?? ""]}
                       {...(model.disabled === true ? { disabled: true } : null)}
                       onSelect={() => choose(model.id)}
                     >

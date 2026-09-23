@@ -12,6 +12,7 @@ import {
   type PermissionMode,
   type PromptImageAttachment,
   type PromptMentionItem,
+  type PromptModelOption,
   type PromptSubmitPayload,
   type SandboxMode,
   type ThinkingLevel
@@ -42,6 +43,7 @@ interface HarnessProps {
   readonly onFavoritesChange?: (modelIds: ReadonlyArray<string>) => void
   readonly onPermissionChange?: (mode: PermissionMode) => void
   readonly onThinkingChange?: (level: ThinkingLevel) => void
+  readonly modelOptions?: ReadonlyArray<PromptModelOption>
   readonly folders?: ReadonlyArray<PromptMentionItem>
   readonly skills?: ReadonlyArray<PromptMentionItem>
   readonly isLoading?: boolean
@@ -54,6 +56,7 @@ const ComposerHarness = ({
   onFavoritesChange,
   onPermissionChange,
   onThinkingChange,
+  modelOptions = models,
   folders = [...fixtureFolders],
   skills = [...fixtureSkills],
   isLoading = false
@@ -66,7 +69,7 @@ const ComposerHarness = ({
   const [thinking, setThinking] = useState<ThinkingLevel>("low")
   return (
     <PromptInput
-      models={[...models]}
+      models={modelOptions}
       selectedModelId={selectedModelId}
       onModelChange={(modelId) => {
         setSelectedModelId(modelId)
@@ -187,6 +190,33 @@ describe("PromptInput", () => {
       fireEvent.change(search, { target: { value: "beacon" } })
       expect(screen.queryByRole("option", { name: /Atlas Mini/ })).toBeNull()
       expect(screen.getByRole("option", { name: /Beacon/ })).not.toBeNull()
+      fireEvent.change(search, { target: { value: "OpenAI" } })
+      expect(screen.queryByRole("option", { name: /Atlas Mini/ })).toBeNull()
+      expect(screen.getByRole("option", { name: /Beacon/ })).not.toBeNull()
+    })))
+
+  it.effect("selects the second model with duplicate display fields using the keyboard", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onModelChange = vi.fn()
+      yield* renderScoped(
+        <ComposerHarness
+          onModelChange={onModelChange}
+          modelOptions={[
+            { id: "atlas", label: "Atlas", provider: "Anthropic", description: "Shared context" },
+            { id: "atlas-v2", label: "Atlas", provider: "Anthropic", description: "Shared context" }
+          ]}
+        />
+      )
+      const search = openModelPicker()
+      fireEvent.change(search, { target: { value: "Shared context" } })
+      const options = screen.getAllByRole("option")
+      expect(options).toHaveLength(2)
+      expect(options[0]?.getAttribute("data-selected")).toBe("true")
+      fireEvent.keyDown(search, { key: "ArrowDown", code: "ArrowDown" })
+      expect(options[0]?.getAttribute("data-selected")).toBe("false")
+      expect(options[1]?.getAttribute("data-selected")).toBe("true")
+      fireEvent.keyDown(search, { key: "Enter", code: "Enter" })
+      expect(onModelChange).toHaveBeenCalledWith("atlas-v2")
     })))
 
   it.effect("toggles model favorites without changing the selection", () =>
