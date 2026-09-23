@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react"
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
 import { ArrowUpIcon, PlusIcon, XIcon } from "lucide-react"
 import { cn } from "@expand/desktop/renderer/components/ui/class-names"
 import {
@@ -133,6 +133,7 @@ export const PromptInput = ({
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionClosed, setMentionClosed] = useState(false)
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
+  const mentionListboxId = useId()
   const nextImageId = useRef(0)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -144,6 +145,10 @@ export const PromptInput = ({
   const mentionMatches =
     activeMention === null ? [] : filterMentionItems(mentionItems, activeMention.query)
   const mentionOpen = activeMention !== null && !mentionClosed && !isLoading
+  const activeMentionIndex =
+    mentionOpen && mentionMatches.length > 0 ? Math.min(mentionIndex, mentionMatches.length - 1) : null
+  const activeMentionOptionId =
+    activeMentionIndex === null ? undefined : `${mentionListboxId}-option-${activeMentionIndex}`
 
   useEffect(() => {
     setMentionIndex(0)
@@ -197,7 +202,7 @@ export const PromptInput = ({
         }
         if ((event.key === "Enter" || event.key === "Tab") && activeMention !== null) {
           event.preventDefault()
-          const item = mentionMatches[mentionIndex] ?? mentionMatches[0]
+          const item = mentionMatches[activeMentionIndex ?? 0]
           if (item !== undefined) acceptMention(item, activeMention)
           return
         }
@@ -303,6 +308,11 @@ export const PromptInput = ({
         <textarea
           id="prompt-input-textarea"
           ref={textareaRef}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={mentionOpen}
+          aria-controls={mentionOpen ? mentionListboxId : undefined}
+          aria-activedescendant={activeMentionOptionId}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value)
@@ -328,6 +338,7 @@ export const PromptInput = ({
         />
         {mentionOpen && activeMention !== null && (
           <div
+            id={mentionListboxId}
             role="listbox"
             aria-label={activeMention.kind === "folder" ? "Folders" : "Skills"}
             className="bg-popover border-border absolute bottom-full left-3 z-10 mb-1 max-h-56 w-64 overflow-auto rounded-md border p-1 shadow-md"
@@ -340,8 +351,9 @@ export const PromptInput = ({
               mentionMatches.map((item, index) => (
                 <div
                   key={item.id}
+                  id={`${mentionListboxId}-option-${index}`}
                   role="option"
-                  aria-selected={index === mentionIndex}
+                  aria-selected={index === activeMentionIndex}
                   onMouseDown={(event) => {
                     event.preventDefault()
                     acceptMention(item, activeMention)

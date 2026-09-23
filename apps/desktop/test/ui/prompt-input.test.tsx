@@ -362,6 +362,54 @@ describe("PromptInput", () => {
       expect(rendered.queryByRole("listbox")).toBeNull()
     })))
 
+  it.effect("reports mention suggestions and arrow selection from the focused textarea", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement
+      box.focus()
+      expect(box.getAttribute("aria-autocomplete")).toBe("list")
+      expect(box.getAttribute("aria-expanded")).toBe("false")
+      expect(box.hasAttribute("aria-controls")).toBe(false)
+      expect(box.hasAttribute("aria-activedescendant")).toBe(false)
+
+      typeDraft(box, "open @")
+      const listbox = rendered.getByRole("listbox", { name: "Folders" })
+      const first = rendered.getByRole("option", { name: /src/ })
+      const second = rendered.getByRole("option", { name: /docs/ })
+      expect(box.getAttribute("aria-expanded")).toBe("true")
+      expect(box.getAttribute("aria-controls")).toBe(listbox.id)
+      expect(box.getAttribute("aria-activedescendant")).toBe(first.id)
+      expect(first.getAttribute("aria-selected")).toBe("true")
+
+      fireEvent.keyDown(box, { key: "ArrowDown" })
+      expect(box.getAttribute("aria-activedescendant")).toBe(second.id)
+      expect(first.getAttribute("aria-selected")).toBe("false")
+      expect(second.getAttribute("aria-selected")).toBe("true")
+      expect(document.activeElement).toBe(box)
+
+      fireEvent.keyDown(box, { key: "ArrowUp" })
+      expect(box.getAttribute("aria-activedescendant")).toBe(first.id)
+
+      fireEvent.keyDown(box, { key: "Escape" })
+      expect(rendered.queryByRole("listbox")).toBeNull()
+      expect(box.getAttribute("aria-expanded")).toBe("false")
+      expect(box.hasAttribute("aria-controls")).toBe(false)
+      expect(box.hasAttribute("aria-activedescendant")).toBe(false)
+      expect(document.activeElement).toBe(box)
+    })))
+
+  it.effect("does not report an active option when no mention matches", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement
+      typeDraft(box, "open @nothing")
+      const listbox = rendered.getByRole("listbox", { name: "Folders" })
+      expect(box.getAttribute("aria-expanded")).toBe("true")
+      expect(box.getAttribute("aria-controls")).toBe(listbox.id)
+      expect(box.hasAttribute("aria-activedescendant")).toBe(false)
+      expect(rendered.queryByRole("option")).toBeNull()
+    })))
+
   it.effect("suggests skills after $ and inserts the choice on click", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)
