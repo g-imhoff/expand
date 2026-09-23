@@ -12,7 +12,7 @@ export const renderMentionSegments = (text: string): ReactNode => (
             key={index}
             data-mention={marker === "@" ? "folder" : "skill"}
             className={cn(
-              "rounded px-0.5 font-medium break-all",
+              "rounded",
               marker === "@"
                 ? "bg-sky-500/15 text-sky-700 dark:text-sky-300"
                 : "bg-violet-500/15 text-violet-700 dark:text-violet-300"
