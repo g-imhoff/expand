@@ -139,6 +139,26 @@ describe("PromptInput", () => {
     vi.restoreAllMocks()
   })
 
+  it.effect("connects each composer label to its own textarea", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<>
+        <ComposerHarness />
+        <ComposerHarness />
+        <ComposerHarness />
+      </>)
+      const labels = rendered.getAllByText("Message", { selector: "label" }) as HTMLLabelElement[]
+      const textareas = [...rendered.container.querySelectorAll("textarea")]
+
+      expect(labels).toHaveLength(3)
+      expect(textareas).toHaveLength(3)
+      expect(new Set(textareas.map((textarea) => textarea.id)).size).toBe(3)
+      for (const [index, label] of labels.entries()) {
+        expect(label.control).toBe(textareas[index])
+        label.control?.focus()
+        expect(document.activeElement).toBe(textareas[index])
+      }
+    })))
+
   it.effect("sends trimmed text on Enter and clears the draft", () =>
     Effect.scoped(Effect.gen(function* () {
       const onSend = vi.fn()

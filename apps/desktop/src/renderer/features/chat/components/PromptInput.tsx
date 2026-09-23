@@ -138,6 +138,7 @@ export const PromptInput = ({
   const [mentionClosed, setMentionClosed] = useState(false)
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
   const mentionListboxId = useId()
+  const textareaId = `${mentionListboxId}-textarea`
   const nextImageId = useRef(0)
   const ownedImageUrls = useRef(new Map<string, { url: string; observed: boolean }>())
   const composingRef = useRef(false)
@@ -350,7 +351,7 @@ export const PromptInput = ({
           )}
         </DialogContent>
       </Dialog>
-      <label htmlFor="prompt-input-textarea" className="sr-only">
+      <label htmlFor={textareaId} className="sr-only">
         Message
       </label>
       <div className="relative">
@@ -362,7 +363,7 @@ export const PromptInput = ({
           {renderMentionSegments(draft, selectedMentions)}
         </div>
         <textarea
-          id="prompt-input-textarea"
+          id={textareaId}
           ref={textareaRef}
           role="combobox"
           aria-autocomplete="list"
