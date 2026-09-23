@@ -1,7 +1,7 @@
 # PromptInput design brief
 
 Status: implemented as a desktop renderer design candidate.
-Code pin: `37acfd2360df3d7ac1d7a83daec5d4ee6179072c`.
+Code pin: `77bb5aa6a09554d2786da2331da46aaa0cfa3431`.
 
 ## Purpose and scope
 
@@ -97,11 +97,13 @@ suggestion.
 
 `@` opens suggestions from `folders`, which can include entries marked as files.
 `$` opens suggestions from `skills`. The list filters by label without case
-sensitivity. Arrow keys move through results. Enter or Tab accepts a suggestion
-and replaces the whole mention token, even when the caret is inside it or its
-text is selected. A new choice also replaces the full label of an accepted
-mention. It preserves adjacent punctuation and adds a space when the token
-ends the draft. Escape dismisses the list. The textarea renders folder
+sensitivity. Arrow keys move through results. Enter or Tab without Shift
+accepts a suggestion and replaces the whole mention token, even when the caret
+is inside it or its text is selected. Shift+Enter keeps newline insertion
+available, and Shift+Tab can move focus backward. Neither accepts a suggestion.
+A new choice also replaces the full label of an accepted mention. It preserves
+adjacent punctuation and adds a space when the token ends the draft. Escape
+dismisses the list. The textarea renders folder
 and skill tokens with distinct colors through a synchronized backdrop. The send
 payload identifies each token as `folder` or `skill`. A suggestion selected
 from the list keeps its item ID as `key`, even when labels repeat or contain
@@ -158,10 +160,10 @@ and menus use their shared keyboard and focus behavior.
 
 ## Verification
 
-These are full SHA-256 content hashes for the files at code pin `37acfd2360df3d7ac1d7a83daec5d4ee6179072c`:
+These are full SHA-256 content hashes for the files at code pin `77bb5aa6a09554d2786da2331da46aaa0cfa3431`:
 
 ```text
-b2b6527919f3b78720b3c70550dd891a1f66ccf062b0f6f184191becc3b96f2e  apps/desktop/src/renderer/features/chat/components/PromptInput.tsx
+23352bc91d5bbe25bacd19562a496e1a34ece315dc6d2d3585488c8b5bef3d32  apps/desktop/src/renderer/features/chat/components/PromptInput.tsx
 f9001e68f0b9ced09bf4eedffdd86998db9bf5cb0e168231da58c85d83fe468f  apps/desktop/src/renderer/features/chat/components/ModelPicker.tsx
 8976e8509f5458b29c49d001739d24d341492a80f46ccfe3f9b4b184a3101b48  apps/desktop/src/renderer/features/chat/components/provider-logos.tsx
 2f7eac093d8064e1cabfae4c0817bed5e43846e84cbf695bbe7565bfc096cf55  apps/desktop/src/renderer/features/chat/components/prompt-mentions.ts
@@ -169,7 +171,7 @@ f9001e68f0b9ced09bf4eedffdd86998db9bf5cb0e168231da58c85d83fe468f  apps/desktop/s
 3535c92a20c989c48da7e150deeea5becc50145af57b434ffcd24d6117e6f33d  apps/desktop/src/renderer/features/chat/components/prompt-image-urls.ts
 ca623a6ec31d02908d10c21a04b7ff67fa385593270bbd602c853038123c89ad  apps/desktop/src/renderer/features/projects/pages/ProjectsView.tsx
 a7310ecf28955a8596c565dcbf31a7849cc25733d9ac727d021bcbeb6ed5c088  apps/desktop/src/renderer/components/ui/dialog.tsx
-ba1c3aeb637d999b2b8d6456d05a91b2255b030a0b72f3722b5ff2bc4682e904  apps/desktop/test/ui/prompt-input.test.tsx
+7c5267e6fbbb9b00cd51f97b80e5be0f7b71cd0e92eb4d7253f09cf3e6ac28ad  apps/desktop/test/ui/prompt-input.test.tsx
 31931e24d5d9f830056e1b6749e066c1f15e4380eddc9e573179c22791a94482  apps/desktop/test/ui/prompt-mentions.test.tsx
 779141ffa17804d8ac915c12575a674fc1efe4146c735f07360c80b66bf53e04  examples/prompt-input-specimen/src/App.tsx
 ```
@@ -177,13 +179,13 @@ ba1c3aeb637d999b2b8d6456d05a91b2255b030a0b72f3722b5ff2bc4682e904  apps/desktop/t
 The checks below ran against that pin in the documentation worktree:
 
 - `npm test -- apps/desktop/test/ui/prompt-input.test.tsx apps/desktop/test/ui/prompt-mentions.test.tsx`:
-  54 tests passed across 2 files.
+  57 tests passed across 2 files.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
 - `npm run knip`: passed.
 - `tsc --noEmit -p examples/prompt-input-specimen/tsconfig.json`: passed.
 - `vite build examples/prompt-input-specimen --config examples/prompt-input-specimen/vite.config.ts`:
-  passed. The local build has 3 files and 372688 bytes.
+  passed. The local build has 3 files and 372702 bytes.
 
 `design/prompt-input-hosted-preview.json` records the earlier hosted bundle and
 the local build separately. The hosted bundle has not been redeployed or
