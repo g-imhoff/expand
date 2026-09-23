@@ -1,7 +1,6 @@
 import { Fragment, type ReactNode } from "react"
 import { cn } from "@expand/desktop/renderer/components/ui/class-names"
 
-/** Mirrors composer text with `@folder` / `$skill` tokens wrapped in distinct pills. Whitespace (incl. newlines) passes through untouched. */
 export const renderMentionSegments = (text: string): ReactNode => (
   <>
     {text.split(segmentPattern).map((part, index) => {

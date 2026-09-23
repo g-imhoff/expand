@@ -25,9 +25,7 @@ export interface PromptTextEdit {
 export interface ActiveMention {
   readonly kind: PromptMentionKind
   readonly query: string
-  /** Offset of the `@` / `$` trigger character in the draft. */
   readonly start: number
-  /** Caret offset the trigger was detected from. */
   readonly caret: number
 }
 
@@ -111,7 +109,6 @@ export const resolveMentions = (
   ].sort((left, right) => left.start - right.start)
 }
 
-/** The mention token under the caret, if the caret sits right behind `@query` / `$query`. */
 export const findActiveMention = (text: string, caret: number): ActiveMention | null => {
   const match = triggerPattern.exec(text.slice(0, caret))
   if (match === null) return null
