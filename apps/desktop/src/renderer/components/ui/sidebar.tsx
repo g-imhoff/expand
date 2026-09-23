@@ -23,6 +23,7 @@ export interface SidebarContextProps {
   readonly setOpen: (open: boolean) => void
   readonly openMobile: boolean
   readonly setOpenMobile: (open: boolean) => void
+  readonly mobileTriggerRef: React.RefObject<HTMLButtonElement | null>
   readonly isMobile: boolean
   readonly toggleSidebar: () => void
 }
@@ -55,6 +56,7 @@ export const SidebarProvider = ({
 }) => {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const mobileTriggerRef = React.useRef<HTMLButtonElement>(null)
 
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
@@ -101,6 +103,7 @@ export const SidebarProvider = ({
       isMobile,
       openMobile,
       setOpenMobile,
+      mobileTriggerRef,
       toggleSidebar
     }),
     [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
@@ -143,7 +146,7 @@ export const Sidebar = ({
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
 }) => {
-  const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+  const { isMobile, state, openMobile, setOpenMobile, mobileTriggerRef } = useSidebar()
 
   if (collapsible === "none") {
     return (
@@ -164,6 +167,13 @@ export const Sidebar = ({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          onCloseAutoFocus={(event) => {
+            const trigger = mobileTriggerRef.current
+            if (trigger?.isConnected) {
+              event.preventDefault()
+              trigger.focus()
+            }
+          }}
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"

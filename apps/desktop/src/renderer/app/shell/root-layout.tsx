@@ -16,7 +16,7 @@ export const RootLayout = () => {
 
 const RootLayoutContent = () => {
   const navigate = useNavigate()
-  const { openMobile, setOpenMobile } = useSidebar()
+  const { openMobile, setOpenMobile, mobileTriggerRef } = useSidebar()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const activeProjectId = pathname.startsWith("/p/") ? decodeURIComponent(pathname.slice(3).split("/")[0] ?? "") : null
   const [activeDeviceId, setActiveDeviceId] = useState<string | undefined>(defaultSidebarDevices[0]?.id)
@@ -53,6 +53,7 @@ const RootLayoutContent = () => {
       <SidebarInset>
         <div className="flex items-center border-b px-3 py-2 md:hidden">
           <button
+            ref={mobileTriggerRef}
             type="button"
             aria-label="Open sidebar"
             aria-expanded={openMobile}

@@ -72,6 +72,7 @@ describe("mobile app shell", () => {
         expect(trigger.getAttribute("aria-expanded")).toBe("false")
         expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
         expect(screen.getByRole("heading", { name: "Sidebar three-zone shape" })).toBeDefined()
+        expect(document.activeElement).toBe(trigger)
       }))
 
       fireEvent.click(trigger)
@@ -85,6 +86,7 @@ describe("mobile app shell", () => {
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(trigger.getAttribute("aria-expanded")).toBe("false")
         expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(document.activeElement).toBe(trigger)
       }))
 
       fireEvent.click(trigger)
@@ -94,6 +96,23 @@ describe("mobile app shell", () => {
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(trigger.getAttribute("aria-expanded")).toBe("false")
         expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(document.activeElement).toBe(trigger)
+      }))
+    })))
+
+  it.effect("returns focus to the opener after Escape closes the sidebar", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderMobileShell()
+      const trigger = yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Open sidebar" }))
+      trigger.focus()
+      fireEvent.click(trigger)
+      const sheet = yield* Effect.tryPromise(() => screen.findByRole("dialog", { name: "Sidebar" }))
+      expect(sheet.contains(document.activeElement)).toBe(true)
+
+      fireEvent.keyDown(document.activeElement ?? sheet, { key: "Escape" })
+      yield* Effect.tryPromise(() => waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(document.activeElement).toBe(trigger)
       }))
     })))
 })
