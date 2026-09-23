@@ -76,6 +76,22 @@ describe("AppSidebar", () => {
       expect(onSelectProject).toHaveBeenCalledWith(uid(2))
     })))
 
+  it.effect("names an active archived project without listing it in the switcher", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSelectProject = vi.fn()
+      yield* renderSidebar(
+        { onSelectProject },
+        [fakeProject({ id: uid(1), name: "alpha", archived: true }), projects[1]!]
+      )
+      const trigger = screen.getByRole("button", { name: "Active project: alpha" })
+      fireEvent.pointerDown(trigger)
+      fireEvent.click(trigger)
+      expect(screen.queryByRole("menuitem", { name: /alpha/ })).toBeNull()
+      const other = screen.getByRole("menuitem", { name: /beta/ })
+      fireEvent.click(other)
+      expect(onSelectProject).toHaveBeenCalledWith(uid(2))
+    })))
+
   it.effect("shows the select-project state when no project is active", () =>
     Effect.scoped(Effect.gen(function* () {
       yield* renderSidebar({ activeProjectId: null })

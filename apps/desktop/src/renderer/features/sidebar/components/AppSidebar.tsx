@@ -77,7 +77,7 @@ export const AppSidebar = ({
   const activeDevice = devices.find((device) => device.id === selectedDeviceId) ?? null
   const selectedConversationId = activeConversationId === undefined ? internalConversationId : activeConversationId
   const visibleProjects = projects.filter((p) => !p.archived)
-  const activeProject = visibleProjects.find((p) => p.id === activeProjectId) ?? null
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
   const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
   const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
   const paneIsCollapsed = state === "collapsed" && !isMobile
