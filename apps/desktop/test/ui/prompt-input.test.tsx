@@ -40,6 +40,8 @@ interface HarnessProps {
   readonly onImagesChange?: (images: ReadonlyArray<PromptImageAttachment>) => void
   readonly onModelChange?: (modelId: string) => void
   readonly onFavoritesChange?: (modelIds: ReadonlyArray<string>) => void
+  readonly onPermissionChange?: (mode: PermissionMode) => void
+  readonly onThinkingChange?: (level: ThinkingLevel) => void
   readonly folders?: ReadonlyArray<PromptMentionItem>
   readonly skills?: ReadonlyArray<PromptMentionItem>
   readonly isLoading?: boolean
@@ -50,6 +52,8 @@ const ComposerHarness = ({
   onImagesChange,
   onModelChange,
   onFavoritesChange,
+  onPermissionChange,
+  onThinkingChange,
   folders = [...fixtureFolders],
   skills = [...fixtureSkills],
   isLoading = false
@@ -82,9 +86,15 @@ const ComposerHarness = ({
       sandbox={sandbox}
       onSandboxChange={setSandbox}
       permission={permission}
-      onPermissionChange={setPermission}
+      onPermissionChange={(mode) => {
+        setPermission(mode)
+        onPermissionChange?.(mode)
+      }}
       thinking={thinking}
-      onThinkingChange={setThinking}
+      onThinkingChange={(level) => {
+        setThinking(level)
+        onThinkingChange?.(level)
+      }}
       folders={folders}
       skills={skills}
       isLoading={isLoading}
@@ -95,6 +105,12 @@ const ComposerHarness = ({
 const openModelPicker = () => {
   fireEvent.click(screen.getByRole("button", { name: "Model: Atlas" }))
   return screen.getByPlaceholderText("Search models…")
+}
+
+const openComposerOptions = () => {
+  const trigger = screen.getByRole("button", { name: "Composer options" })
+  trigger.focus()
+  fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" })
 }
 
 const typeDraft = (box: HTMLTextAreaElement, text: string) => {
@@ -275,17 +291,46 @@ describe("PromptInput", () => {
   it.effect("changes the sandbox mode from the options menu", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)
-      const trigger = rendered.getByRole("button", { name: "Composer options" })
-      const openMenu = () => {
-        trigger.focus()
-        fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" })
-      }
-      openMenu()
+      openComposerOptions()
       const fullAccess = yield* Effect.promise(() => rendered.findByText("Full access"))
       fireEvent.click(fullAccess)
-      openMenu()
+      openComposerOptions()
       const selected = yield* Effect.promise(() =>
         rendered.findByRole("menuitemradio", { name: /Full access/ }))
+      expect(selected.getAttribute("aria-checked")).toBe("true")
+    })))
+
+  it.effect("sends the selected permission mode to the parent", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onPermissionChange = vi.fn()
+      const rendered = yield* renderScoped(
+        <ComposerHarness onPermissionChange={onPermissionChange} />
+      )
+      openComposerOptions()
+      const readOnly = yield* Effect.promise(() =>
+        rendered.findByRole("menuitemradio", { name: /Read-only/ }))
+      fireEvent.click(readOnly)
+      expect(onPermissionChange).toHaveBeenCalledExactlyOnceWith("read-only")
+      openComposerOptions()
+      const selected = yield* Effect.promise(() =>
+        rendered.findByRole("menuitemradio", { name: /Read-only/ }))
+      expect(selected.getAttribute("aria-checked")).toBe("true")
+    })))
+
+  it.effect("sends the selected thinking level to the parent", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onThinkingChange = vi.fn()
+      const rendered = yield* renderScoped(
+        <ComposerHarness onThinkingChange={onThinkingChange} />
+      )
+      openComposerOptions()
+      const high = yield* Effect.promise(() =>
+        rendered.findByRole("menuitemradio", { name: /High/ }))
+      fireEvent.click(high)
+      expect(onThinkingChange).toHaveBeenCalledExactlyOnceWith("high")
+      openComposerOptions()
+      const selected = yield* Effect.promise(() =>
+        rendered.findByRole("menuitemradio", { name: /High/ }))
       expect(selected.getAttribute("aria-checked")).toBe("true")
     })))
 
