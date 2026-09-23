@@ -54,6 +54,13 @@ export const CommandEmpty = (props: React.ComponentProps<typeof CommandPrimitive
   <CommandPrimitive.Empty className="py-6 text-center text-sm" {...props} />
 )
 
+export const CommandSeparator = ({
+  className,
+  ...props
+}: React.ComponentProps<typeof CommandPrimitive.Separator>) => (
+  <CommandPrimitive.Separator className={cn("bg-border -mx-1 my-1 h-px", className)} {...props} />
+)
+
 export const CommandGroup = ({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.Group>) => (
   <CommandPrimitive.Group className={cn("text-foreground overflow-hidden p-1", className)} {...props} />
 )

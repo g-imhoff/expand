@@ -1,0 +1,17 @@
+{
+  "name": "prompt-input-specimen",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated synthetic specimen for the PromptInput design candidate (no backend, no customer data).",
+  "dependencies": {
+    "react": "19",
+    "react-dom": "19"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "typescript": "6.0.3",
+    "vite": "7.3.6"
+  }
+}
