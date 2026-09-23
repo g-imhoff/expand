@@ -922,13 +922,13 @@ describe("PromptInput", () => {
       expect(box.getAttribute("aria-activedescendant")).toBe(first.id)
       expect(first.getAttribute("aria-selected")).toBe("true")
 
-      fireEvent.keyDown(box, { key: "ArrowDown" })
+      expect(fireEvent.keyDown(box, { key: "ArrowDown" })).toBe(false)
       expect(box.getAttribute("aria-activedescendant")).toBe(second.id)
       expect(first.getAttribute("aria-selected")).toBe("false")
       expect(second.getAttribute("aria-selected")).toBe("true")
       expect(document.activeElement).toBe(box)
 
-      fireEvent.keyDown(box, { key: "ArrowUp" })
+      expect(fireEvent.keyDown(box, { key: "ArrowUp" })).toBe(false)
       expect(box.getAttribute("aria-activedescendant")).toBe(first.id)
 
       fireEvent.keyDown(box, { key: "Escape" })
@@ -936,6 +936,29 @@ describe("PromptInput", () => {
       expect(box.getAttribute("aria-expanded")).toBe("false")
       expect(box.hasAttribute("aria-controls")).toBe(false)
       expect(box.hasAttribute("aria-activedescendant")).toBe(false)
+      expect(document.activeElement).toBe(box)
+    })))
+
+  it.effect("leaves modified arrow keys to the textarea while suggestions are open", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement
+      box.focus()
+      typeDraft(box, "open @")
+      const first = rendered.getByRole("option", { name: /src/ })
+
+      for (const modifiers of [
+        { shiftKey: true },
+        { ctrlKey: true },
+        { altKey: true },
+        { metaKey: true }
+      ]) {
+        for (const key of ["ArrowUp", "ArrowDown"]) {
+          expect(fireEvent.keyDown(box, { key, ...modifiers })).toBe(true)
+          expect(box.getAttribute("aria-activedescendant")).toBe(first.id)
+          expect(first.getAttribute("aria-selected")).toBe("true")
+        }
+      }
       expect(document.activeElement).toBe(box)
     })))
 

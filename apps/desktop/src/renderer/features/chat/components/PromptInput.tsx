@@ -270,12 +270,14 @@ export const PromptInput = ({
         return
       }
       if (mentionMatches.length > 0) {
-        if (event.key === "ArrowDown") {
+        const unmodifiedArrow =
+          !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey
+        if (unmodifiedArrow && event.key === "ArrowDown") {
           event.preventDefault()
           setMentionIndex((index) => (index + 1) % mentionMatches.length)
           return
         }
-        if (event.key === "ArrowUp") {
+        if (unmodifiedArrow && event.key === "ArrowUp") {
           event.preventDefault()
           setMentionIndex((index) => (index - 1 + mentionMatches.length) % mentionMatches.length)
           return
