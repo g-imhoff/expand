@@ -4,6 +4,15 @@ import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, us
 import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
 import { ChangeDirectoryDialog } from "@expand/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
 import { DeleteProjectDialog } from "@expand/desktop/renderer/features/projects/components/DeleteProjectDialog"
+import {
+  PromptInput,
+  type PermissionMode,
+  type PromptImageAttachment,
+  type PromptMentionItem,
+  type PromptSubmitPayload,
+  type SandboxMode,
+  type ThinkingLevel
+} from "@expand/desktop/renderer/features/chat/components/PromptInput"
 
 export const ProjectsView = () => {
   const { data: projects = [], error } = useProjects()
@@ -75,6 +84,61 @@ export const ProjectsView = () => {
           onConfirm={() => del.mutate(target.id, { onSuccess: () => setTarget(null) })}
         />
       )}
+      <ComposerPreview />
     </main>
+  )
+}
+
+const composerModels = [
+  { id: "atlas", label: "Atlas", provider: "Anthropic" },
+  { id: "atlas-mini", label: "Atlas Mini", provider: "Anthropic" },
+  { id: "beacon", label: "Beacon", provider: "OpenAI", description: "Long context" }
+]
+
+const composerFolders: ReadonlyArray<PromptMentionItem> = [
+  { id: "src", label: "src", kind: "folder" },
+  { id: "docs", label: "docs", kind: "folder" }
+]
+
+const composerSkills: ReadonlyArray<PromptMentionItem> = [
+  { id: "commit", label: "commit", description: "Draft a commit message" },
+  { id: "review", label: "review", description: "Review the working tree" }
+]
+
+const ComposerPreview = () => {
+  const [modelId, setModelId] = useState("atlas")
+  const [favoriteModelIds, setFavoriteModelIds] = useState<ReadonlyArray<string>>([])
+  const [images, setImages] = useState<ReadonlyArray<PromptImageAttachment>>([])
+  const [sandbox, setSandbox] = useState<SandboxMode>("workspace")
+  const [permission, setPermission] = useState<PermissionMode>("ask")
+  const [thinking, setThinking] = useState<ThinkingLevel>("low")
+  const [lastSent, setLastSent] = useState<PromptSubmitPayload | null>(null)
+  return (
+    <section aria-label="AI composer preview" style={{ marginTop: 32, maxWidth: 640 }}>
+      <h2>New conversation</h2>
+      <PromptInput
+        models={composerModels}
+        selectedModelId={modelId}
+        onModelChange={setModelId}
+        favoriteModelIds={favoriteModelIds}
+        onFavoritesChange={setFavoriteModelIds}
+        images={images}
+        onImagesChange={setImages}
+        onSend={setLastSent}
+        sandbox={sandbox}
+        onSandboxChange={setSandbox}
+        permission={permission}
+        onPermissionChange={setPermission}
+        thinking={thinking}
+        onThinkingChange={setThinking}
+        folders={composerFolders}
+        skills={composerSkills}
+      />
+      {lastSent !== null && (
+        <p data-testid="composer-last-sent">
+          Sent to {lastSent.modelId}: {lastSent.text}
+        </p>
+      )}
+    </section>
   )
 }

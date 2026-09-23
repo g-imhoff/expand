@@ -6,6 +6,9 @@ import { fireEvent, screen } from "@testing-library/react"
 import { Effect } from "effect"
 import {
   PromptInput,
+  permissionOptions,
+  sandboxModeOptions,
+  thinkingOptions,
   type PermissionMode,
   type PromptImageAttachment,
   type PromptMentionItem,
@@ -291,6 +294,13 @@ describe("PromptInput", () => {
       const option = rendered.getByRole("option", { name: /package/ })
       expect(option.textContent).toContain("package.json")
       expect(option.textContent).toContain("File")
+    })))
+
+  it.effect("exposes the sandbox, permission and thinking option catalogs", () =>
+    Effect.scoped(Effect.gen(function* () {
+      expect(sandboxModeOptions.map((option) => option.id)).toEqual(["off", "workspace", "full"])
+      expect(permissionOptions.map((option) => option.id)).toEqual(["ask", "auto-approve", "read-only"])
+      expect(thinkingOptions.map((option) => option.id)).toEqual(["off", "low", "high"])
     })))
 
   it.effect("includes typed mentions with offsets in the send payload", () =>
