@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useLayoutEffect, useRef, useState } from "react"
 import {
   Check,
   ChevronsUpDown,
@@ -72,6 +72,8 @@ export const AppSidebar = ({
   const [internalConversationId, setInternalConversationId] = useState<string | null>(null)
   const [unreadsOnly, setUnreadsOnly] = useState(false)
   const [query, setQuery] = useState("")
+  const paneRef = useRef<HTMLDivElement>(null)
+  const toggleRef = useRef<HTMLButtonElement>(null)
 
   const selectedDeviceId = activeDeviceId ?? internalDeviceId
   const activeDevice = devices.find((device) => device.id === selectedDeviceId) ?? null
@@ -81,6 +83,12 @@ export const AppSidebar = ({
   const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
   const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
   const paneIsCollapsed = state === "collapsed" && !isMobile
+
+  useLayoutEffect(() => {
+    if (paneIsCollapsed && paneRef.current?.contains(document.activeElement)) {
+      toggleRef.current?.focus()
+    }
+  }, [paneIsCollapsed])
 
   const selectDevice = (deviceId: string) => {
     if (onSelectDevice) {
@@ -179,6 +187,7 @@ export const AppSidebar = ({
             </SidebarMenuItem>
             <SidebarMenuItem className="hidden md:block">
               <SidebarMenuButton
+                ref={toggleRef}
                 type="button"
                 aria-label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
                 aria-expanded={state === "expanded"}
@@ -198,6 +207,7 @@ export const AppSidebar = ({
       </Sidebar>
 
       <Sidebar
+        ref={paneRef}
         collapsible="none"
         className="min-w-0 flex-1"
         aria-label="Project and conversations"

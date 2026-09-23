@@ -198,6 +198,37 @@ describe("AppSidebar", () => {
 })
 
 describe("AppSidebar desktop toggle", () => {
+  it.effect("moves focus out of the hidden pane when the keyboard shortcut collapses it", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderSidebar()
+      const pane = document.querySelector('[aria-label="Project and conversations"]')
+      const project = screen.getByRole("button", { name: "Active project: alpha" })
+      project.focus()
+
+      fireEvent.keyDown(window, { key: "b", metaKey: true })
+      expect(pane?.hasAttribute("inert")).toBe(true)
+      expect(pane?.getAttribute("aria-hidden")).toBe("true")
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }))
+
+      fireEvent.keyDown(window, { key: "b", ctrlKey: true })
+      const search = screen.getByRole("textbox", { name: "Search conversations" })
+      search.focus()
+      fireEvent.keyDown(window, { key: "b", ctrlKey: true })
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }))
+
+      fireEvent.keyDown(window, { key: "b", metaKey: true })
+      const conversation = screen.getByRole("button", { name: "Sidebar three-zone shape, unread" })
+      conversation.focus()
+      fireEvent.keyDown(window, { key: "b", metaKey: true })
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }))
+
+      fireEvent.keyDown(window, { key: "b", metaKey: true })
+      const device = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      device.focus()
+      fireEvent.keyDown(window, { key: "b", metaKey: true })
+      expect(document.activeElement).toBe(device)
+    })))
+
   it.effect("collapses and expands from the visible device rail control", () =>
     Effect.scoped(Effect.gen(function* () {
       yield* renderSidebar()
@@ -210,6 +241,7 @@ describe("AppSidebar desktop toggle", () => {
 
       const collapse = screen.getByRole("button", { name: "Collapse sidebar" })
       expect(collapse.getAttribute("aria-expanded")).toBe("true")
+      screen.getByRole("button", { name: "Active project: alpha" }).focus()
       fireEvent.click(collapse)
       expect(sidebar?.getAttribute("data-state")).toBe("collapsed")
       expect(pane?.hasAttribute("inert")).toBe(true)
@@ -220,6 +252,7 @@ describe("AppSidebar desktop toggle", () => {
       expect(screen.getByRole("button", { name: "Switch sample device, active: This machine" })).toBeDefined()
 
       const expand = screen.getByRole("button", { name: "Expand sidebar" })
+      expect(document.activeElement).toBe(expand)
       expect(expand.getAttribute("aria-expanded")).toBe("false")
       fireEvent.click(expand)
       expect(sidebar?.getAttribute("data-state")).toBe("expanded")
