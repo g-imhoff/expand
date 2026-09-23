@@ -7,19 +7,14 @@ const route = vi.hoisted(() => ({
   navigate: vi.fn()
 }))
 
-vi.mock("@tanstack/react-router", async () => {
-  const React = await import("react")
-  return {
+vi.mock("@tanstack/react-router", () => import("react").then((React) => ({
     Outlet: () => React.createElement("div", { "data-testid": "route-content" }, "Current route"),
     useNavigate: () => route.navigate,
     useRouterState: ({ select }: { readonly select: (state: { location: { pathname: string } }) => unknown }) =>
       select({ location: { pathname: route.pathname } })
-  }
-})
+  })))
 
-vi.mock("@expand/desktop/renderer/features/sidebar/components/AppSidebar", async () => {
-  const React = await import("react")
-  return {
+vi.mock("@expand/desktop/renderer/features/sidebar/components/AppSidebar", () => import("react").then((React) => ({
     AppSidebar: ({
       activeConversationId,
       onSelectConversation,
@@ -45,8 +40,7 @@ vi.mock("@expand/desktop/renderer/features/sidebar/components/AppSidebar", async
         onClick: () => onSelectProject("beta")
       }, "Select project")
     )
-  }
-})
+  })))
 
 vi.mock("@expand/desktop/renderer/features/command/components/CommandPalette", () => ({
   CommandPalette: () => null
@@ -55,14 +49,16 @@ vi.mock("@expand/desktop/renderer/features/command/components/CommandPalette", (
 const browser = new Window({ url: "http://localhost/" })
 let dom: typeof import("@testing-library/react")
 
-beforeAll(async () => {
+beforeAll(() => {
   vi.stubGlobal("window", browser)
   vi.stubGlobal("document", browser.document)
   vi.stubGlobal("navigator", browser.navigator)
   vi.stubGlobal("HTMLElement", browser.HTMLElement)
   vi.stubGlobal("Element", browser.Element)
   vi.stubGlobal("Node", browser.Node)
-  dom = await import("@testing-library/react")
+  return import("@testing-library/react").then((testing) => {
+    dom = testing
+  })
 })
 
 afterEach(() => {
@@ -71,9 +67,9 @@ afterEach(() => {
   route.navigate.mockReset()
 })
 
-afterAll(async () => {
+afterAll(() => {
   vi.unstubAllGlobals()
-  await browser.happyDOM.abort()
+  return browser.happyDOM.abort()
 })
 
 describe("RootLayout conversation preview", () => {
