@@ -186,6 +186,24 @@ describe("PromptInput", () => {
       expect(onModelChange).not.toHaveBeenCalled()
     })))
 
+  it.effect("toggles a model favorite with Enter without selecting a model", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onModelChange = vi.fn()
+      const onFavoritesChange = vi.fn()
+      yield* renderScoped(
+        <ComposerHarness onModelChange={onModelChange} onFavoritesChange={onFavoritesChange} />
+      )
+      openModelPicker()
+      const favorite = screen.getByRole("button", { name: "Favorite Atlas Mini" })
+      favorite.focus()
+      expect(fireEvent.keyDown(favorite, { key: "Enter", code: "Enter" })).toBe(true)
+      expect(onModelChange).not.toHaveBeenCalled()
+      fireEvent.click(favorite)
+      expect(onFavoritesChange).toHaveBeenCalledWith(["atlas-mini"])
+      expect(onModelChange).not.toHaveBeenCalled()
+      expect(screen.getByRole("button", { name: "Unfavorite Atlas Mini" })).not.toBeNull()
+    })))
+
   it.effect("adds images through the file picker and removes them from the chips", () =>
     Effect.scoped(Effect.gen(function* () {
       const onImagesChange = vi.fn()

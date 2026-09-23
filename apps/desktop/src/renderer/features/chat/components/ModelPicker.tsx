@@ -138,6 +138,9 @@ export const ModelPicker = ({
                           event.stopPropagation()
                           toggleFavorite(model.id)
                         }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.stopPropagation()
+                        }}
                         onPointerDown={(event) => event.stopPropagation()}
                         className="text-muted-foreground hover:text-foreground focus-visible:outline-ring flex size-6 shrink-0 items-center justify-center rounded outline-none focus-visible:outline-2"
                       >
