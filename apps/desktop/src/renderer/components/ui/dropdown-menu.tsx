@@ -28,10 +28,6 @@ export const DropdownMenuContent = ({
   </DropdownMenuPrimitive.Portal>
 )
 
-export const DropdownMenuGroup = ({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Group>) => (
-  <DropdownMenuPrimitive.Group data-slot="dropdown-menu-group" {...props} />
-)
-
 export const DropdownMenuItem = ({
   className,
   inset,
