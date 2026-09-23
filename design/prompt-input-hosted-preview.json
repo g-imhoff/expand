@@ -18,16 +18,16 @@
     "load_check": "An earlier session authenticated check returned HTTP 200 for this bundle. No new deployment or live asset comparison has been verified for the current local candidate."
   },
   "local_candidate": {
-    "code_pin": "ec64cb5c084e1040d004e38a2e514ac2b3ebf6e9",
+    "code_pin": "183ef4ed7079940df5a7d3f4eb2cca22377aa6a1",
     "source_path": "apps/desktop/src/renderer/features/chat/components/PromptInput.tsx",
-    "source_digest": "sha256:b90758c0590d1429036e78ee77a6776ac2637aa552fedfb7a867d7edb07d6b1a",
+    "source_digest": "sha256:e517906e7186d3e71d7fd1c4cdd8283cbdf55dfc5a375e5e42a94bc8b39dfe9d",
     "specimen_build": {
       "files": 3,
-      "bytes": 370303,
+      "bytes": 371102,
       "dist_assets": {
-        "assets/index-CR96vczY.js": "sha256:2d28ae428f9dfdc5f3032a45338ca2c07e6cca8785bab891b31c2dbd86b74ab6",
+        "assets/index-DW5o15oj.js": "sha256:647255ada0f1a816b674f2d6ea127372ceba60d4703168f6ac164ffb9401621b",
         "assets/index-D_BnJ-fz.css": "sha256:1ca959395b9f4d3c0bf8ddbb2123c65917305b8d2e10b79c9fb836cdb210b81f",
-        "index.html": "sha256:c03b185cf752b7e8dd2626b70c0a87f9acfae3106d83bdadf89f9f097c974ecb"
+        "index.html": "sha256:4fc95ec8e8f8fdf48e117ad923ac267898ca639d480bebb386beff6fe7950450"
       }
     }
   }
