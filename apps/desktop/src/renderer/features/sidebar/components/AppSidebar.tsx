@@ -7,7 +7,9 @@ import {
   GitBranch,
   Laptop,
   MessageSquare,
-  MonitorSmartphone
+  MonitorSmartphone,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -64,7 +66,7 @@ export const AppSidebar = ({
   onSelectConversation,
   ...props
 }: AppSidebarProps) => {
-  const { setOpen } = useSidebar()
+  const { setOpen, state, toggleSidebar } = useSidebar()
   const { data: projects = [] } = useProjects()
   const [internalDeviceId, setInternalDeviceId] = useState<string | undefined>(devices[0]?.id)
   const [internalConversationId, setInternalConversationId] = useState<string | null>(null)
@@ -173,6 +175,17 @@ export const AppSidebar = ({
                   })}
                 </DropdownMenuContent>
               </DropdownMenu>
+            </SidebarMenuItem>
+            <SidebarMenuItem className="hidden md:block">
+              <SidebarMenuButton
+                type="button"
+                aria-label={state === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
+                aria-expanded={state === "expanded"}
+                onClick={toggleSidebar}
+                className="justify-center"
+              >
+                {state === "expanded" ? <PanelLeftClose aria-hidden /> : <PanelLeftOpen aria-hidden />}
+              </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>

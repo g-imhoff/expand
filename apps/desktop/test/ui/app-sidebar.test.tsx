@@ -178,3 +178,23 @@ describe("AppSidebar", () => {
       expect(screen.queryByText("Sample devices")).toBeNull()
     })))
 })
+
+describe("AppSidebar desktop toggle", () => {
+  it.effect("collapses and expands from the visible device rail control", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderSidebar()
+      const sidebar = document.querySelector('[data-slot="sidebar"][data-state]')
+      expect(sidebar?.getAttribute("data-state")).toBe("expanded")
+
+      const collapse = screen.getByRole("button", { name: "Collapse sidebar" })
+      expect(collapse.getAttribute("aria-expanded")).toBe("true")
+      fireEvent.click(collapse)
+      expect(sidebar?.getAttribute("data-state")).toBe("collapsed")
+
+      const expand = screen.getByRole("button", { name: "Expand sidebar" })
+      expect(expand.getAttribute("aria-expanded")).toBe("false")
+      fireEvent.click(expand)
+      expect(sidebar?.getAttribute("data-state")).toBe("expanded")
+      expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeDefined()
+    })))
+})
