@@ -280,7 +280,7 @@ export const PromptInput = ({
           setMentionIndex((index) => (index - 1 + mentionMatches.length) % mentionMatches.length)
           return
         }
-        if ((event.key === "Enter" || event.key === "Tab") && activeMention !== null) {
+        if (!event.shiftKey && (event.key === "Enter" || event.key === "Tab") && activeMention !== null) {
           event.preventDefault()
           const item = mentionMatches[activeMentionIndex ?? 0]
           if (item !== undefined) acceptMention(item, activeMention)

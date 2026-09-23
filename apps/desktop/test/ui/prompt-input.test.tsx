@@ -735,6 +735,45 @@ describe("PromptInput", () => {
       expect(rendered.queryByRole("listbox")).toBeNull()
     })))
 
+  it.effect("leaves Shift+Enter available for a newline with mention suggestions open", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const rendered = yield* renderScoped(<ComposerHarness onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "look @sr")
+
+      expect(fireEvent.keyDown(box, { key: "Enter", shiftKey: true })).toBe(true)
+      expect(box.value).toBe("look @sr")
+      expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
+      expect(onSend).not.toHaveBeenCalled()
+
+      fireEvent.change(box, { target: { value: "look @sr\n" } })
+      expect(box.value).toBe("look @sr\n")
+      expect(onSend).not.toHaveBeenCalled()
+    })))
+
+  it.effect("leaves Shift+Tab available to move backward with mention suggestions open", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "look @sr")
+
+      expect(fireEvent.keyDown(box, { key: "Tab", shiftKey: true })).toBe(true)
+      expect(box.value).toBe("look @sr")
+      expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
+    })))
+
+  it.effect("accepts a mention with unmodified Tab", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "look @sr")
+
+      expect(fireEvent.keyDown(box, { key: "Tab", shiftKey: false })).toBe(false)
+      expect(box.value).toBe("look @src ")
+      expect(rendered.queryByRole("listbox")).toBeNull()
+    })))
+
   it.effect("replaces a whole mention when the caret is inside its token", () =>
     Effect.scoped(Effect.gen(function* () {
       const onSend = vi.fn()
