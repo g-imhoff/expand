@@ -3,6 +3,7 @@ export interface SidebarDevice {
   readonly name: string
   readonly kind: "local" | "remote"
   readonly status: "online" | "offline"
+  readonly sample?: boolean
 }
 
 export interface SidebarConversation {
@@ -18,22 +19,13 @@ export interface SidebarWorktreeGroup {
   readonly worktreeName: string
   readonly branch: string
   readonly conversations: ReadonlyArray<SidebarConversation>
-}
-
-export interface SidebarUser {
-  readonly name: string
-  readonly email: string
-}
-
-export const defaultSidebarUser: SidebarUser = {
-  name: "Ada Lovelace",
-  email: "ada@expand.dev"
+  readonly sample?: boolean
 }
 
 export const defaultSidebarDevices: ReadonlyArray<SidebarDevice> = [
-  { id: "device-local", name: "This machine", kind: "local", status: "online" },
-  { id: "device-studio", name: "Studio server", kind: "remote", status: "online" },
-  { id: "device-field", name: "Field laptop", kind: "remote", status: "offline" }
+  { id: "device-local", name: "This machine", kind: "local", status: "online", sample: true },
+  { id: "device-studio", name: "Studio server", kind: "remote", status: "online", sample: true },
+  { id: "device-field", name: "Field laptop", kind: "remote", status: "offline", sample: true }
 ]
 
 export const defaultSidebarWorktrees: ReadonlyArray<SidebarWorktreeGroup> = [
@@ -41,6 +33,7 @@ export const defaultSidebarWorktrees: ReadonlyArray<SidebarWorktreeGroup> = [
     id: "wt-expand-sidebar",
     worktreeName: "expand-sidebar",
     branch: "fix/issue-21-desktop-sidebar",
+    sample: true,
     conversations: [
       {
         id: "conv-sidebar-shape",
@@ -62,6 +55,7 @@ export const defaultSidebarWorktrees: ReadonlyArray<SidebarWorktreeGroup> = [
     id: "wt-expand-auth",
     worktreeName: "expand-auth",
     branch: "fix/issue-13-pid-reuse",
+    sample: true,
     conversations: [
       {
         id: "conv-auth-review",
@@ -76,6 +70,7 @@ export const defaultSidebarWorktrees: ReadonlyArray<SidebarWorktreeGroup> = [
     id: "wt-expand-empty",
     worktreeName: "expand-empty",
     branch: "main",
+    sample: true,
     conversations: []
   }
 ]

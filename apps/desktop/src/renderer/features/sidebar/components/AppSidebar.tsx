@@ -34,14 +34,11 @@ import {
 } from "@expand/desktop/renderer/components/ui/sidebar"
 import { Switch } from "@expand/desktop/renderer/components/ui/switch"
 import { useProjects } from "@expand/desktop/renderer/features/projects/data/use-projects"
-import { NavUser } from "@expand/desktop/renderer/features/sidebar/components/NavUser"
 import {
   defaultSidebarDevices,
-  defaultSidebarUser,
   defaultSidebarWorktrees,
   type SidebarConversation,
   type SidebarDevice,
-  type SidebarUser,
   type SidebarWorktreeGroup
 } from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
 
@@ -54,7 +51,6 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   readonly groups?: ReadonlyArray<SidebarWorktreeGroup> | undefined
   readonly activeConversationId?: string | null | undefined
   readonly onSelectConversation?: ((conversationId: string) => void) | undefined
-  readonly user?: SidebarUser | undefined
 }
 
 export const AppSidebar = ({
@@ -66,7 +62,6 @@ export const AppSidebar = ({
   groups = defaultSidebarWorktrees,
   activeConversationId,
   onSelectConversation,
-  user = defaultSidebarUser,
   ...props
 }: AppSidebarProps) => {
   const { setOpen } = useSidebar()
@@ -81,6 +76,8 @@ export const AppSidebar = ({
   const selectedConversationId = activeConversationId ?? internalConversationId
   const visibleProjects = projects.filter((p) => !p.archived)
   const activeProject = visibleProjects.find((p) => p.id === activeProjectId) ?? null
+  const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
+  const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
 
   const selectDevice = (deviceId: string) => {
     if (onSelectDevice) {
@@ -129,7 +126,9 @@ export const AppSidebar = ({
                     size="lg"
                     className="md:h-8 md:p-0"
                     aria-label={
-                      activeDevice ? `Switch device, active: ${activeDevice.name}` : "Switch device"
+                      activeDevice
+                        ? `Switch ${activeDevice.sample ? "sample " : ""}device, active: ${activeDevice.name}`
+                        : "Switch device"
                     }
                   >
                     <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground [&>svg]:size-4">
@@ -138,14 +137,16 @@ export const AppSidebar = ({
                     <span className="grid flex-1 text-left text-sm leading-tight">
                       <span className="truncate font-medium">{activeDevice?.name ?? "Expand"}</span>
                       <span className="truncate text-xs">
-                        {activeDevice ? activeDevice.status : "Desktop"}
+                        {activeDevice
+                          ? `${activeDevice.sample ? "Sample · " : ""}${activeDevice.status}`
+                          : "Desktop"}
                       </span>
                     </span>
                     <ChevronsUpDown className="ml-auto size-4" />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel>Devices</DropdownMenuLabel>
+                  <DropdownMenuLabel>{allDevicesAreSamples ? "Sample devices" : "Devices"}</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {devices.length === 0 && (
                     <DropdownMenuItem disabled>No devices yet</DropdownMenuItem>
@@ -163,7 +164,7 @@ export const AppSidebar = ({
                         <span className="grid flex-1 text-left leading-tight">
                           <span className="truncate">{device.name}</span>
                           <span className="truncate text-xs text-muted-foreground">
-                            {device.status}
+                            {device.sample ? `Sample · ${device.status}` : device.status}
                           </span>
                         </span>
                         {isActive && <Check className="ml-auto size-4 shrink-0" aria-label="active" />}
@@ -175,9 +176,11 @@ export const AppSidebar = ({
             </SidebarMenuItem>
           </SidebarMenu>
         </SidebarHeader>
-        <SidebarFooter>
-          <NavUser user={user} />
-        </SidebarFooter>
+        {allDevicesAreSamples && (
+          <SidebarFooter className="items-center px-0 text-[10px] text-muted-foreground">
+            Sample
+          </SidebarFooter>
+        )}
       </Sidebar>
 
       <Sidebar collapsible="none" className="min-w-0 flex-1" aria-label="Project and conversations">
@@ -227,7 +230,9 @@ export const AppSidebar = ({
             </DropdownMenuContent>
           </DropdownMenu>
           <div className="flex w-full items-center justify-between">
-            <div className="text-base font-medium text-foreground">Conversations</div>
+            <div className="text-base font-medium text-foreground">
+              {allGroupsAreSamples ? "Sample conversations" : "Conversations"}
+            </div>
             <Label className="flex items-center gap-2 text-sm">
               <span>Unreads</span>
               <Switch
@@ -262,6 +267,7 @@ export const AppSidebar = ({
                 <SidebarGroup key={group.id} className="px-0">
                   <SidebarGroupLabel className="px-4">
                     <GitBranch className="mr-1 size-3.5" aria-hidden />
+                    {group.sample && <span className="mr-1 shrink-0 text-[10px]">Sample</span>}
                     <span className="truncate">{group.worktreeName}</span>
                     <span className="ml-1 truncate font-normal text-muted-foreground">{group.branch}</span>
                     <span className="ml-auto pl-2 text-muted-foreground">{group.conversations.length}</span>

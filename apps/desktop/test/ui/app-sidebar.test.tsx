@@ -5,7 +5,6 @@ import { fireEvent, screen } from "@testing-library/react"
 import { Effect } from "effect"
 import { SidebarProvider } from "@expand/desktop/renderer/components/ui/sidebar"
 import { AppSidebar } from "@expand/desktop/renderer/features/sidebar/components/AppSidebar"
-import { defaultSidebarWorktrees } from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
 import { fakeProject, makeFakeProjectContext, renderWithProjectContextScoped, uid } from "./ui-harness"
 
 const projects = [
@@ -48,7 +47,7 @@ describe("AppSidebar", () => {
     Effect.scoped(Effect.gen(function* () {
       const onSelectDevice = vi.fn()
       yield* renderSidebar({ activeDeviceId: "device-local", onSelectDevice })
-      const trigger = screen.getByRole("button", { name: "Switch device, active: This machine" })
+      const trigger = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
       fireEvent.pointerDown(trigger)
       fireEvent.click(trigger)
       const active = screen.getByRole("menuitem", { name: /This machine/ })
@@ -118,10 +117,44 @@ describe("AppSidebar", () => {
       expect(screen.queryByRole("button", { name: /^Auth flow review/ })).toBeNull()
     })))
 
-  it.effect("renders the user footer with initials", () =>
+  it.effect("marks fixture entries as samples and omits account controls", () =>
     Effect.scoped(Effect.gen(function* () {
       yield* renderSidebar({})
-      expect(screen.getByText("Ada Lovelace")).toBeDefined()
-      expect(screen.getByText("AL")).toBeDefined()
+      expect(screen.getByText("Sample conversations")).toBeDefined()
+      expect(screen.getAllByText("Sample").length).toBeGreaterThan(0)
+      expect(screen.queryByText("Ada Lovelace")).toBeNull()
+      expect(screen.queryByRole("button", { name: /account|notifications|log out/i })).toBeNull()
+      const trigger = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      fireEvent.pointerDown(trigger)
+      fireEvent.click(trigger)
+      expect(screen.getByText("Sample devices")).toBeDefined()
+      expect(screen.getByRole("menuitem", { name: /Studio server.*Sample/ })).toBeDefined()
+    })))
+
+  it.effect("does not mark supplied live entries as samples", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderSidebar({
+        devices: [{ id: "desktop", name: "Office desktop", kind: "local", status: "online" }],
+        groups: [{
+          id: "project-main",
+          worktreeName: "project",
+          branch: "main",
+          conversations: [{
+            id: "conversation",
+            title: "Status update",
+            teaser: "The current status",
+            updatedAt: "Today",
+            unread: false
+          }]
+        }]
+      })
+      expect(screen.getByText("Conversations")).toBeDefined()
+      expect(screen.queryByText("Sample conversations")).toBeNull()
+      expect(screen.queryByText("Sample")).toBeNull()
+      const trigger = screen.getByRole("button", { name: "Switch device, active: Office desktop" })
+      fireEvent.pointerDown(trigger)
+      fireEvent.click(trigger)
+      expect(screen.getByText("Devices")).toBeDefined()
+      expect(screen.queryByText("Sample devices")).toBeNull()
     })))
 })
