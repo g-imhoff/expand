@@ -85,7 +85,7 @@ const RootLayoutContent = () => {
           <Outlet />
         )}
       </SidebarInset>
-      <CommandPalette />
+      <CommandPalette onProjectOpened={() => setActiveConversationId(null)} />
     </>
   )
 }

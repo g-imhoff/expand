@@ -17,7 +17,7 @@ import { EditMetadataDialog } from "@expand/desktop/renderer/features/projects/c
 import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
 import { useCommandPaletteHotkey } from "@expand/desktop/renderer/features/command/model/use-command-palette-hotkey"
 
-export const CommandPalette = () => {
+export const CommandPalette = ({ onProjectOpened }: { readonly onProjectOpened?: (() => void) | undefined }) => {
   useCommandPaletteHotkey()
   const open = useCommandPalette((state) => state.open)
   const setOpen = useCommandPalette((state) => state.setOpen)
@@ -54,7 +54,10 @@ export const CommandPalette = () => {
 
   const openProject = (projectId: string) => {
     navigateToProject.mutate(projectId, {
-      onSuccess: () => setOpen(false),
+      onSuccess: () => {
+        setOpen(false)
+        onProjectOpened?.()
+      },
       onError: (cause) =>
         setError(`Could not open project: ${cause instanceof Error ? cause.message : String(cause)}`)
     })

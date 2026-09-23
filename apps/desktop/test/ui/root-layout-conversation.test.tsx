@@ -42,9 +42,13 @@ vi.mock("@expand/desktop/renderer/features/sidebar/components/AppSidebar", () =>
     )
   })))
 
-vi.mock("@expand/desktop/renderer/features/command/components/CommandPalette", () => ({
-  CommandPalette: () => null
-}))
+vi.mock("@expand/desktop/renderer/features/command/components/CommandPalette", () => import("react").then((React) => ({
+  CommandPalette: ({ onProjectOpened }: { readonly onProjectOpened?: () => void }) =>
+    React.createElement("button", {
+      type: "button",
+      onClick: onProjectOpened
+    }, "Open current project from palette")
+})))
 
 const browser = new Window({ url: "http://localhost/" })
 let dom: typeof import("@testing-library/react")
@@ -110,6 +114,19 @@ describe("RootLayout conversation preview", () => {
     expect(dom.screen.getByTestId("route-content")).toBeDefined()
     route.pathname = "/p/alpha"
     rendered.rerender(<RootLayout />)
+    expect(dom.screen.queryByText("Sample conversation preview")).toBeNull()
+  })
+
+  it("clears the preview when the palette opens the current project without changing the route", () => {
+    dom.render(<RootLayout />)
+
+    dom.fireEvent.click(dom.screen.getByRole("button", { name: "Select sample" }))
+    expect(dom.screen.getByText("Sample conversation preview")).toBeDefined()
+
+    dom.fireEvent.click(dom.screen.getByRole("button", { name: "Open current project from palette" }))
+
+    expect(route.pathname).toBe("/p/alpha")
+    expect(dom.screen.getByTestId("route-content")).toBeDefined()
     expect(dom.screen.queryByText("Sample conversation preview")).toBeNull()
   })
 })
