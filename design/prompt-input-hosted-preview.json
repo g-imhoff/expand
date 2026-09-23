@@ -1,1 +1,34 @@
-{"brief": "design/prompt-input-brief.md", "bundle_bytes": 368551, "bundle_files": 3, "candidate_digest": "sha256:e98b4b4f99a78faae08d74108f5f2a73", "dist_assets": {"index_html": "sha256:05d94c66c1958e40373a88420083681791f5f46f537fc5df3e2d104a709c1b52", "js_file": "assets/index-Cw4wTcpk.js", "js": "sha256:c50b108c633751c3e8d6fe46c996e4195c2572376529af2dcd326c415aad95b8", "css_file": "assets/index-yMRe6Ujd.css", "css": "sha256:a87b59e5a97135546268804376fe7108bc42f41328095fb24ec6e728ac00cb8b"}, "load_check": "HTTP 200 with session auth; live asset names match local dist (Cw4wTcpk.js/yMRe6Ujd.css). Anonymous GET 302s to login (dev-server auth gate).", "project": "prompt-input-specimen", "retired": false, "url": "https://dev-guillaume-imhoff-prompt-input-specimen.ui.getyodea.com/", "status": "current"}
+{
+  "brief": "design/prompt-input-brief.md",
+  "project": "prompt-input-specimen",
+  "url": "https://dev-guillaume-imhoff-prompt-input-specimen.ui.getyodea.com/",
+  "retired": false,
+  "status": "historical",
+  "hosted_bundle": {
+    "files": 3,
+    "bytes": 368551,
+    "source_digest": null,
+    "dist_assets": {
+      "index_html": "sha256:05d94c66c1958e40373a88420083681791f5f46f537fc5df3e2d104a709c1b52",
+      "js_file": "assets/index-Cw4wTcpk.js",
+      "js": "sha256:c50b108c633751c3e8d6fe46c996e4195c2572376529af2dcd326c415aad95b8",
+      "css_file": "assets/index-yMRe6Ujd.css",
+      "css": "sha256:a87b59e5a97135546268804376fe7108bc42f41328095fb24ec6e728ac00cb8b"
+    },
+    "load_check": "An earlier session authenticated check returned HTTP 200 for this bundle. No new deployment or live asset comparison has been verified for the current local candidate."
+  },
+  "local_candidate": {
+    "code_pin": "ec64cb5c084e1040d004e38a2e514ac2b3ebf6e9",
+    "source_path": "apps/desktop/src/renderer/features/chat/components/PromptInput.tsx",
+    "source_digest": "sha256:b90758c0590d1429036e78ee77a6776ac2637aa552fedfb7a867d7edb07d6b1a",
+    "specimen_build": {
+      "files": 3,
+      "bytes": 370303,
+      "dist_assets": {
+        "assets/index-CR96vczY.js": "sha256:2d28ae428f9dfdc5f3032a45338ca2c07e6cca8785bab891b31c2dbd86b74ab6",
+        "assets/index-D_BnJ-fz.css": "sha256:1ca959395b9f4d3c0bf8ddbb2123c65917305b8d2e10b79c9fb836cdb210b81f",
+        "index.html": "sha256:c03b185cf752b7e8dd2626b70c0a87f9acfae3106d83bdadf89f9f097c974ecb"
+      }
+    }
+  }
+}
