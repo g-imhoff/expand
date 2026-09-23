@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { useState } from "react"
 import { it } from "@effect/vitest"
 import { beforeEach, describe, expect, vi } from "vitest"
 import { fireEvent, screen } from "@testing-library/react"
@@ -99,6 +100,25 @@ describe("AppSidebar", () => {
       expect(
         screen.getByRole("button", { name: "Auth flow review" }).getAttribute("aria-current")
       ).toBe("true")
+    })))
+
+  it.effect("clears an internal conversation selection when controlled with null", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const SidebarWithClear = () => {
+        const [cleared, setCleared] = useState(false)
+        return (
+          <SidebarProvider>
+            <button type="button" onClick={() => setCleared(true)}>Clear selection</button>
+            <AppSidebar activeProjectId={uid(1)} activeConversationId={cleared ? null : undefined} />
+          </SidebarProvider>
+        )
+      }
+      yield* renderWithProjectContextScoped(<SidebarWithClear />, makeFakeProjectContext(projects))
+      const row = screen.getByRole("button", { name: "Auth flow review" })
+      fireEvent.click(row)
+      expect(row.getAttribute("aria-current")).toBe("true")
+      fireEvent.click(screen.getByRole("button", { name: "Clear selection" }))
+      expect(row.getAttribute("aria-current")).toBeNull()
     })))
 
   it.effect("filters conversations by search text", () =>

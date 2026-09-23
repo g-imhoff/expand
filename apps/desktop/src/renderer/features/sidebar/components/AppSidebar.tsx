@@ -73,7 +73,7 @@ export const AppSidebar = ({
 
   const selectedDeviceId = activeDeviceId ?? internalDeviceId
   const activeDevice = devices.find((device) => device.id === selectedDeviceId) ?? null
-  const selectedConversationId = activeConversationId ?? internalConversationId
+  const selectedConversationId = activeConversationId === undefined ? internalConversationId : activeConversationId
   const visibleProjects = projects.filter((p) => !p.archived)
   const activeProject = visibleProjects.find((p) => p.id === activeProjectId) ?? null
   const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
