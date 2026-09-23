@@ -81,6 +81,7 @@ export const reconcileSelectedMentions = (
     if (
       nextMention === null ||
       nextText.slice(nextMention.start, nextMention.end) !== nextMention.token ||
+      !hasMentionBoundary(nextText, nextMention.start) ||
       mentionContinuationPattern.test(nextText[nextMention.end] ?? "")
     ) {
       return []
@@ -98,6 +99,7 @@ export const resolveMentions = (
       mention.start >= 0 &&
       mention.end <= text.length &&
       text.slice(mention.start, mention.end) === mention.token &&
+      hasMentionBoundary(text, mention.start) &&
       !mentionContinuationPattern.test(text[mention.end] ?? "")
   )
   const typed = parseMentions(text).filter(
@@ -112,11 +114,12 @@ export const resolveMentions = (
 export const findActiveMention = (text: string, caret: number): ActiveMention | null => {
   const match = triggerPattern.exec(text.slice(0, caret))
   if (match === null) return null
-  const query = match[3] ?? ""
+  const token = match[2] ?? ""
+  const query = token.slice(1)
   return {
-    kind: match[2] === "@" ? "folder" : "skill",
+    kind: token[0] === "@" ? "folder" : "skill",
     query,
-    start: caret - query.length - 1,
+    start: caret - token.length,
     caret
   }
 }
@@ -130,22 +133,27 @@ export const filterMentionItems = (
   return items.filter((item) => item.label.toLowerCase().includes(needle))
 }
 
-const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
+export const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
   const mentions: Array<PromptMention> = []
   for (const match of text.matchAll(mentionPattern)) {
-    const start = match.index ?? 0
+    const prefix = match[1] ?? ""
+    const token = match[0].slice(prefix.length)
+    const start = (match.index ?? 0) + prefix.length
     mentions.push({
-      kind: match[1] === "@" ? "folder" : "skill",
-      key: match[0].slice(1),
+      kind: token[0] === "@" ? "folder" : "skill",
+      key: token.slice(1),
       start,
-      end: start + match[0].length
+      end: start + token.length
     })
   }
   return mentions
 }
 
-const mentionPattern = /([@$])[A-Za-z0-9_][\w\-.\\/]*/g
+const hasMentionBoundary = (text: string, start: number): boolean =>
+  start === 0 || /\s/.test(text[start - 1] ?? "")
+
+const mentionPattern = /(^|\s)(@[A-Za-z0-9_][\w\-.\\/]*|\$[A-Za-z_][\w\-.\\/]*)/g
 
 const mentionContinuationPattern = /[\w\-.\\/]/
 
-const triggerPattern = /(^|\s)([@$])([\w\-.\\/]*)$/
+const triggerPattern = /(^|\s)(@([A-Za-z0-9_][\w\-.\\/]*)?|\$([A-Za-z_][\w\-.\\/]*)?)$/
