@@ -249,11 +249,11 @@ export const AppSidebar = ({
               })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <div className="flex w-full items-center justify-between">
+          <div className="flex w-full flex-col gap-2">
             <div className="text-base font-medium text-foreground">
               {allGroupsAreSamples ? "Sample conversations" : "Conversations"}
             </div>
-            <Label className="flex items-center gap-2 text-sm">
+            <Label className="flex w-full items-center justify-between gap-2 text-sm">
               <span>Unreads</span>
               <Switch
                 className="shadow-none"
