@@ -139,6 +139,7 @@ export const PromptInput = ({
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
   const mentionListboxId = useId()
   const nextImageId = useRef(0)
+  const ownedImageUrls = useRef(new Map<string, { url: string; observed: boolean }>())
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
@@ -157,6 +158,29 @@ export const PromptInput = ({
   useEffect(() => {
     setMentionIndex(0)
   }, [activeMention?.kind, activeMention?.query])
+
+  useEffect(() => {
+    setPreviewImage((current) =>
+      current !== null && !images.some((image) => image.id === current.id && image.url === current.url)
+        ? null
+        : current
+    )
+    for (const [id, owned] of ownedImageUrls.current) {
+      if (images.some((image) => image.id === id && image.url === owned.url)) {
+        owned.observed = true
+      } else if (owned.observed) {
+        URL.revokeObjectURL(owned.url)
+        ownedImageUrls.current.delete(id)
+      }
+    }
+  }, [images])
+
+  useEffect(() => () => {
+    for (const owned of ownedImageUrls.current.values()) {
+      URL.revokeObjectURL(owned.url)
+    }
+    ownedImageUrls.current.clear()
+  }, [])
 
   const send = () => {
     const text = draft.trim()
@@ -253,11 +277,9 @@ export const PromptInput = ({
       do {
         id = `prompt-image-${nextImageId.current++}`
       } while (next.some((image) => image.id === id))
-      next.push({
-        id,
-        name: file.name,
-        url: URL.createObjectURL(file)
-      })
+      const url = URL.createObjectURL(file)
+      ownedImageUrls.current.set(id, { url, observed: false })
+      next.push({ id, name: file.name, url })
     }
     if (next.length !== images.length) onImagesChange(next)
     if (fileInputRef.current !== null) fileInputRef.current.value = ""

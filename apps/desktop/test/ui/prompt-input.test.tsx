@@ -47,6 +47,8 @@ interface HarnessProps {
   readonly folders?: ReadonlyArray<PromptMentionItem>
   readonly skills?: ReadonlyArray<PromptMentionItem>
   readonly isLoading?: boolean
+  readonly initialImages?: ReadonlyArray<PromptImageAttachment>
+  readonly showClearImagesControl?: boolean
 }
 
 const ComposerHarness = ({
@@ -59,15 +61,17 @@ const ComposerHarness = ({
   modelOptions = models,
   folders = [...fixtureFolders],
   skills = [...fixtureSkills],
-  isLoading = false
+  isLoading = false,
+  initialImages = [],
+  showClearImagesControl = false
 }: HarnessProps) => {
   const [selectedModelId, setSelectedModelId] = useState<string>("atlas")
   const [favoriteModelIds, setFavoriteModelIds] = useState<ReadonlyArray<string>>([])
-  const [images, setImages] = useState<ReadonlyArray<PromptImageAttachment>>([])
+  const [images, setImages] = useState<ReadonlyArray<PromptImageAttachment>>(initialImages)
   const [sandbox, setSandbox] = useState<SandboxMode>("workspace")
   const [permission, setPermission] = useState<PermissionMode>("ask")
   const [thinking, setThinking] = useState<ThinkingLevel>("low")
-  return (
+  return <>
     <PromptInput
       models={modelOptions}
       selectedModelId={selectedModelId}
@@ -102,7 +106,10 @@ const ComposerHarness = ({
       skills={skills}
       isLoading={isLoading}
     />
-  )
+    {showClearImagesControl && (
+      <button type="button" onClick={() => setImages([])}>Clear images externally</button>
+    )}
+  </>
 }
 
 const openModelPicker = () => {
@@ -125,6 +132,7 @@ const typeDraft = (box: HTMLTextAreaElement, text: string) => {
 describe("PromptInput", () => {
   beforeEach(() => {
     URL.createObjectURL = vi.fn(() => "blob:preview") as typeof URL.createObjectURL
+    URL.revokeObjectURL = vi.fn() as typeof URL.revokeObjectURL
   })
 
   afterEach(() => {
@@ -267,6 +275,44 @@ describe("PromptInput", () => {
       fireEvent.click(rendered.getByRole("button", { name: "Remove shot.png" }))
       expect(onImagesChange).toHaveBeenCalledTimes(2)
       expect(onImagesChange.mock.calls[1]?.[0]).toEqual([])
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+      rendered.unmount()
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+    })))
+
+  it.effect("releases local image URLs when the parent clears image props", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(<ComposerHarness showClearImagesControl />)
+      const picker = rendered.getByLabelText("Add images") as HTMLInputElement
+      fireEvent.change(picker, {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      const clearImages = rendered.getByRole("button", { name: "Clear images externally" })
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      fireEvent.click(rendered.getByRole("button", { name: "Preview local.png" }))
+      yield* Effect.promise(() => rendered.findByRole("dialog", { name: "local.png" }))
+      fireEvent.click(clearImages)
+      expect(rendered.queryByRole("button", { name: "Remove local.png" })).toBeNull()
+      expect(rendered.queryByRole("dialog", { name: "local.png" })).toBeNull()
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("releases local image URLs on unmount without revoking parent URLs", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const external: PromptImageAttachment = {
+        id: "external",
+        name: "external.png",
+        url: "https://example.test/external.png"
+      }
+      const rendered = yield* renderScoped(<ComposerHarness initialImages={[external]} />)
+      const picker = rendered.getByLabelText("Add images") as HTMLInputElement
+      fireEvent.change(picker, {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      rendered.unmount()
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
   it.effect("keeps re-added images separate after an earlier image is removed", () =>
