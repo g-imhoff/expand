@@ -348,6 +348,8 @@ describe("PromptInput", () => {
       expect(added[0]?.name).toBe("shot.png")
       expect(added[0]?.url).toBe("blob:preview")
       expect(rendered.getByLabelText("Attached images").textContent).toContain("shot.png")
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
       fireEvent.click(rendered.getByRole("button", { name: "Remove shot.png" }))
       expect(onImagesChange).toHaveBeenCalledTimes(2)
       expect(onImagesChange.mock.calls[1]?.[0]).toEqual([])
@@ -431,9 +433,12 @@ describe("PromptInput", () => {
       expect(onImagesChange).toHaveBeenCalledTimes(1)
       expect(rendered.queryByRole("button", { name: "Preview local.png" })).toBeNull()
       expect(URL.revokeObjectURL).not.toHaveBeenCalled()
-      rendered.unmount()
       yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+      expect(rendered.getByLabelText("Add images")).not.toBeNull()
+      rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     })))
 
   it.effect("releases created URLs when the image callback rejects them", () =>
@@ -494,6 +499,23 @@ describe("PromptInput", () => {
       rendered.unmount()
       yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url)
+    })))
+
+  it.effect("keeps accepted image URLs valid after a StrictMode file change", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(
+        <StrictMode><ComposerHarness /></StrictMode>
+      )
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      yield* Effect.promise(() => Promise.resolve())
+      expect(rendered.getByRole("button", { name: "Preview local.png" })).not.toBeNull()
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
     })))
 
   it.effect("keeps a shared URL until both parent owners release it", () =>

@@ -139,10 +139,12 @@ export const PromptInput = ({
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionClosed, setMentionClosed] = useState(false)
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
+  const [settledImageRequestId, setSettledImageRequestId] = useState(0)
   const mentionListboxId = useId()
   const textareaId = `${mentionListboxId}-textarea`
   const nextImageId = useRef(0)
-  const pendingImageUrls = useRef(new Set<string>())
+  const nextImageRequestId = useRef(0)
+  const pendingImageUrls = useRef(new Map<string, number>())
   const composingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -180,11 +182,19 @@ export const PromptInput = ({
         ? null
         : current
     )
-    for (const image of images) pendingImageUrls.current.delete(image.url)
-  }, [images])
+    const acceptedUrls = new Set(images.map((image) => image.url))
+    for (const [url, requestId] of pendingImageUrls.current) {
+      if (acceptedUrls.has(url)) {
+        pendingImageUrls.current.delete(url)
+      } else if (requestId <= settledImageRequestId) {
+        pendingImageUrls.current.delete(url)
+        queueMicrotask(() => releaseUnownedPromptImageUrl(url))
+      }
+    }
+  }, [images, settledImageRequestId])
 
   useEffect(() => () => {
-    const pending = [...pendingImageUrls.current]
+    const pending = [...pendingImageUrls.current.keys()]
     queueMicrotask(() => {
       for (const url of pending) releaseUnownedPromptImageUrl(url)
     })
@@ -288,6 +298,7 @@ export const PromptInput = ({
     if (files === null) return
     const next = [...images]
     const createdUrls: string[] = []
+    const requestId = ++nextImageRequestId.current
     try {
       for (const file of files) {
         if (!file.type.startsWith("image/")) continue
@@ -297,10 +308,13 @@ export const PromptInput = ({
         } while (next.some((image) => image.id === id))
         const url = createPromptImageUrl(file)
         createdUrls.push(url)
-        pendingImageUrls.current.add(url)
+        pendingImageUrls.current.set(url, requestId)
         next.push({ id, name: file.name, url })
       }
       if (next.length !== images.length) onImagesChange(next)
+      if (createdUrls.length > 0) {
+        setSettledImageRequestId((current) => Math.max(current, requestId))
+      }
     } catch (error) {
       for (const url of createdUrls) {
         pendingImageUrls.current.delete(url)
