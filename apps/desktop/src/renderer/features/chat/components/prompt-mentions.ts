@@ -33,21 +33,6 @@ export interface ActiveMention {
 
 export type PromptMentionKind = "folder" | "skill"
 
-/** All `@folder` / `$skill` tokens in the text, with offsets. Unknown keys are kept — the consumer resolves them. */
-export const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
-  const mentions: Array<PromptMention> = []
-  for (const match of text.matchAll(mentionPattern)) {
-    const start = match.index ?? 0
-    mentions.push({
-      kind: match[1] === "@" ? "folder" : "skill",
-      key: match[0].slice(1),
-      start,
-      end: start + match[0].length
-    })
-  }
-  return mentions
-}
-
 export const reconcileSelectedMentions = (
   previousText: string,
   nextText: string,
@@ -146,6 +131,20 @@ export const filterMentionItems = (
   const needle = query.toLowerCase()
   if (needle === "") return items
   return items.filter((item) => item.label.toLowerCase().includes(needle))
+}
+
+const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
+  const mentions: Array<PromptMention> = []
+  for (const match of text.matchAll(mentionPattern)) {
+    const start = match.index ?? 0
+    mentions.push({
+      kind: match[1] === "@" ? "folder" : "skill",
+      key: match[0].slice(1),
+      start,
+      end: start + match[0].length
+    })
+  }
+  return mentions
 }
 
 const mentionPattern = /([@$])[A-Za-z0-9_][\w\-.\\/]*/g
