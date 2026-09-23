@@ -223,6 +223,29 @@ describe("PromptInput", () => {
       expect(onImagesChange.mock.calls[1]?.[0]).toEqual([])
     })))
 
+  it.effect("keeps re-added images separate after an earlier image is removed", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onImagesChange = vi.fn()
+      const rendered = yield* renderScoped(<ComposerHarness onImagesChange={onImagesChange} />)
+      const picker = rendered.getByLabelText("Add images") as HTMLInputElement
+      const first = new File(["first"], "first.png", { type: "image/png" })
+      const second = new File(["second"], "second.png", { type: "image/png" })
+
+      fireEvent.change(picker, { target: { files: [first] } })
+      fireEvent.change(picker, { target: { files: [second] } })
+      fireEvent.click(rendered.getByRole("button", { name: "Remove first.png" }))
+      fireEvent.change(picker, { target: { files: [second] } })
+
+      const readded = onImagesChange.mock.lastCall?.[0] as ReadonlyArray<PromptImageAttachment>
+      expect(readded).toHaveLength(2)
+      expect(new Set(readded.map((image) => image.id)).size).toBe(2)
+
+      fireEvent.click(rendered.getAllByRole("button", { name: "Remove second.png" })[0]!)
+      const remaining = onImagesChange.mock.lastCall?.[0] as ReadonlyArray<PromptImageAttachment>
+      expect(remaining).toHaveLength(1)
+      expect(remaining[0]?.id).toBe(readded[1]?.id)
+    })))
+
   it.effect("opens a larger preview when an image card is clicked", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)

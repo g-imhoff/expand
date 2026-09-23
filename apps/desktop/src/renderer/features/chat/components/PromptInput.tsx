@@ -133,6 +133,7 @@ export const PromptInput = ({
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionClosed, setMentionClosed] = useState(false)
   const [previewImage, setPreviewImage] = useState<PromptImageAttachment | null>(null)
+  const nextImageId = useRef(0)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
@@ -213,8 +214,12 @@ export const PromptInput = ({
     const next = [...images]
     for (const file of files) {
       if (!file.type.startsWith("image/")) continue
+      let id: string
+      do {
+        id = `prompt-image-${nextImageId.current++}`
+      } while (next.some((image) => image.id === id))
       next.push({
-        id: `${file.name}-${file.size}-${file.lastModified}-${next.length}`,
+        id,
         name: file.name,
         url: URL.createObjectURL(file)
       })
