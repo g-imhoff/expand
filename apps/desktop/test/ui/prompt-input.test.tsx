@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
-import { useState } from "react"
+import { StrictMode, useState } from "react"
 import { it } from "@effect/vitest"
 import { afterEach, beforeEach, describe, expect, vi } from "vitest"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { Effect } from "effect"
 import {
   PromptInput,
+  usePromptImageUrlOwnership,
   permissionOptions,
   sandboxModeOptions,
   thinkingOptions,
@@ -17,6 +18,7 @@ import {
   type SandboxMode,
   type ThinkingLevel
 } from "@expand/desktop/renderer/features/chat/components/PromptInput"
+import { createPromptImageUrl } from "@expand/desktop/renderer/features/chat/components/prompt-image-urls"
 import { renderScoped } from "./ui-harness"
 
 const fixtureFolders: ReadonlyArray<PromptMentionItem> = [
@@ -49,6 +51,10 @@ interface HarnessProps {
   readonly isLoading?: boolean
   readonly initialImages?: ReadonlyArray<PromptImageAttachment>
   readonly showClearImagesControl?: boolean
+  readonly showComposerControl?: boolean
+  readonly showClearSentControl?: boolean
+  readonly acceptImageChanges?: boolean
+  readonly hideComposerOnImageChange?: boolean
 }
 
 const ComposerHarness = ({
@@ -63,7 +69,11 @@ const ComposerHarness = ({
   skills = [...fixtureSkills],
   isLoading = false,
   initialImages = [],
-  showClearImagesControl = false
+  showClearImagesControl = false,
+  showComposerControl = false,
+  showClearSentControl = false,
+  acceptImageChanges = true,
+  hideComposerOnImageChange = false
 }: HarnessProps) => {
   const [selectedModelId, setSelectedModelId] = useState<string>("atlas")
   const [favoriteModelIds, setFavoriteModelIds] = useState<ReadonlyArray<string>>([])
@@ -71,8 +81,11 @@ const ComposerHarness = ({
   const [sandbox, setSandbox] = useState<SandboxMode>("workspace")
   const [permission, setPermission] = useState<PermissionMode>("ask")
   const [thinking, setThinking] = useState<ThinkingLevel>("low")
+  const [composerVisible, setComposerVisible] = useState(true)
+  const [savedPayload, setSavedPayload] = useState<PromptSubmitPayload | null>(null)
+  usePromptImageUrlOwnership([...images, ...(savedPayload?.images ?? [])])
   return <>
-    <PromptInput
+    {composerVisible && <PromptInput
       models={modelOptions}
       selectedModelId={selectedModelId}
       onModelChange={(modelId) => {
@@ -86,10 +99,14 @@ const ComposerHarness = ({
       }}
       images={images}
       onImagesChange={(next) => {
-        setImages(next)
+        if (acceptImageChanges) setImages(next)
+        if (hideComposerOnImageChange) setComposerVisible(false)
         onImagesChange?.(next)
       }}
-      onSend={(payload) => onSend?.(payload)}
+      onSend={(payload) => {
+        setSavedPayload(payload)
+        onSend?.(payload)
+      }}
       sandbox={sandbox}
       onSandboxChange={setSandbox}
       permission={permission}
@@ -105,9 +122,17 @@ const ComposerHarness = ({
       folders={folders}
       skills={skills}
       isLoading={isLoading}
-    />
+    />}
     {showClearImagesControl && (
       <button type="button" onClick={() => setImages([])}>Clear images externally</button>
+    )}
+    {showComposerControl && (
+      <button type="button" onClick={() => setComposerVisible((visible) => !visible)}>
+        Toggle composer
+      </button>
+    )}
+    {showClearSentControl && (
+      <button type="button" onClick={() => setSavedPayload(null)}>Clear sent payload</button>
     )}
   </>
 }
@@ -320,6 +345,7 @@ describe("PromptInput", () => {
       expect(onImagesChange.mock.calls[1]?.[0]).toEqual([])
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
       rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     })))
 
@@ -346,7 +372,7 @@ describe("PromptInput", () => {
       const external: PromptImageAttachment = {
         id: "external",
         name: "external.png",
-        url: "https://example.test/external.png"
+        url: "blob:parent-owned"
       }
       const rendered = yield* renderScoped(<ComposerHarness initialImages={[external]} />)
       const picker = rendered.getByLabelText("Add images") as HTMLInputElement
@@ -355,7 +381,97 @@ describe("PromptInput", () => {
       })
 
       rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("keeps a parent-held image URL valid across composer unmount and remount", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(
+        <ComposerHarness showComposerControl showClearImagesControl />
+      )
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      fireEvent.click(rendered.getByRole("button", { name: "Toggle composer" }))
+      expect(rendered.queryByLabelText("Add images")).toBeNull()
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      fireEvent.click(rendered.getByRole("button", { name: "Toggle composer" }))
+      const preview = rendered.getByRole("button", { name: "Preview local.png" })
+      expect(preview.querySelector("img")?.getAttribute("src")).toBe("blob:preview")
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      fireEvent.click(rendered.getByRole("button", { name: "Clear images externally" }))
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("releases a generated URL when the parent ignores the image change", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onImagesChange = vi.fn()
+      const rendered = yield* renderScoped(
+        <ComposerHarness acceptImageChanges={false} onImagesChange={onImagesChange} />
+      )
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      expect(onImagesChange).toHaveBeenCalledTimes(1)
+      expect(rendered.queryByRole("button", { name: "Preview local.png" })).toBeNull()
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("preserves an image accepted as the composer unmounts", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(
+        <ComposerHarness hideComposerOnImageChange showComposerControl />
+      )
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+
+      expect(rendered.queryByLabelText("Add images")).toBeNull()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      fireEvent.click(rendered.getByRole("button", { name: "Toggle composer" }))
+      expect(rendered.getByRole("button", { name: "Preview local.png" })).not.toBeNull()
+    })))
+
+  it.effect("retains a sent image URL until the parent releases its payload", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rendered = yield* renderScoped(
+        <ComposerHarness showClearImagesControl showClearSentControl />
+      )
+      fireEvent.change(rendered.getByLabelText("Add images"), {
+        target: { files: [new File(["local"], "local.png", { type: "image/png" })] }
+      })
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "send image")
+      fireEvent.keyDown(box, { key: "Enter", shiftKey: false })
+
+      fireEvent.click(rendered.getByRole("button", { name: "Clear images externally" }))
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      fireEvent.click(rendered.getByRole("button", { name: "Clear sent payload" }))
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+    })))
+
+  it.effect("keeps generated URLs valid during StrictMode effect replay", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const url = createPromptImageUrl(new File(["local"], "local.png", { type: "image/png" }))
+      const image: PromptImageAttachment = { id: "local", name: "local.png", url }
+      const rendered = yield* renderScoped(
+        <StrictMode><ComposerHarness initialImages={[image]} /></StrictMode>
+      )
+
+      expect(rendered.getByRole("button", { name: "Preview local.png" })).not.toBeNull()
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+      rendered.unmount()
+      yield* Effect.promise(() => Promise.resolve())
+      expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith(url)
     })))
 
   it.effect("keeps re-added images separate after an earlier image is removed", () =>

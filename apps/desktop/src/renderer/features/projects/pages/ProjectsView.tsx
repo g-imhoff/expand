@@ -6,6 +6,7 @@ import { ChangeDirectoryDialog } from "@expand/desktop/renderer/features/project
 import { DeleteProjectDialog } from "@expand/desktop/renderer/features/projects/components/DeleteProjectDialog"
 import {
   PromptInput,
+  usePromptImageUrlOwnership,
   type PermissionMode,
   type PromptImageAttachment,
   type PromptMentionItem,
@@ -113,6 +114,7 @@ const ComposerPreview = () => {
   const [permission, setPermission] = useState<PermissionMode>("ask")
   const [thinking, setThinking] = useState<ThinkingLevel>("low")
   const [lastSent, setLastSent] = useState<PromptSubmitPayload | null>(null)
+  usePromptImageUrlOwnership([...images, ...(lastSent?.images ?? [])])
   return (
     <section aria-label="AI composer preview" style={{ marginTop: 32, maxWidth: 640 }}>
       <h2>New conversation</h2>

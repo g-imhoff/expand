@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger
 } from "@expand/desktop/renderer/components/ui/dropdown-menu"
 import { ModelPicker } from "@expand/desktop/renderer/features/chat/components/ModelPicker"
+import { createPromptImageUrl, releasePromptImageUrl, releaseUnownedPromptImageUrl } from "@expand/desktop/renderer/features/chat/components/prompt-image-urls"
 import { renderMentionSegments } from "@expand/desktop/renderer/features/chat/components/mention-segments"
 import {
   filterMentionItems,
@@ -141,7 +142,7 @@ export const PromptInput = ({
   const mentionListboxId = useId()
   const textareaId = `${mentionListboxId}-textarea`
   const nextImageId = useRef(0)
-  const ownedImageUrls = useRef(new Map<string, { url: string; observed: boolean }>())
+  const pendingImageUrls = useRef(new Set<string>())
   const composingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -178,21 +179,14 @@ export const PromptInput = ({
         ? null
         : current
     )
-    for (const [id, owned] of ownedImageUrls.current) {
-      if (images.some((image) => image.id === id && image.url === owned.url)) {
-        owned.observed = true
-      } else if (owned.observed) {
-        URL.revokeObjectURL(owned.url)
-        ownedImageUrls.current.delete(id)
-      }
-    }
+    for (const image of images) pendingImageUrls.current.delete(image.url)
   }, [images])
 
   useEffect(() => () => {
-    for (const owned of ownedImageUrls.current.values()) {
-      URL.revokeObjectURL(owned.url)
-    }
-    ownedImageUrls.current.clear()
+    const pending = [...pendingImageUrls.current]
+    queueMicrotask(() => {
+      for (const url of pending) releaseUnownedPromptImageUrl(url)
+    })
   }, [])
 
   const send = () => {
@@ -292,17 +286,27 @@ export const PromptInput = ({
   const handleFiles = (files: FileList | null) => {
     if (files === null) return
     const next = [...images]
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) continue
-      let id: string
-      do {
-        id = `prompt-image-${nextImageId.current++}`
-      } while (next.some((image) => image.id === id))
-      const url = URL.createObjectURL(file)
-      ownedImageUrls.current.set(id, { url, observed: false })
-      next.push({ id, name: file.name, url })
+    const createdUrls: string[] = []
+    try {
+      for (const file of files) {
+        if (!file.type.startsWith("image/")) continue
+        let id: string
+        do {
+          id = `prompt-image-${nextImageId.current++}`
+        } while (next.some((image) => image.id === id))
+        const url = createPromptImageUrl(file)
+        createdUrls.push(url)
+        pendingImageUrls.current.add(url)
+        next.push({ id, name: file.name, url })
+      }
+      if (next.length !== images.length) onImagesChange(next)
+    } catch (error) {
+      for (const url of createdUrls) {
+        pendingImageUrls.current.delete(url)
+        releasePromptImageUrl(url)
+      }
+      throw error
     }
-    if (next.length !== images.length) onImagesChange(next)
     if (fileInputRef.current !== null) fileInputRef.current.value = ""
   }
 
@@ -591,6 +595,8 @@ export const PromptInput = ({
     </div>
   )
 }
+
+export { usePromptImageUrlOwnership } from "@expand/desktop/renderer/features/chat/components/prompt-image-urls"
 
 export type {
   PromptMention,

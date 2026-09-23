@@ -1,6 +1,7 @@
 import { useState } from "react"
 import {
   PromptInput,
+  usePromptImageUrlOwnership,
   type PermissionMode,
   type PromptImageAttachment,
   type PromptMentionItem,
@@ -12,6 +13,8 @@ import {
 export const App = () => {
   const [dark, setDark] = useState(false)
   const [sent, setSent] = useState<ReadonlyArray<PromptSubmitPayload>>([])
+  const [liveImages, setLiveImages] = useState<ReadonlyArray<PromptImageAttachment>>([...fixtureImages])
+  usePromptImageUrlOwnership([...liveImages, ...sent.flatMap((payload) => payload.images)])
   if (dark) document.documentElement.classList.add("dark")
   else document.documentElement.classList.remove("dark")
   return (
@@ -36,7 +39,11 @@ export const App = () => {
         <h2 id="spec-live" className="text-sm font-medium">
           Live composer (prefilled images, send log)
         </h2>
-        <LiveComposer onSent={(payload) => setSent([...sent, payload])} />
+        <LiveComposer
+          images={liveImages}
+          onImagesChange={setLiveImages}
+          onSent={(payload) => setSent([...sent, payload])}
+        />
         <div aria-live="polite" className="text-muted-foreground text-xs">
           {sent.length === 0
             ? "No messages sent yet."
@@ -95,7 +102,6 @@ const fixtureImages: ReadonlyArray<PromptImageAttachment> = [
 interface ComposerState {
   readonly modelId: string
   readonly favoriteModelIds: ReadonlyArray<string>
-  readonly images: ReadonlyArray<PromptImageAttachment>
   readonly sandbox: SandboxMode
   readonly permission: PermissionMode
   readonly thinking: ThinkingLevel
@@ -104,14 +110,21 @@ interface ComposerState {
 const initialState: ComposerState = {
   modelId: "atlas",
   favoriteModelIds: [],
-  images: [],
   sandbox: "workspace",
   permission: "ask",
   thinking: "low"
 }
 
-const LiveComposer = ({ onSent }: { readonly onSent: (payload: PromptSubmitPayload) => void }) => {
-  const [state, setState] = useState<ComposerState>({ ...initialState, images: [...fixtureImages] })
+const LiveComposer = ({
+  images,
+  onImagesChange,
+  onSent
+}: {
+  readonly images: ReadonlyArray<PromptImageAttachment>
+  readonly onImagesChange: (images: ReadonlyArray<PromptImageAttachment>) => void
+  readonly onSent: (payload: PromptSubmitPayload) => void
+}) => {
+  const [state, setState] = useState<ComposerState>(initialState)
   return (
     <PromptInput
       models={[...fixtureModels]}
@@ -119,8 +132,8 @@ const LiveComposer = ({ onSent }: { readonly onSent: (payload: PromptSubmitPaylo
       onModelChange={(modelId) => setState({ ...state, modelId })}
       favoriteModelIds={state.favoriteModelIds}
       onFavoritesChange={(favoriteModelIds) => setState({ ...state, favoriteModelIds })}
-      images={state.images}
-      onImagesChange={(images) => setState({ ...state, images })}
+      images={images}
+      onImagesChange={onImagesChange}
       onSend={onSent}
       sandbox={state.sandbox}
       onSandboxChange={(sandbox) => setState({ ...state, sandbox })}
@@ -136,6 +149,8 @@ const LiveComposer = ({ onSent }: { readonly onSent: (payload: PromptSubmitPaylo
 
 const LoadingComposer = () => {
   const [state, setState] = useState<ComposerState>(initialState)
+  const [images, setImages] = useState<ReadonlyArray<PromptImageAttachment>>([])
+  usePromptImageUrlOwnership(images)
   return (
     <PromptInput
       models={[...fixtureModels]}
@@ -143,8 +158,8 @@ const LoadingComposer = () => {
       onModelChange={(modelId) => setState({ ...state, modelId })}
       favoriteModelIds={state.favoriteModelIds}
       onFavoritesChange={(favoriteModelIds) => setState({ ...state, favoriteModelIds })}
-      images={state.images}
-      onImagesChange={(images) => setState({ ...state, images })}
+      images={images}
+      onImagesChange={setImages}
       onSend={() => {}}
       sandbox={state.sandbox}
       onSandboxChange={(sandbox) => setState({ ...state, sandbox })}
@@ -161,6 +176,8 @@ const LoadingComposer = () => {
 
 const EmptyComposer = () => {
   const [state, setState] = useState<ComposerState>(initialState)
+  const [images, setImages] = useState<ReadonlyArray<PromptImageAttachment>>([])
+  usePromptImageUrlOwnership(images)
   return (
     <PromptInput
       models={[...fixtureModels]}
@@ -168,8 +185,8 @@ const EmptyComposer = () => {
       onModelChange={(modelId) => setState({ ...state, modelId })}
       favoriteModelIds={state.favoriteModelIds}
       onFavoritesChange={(favoriteModelIds) => setState({ ...state, favoriteModelIds })}
-      images={state.images}
-      onImagesChange={(images) => setState({ ...state, images })}
+      images={images}
+      onImagesChange={setImages}
       onSend={() => {}}
       sandbox={state.sandbox}
       onSandboxChange={(sandbox) => setState({ ...state, sandbox })}
