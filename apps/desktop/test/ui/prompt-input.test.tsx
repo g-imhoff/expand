@@ -1080,6 +1080,51 @@ describe("PromptInput", () => {
       expect(document.activeElement).toBe(box)
     })))
 
+  it.effect("keeps the active mention visible through overflow and wraparound without moving focus", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const folders = Array.from({ length: 20 }, (_, index) => ({
+        id: `folder-${index}`,
+        label: `folder-${index}`,
+        kind: "folder" as const
+      }))
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} />)
+      const box = rendered.getByRole("combobox", { name: "Message" }) as HTMLTextAreaElement
+      box.focus()
+      typeDraft(box, "open @")
+      const listbox = rendered.getByRole("listbox", { name: "Folders" })
+      const options = rendered.getAllByRole("option")
+      vi.spyOn(listbox, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 100, 256, 226))
+      vi.spyOn(listbox, "clientTop", "get").mockReturnValue(1)
+      vi.spyOn(listbox, "clientHeight", "get").mockReturnValue(224)
+      for (const [index, option] of options.entries()) {
+        vi.spyOn(option, "getBoundingClientRect").mockImplementation(() =>
+          new DOMRect(0, 105 + index * 48 - listbox.scrollTop, 256, 48)
+        )
+      }
+
+      const expectVisible = () => {
+        const active = document.getElementById(box.getAttribute("aria-activedescendant")!)!
+        const bounds = active.getBoundingClientRect()
+        expect(bounds.top).toBeGreaterThanOrEqual(101)
+        expect(bounds.bottom).toBeLessThanOrEqual(325)
+        expect(document.activeElement).toBe(box)
+      }
+
+      fireEvent.keyDown(box, { key: "ArrowDown" })
+      expect(listbox.scrollTop).toBe(0)
+      expectVisible()
+      for (let index = 1; index < folders.length; index++) {
+        fireEvent.keyDown(box, { key: "ArrowDown" })
+        expectVisible()
+      }
+      expect(options[0]?.getAttribute("aria-selected")).toBe("true")
+      fireEvent.keyDown(box, { key: "ArrowUp" })
+      expect(options.at(-1)?.getAttribute("aria-selected")).toBe("true")
+      expectVisible()
+      fireEvent.keyDown(box, { key: "Enter" })
+      expect(box.value).toBe("open @folder-19 ")
+    })))
+
   it.effect("leaves modified arrow keys to the textarea while suggestions are open", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)

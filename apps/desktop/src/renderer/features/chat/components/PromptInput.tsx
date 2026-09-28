@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
+import { startTransition, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react"
 import { ArrowUpIcon, PlusIcon, XIcon } from "lucide-react"
 import { cn } from "@expand/desktop/renderer/components/ui/class-names"
 import {
@@ -148,6 +148,8 @@ export const PromptInput = ({
   const composingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const mentionListboxRef = useRef<HTMLDivElement | null>(null)
+  const activeMentionOptionRef = useRef<HTMLDivElement | null>(null)
   const previewOpenerRef = useRef<HTMLButtonElement | null>(null)
   const backdropRef = useRef<HTMLDivElement | null>(null)
   const canSend = draft.trim() !== "" && !isLoading
@@ -175,6 +177,20 @@ export const PromptInput = ({
   useEffect(() => {
     setMentionIndex(0)
   }, [activeMention?.kind, activeMention?.query])
+
+  useLayoutEffect(() => {
+    const listbox = mentionListboxRef.current
+    const option = activeMentionOptionRef.current
+    if (listbox === null || option === null) return
+    const optionBounds = option.getBoundingClientRect()
+    const visibleTop = listbox.getBoundingClientRect().top + listbox.clientTop
+    const visibleBottom = visibleTop + listbox.clientHeight
+    if (optionBounds.top < visibleTop) {
+      listbox.scrollTop += optionBounds.top - visibleTop
+    } else if (optionBounds.bottom > visibleBottom) {
+      listbox.scrollTop += optionBounds.bottom - visibleBottom
+    }
+  }, [activeMentionOptionId, activeMention?.kind, activeMention?.query, mentionMatches.length])
 
   useEffect(() => {
     setPreviewImage((current) =>
@@ -466,6 +482,7 @@ export const PromptInput = ({
         {mentionOpen && activeMention !== null && (
           <div
             id={mentionListboxId}
+            ref={mentionListboxRef}
             role="listbox"
             aria-label={activeMention.kind === "folder" ? "Folders" : "Skills"}
             className="bg-popover border-border absolute bottom-full left-3 z-10 mb-1 max-h-56 w-64 overflow-auto rounded-md border p-1 shadow-md"
@@ -479,6 +496,7 @@ export const PromptInput = ({
                 <div
                   key={item.id}
                   id={`${mentionListboxId}-option-${index}`}
+                  ref={index === activeMentionIndex ? activeMentionOptionRef : undefined}
                   role="option"
                   aria-selected={index === activeMentionIndex}
                   onMouseDown={(event) => {
