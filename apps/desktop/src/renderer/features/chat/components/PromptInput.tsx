@@ -314,36 +314,36 @@ export const PromptInput = ({
 
   const handleFiles = (files: FileList | null) => {
     if (files === null) return
-    const next = [...images]
-    const createdUrls: string[] = []
-    const requestId = ++nextImageRequestId.current
-    try {
-      for (const file of files) {
-        if (!file.type.startsWith("image/")) continue
-        let id: string
-        do {
-          id = `prompt-image-${nextImageId.current++}`
-        } while (next.some((image) => image.id === id))
-        const url = createPromptImageUrl(file)
-        createdUrls.push(url)
-        pendingImageUrls.current.set(url, requestId)
-        next.push({ id, name: file.name, url })
-      }
-      if (next.length !== images.length) onImagesChange(next)
-      if (createdUrls.length > 0) {
-        startTransition(() => {
+    startTransition(() => {
+      const next = [...images]
+      const createdUrls: string[] = []
+      const requestId = ++nextImageRequestId.current
+      try {
+        for (const file of files) {
+          if (!file.type.startsWith("image/")) continue
+          let id: string
+          do {
+            id = `prompt-image-${nextImageId.current++}`
+          } while (next.some((image) => image.id === id))
+          const url = createPromptImageUrl(file)
+          createdUrls.push(url)
+          pendingImageUrls.current.set(url, requestId)
+          next.push({ id, name: file.name, url })
+        }
+        if (next.length !== images.length) onImagesChange(next)
+        if (createdUrls.length > 0) {
           setSettledImageRequestId((current) => Math.max(current, requestId))
-        })
+        }
+      } catch (error) {
+        for (const url of createdUrls) {
+          pendingImageUrls.current.delete(url)
+          releasePromptImageUrl(url)
+        }
+        throw error
+      } finally {
+        if (fileInputRef.current !== null) fileInputRef.current.value = ""
       }
-    } catch (error) {
-      for (const url of createdUrls) {
-        pendingImageUrls.current.delete(url)
-        releasePromptImageUrl(url)
-      }
-      throw error
-    } finally {
-      if (fileInputRef.current !== null) fileInputRef.current.value = ""
-    }
+    })
   }
 
   const removeImage = (id: string) => {

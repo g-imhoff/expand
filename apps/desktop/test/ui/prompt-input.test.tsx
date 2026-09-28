@@ -367,7 +367,12 @@ describe("PromptInput", () => {
       expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
     })))
 
-  it.effect("keeps generated URLs valid when the parent accepts images in a transition", () =>
+  it.effect.each([
+    { transitionImageChanges: false, hideComposerOnImageChange: false },
+    { transitionImageChanges: true, hideComposerOnImageChange: false },
+    { transitionImageChanges: false, hideComposerOnImageChange: true },
+    { transitionImageChanges: true, hideComposerOnImageChange: true }
+  ])("keeps accepted URLs valid with transition=$transitionImageChanges and unmount=$hideComposerOnImageChange", ({ transitionImageChanges, hideComposerOnImageChange }) =>
     Effect.scoped(Effect.gen(function* () {
       yield* Effect.acquireRelease(
         Effect.sync(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false)),
@@ -384,7 +389,12 @@ describe("PromptInput", () => {
           container.remove()
         })
       )
-      flushSync(() => root.render(<ComposerHarness transitionImageChanges showClearImagesControl />))
+      flushSync(() => root.render(<ComposerHarness
+        transitionImageChanges={transitionImageChanges}
+        hideComposerOnImageChange={hideComposerOnImageChange}
+        showComposerControl
+        showClearImagesControl
+      />))
       const picker = container.querySelector<HTMLInputElement>('input[type="file"]')!
       Object.defineProperty(picker, "files", {
         configurable: true,
@@ -392,6 +402,14 @@ describe("PromptInput", () => {
       })
 
       picker.dispatchEvent(new Event("change", { bubbles: true }))
+      if (hideComposerOnImageChange) {
+        yield* Effect.promise(() => vi.waitFor(() => {
+          expect(container.querySelector('input[type="file"]')).toBeNull()
+        }))
+        const toggleComposer = [...container.querySelectorAll("button")]
+          .find((button) => button.textContent === "Toggle composer")!
+        toggleComposer.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      }
       yield* Effect.promise(() => vi.waitFor(() => {
         const preview = container.querySelector('button[aria-label="Preview local.png"] img')
         expect(preview?.getAttribute("src")).toBe("blob:preview")
