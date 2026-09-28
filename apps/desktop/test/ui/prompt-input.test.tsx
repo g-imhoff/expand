@@ -929,6 +929,67 @@ describe("PromptInput", () => {
       ])
     })))
 
+  it.effect("replaces a fully selected multiword mention on Enter without sending", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:my-docs", label: "My docs", kind: "folder" },
+        { id: "folder:my-files", label: "My files", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @My")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /My docs/ }))
+      typeDraft(box, "open @My docs now")
+
+      box.setSelectionRange(5, 13)
+      fireEvent.select(box)
+      expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
+      expect(rendered.getAllByRole("option")).toHaveLength(2)
+      fireEvent.keyDown(box, { key: "ArrowDown" })
+      fireEvent.keyDown(box, { key: "Enter" })
+
+      expect(onSend).not.toHaveBeenCalled()
+      expect(box.value).toBe("open @My files now")
+      yield* Effect.promise(() => waitFor(() => expect(box.selectionStart).toBe(15)))
+      expect(box.selectionEnd).toBe(15)
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:my-files", start: 5, end: 14 }
+      ])
+    })))
+
+  it.effect("replaces a saved mention with the caret in its second word", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onSend = vi.fn()
+      const folders = [
+        { id: "folder:my-docs", label: "My docs", kind: "folder" },
+        { id: "folder:my-downloads", label: "My downloads", kind: "folder" },
+        { id: "folder:my-files", label: "My files", kind: "folder" }
+      ] as const
+      const rendered = yield* renderScoped(<ComposerHarness folders={folders} onSend={onSend} />)
+      const box = rendered.getByLabelText("Message") as HTMLTextAreaElement
+      typeDraft(box, "open @My")
+      fireEvent.mouseDown(rendered.getByRole("option", { name: /My docs/ }))
+      typeDraft(box, "open @My docs now")
+
+      box.setSelectionRange(10, 10)
+      fireEvent.select(box)
+      expect(rendered.getByRole("listbox", { name: "Folders" })).not.toBeNull()
+      expect(rendered.queryByRole("option", { name: /My files/ })).toBeNull()
+      fireEvent.keyDown(box, { key: "ArrowDown" })
+      fireEvent.keyDown(box, { key: "Enter" })
+
+      expect(onSend).not.toHaveBeenCalled()
+      expect(box.value).toBe("open @My downloads now")
+      fireEvent.click(rendered.getByRole("button", { name: "Send message" }))
+      const payload = onSend.mock.calls[0]?.[0] as PromptSubmitPayload
+      expect(payload.mentions).toEqual([
+        { kind: "folder", key: "folder:my-downloads", start: 5, end: 18 }
+      ])
+    })))
+
   it.effect("keeps punctuation beside a replaced mention", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)

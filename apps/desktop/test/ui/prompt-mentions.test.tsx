@@ -52,6 +52,34 @@ describe("prompt mentions", () => {
     expect(markup).toMatch(/data-mention="skill"[^>]*>\$commit<\/span>/)
   })
 
+  it("opens multiword suggestions only inside an intact saved mention", () => {
+    const selected: SelectedPromptMention = {
+      kind: "folder",
+      key: "folder:my-docs",
+      start: 5,
+      end: 13,
+      token: "@My docs"
+    }
+    expect(findActiveMention("open @My docs now", 10, [selected])).toEqual({
+      kind: "folder",
+      query: "My d",
+      start: 5,
+      caret: 10
+    })
+    expect(findActiveMention("open @My docs now", 13, [selected])).toEqual({
+      kind: "folder",
+      query: "My docs",
+      start: 5,
+      caret: 13
+    })
+    expect(findActiveMention("open @My docs now", 5, [selected])).toBeNull()
+    expect(findActiveMention("open @My docs now", 14, [selected])).toBeNull()
+    expect(findActiveMention("open @My logs now", 10, [selected])).toBeNull()
+    expect(findActiveMention("openx@My docs now", 10, [selected])).toBeNull()
+    expect(findActiveMention("open @My docsx now", 10, [selected])).toBeNull()
+    expect(findActiveMention("open @My docs now", 10)).toBeNull()
+  })
+
   it("keeps selected IDs at valid boundaries and drops them after a boundary edit", () => {
     const selected: SelectedPromptMention = {
       kind: "folder",

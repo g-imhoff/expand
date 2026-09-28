@@ -94,14 +94,7 @@ export const resolveMentions = (
   text: string,
   selected: ReadonlyArray<SelectedPromptMention>
 ): ReadonlyArray<PromptMention> => {
-  const valid = selected.filter(
-    (mention) =>
-      mention.start >= 0 &&
-      mention.end <= text.length &&
-      text.slice(mention.start, mention.end) === mention.token &&
-      hasMentionBoundary(text, mention.start) &&
-      !mentionContinuationPattern.test(text[mention.end] ?? "")
-  )
+  const valid = selected.filter((mention) => isValidSelectedMention(text, mention))
   const typed = parseMentions(text).filter(
     (mention) => !valid.some((chosen) => mention.start < chosen.end && chosen.start < mention.end)
   )
@@ -111,7 +104,23 @@ export const resolveMentions = (
   ].sort((left, right) => left.start - right.start)
 }
 
-export const findActiveMention = (text: string, caret: number): ActiveMention | null => {
+export const findActiveMention = (
+  text: string,
+  caret: number,
+  selected: ReadonlyArray<SelectedPromptMention> = []
+): ActiveMention | null => {
+  const chosen = selected.find(
+    (mention) =>
+      mention.start < caret && caret <= mention.end && isValidSelectedMention(text, mention)
+  )
+  if (chosen !== undefined) {
+    return {
+      kind: chosen.kind,
+      query: text.slice(chosen.start + 1, caret),
+      start: chosen.start,
+      caret
+    }
+  }
   const match = triggerPattern.exec(text.slice(0, caret))
   if (match === null) return null
   const token = match[2] ?? ""
@@ -159,6 +168,13 @@ const parseMentions = (text: string): ReadonlyArray<PromptMention> => {
 
 const hasMentionBoundary = (text: string, start: number): boolean =>
   start === 0 || /\s/.test(text[start - 1] ?? "")
+
+const isValidSelectedMention = (text: string, mention: SelectedPromptMention): boolean =>
+  mention.start >= 0 &&
+  mention.end <= text.length &&
+  text.slice(mention.start, mention.end) === mention.token &&
+  hasMentionBoundary(text, mention.start) &&
+  !mentionContinuationPattern.test(text[mention.end] ?? "")
 
 const mentionPattern = /(^|\s)(@[A-Za-z0-9_][\w\-.\\/]*|\$[A-Za-z_][\w\-.\\/]*)/g
 

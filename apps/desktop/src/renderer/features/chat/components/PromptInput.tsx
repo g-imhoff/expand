@@ -153,7 +153,7 @@ export const PromptInput = ({
   const canSend = draft.trim() !== "" && !isLoading
 
   const mentionCaret = Math.max(caret, selectionEnd)
-  const mentionCandidate = findActiveMention(draft, mentionCaret)
+  const mentionCandidate = findActiveMention(draft, mentionCaret, selectedMentions)
   const activeMention: ActiveMention | null =
     mentionCandidate !== null && caret >= mentionCandidate.start
       ? {
