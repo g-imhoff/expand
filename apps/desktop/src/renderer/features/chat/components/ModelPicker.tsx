@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { CheckIcon, ChevronDownIcon, StarIcon } from "lucide-react"
 import { Command } from "cmdk"
 import { cn } from "@expand/desktop/renderer/components/ui/class-names"
@@ -39,7 +39,12 @@ export const ModelPicker = ({
   const selected = models.find((model) => model.id === selectedModelId)
   const favorites = new Set(favoriteModelIds)
 
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+
   const toggleFavorite = (modelId: string) => {
+    if (disabled) return
     onFavoritesChange(
       favorites.has(modelId)
         ? favoriteModelIds.filter((id) => id !== modelId)
@@ -70,12 +75,13 @@ export const ModelPicker = ({
   }
 
   const choose = (modelId: string) => {
+    if (disabled) return
     onModelChange(modelId)
     setOpen(false)
   }
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open && !disabled} onOpenChange={(nextOpen) => setOpen(nextOpen && !disabled)}>
       <PopoverTrigger
         aria-label={selected === undefined ? "Choose model" : `Model: ${selected.label}`}
         disabled={disabled}
@@ -94,7 +100,7 @@ export const ModelPicker = ({
           label="Search models"
           className="flex h-full w-full flex-col overflow-hidden rounded-md"
         >
-          <CommandInput placeholder="Search models…" />
+          <CommandInput placeholder="Search models…" disabled={disabled} />
           <CommandList>
             <CommandEmpty>No models match.</CommandEmpty>
             {providers.map((provider, index) => (
@@ -115,7 +121,7 @@ export const ModelPicker = ({
                       key={model.id}
                       value={model.id}
                       keywords={[model.label, model.provider, model.description ?? ""]}
-                      {...(model.disabled === true ? { disabled: true } : null)}
+                      disabled={disabled || model.disabled === true}
                       onSelect={() => choose(model.id)}
                     >
                       {selectedModelId === model.id ? (
@@ -135,6 +141,7 @@ export const ModelPicker = ({
                         type="button"
                         aria-label={isFavorite ? `Unfavorite ${model.label}` : `Favorite ${model.label}`}
                         aria-pressed={isFavorite}
+                        disabled={disabled}
                         onClick={(event) => {
                           event.stopPropagation()
                           toggleFavorite(model.id)

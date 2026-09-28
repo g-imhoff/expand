@@ -661,6 +661,39 @@ describe("PromptInput", () => {
       expect(getByRole("status").textContent).toBe("Sending…")
     })))
 
+  it.effect("closes an open model picker when loading starts and requires reopening afterward", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onModelChange = vi.fn()
+      const onFavoritesChange = vi.fn()
+      const props = { onModelChange, onFavoritesChange }
+      const rendered = yield* renderScoped(<ComposerHarness {...props} />)
+      const search = openModelPicker()
+      const option = screen.getByRole("option", { name: /Atlas Mini/ })
+      const favorite = screen.getByRole("button", { name: "Favorite Atlas Mini" })
+
+      rendered.rerender(<ComposerHarness {...props} isLoading />)
+      fireEvent.click(option)
+      fireEvent.click(favorite)
+      fireEvent.keyDown(search, { key: "Enter", code: "Enter" })
+      expect(onModelChange).not.toHaveBeenCalled()
+      expect(onFavoritesChange).not.toHaveBeenCalled()
+      expect(screen.queryByPlaceholderText("Search models…")).toBeNull()
+      const trigger = screen.getByRole("button", { name: "Model: Atlas" }) as HTMLButtonElement
+      expect(trigger.disabled).toBe(true)
+      expect(trigger.getAttribute("aria-expanded")).toBe("false")
+      fireEvent.click(trigger)
+      expect(screen.queryByPlaceholderText("Search models…")).toBeNull()
+
+      rendered.rerender(<ComposerHarness {...props} />)
+      expect(trigger.disabled).toBe(false)
+      expect(screen.queryByPlaceholderText("Search models…")).toBeNull()
+      openModelPicker()
+      fireEvent.click(screen.getByRole("button", { name: "Favorite Atlas Mini" }))
+      expect(onFavoritesChange).toHaveBeenCalledExactlyOnceWith(["atlas-mini"])
+      fireEvent.click(screen.getByRole("option", { name: /Atlas Mini/ }))
+      expect(onModelChange).toHaveBeenCalledExactlyOnceWith("atlas-mini")
+    })))
+
   it.effect("changes the sandbox mode from the options menu", () =>
     Effect.scoped(Effect.gen(function* () {
       const rendered = yield* renderScoped(<ComposerHarness />)
