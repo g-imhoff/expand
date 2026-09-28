@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
-import { StrictMode, useState } from "react"
+import { startTransition, StrictMode, useState } from "react"
+import { flushSync } from "react-dom"
+import { createRoot } from "react-dom/client"
 import { it } from "@effect/vitest"
 import { afterEach, beforeEach, describe, expect, vi } from "vitest"
 import { fireEvent, screen, waitFor } from "@testing-library/react"
@@ -54,6 +56,7 @@ interface HarnessProps {
   readonly showComposerControl?: boolean
   readonly showClearSentControl?: boolean
   readonly acceptImageChanges?: boolean
+  readonly transitionImageChanges?: boolean
   readonly hideComposerOnImageChange?: boolean
   readonly throwOnImagesChange?: boolean
 }
@@ -74,6 +77,7 @@ const ComposerHarness = ({
   showComposerControl = false,
   showClearSentControl = false,
   acceptImageChanges = true,
+  transitionImageChanges = false,
   hideComposerOnImageChange = false,
   throwOnImagesChange = false
 }: HarnessProps) => {
@@ -102,7 +106,10 @@ const ComposerHarness = ({
       images={images}
       onImagesChange={(next) => {
         if (throwOnImagesChange) throw new Error("Image change rejected")
-        if (acceptImageChanges) setImages(next)
+        if (acceptImageChanges) {
+          if (transitionImageChanges) startTransition(() => setImages(next))
+          else setImages(next)
+        }
         if (hideComposerOnImageChange) setComposerVisible(false)
         onImagesChange?.(next)
       }}
@@ -358,6 +365,46 @@ describe("PromptInput", () => {
       rendered.unmount()
       yield* Effect.promise(() => Promise.resolve())
       expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1)
+    })))
+
+  it.effect("keeps generated URLs valid when the parent accepts images in a transition", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* Effect.acquireRelease(
+        Effect.sync(() => vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", false)),
+        () => Effect.sync(() => vi.unstubAllGlobals())
+      )
+      const { container, root } = yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          const container = document.createElement("div")
+          document.body.append(container)
+          return { container, root: createRoot(container) }
+        }),
+        ({ container, root }) => Effect.sync(() => {
+          root.unmount()
+          container.remove()
+        })
+      )
+      flushSync(() => root.render(<ComposerHarness transitionImageChanges showClearImagesControl />))
+      const picker = container.querySelector<HTMLInputElement>('input[type="file"]')!
+      Object.defineProperty(picker, "files", {
+        configurable: true,
+        value: [new File(["local"], "local.png", { type: "image/png" })]
+      })
+
+      picker.dispatchEvent(new Event("change", { bubbles: true }))
+      yield* Effect.promise(() => vi.waitFor(() => {
+        const preview = container.querySelector('button[aria-label="Preview local.png"] img')
+        expect(preview?.getAttribute("src")).toBe("blob:preview")
+      }))
+      expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+      const clearImages = [...container.querySelectorAll("button")]
+        .find((button) => button.textContent === "Clear images externally")!
+      clearImages.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+      yield* Effect.promise(() => vi.waitFor(() => {
+        expect(container.querySelector('button[aria-label="Preview local.png"]')).toBeNull()
+        expect(URL.revokeObjectURL).toHaveBeenCalledExactlyOnceWith("blob:preview")
+      }))
     })))
 
   it.effect("releases local image URLs when the parent clears image props", () =>

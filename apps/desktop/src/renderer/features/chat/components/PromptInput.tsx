@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
+import { startTransition, useEffect, useId, useRef, useState, type KeyboardEvent } from "react"
 import { ArrowUpIcon, PlusIcon, XIcon } from "lucide-react"
 import { cn } from "@expand/desktop/renderer/components/ui/class-names"
 import {
@@ -315,7 +315,9 @@ export const PromptInput = ({
       }
       if (next.length !== images.length) onImagesChange(next)
       if (createdUrls.length > 0) {
-        setSettledImageRequestId((current) => Math.max(current, requestId))
+        startTransition(() => {
+          setSettledImageRequestId((current) => Math.max(current, requestId))
+        })
       }
     } catch (error) {
       for (const url of createdUrls) {
