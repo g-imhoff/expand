@@ -477,7 +477,7 @@ export const PromptInput = ({
           rows={2}
           disabled={isLoading}
           placeholder={placeholder}
-          className="text-foreground placeholder:text-muted-foreground relative w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm text-transparent caret-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          className="text-foreground placeholder:text-muted-foreground relative block w-full resize-none overflow-y-auto bg-transparent px-3 py-2.5 text-sm text-transparent caret-foreground outline-none disabled:cursor-not-allowed disabled:opacity-60"
         />
         {mentionOpen && activeMention !== null && (
           <div
