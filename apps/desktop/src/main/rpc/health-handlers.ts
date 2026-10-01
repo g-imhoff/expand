@@ -1,5 +1,5 @@
 import { Effect, SubscriptionRef } from "effect"
-import type { RpcGroup } from "effect/unstable/rpc"
+import type { RpcGroup } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
 import { ServerClient } from "@expand/client-ts/server"

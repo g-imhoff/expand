@@ -1,4 +1,4 @@
-import { CliError, CliOutput } from "effect/unstable/cli"
+import { CliError, CliOutput } from "effect/cli"
 import { Schema } from "effect"
 import { ErrorEnvelopeFromJson, type ErrorEnvelope, makeErrorEnvelope } from "@expand/cli/errors/envelope"
 

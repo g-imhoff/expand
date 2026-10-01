@@ -1,5 +1,5 @@
 import { Deferred, Effect, Exit, Queue, Scope, Stream } from "effect"
-import { type RpcMessage, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { type RpcMessage, RpcSerialization, RpcServer } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
@@ -89,7 +89,9 @@ const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPo
         initialMessage: Effect.succeedNone,
         supportsAck: true,
         supportsTransferables: false,
-        supportsSpanPropagation: true
+        supportsSpanPropagation: true,
+        supportsNotifications: true,
+        codecFor: serialization.codecFor
       }
     })
   )

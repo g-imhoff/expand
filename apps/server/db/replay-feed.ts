@@ -1,5 +1,5 @@
 import { Context, Layer, Stream } from "effect"
-import { SqlError } from "effect/unstable/sql/SqlError"
+import { SqlError } from "effect/sql/SqlError"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { specializeEventStore } from "@expand/server/db/event-store"
 

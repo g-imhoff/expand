@@ -1,9 +1,9 @@
 import { NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { it } from "@effect/vitest"
-import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Ref, Schedule, Schema, SubscriptionRef } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Ref, Schedule, Schema, SubscriptionRef } from "effect"
 import { TestClock } from "effect/testing"
-import * as Socket from "effect/unstable/socket/Socket"
+import * as Socket from "effect/socket/Socket"
 import { describe, expect } from "vitest"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import type { ProjectClientApi } from "@expand/client-ts/project"
@@ -64,12 +64,16 @@ describe("example: archive-stale", () => {
       const endpoint = yield* fs.readFileString(endpointFile).pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(EndpointFromJson))
       )
-      const opened = yield* Queue.unbounded<void>()
       const socket = yield* Socket.makeWebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`).pipe(
         Effect.provide(NodeSocket.layerWebSocketConstructorWS)
       )
-      yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(Effect.forkScoped)
-      yield* Queue.take(opened).pipe(Effect.timeout("5 seconds"))
+      const opened = yield* Deferred.make<void>()
+      yield* Effect.scoped(Effect.gen(function*() {
+        const reader = yield* socket.reader
+        yield* Deferred.succeed(opened, undefined)
+        return yield* Effect.forever(reader.pull)
+      })).pipe(Effect.forkScoped)
+      yield* Deferred.await(opened).pipe(Effect.timeout("5 seconds"))
       const overlap = yield* Effect.all([fs.exists(endpointFile), fs.exists(backendLockFile)]).pipe(
         Effect.filterOrFail(([advertised, locked]) => !advertised && locked, () => "pending" as const),
         Effect.retry(Schedule.addDelay(Schedule.recurs(5_000), () => Effect.succeed("1 millis"))),

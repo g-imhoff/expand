@@ -1,5 +1,5 @@
 import { Effect, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 
 export class CommandReport extends Schema.Class<CommandReport>("CommandReport")({
   stdout: Schema.String,
@@ -7,11 +7,11 @@ export class CommandReport extends Schema.Class<CommandReport>("CommandReport")(
   exitCode: Schema.Number
 }) {}
 
-export class CommandFixtureError extends Schema.TaggedErrorClass<CommandFixtureError>()(
+export class CommandFixtureError extends Schema.TaggedError<CommandFixtureError>()(
   "CommandFixtureError",
   {
     command: Schema.String,
-    cause: Schema.Defect
+    cause: Schema.Defect()
   }
 ) {}
 

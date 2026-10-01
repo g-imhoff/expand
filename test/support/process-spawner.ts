@@ -1,5 +1,5 @@
 import { Effect, Layer, Sink, Stream } from "effect"
-import { ChildProcessSpawner, type ChildProcess } from "effect/unstable/process"
+import { ChildProcessSpawner, type ChildProcess } from "effect/process"
 
 export interface SpawnRecord {
   readonly command: ChildProcess.Command

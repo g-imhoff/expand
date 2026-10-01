@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { RpcGroup } from "effect/unstable/rpc"
+import type { RpcGroup } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ProjectUseCases } from "@expand/server/application/projects/use-cases"
 import { ProjectProjection } from "@expand/server/application/projections"
