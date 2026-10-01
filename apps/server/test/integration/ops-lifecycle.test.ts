@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("project operations over the wire", () => {
+describe("project operations over the wire", { concurrent: false }, () => {
   it.live("drives every operation and observes each event live",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-ops-lifecycle-')

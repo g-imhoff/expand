@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { catch as catchEffect } from "effect/Effect"
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { runCommand } from "../../../../test/support/effect-process"
@@ -148,7 +148,7 @@ const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(
   )
 })
 
-describe.sequential("ProjectSync integration", () => {
+describe("ProjectSync integration", { concurrent: false }, () => {
   it.live("waits for confirmed backend death after signaling teardown", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem

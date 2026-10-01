@@ -74,7 +74,7 @@ const contextTree = () => makeExpand(
     Layer.effect(
       ServerClient,
       Effect.map(AppContext, ({ paths }): ServerClientApi => ({
-        health: () => Schema.encodeEffect(Schema.UnknownFromJsonString)(paths).pipe(Effect.orDie)
+      health: () => Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(paths).pipe(Effect.orDie)
       }))
     )
   )

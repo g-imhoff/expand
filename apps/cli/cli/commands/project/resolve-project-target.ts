@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import type { RpcClientError } from "effect/unstable/rpc"
+import type { RpcClientError } from "effect/rpc"
 import { ProjectNotFound } from "@expand/contracts/rpc"
 import { ProjectClient } from "@expand/client-ts/project"
 

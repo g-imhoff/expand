@@ -1,6 +1,6 @@
 import { Deferred, Effect, Fiber, Ref } from "effect"
 import type { Cause, Scope } from "effect"
-import type { RpcClientError } from "effect/unstable/rpc"
+import type { RpcClientError } from "effect/rpc"
 import { runProjectSync, type ProjectSyncSink } from "@expand/contracts/project-sync"
 import { makeElectronIpcClient, type IpcTransportError } from "@expand/electron-ipc/renderer"
 import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"

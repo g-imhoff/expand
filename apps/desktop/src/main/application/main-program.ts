@@ -149,9 +149,9 @@ const openWindow = Effect.fn("DesktopMain.openWindow")(function* <Port extends P
 function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Port>) {
   let authorized = false
   const lifecycle = Effect.gen(function* () {
-    const devtools = yield* Config.option(Config.string("EXPAND_DEVTOOLS_CDP"))
-    const ssh = yield* Config.option(Config.string("SSH_CONNECTION"))
-    const renderer = yield* Config.option(Config.string("ELECTRON_RENDERER_URL"))
+    const devtools = yield* Config.option(Config.String("EXPAND_DEVTOOLS_CDP"))
+    const ssh = yield* Config.option(Config.String("SSH_CONNECTION"))
+    const renderer = yield* Config.option(Config.String("ELECTRON_RENDERER_URL"))
     const rendererValue = deps.app.isPackaged
       ? undefined
       : Option.getOrUndefined(Option.filter(renderer, (value) => value.length > 0))

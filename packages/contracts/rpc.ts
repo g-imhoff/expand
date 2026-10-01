@@ -1,4 +1,4 @@
-import { RpcGroup } from "effect/unstable/rpc"
+import { RpcGroup } from "effect/rpc"
 import { ProjectRpcs } from "@expand/contracts/rpc/projects"
 import { ServerRpcs } from "@expand/contracts/rpc/server"
 import { StreamRpcs } from "@expand/contracts/rpc/stream"

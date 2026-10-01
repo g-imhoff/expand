@@ -2,11 +2,12 @@ import { NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { it } from "@effect/vitest"
-import { Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Stream } from "effect"
-import { HttpServer } from "effect/unstable/http"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { ChildProcess } from "effect/unstable/process"
-import * as Socket from "effect/unstable/socket/Socket"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Stream } from "effect"
+import { NetAddress } from "effect/net"
+import { HttpServer } from "effect/http"
+import { SqlClient } from "effect/sql/SqlClient"
+import { ChildProcess } from "effect/process"
+import * as Socket from "effect/socket/Socket"
 import { describe, expect } from "vitest"
 import { readEndpoint } from "@expand/client-ts"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
@@ -27,14 +28,11 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 const probeTcp = (host: string, port: number) =>
   Effect.scoped(Effect.gen(function*() {
     const socket = yield* NodeSocket.makeNet({ host, port, openTimeout: "1 second" })
-    const opened = yield* Queue.unbounded<void>()
-    const run = yield* socket.runRaw(() => undefined, {
-      onOpen: Queue.offer(opened, undefined)
-    }).pipe(Effect.forkScoped)
-    return yield* Effect.race(
-      Queue.take(opened).pipe(Effect.as(true)),
-      Fiber.join(run).pipe(Effect.as(false), Effect.catchCause(() => Effect.succeed(false)))
-    ).pipe(Effect.timeoutOrElse({ duration: "1 second", orElse: () => Effect.succeed(false) }))
+    return yield* socket.reader.pipe(
+      Effect.as(true),
+      Effect.catchCause(() => Effect.succeed(false)),
+      Effect.timeoutOrElse({ duration: "1 second", orElse: () => Effect.succeed(false) })
+    )
   }))
 
 const harnessServerLayer = (dbPath: string) => {
@@ -70,7 +68,7 @@ const makeHarnessFixture = Effect.gen(function*() {
   const server = yield* HttpServer.HttpServer.pipe(Effect.provide(serverContext))
   const sql = yield* SqlClient.pipe(Effect.provide(serverContext))
   const address = server.address
-  const serverPort = address._tag === "TcpAddress" ? address.port : 0
+  const serverPort = NetAddress.isInetAddress(address) ? address.port : 0
   const handle = yield* ChildProcess.make(
     "node",
     ["--import", "tsx", "apps/server/main.ts", "--data-dir", directory],
@@ -84,14 +82,16 @@ const makeHarnessFixture = Effect.gen(function*() {
     Effect.timeout("5 seconds"),
     Effect.provide(Layer.succeed(AppContext, context))
   )
-  const opened = yield* Queue.unbounded<void>()
   const socket = yield* Socket.makeWebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`).pipe(
     Effect.provide(NodeSocket.layerWebSocketConstructorWS)
   )
-  const socketFiber = yield* socket.runRaw(() => undefined, {
-    onOpen: Queue.offer(opened, undefined)
-  }).pipe(Effect.forkScoped)
-  yield* Queue.take(opened).pipe(Effect.timeout("5 seconds"))
+  const opened = yield* Deferred.make<void>()
+  const socketFiber = yield* Effect.scoped(Effect.gen(function*() {
+    const reader = yield* socket.reader
+    yield* Deferred.succeed(opened, undefined)
+    return yield* Effect.forever(reader.pull)
+  })).pipe(Effect.forkScoped)
+  yield* Deferred.await(opened)
   return { directory, endpoint, handle, serverPort, socketFiber, sql }
 })
 

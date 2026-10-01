@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Stream } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 import { describe, expect } from "vitest"
 
 const childOutput = (

@@ -2,13 +2,13 @@ import {
   Clock,
   Crypto,
   Effect,
-  Encoding,
   FileSystem,
   Option,
   Path,
   PlatformError,
   Schema
 } from "effect"
+import { Hex } from "effect/encoding"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { SpawnLockError } from "./errors"
 
@@ -233,7 +233,7 @@ const legacyFingerprint = Effect.fn("SpawnLock.legacyFingerprint")(function*(
   const digest = yield* cryptoService.digest("SHA-256", textEncoder.encode(encoded)).pipe(
     Effect.mapError((cause) => spawnLockError("digest", "legacyFingerprint", path, cause))
   )
-  return `legacy-${Encoding.encodeHex(digest)}`
+  return `legacy-${Hex.encode(digest)}`
 })
 
 const recordFingerprint = Effect.fn("SpawnLock.recordFingerprint")(function*(

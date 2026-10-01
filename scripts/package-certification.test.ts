@@ -77,11 +77,11 @@ const exportsFor = (kind: PackageKind): Record<string, unknown> => kind === "con
       : inkInputExports()
 
 const dependenciesFor = (kind: PackageKind): Record<string, string> => kind === "contracts"
-  ? { effect: "4.0.0-beta.74" }
+  ? { effect: "4.0.0" }
   : kind === "client"
-    ? { effect: "4.0.0-beta.74", "@expand/contracts": "0.0.0-cert.0" }
+    ? { effect: "4.0.0", "@expand/contracts": "0.0.0-cert.0" }
     : kind === "electron-ipc"
-      ? { effect: "4.0.0-beta.74", electron: "42" }
+      ? { effect: "4.0.0", electron: "42" }
       : { ink: "7", react: "19" }
 
 const filesFor = (kind: PackageKind) => kind === "contracts"
@@ -128,7 +128,7 @@ const withArtifact = Effect.fn("PackageCertificationTest.withArtifact")(
       const target = path.join(root, file)
       yield* fs.makeDirectory(path.dirname(target), { recursive: true })
       yield* fs.writeFileString(target, file === "package.json"
-        ? yield* Schema.encodeEffect(Schema.UnknownFromJsonString)(manifest)
+        ? yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(manifest)
         : file.endsWith(".d.ts") ? "export declare const value: number\n" : "export const value = 1\n")
     }
     return yield* use({ root, files })
@@ -168,7 +168,7 @@ const certificationRunner = Layer.merge(
     const kind = kindFor(request.workspace)
     const files = filesFor(kind)
     if (request.phase === "pack") {
-      return Schema.encodeEffect(Schema.UnknownFromJsonString)([{
+      return Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([{
         id: `${kind}@0.0.0`, name: request.workspace, version: "0.0.0", size: 1, unpackedSize: 1,
         shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
         entryCount: files.length, bundled: []
@@ -196,7 +196,7 @@ const manifestFor = (workspace: Workspace) => ({
   dependencies: dependenciesFor(kindFor(workspace))
 })
 
-const manifestJson = (workspace: Workspace) => Schema.encodeEffect(Schema.UnknownFromJsonString)(manifestFor(workspace)).pipe(Effect.orDie)
+const manifestJson = (workspace: Workspace) => Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(manifestFor(workspace)).pipe(Effect.orDie)
 
 describe("package certification model", () => {
   it.effect.each(["contracts", "client", "electron-ipc", "ink-input"] as const)("reports fixed-group identity for a valid synthetic %s package", (kind) =>
@@ -209,7 +209,7 @@ describe("package certification model", () => {
   it.effect("rejects malformed npm pack JSON", () =>
     Schema.decodeUnknownEffect(PackMetadataJson)("not json").pipe(
       Effect.flip,
-      Effect.map((error) => expect(String(error)).toContain("Unexpected token"))
+      Effect.map((error) => expect(String(error)).toContain("Expected a valid JSON string"))
     ))
 
   it.effect.each([
@@ -388,7 +388,7 @@ describe("package certification resources", () => {
         if (request.phase === "pack") {
           return {
             exitCode: 0,
-            stdout: yield* Schema.encodeEffect(Schema.UnknownFromJsonString)([{
+            stdout: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([{
               id: `${kind}@0.0.0-cert.0`, name: request.workspace, version: "0.0.0-cert.0", size: 1, unpackedSize: 1,
               shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
               entryCount: files.length, bundled: []
@@ -408,7 +408,7 @@ describe("package certification resources", () => {
             const target = path.join(destination, "package", file)
             yield* fs.makeDirectory(path.dirname(target), { recursive: true })
             yield* fs.writeFileString(target, file === "package.json"
-              ? yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
+              ? yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
                   ...manifestFor(request.workspace),
                   version: request.workspace === mismatchedWorkspace ? "0.0.0-cert.1" : "0.0.0-cert.0"
                 })
@@ -534,7 +534,7 @@ describe("package certification resources", () => {
             yield* Deferred.succeed(phaseStarted, undefined)
             return yield* Effect.never
           }
-          return { exitCode: 0, stdout: yield* Schema.encodeEffect(Schema.UnknownFromJsonString)([{
+          return { exitCode: 0, stdout: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))([{
             id: `${kind}@0.0.0-cert.0`, name: request.workspace, version: "0.0.0-cert.0", size: 1, unpackedSize: 1,
             shasum: "x", integrity: "x", filename: `${kind}.tgz`, files: files.map((file) => ({ path: file, size: 1, mode: 420 })),
             entryCount: files.length, bundled: []
@@ -565,7 +565,7 @@ describe("package certification resources", () => {
             const target = path.join(destination, "package", file)
             yield* fs.makeDirectory(path.dirname(target), { recursive: true })
             const content = file === "package.json"
-              ? yield* Schema.encodeEffect(Schema.UnknownFromJsonString)(manifest)
+              ? yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(manifest)
               : file.endsWith(".d.ts") ? "export declare const value: number\n" : "export const value = 1\n"
             yield* fs.writeFileString(target, content)
           }

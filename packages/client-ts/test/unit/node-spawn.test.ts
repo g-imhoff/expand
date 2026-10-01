@@ -7,7 +7,7 @@ import {
   Sink,
   Stream
 } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { describe, expect } from "vitest"
 import { spawnResolvedBackend } from "../../adapters/node-spawn"
 

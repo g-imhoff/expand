@@ -1,7 +1,7 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Data, Effect, Path } from "effect"
-import { Command } from "effect/unstable/cli"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { Command } from "effect/cli"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { resolveAppVersion, resolveBuildAppVersion } from "./app-version"
 
 export type DesktopMode = "dev" | "build" | "e2e"
