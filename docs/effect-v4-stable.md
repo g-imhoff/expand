@@ -23,6 +23,7 @@ The selected browserslist range requires its compatible `baseline-browser-mappin
 
 ## Checks and retained risks
 
+- Correction (2026-10-01): Restored the accepted five-second timeout around the three socket-open readiness waits; other budgets and runtime behavior remain unchanged.
 - RED: `reconnect-removed-diagnostics-red.log`, `red-lockstep-clean.log` and `envelope-schema-toencoded-red.log` record meaningful pre-fix failures. Green focused logs cover CLI 78, client 78, server 33 and architecture 57 tests; `envelope-schema-toencoded-green.log` covers the repaired snapshot.
 - The first full run found the expected fold-version staleness after the schema source change; `gen-fold-version-final.log` regenerated only the `projects` hash, and `fold-version-final.log` passed 5/5. One concurrent full attempt hit a live binary-smoke timeout; the isolated binary suite passed 68/68, and `full-production-test-final-rerun2.log` is clean: 152 files passed, 1,142 tests passed and the repository's one intentional expected failure. Lint, typecheck, knip, package certification and publication certification logs are in the same external run directory.
 - Clean npm ci, representative V8/Istanbul coverage, compiled/package artifacts, desktop build/E2E, active stable-specific language-service proof, hosted CI and exact-head delivery remain parent-owned pending checks. The retained low esbuild advisory and these unrun delivery checks are explicit risks.

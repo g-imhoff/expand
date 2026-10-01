@@ -73,7 +73,7 @@ describe("example: archive-stale", () => {
         yield* Deferred.succeed(opened, undefined)
         return yield* Effect.forever(reader.pull)
       })).pipe(Effect.forkScoped)
-      yield* Deferred.await(opened)
+      yield* Deferred.await(opened).pipe(Effect.timeout("5 seconds"))
       const overlap = yield* Effect.all([fs.exists(endpointFile), fs.exists(backendLockFile)]).pipe(
         Effect.filterOrFail(([advertised, locked]) => !advertised && locked, () => "pending" as const),
         Effect.retry(Schedule.addDelay(Schedule.recurs(5_000), () => Effect.succeed("1 millis"))),

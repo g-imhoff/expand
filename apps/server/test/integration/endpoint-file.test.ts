@@ -189,7 +189,7 @@ describe("endpoint file (I-3)", () => {
         yield* Deferred.succeed(opened, undefined)
         return yield* Effect.forever(reader.pull)
       })).pipe(Effect.forkChild)
-      yield* Deferred.await(opened)
+      yield* Deferred.await(opened).pipe(Effect.timeout("5 seconds"))
       const interruption = yield* Fiber.interrupt(server).pipe(Effect.forkChild)
       const completed = yield* Fiber.join(interruption).pipe(
         Effect.as(true),

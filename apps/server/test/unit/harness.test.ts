@@ -91,7 +91,7 @@ const makeHarnessFixture = Effect.gen(function*() {
     yield* Deferred.succeed(opened, undefined)
     return yield* Effect.forever(reader.pull)
   })).pipe(Effect.forkScoped)
-  yield* Deferred.await(opened)
+  yield* Deferred.await(opened).pipe(Effect.timeout("5 seconds"))
   return { directory, endpoint, handle, serverPort, socketFiber, sql }
 })
 
