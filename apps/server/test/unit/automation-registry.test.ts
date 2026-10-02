@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { Effect, Result, Schema, SchemaGetter, Context } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
-import { defineAction, defineIntegration, defineTrigger, editorSchema } from "@expand/contracts/automation"
+import { decodeJson, defineAction, defineIntegration, defineRoutine, defineTrigger, editorSchema } from "@expand/contracts/automation"
 import type { ContextFreeCodec, FieldPath } from "@expand/contracts/automation"
 import { AutomationRegistry } from "@expand/server/automation/registry"
 import {
@@ -243,6 +243,77 @@ describe("trusted automation registry", () => {
         expect(registry.catalog().definitions).toEqual([])
         yield* registry.register({ ...emptyExtension, integrations: [sampleIntegration] })
       }
+    }))
+
+  for (const [name, check, invalid] of [
+    ["uniqueness", Schema.isUnique(), ["1", "1"]],
+    ["nonstructural minimum length", Schema.isMinLength(2, { "~structural": false }), ["1"]],
+    ["nonstructural maximum length", Schema.isMaxLength(2, { "~structural": false }), ["1", "2", "3"]],
+    ["nonstructural length range", Schema.isBetweenLength(2, 2, { "~structural": false }), ["1"]],
+    ["grouped uniqueness and length", Schema.isUnique().and(Schema.isMinLength(2)), ["1", "1"]]
+  ] as const) {
+    for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+      it.effect(`rejects lost array ${name} in ${location} and rolls back every definition`, () =>
+        Effect.gen(function*() {
+          const schema = Schema.Struct({ groups: Schema.Array(Schema.Struct({ counts: Schema.Array(SampleCount).check(check) })) })
+          expect(yield* decodeJson(schema, { groups: [{ counts: ["1", "2"] }] })).toEqual({ groups: [{ counts: [1, 2] }] })
+          yield* failCode(decodeJson(schema, { groups: [{ counts: invalid }] }), "invalid-contract")
+          const sample = makeSampleExtension()
+          const integration = location === "integration" ? defineIntegration({ ...sampleIntegration, configurationSchema: schema }) : sampleIntegration
+          const trigger = location === "trigger configuration" ? defineTrigger({ ...sampleTrigger, configurationSchema: schema }) :
+            location === "trigger payload" ? defineTrigger({ ...sampleTrigger, payloadSchema: schema }) : sampleTrigger
+          const action = location === "integration" ? defineAction({ ...sample.action, integrationConfigurationSchema: schema,
+            handler: () => Effect.succeed({ summary: "unused", total: 1 }) }) :
+            location === "action arguments" ? defineAction({ ...sample.action, argumentsSchema: schema,
+            handler: () => Effect.succeed({ summary: "unused", total: 1 }) }) :
+            location === "action result" ? defineAction({ ...sample.action, resultSchema: schema,
+              handler: () => Effect.succeed({ groups: [{ counts: [1, 2] }] }) }) : sample.action
+          const routine = location === "routine" ? defineRoutine({ ...sampleRoutine, configurationSchema: schema }) : sampleRoutine
+          const registry = new AutomationRegistry()
+          yield* registry.register({ ...emptyExtension, integrations: [defineIntegration({ ...sampleIntegration, definition: { id: "sample:existing", version: 1 } })] })
+          const before = registry.catalog()
+          yield* failCode(registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] }), "unsupported-schema")
+          expect(registry.catalog()).toEqual(before)
+          yield* registry.register(sample.extension)
+          expect(registry.catalog().definitions).toHaveLength(5)
+          expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "inbox: hello", total: 3 })
+        }))
+    }
+  }
+
+  it.effect("publishes primitive unique arrays and unrefined transformed arrays faithfully", () =>
+    Effect.gen(function*() {
+      const schema = Schema.Struct({
+        unique: Schema.Array(Schema.String).check(Schema.isUnique(), Schema.isMinLength(2), Schema.isMaxLength(3)),
+        transformed: Schema.Array(SampleCount)
+      })
+      const registry = new AutomationRegistry()
+      yield* registry.register({ ...emptyExtension, integrations: [defineIntegration({ ...sampleIntegration, configurationSchema: schema })] })
+      const descriptor = registry.catalog().definitions[0]!
+      expect(descriptor.kind).toBe("integration")
+      if (descriptor.kind === "integration") expect(descriptor.configurationSchema.schema).toMatchObject({ properties: {
+        unique: { type: "array", uniqueItems: true, minItems: 2, allOf: [{ minItems: 0, maxItems: 3 }] },
+        transformed: { type: "array", items: { enum: ["1", "2", "3", "4", "5"] } }
+      } })
+      expect(yield* decodeJson(schema, { unique: ["1", "2"], transformed: ["1", "1"] })).toEqual({ unique: ["1", "2"], transformed: [1, 1] })
+      for (const unique of [["1", "1"], ["1"], ["1", "2", "3", "4"]]) {
+        yield* failCode(decodeJson(schema, { unique, transformed: ["1", "2"] }), "invalid-contract")
+      }
+    }))
+
+  it.effect("keeps valid concurrent registration atomic when transformed array checks reject", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      const invalid = { ...makeSampleExtension().extension, routines: [defineRoutine({ ...sampleRoutine,
+        configurationSchema: Schema.Struct({ counts: Schema.Array(SampleCount).check(Schema.isUnique()) })
+      })] }
+      const valid = { ...emptyExtension, integrations: [defineIntegration({ ...sampleIntegration, definition: { id: "sample:concurrent-valid", version: 1 } })] }
+      const results = yield* Effect.all([registry.register(invalid).pipe(Effect.result), registry.register(valid).pipe(Effect.result)], { concurrency: "unbounded" })
+      expect(results.map((result) => Result.isFailure(result) ? result.failure.code : "registered")).toEqual(["unsupported-schema", "registered"])
+      expect(registry.catalog().definitions.map((descriptor) => descriptor.definition.id)).toEqual(["sample:concurrent-valid"])
+      yield* registry.register(makeSampleExtension().extension)
+      expect(registry.catalog().definitions).toHaveLength(5)
+      expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "inbox: hello", total: 3 })
     }))
 
   it.effect("resolves inherited outcome names with absent and explicit own routes", () =>

@@ -206,6 +206,78 @@ describe("versioned automation contracts", () => {
       if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
     }))
 
+  for (const [name, check, invalid] of [
+    ["uniqueness", Schema.isUnique(), ["1", "1"]],
+    ["nonstructural minimum length", Schema.isMinLength(2, { "~structural": false }), ["1"]],
+    ["nonstructural maximum length", Schema.isMaxLength(2, { "~structural": false }), ["1", "2", "3"]],
+    ["nonstructural length range", Schema.isBetweenLength(2, 2, { "~structural": false }), ["1"]],
+    ["grouped uniqueness and length", Schema.isUnique().and(Schema.isMinLength(2)), ["1", "1"]]
+  ] as const) {
+    for (const [shape, wrapSchema, wrapValue] of [
+      ["array", (schema: ContextFreeCodec) => schema, (value: ReadonlyArray<string>) => value],
+      ["object", (schema: ContextFreeCodec) => Schema.Struct({ counts: schema }), (value: ReadonlyArray<string>) => ({ counts: value })],
+      ["nested arrays", (schema: ContextFreeCodec) => Schema.Array(Schema.Struct({ counts: schema })), (value: ReadonlyArray<string>) => [{ counts: value }]]
+    ] as const) {
+      it.effect(`rejects lost ${name} over transformed elements inside ${shape}`, () =>
+        Effect.gen(function*() {
+          const count = Schema.Literals(["1", "2", "3"]).pipe(Schema.decodeTo(Schema.Finite, {
+            decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "1" | "2" | "3")
+          }))
+          const schema = wrapSchema(Schema.Array(count).check(check))
+          yield* roundtrip(schema, wrapValue(["1", "2"]))
+          yield* reject(schema, wrapValue(invalid))
+          const result = yield* editorSchema(schema).pipe(Effect.result)
+          expect(Result.isFailure(result)).toBe(true)
+          if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+        }))
+    }
+  }
+
+  it.effect("keeps primitive array uniqueness and length constraints representable", () =>
+    Effect.gen(function*() {
+      for (const [schema, expected] of [
+        [Schema.Array(Schema.String).check(Schema.isUnique(), Schema.isMinLength(2), Schema.isMaxLength(3)),
+          { type: "array", uniqueItems: true, minItems: 2, allOf: [{ minItems: 0, maxItems: 3 }] }],
+        [Schema.Array(Schema.String).check(Schema.isUnique().and(Schema.isBetweenLength(2, 3))),
+          { type: "array", allOf: [{ uniqueItems: true }, { minItems: 2, maxItems: 3 }] }]
+      ] as const) {
+        expect((yield* editorSchema(schema)).schema).toMatchObject(expected)
+        yield* roundtrip(schema, ["1", "2"])
+        for (const value of [[], ["1"], ["1", "1"], ["1", "2", "3", "4"]]) yield* reject(schema, value)
+      }
+    }))
+
+  it.effect("preserves structural length checks over transformed elements", () =>
+    Effect.gen(function*() {
+      const count = Schema.Literals(["1", "2", "3"]).pipe(Schema.decodeTo(Schema.Finite, {
+        decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "1" | "2" | "3")
+      }))
+      for (const [check, expected, invalid] of [
+        [Schema.isMinLength(2), { minItems: 2 }, ["1"]],
+        [Schema.isMaxLength(2), { maxItems: 2 }, ["1", "2", "3"]],
+        [Schema.isBetweenLength(2, 2), { minItems: 2, maxItems: 2 }, ["1"]],
+        [Schema.isMinLength(2).and(Schema.isMaxLength(2)), { allOf: [{ minItems: 2 }, { maxItems: 2 }] }, ["1"]]
+      ] as const) {
+        const schema = Schema.Array(count).check(check)
+        expect((yield* editorSchema(schema)).schema).toMatchObject(expected)
+        yield* roundtrip(schema, ["1", "2"])
+        yield* roundtrip(schema, ["1", "1"])
+        yield* reject(schema, invalid)
+      }
+    }))
+
+  it.effect("rejects transformed uniqueness even when annotated as structural", () =>
+    Effect.gen(function*() {
+      const element = (encoded: "left" | "right") => Schema.Literal(encoded).pipe(Schema.decodeTo(Schema.Literal(1), {
+        decode: SchemaGetter.transform(() => 1 as const), encode: SchemaGetter.transform(() => encoded)
+      }))
+      const schema = Schema.Tuple([element("left"), element("right")]).check(Schema.isUnique({ "~structural": true }))
+      yield* reject(schema, ["left", "right"])
+      const result = yield* editorSchema(schema).pipe(Effect.result)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+    }))
+
   it.effect("roundtrips every definition, configuration, decision and run contract", () =>
     Effect.gen(function*() {
       for (const [schema, value] of [

@@ -146,9 +146,16 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
       break
   }
   const encoded = Schema.toEncoded(Schema.make(ast)).ast
+  if (ast._tag === "Arrays") {
+    const preserved = new Set(checkLeaves(encoded.checks ?? []))
+    if (checkLeaves(ast.checks ?? []).some((check) => !preserved.has(check))) throw new Error("Array checks are lost in the encoded schema")
+  }
   if (["Unknown", "Any", "ObjectKeyword", "BigInt", "Symbol", "UniqueSymbol", "Void"].includes(encoded._tag)) throw new Error("Non-JSON encoded type")
   if (encoded._tag === "Undefined" && !encoded.context?.isOptional) throw new Error("Non-JSON undefined")
 }
+
+const checkLeaves = (checks: ReadonlyArray<SchemaAST.Check<unknown>>): ReadonlyArray<SchemaAST.Check<unknown>> =>
+  checks.flatMap((check) => check._tag === "FilterGroup" ? checkLeaves(check.checks) : [check])
 
 const jsonEncodedAst = (ast: SchemaAST.AST, cache = new Map<SchemaAST.AST, SchemaAST.AST>()): SchemaAST.AST => {
   const cached = cache.get(ast)
@@ -271,7 +278,7 @@ const descriptorCheck = (check: SchemaAST.Check<unknown>, ast: SchemaAST.AST): S
 }
 
 const isPrimitiveAst = (ast: SchemaAST.AST): boolean =>
-  ["String", "Number", "Boolean", "Literal", "Null"].includes(ast._tag) || ast._tag === "Union" && ast.types.every(isPrimitiveAst)
+  !ast.encoding?.length && (["String", "Number", "Boolean", "Literal", "Null"].includes(ast._tag) || ast._tag === "Union" && ast.types.every(isPrimitiveAst))
 
 const utf16MinimumPattern = (minimum: number): string => {
   if (!Number.isInteger(minimum) || minimum < 0 || minimum > 512) throw new Error("Unsupported UTF-16 length bound")
