@@ -1,9 +1,9 @@
 import { it } from "@effect/vitest"
 import { Effect, Result, Schema, SchemaGetter } from "effect"
-import { describe, expect, expectTypeOf } from "vitest"
+import { describe, expect, expectTypeOf, vi } from "vitest"
 import {
   ActionDescriptor, ActionOutcome, AutomationRun, Catalog, CredentialReference, decodeJson, DefinitionReference,
-  editorSchema, IntegrationConfiguration, IntegrationDescriptor, InvocationAuthority, JevDecisionRequest, JevDecisionResult,
+  editorSchema, IntegrationConfiguration, IntegrationDescriptor, InvocationAuthority, isJsonValue, JevDecisionRequest, JevDecisionResult,
   ProcessDefinition, RoutineConfiguration, RoutineDescriptor, RunState, TriggerDescriptor
 } from "@expand/contracts/automation"
 import type { ContextFreeCodec } from "@expand/contracts/automation"
@@ -37,6 +37,97 @@ const reject = Effect.fn("Test.reject")(function*(schema: ContextFreeCodec, inpu
 })
 
 describe("versioned automation contracts", () => {
+  it.effect("roundtrips custom configurations without template provenance", () =>
+    Effect.gen(function*() {
+      const custom = { ...configuration }
+      Reflect.deleteProperty(custom, "template")
+      yield* roundtrip(RoutineConfiguration, custom)
+      expectTypeOf<typeof RoutineConfiguration.Type.template>().toEqualTypeOf<DefinitionReference | undefined>()
+      const descriptor = yield* editorSchema(RoutineConfiguration)
+      const required = (descriptor.schema as Record<string, Schema.Json>)["required"]
+      expect(required).not.toContain("template")
+      for (const template of [null, {}, { ...reference, version: 0 }, { ...reference, id: "invalid" }]) {
+        yield* reject(RoutineConfiguration, { ...custom, template })
+      }
+    }))
+
+  for (const key of ["4294967295", "4294967296", "9007199254740991", "9007199254740992", "01", "-1", "1.0", "1e0"]) {
+    for (const value of ["json", undefined, () => "non-json"]) {
+      it.effect(`rejects array property ${key} with ${typeof value} value`, () =>
+        Effect.gen(function*() {
+          const array: Array<unknown> = []
+          Object.defineProperty(array, key, { value, enumerable: true })
+          expect(isJsonValue(array)).toBe(false)
+          yield* reject(Schema.Json, array)
+        }))
+    }
+  }
+
+  it.effect("rejects discarded numeric array properties at the decoder boundary", () =>
+    Effect.gen(function*() {
+      for (const value of [true, undefined]) {
+        const array: Array<unknown> = []
+        Object.defineProperty(array, "4294967295", { value, enumerable: true })
+        yield* reject(Schema.Json, array)
+      }
+    }))
+
+  it.effect("rejects sparse, accessor, hidden, symbolic and extra array properties without calling getters", () =>
+    Effect.gen(function*() {
+      const getter = vi.fn(() => "accessed")
+      const accessor: Array<unknown> = ["value"]
+      Object.defineProperty(accessor, "0", { get: getter, enumerable: true })
+      const hidden: Array<unknown> = ["value"]
+      Object.defineProperty(hidden, "0", { value: "value", enumerable: false })
+      const extra = Object.assign(["value"], { extra: "discarded" })
+      const symbolic = Object.assign(["value"], { [Symbol("extra")]: "discarded" })
+      for (const value of [new Array(1), ["value", , "value"], accessor, hidden, extra, symbolic]) {
+        expect(isJsonValue(value)).toBe(false)
+        yield* reject(Schema.Json, value)
+      }
+      expect(getter).not.toHaveBeenCalled()
+    }))
+
+  it.effect("roundtrips dense arrays and nested JSON without losing data", () =>
+    Effect.gen(function*() {
+      for (const value of [[], [null, true, false, 1, "value"], [[1], { nested: ["value"] }], Object.freeze([1, 2])]) {
+        expect(isJsonValue(value)).toBe(true)
+        yield* roundtrip(Schema.Json, value)
+        const codec = Schema.fromJsonString(Schema.Json)
+        const serialized = yield* Schema.encodeEffect(codec)(value)
+        expect(yield* Schema.decodeUnknownEffect(codec)(serialized)).toEqual(value)
+      }
+      yield* roundtrip(Schema.Json, { toJSON: "ordinary field", values: [1] })
+    }))
+
+  it("rejects array prototypes that change JSON serialization", () => {
+    const hook = vi.fn(() => "changed")
+    const value = Object.setPrototypeOf([1], { toJSON: hook })
+    expect(isJsonValue(value)).toBe(false)
+    expect(Result.isFailure(Effect.runSync(decodeJson(Schema.Json, value).pipe(Effect.result)))).toBe(true)
+    expect(hook).not.toHaveBeenCalled()
+  })
+
+  it("rejects inherited JSON hooks and accessors without executing them", () => {
+    for (const prototype of [Array.prototype, Object.prototype]) {
+      const previous = Object.getOwnPropertyDescriptor(prototype, "toJSON")
+      const hook = vi.fn(() => "changed")
+      try {
+        for (const descriptor of [{ value: hook }, { get: hook }]) {
+          Object.defineProperty(prototype, "toJSON", { ...descriptor, configurable: true })
+          for (const value of prototype === Array.prototype ? [[1]] : [[1], { value: 1 }]) {
+            expect(isJsonValue(value)).toBe(false)
+            expect(Result.isFailure(Effect.runSync(decodeJson(Schema.Json, value).pipe(Effect.result)))).toBe(true)
+          }
+        }
+        expect(hook).not.toHaveBeenCalled()
+      } finally {
+        if (previous) Object.defineProperty(prototype, "toJSON", previous)
+        else Reflect.deleteProperty(prototype, "toJSON")
+      }
+    }
+  })
+
   it.effect("represents exact UTF-16 string length boundaries", () =>
     Effect.gen(function*() {
       for (const minimum of [2, 3, 4, 64, 128, 512]) {

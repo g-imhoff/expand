@@ -59,8 +59,10 @@ export class AutomationRegistry {
 
   readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry, input: unknown) {
     const configuration = yield* decodeJson(RoutineConfiguration, input)
-    const routine = yield* requireDefinition(this.definitions, configuration.template, "routine-template")
-    yield* decodeJson(routine.configurationSchema, configuration.configuration)
+    if (configuration.template !== undefined) {
+      const routine = yield* requireDefinition(this.definitions, configuration.template, "routine-template")
+      yield* decodeJson(routine.configurationSchema, configuration.configuration)
+    }
     yield* validateDefinitionReferences(this.definitions, configuration.process)
     const integrationIds = new Set<string>()
     for (const integration of configuration.integrations) {

@@ -20,6 +20,94 @@ const failCode = Effect.fn("Test.failCode")(function*<A>(effect: Effect.Effect<A
 })
 
 describe("trusted automation registry", () => {
+  for (const templatesInstalled of [false, true]) {
+    for (const operation of ["validate", "resolve", "invoke"] as const) {
+      it.effect(`${operation}s template-free custom configurations with templates installed ${templatesInstalled}`, () =>
+        Effect.gen(function*() {
+          const handler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: args.message, total: args.count }))
+          const registry = new AutomationRegistry()
+          const sample = makeSampleExtension(handler)
+          yield* registry.register({ ...sample.extension, routines: templatesInstalled ? sample.extension.routines : [] })
+          const configuration = cloneConfiguration()
+          Reflect.deleteProperty(configuration, "template")
+          configuration.configuration = { message: "custom", count: "4" }
+          configuration.process.actions["triggered"]![0]!.bindings = {
+            message: { kind: "field", source: "configuration", path: ["message"] },
+            count: { kind: "field", source: "configuration", path: ["count"] }
+          }
+          if (operation === "validate") expect(yield* registry.validateConfiguration(configuration)).toEqual(configuration)
+          if (operation === "resolve") {
+            const resolved = yield* registry.resolveSelectedActions(configuration, invocation.triggerPayload)
+            expect(resolved.selection.kind).toBe("selected")
+            expect(resolved.actions.map((action) => action.arguments)).toEqual([{ message: "custom", count: "4" }])
+          }
+          if (operation === "invoke") {
+            expect(yield* registry.invokeAction({ ...invocation, configuration }, sampleAuthority)).toEqual({ summary: "custom", total: 4 })
+            expect(handler).toHaveBeenCalledTimes(1)
+            expect(handler.mock.calls[0]?.[0]).toEqual({ message: "custom", count: 4 })
+          } else expect(handler).not.toHaveBeenCalled()
+        }))
+    }
+
+    it.effect(`validates custom inputs and authority before handlers with templates installed ${templatesInstalled}`, () =>
+      Effect.gen(function*() {
+        const handler = vi.fn(() => Effect.succeed({ summary: "ok", total: 1 }))
+        const registry = new AutomationRegistry()
+        const sample = makeSampleExtension(handler)
+        yield* registry.register({ ...sample.extension, routines: templatesInstalled ? sample.extension.routines : [] })
+        const configuration = cloneConfiguration()
+        Reflect.deleteProperty(configuration, "template")
+        configuration.configuration = { custom: true }
+        yield* registry.validateConfiguration(configuration)
+        for (const mutate of [
+          (config: Mutable<typeof sampleConfiguration>) => { config.configuration = { invalid: undefined } as unknown as Schema.Json },
+          (config: Mutable<typeof sampleConfiguration>) => { config.process.trigger.configuration = { label: 2 } },
+          (config: Mutable<typeof sampleConfiguration>) => { config.integrations[0]!.configuration = { mailbox: 1 } },
+          (config: Mutable<typeof sampleConfiguration>) => { config.process.actions["triggered"]![0]!.bindings["count"] = { kind: "literal", value: 3 } },
+          (config: Mutable<typeof sampleConfiguration>) => { config.process.actions["triggered"]![0]!.bindings["message"] = { kind: "literal", value: "" } }
+        ]) {
+          const invalid = structuredClone(configuration)
+          mutate(invalid)
+          yield* failCode(registry.invokeAction({ ...invocation, configuration: invalid }, sampleAuthority), "invalid-contract")
+        }
+        const missing = structuredClone(configuration)
+        missing.process.actions["triggered"]![0]!.action.version = 99
+        yield* failCode(registry.invokeAction({ ...invocation, configuration: missing }, sampleAuthority), "missing-definition")
+        yield* failCode(registry.invokeAction({ ...invocation, configuration, triggerPayload: { subject: "hello", count: 3 } }, sampleAuthority), "invalid-contract")
+        for (const authority of [
+          { ...sampleAuthority, scope: { ...sampleAuthority.scope, ownerId: "other" } },
+          { ...sampleAuthority, configuration: { ...sampleAuthority.configuration, revision: 99 } },
+          { ...sampleAuthority, integrationIds: [] }, { ...sampleAuthority, actionGrants: [] },
+          { ...sampleAuthority, actionGrants: [{ action: { id: "sample:send", version: 2 }, integrationId: "mail", capabilities: ["send"] }] },
+          { ...sampleAuthority, actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "mail", capabilities: [] }] }
+        ]) yield* failCode(registry.invokeAction({ ...invocation, configuration }, authority), "denied")
+        yield* failCode(registry.invokeAction({ ...invocation, configuration }, undefined), "invalid-contract")
+        const step = configuration.process.actions["triggered"]![0]!
+        configuration.process = { ...configuration.process,
+          decision: { kind: "jev", provider: "opencode-zen", model: "jev", version: "1.13", outcomes: ["send"] }, actions: { send: [step] }
+        }
+        const decision = { schemaVersion: 1, kind: "abstained", reason: "unsure" }
+        expect(yield* registry.resolveSelectedActions(configuration, invocation.triggerPayload, decision)).toEqual({
+          selection: { kind: "unresolved", reason: "unsure", actions: [] }, actions: []
+        })
+        yield* failCode(registry.invokeAction({ ...invocation, configuration, decision }, sampleAuthority), "unresolved-selection")
+        expect(handler).not.toHaveBeenCalled()
+      }))
+  }
+
+  it.effect("still rejects present unknown, malformed and codec-invalid templates before handlers", () =>
+    Effect.gen(function*() {
+      const handler = vi.fn(() => Effect.succeed({ summary: "ok", total: 1 }))
+      const registry = new AutomationRegistry()
+      yield* registry.register(makeSampleExtension(handler).extension)
+      yield* failCode(registry.invokeAction({ ...invocation, configuration: { ...sampleConfiguration, template: { ...sampleRoutine.definition, version: 99 } } }, sampleAuthority), "missing-definition")
+      for (const template of [null, {}, { ...sampleRoutine.definition, version: 0 }]) {
+        yield* failCode(registry.invokeAction({ ...invocation, configuration: { ...sampleConfiguration, template } }, sampleAuthority), "invalid-contract")
+      }
+      yield* failCode(registry.invokeAction({ ...invocation, configuration: { ...sampleConfiguration, configuration: { custom: true } } }, sampleAuthority), "invalid-contract")
+      expect(handler).not.toHaveBeenCalled()
+    }))
+
   it.effect("captures both versions' handlers and codecs when reusing builder input", () =>
     Effect.gen(function*() {
       const firstHandler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: `first:${args.message}`, total: args.count }))
@@ -338,7 +426,7 @@ describe("trusted automation registry", () => {
       const registry = new AutomationRegistry()
       yield* registry.register(makeSampleExtension().extension)
       for (const mutate of [
-        (config: Mutable<typeof sampleConfiguration>) => { config.template.version = 99 },
+        (config: Mutable<typeof sampleConfiguration>) => { config.template!.version = 99 },
         (config: Mutable<typeof sampleConfiguration>) => { config.process.trigger.definition.version = 99 },
         (config: Mutable<typeof sampleConfiguration>) => { config.process.actions["triggered"]![0]!.action.version = 99 },
         (config: Mutable<typeof sampleConfiguration>) => { config.integrations[0]!.definition.version = 99 }

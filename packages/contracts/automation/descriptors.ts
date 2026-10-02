@@ -56,12 +56,20 @@ export const isJsonValue = (value: unknown, ancestors: ReadonlySet<object> = new
   if (value === null || typeof value === "string" || typeof value === "boolean") return true
   if (typeof value === "number") return Number.isFinite(value)
   if (typeof value !== "object" || ancestors.has(value)) return false
-  if (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return false
+  const prototype = Object.getPrototypeOf(value)
+  if (Array.isArray(value) ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) return false
+  for (let current: object | null = value; current !== null; current = Object.getPrototypeOf(current)) {
+    const hook = Object.getOwnPropertyDescriptor(current, "toJSON")
+    if (hook) {
+      if (!("value" in hook) || typeof hook.value === "function") return false
+      break
+    }
+  }
   const next = new Set(ancestors).add(value)
   const properties = Object.getOwnPropertyDescriptors(value)
   if (Reflect.ownKeys(properties).some((key) => typeof key !== "string")) return false
   if (Array.isArray(value)) {
-    if (Object.keys(properties).some((key) => key !== "length" && !/^(0|[1-9][0-9]*)$/.test(key))) return false
+    if (Object.keys(properties).some((key) => key !== "length" && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length))) return false
     for (let index = 0; index < value.length; index++) {
       const property = properties[String(index)]
       if (!property || !property.enumerable || !("value" in property) || !isJsonValue(property.value, next)) return false

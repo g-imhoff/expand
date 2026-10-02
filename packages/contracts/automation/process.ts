@@ -42,7 +42,7 @@ export const ProcessDefinition = Schema.Struct({
 export type ProcessDefinition = typeof ProcessDefinition.Type
 export const RoutineConfiguration = Schema.Struct({
   schemaVersion: Schema.Literal(1), kind: Schema.Literal("routine-configuration"),
-  reference: ConfigurationReference, template: DefinitionReference, scope: PersonalScope,
+  reference: ConfigurationReference, template: Schema.optional(DefinitionReference), scope: PersonalScope,
   configuration: JsonValue, integrations: Schema.Array(IntegrationConfiguration), process: ProcessDefinition
 })
 export type RoutineConfiguration = typeof RoutineConfiguration.Type
