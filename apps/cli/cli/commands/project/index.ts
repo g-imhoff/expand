@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli"
+import { Command } from "effect/cli"
 import { createCommand } from "@expand/cli/commands/project/create"
 import { listCommand } from "@expand/cli/commands/project/list"
 import { renameCommand } from "@expand/cli/commands/project/rename"

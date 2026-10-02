@@ -78,8 +78,8 @@ describe("scoped entrypoints", () => {
         expect(nodeAdapter.makeNodeAdapter).toBeDefined()
         expect(nodeAdapter.nodeProcessControlLayer).toBeDefined()
         expect(nodeAdapter.ProcessServices).toBeDefined()
-        expect(manifest.dependencies["@effect/platform-node"]).toBe("4.0.0-beta.74")
-        expect(manifest.dependencies["@effect/platform-node-shared"]).toBe("4.0.0-beta.74")
+        expect(manifest.dependencies["@effect/platform-node"]).toBe("4.0.0")
+        expect(manifest.dependencies["@effect/platform-node-shared"]).toBe("4.0.0")
         expect(Object.keys(manifest.exports).filter((entry) => entry.startsWith("./adapters/"))).toEqual([
           "./adapters/node"
         ])

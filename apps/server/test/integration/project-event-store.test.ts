@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, Layer, Stream } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { PROJECT_EVENT_TAGS, ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectCreated, ProjectEvent } from "@expand/contracts/events/project"

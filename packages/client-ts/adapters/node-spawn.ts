@@ -1,5 +1,5 @@
 import { Effect, type Scope } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { BackendUnavailable } from "../errors"
 
 export const spawnResolvedBackend = Effect.fn("NodeAdapter.spawnResolvedBackend")(function*(

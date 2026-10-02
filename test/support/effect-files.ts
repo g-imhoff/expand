@@ -1,10 +1,10 @@
 import { Effect, FileSystem, Path, Schema, type Scope } from "effect"
 
-export class FixtureFileError extends Schema.TaggedErrorClass<FixtureFileError>()(
+export class FixtureFileError extends Schema.TaggedError<FixtureFileError>()(
   "FixtureFileError",
   {
     path: Schema.String,
-    cause: Schema.Defect
+    cause: Schema.Defect()
   }
 ) {}
 

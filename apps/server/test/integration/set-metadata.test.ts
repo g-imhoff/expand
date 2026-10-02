@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("end-to-end set-metadata", () => {
+describe("end-to-end set-metadata", { concurrent: false }, () => {
   it.live("replaces metadata, broadcasts ProjectMetadataChanged, lists it, surfaces ProjectNotFound, and survives a re-fold",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-set-metadata-')
