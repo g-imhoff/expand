@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Cause, Crypto, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schedule, Scope } from "effect"
+import { Cause, Crypto, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schedule, Schema, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
@@ -7,6 +7,7 @@ import * as Socket from "effect/socket/Socket"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
+import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
 import { readEndpoint } from "@expand/client-ts"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
@@ -30,6 +31,86 @@ const runObservedServer = (options: RunServerOptions) => runServer(options).pipe
 )
 
 describe("endpoint file (I-3)", () => {
+  it.live("publishes complete private JSON only after the write finishes", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-publication-" })
+      const appContext = makeTestAppContext(directory, path)
+      const endpoint = {
+        url: "ws://127.0.0.1:51789/rpc",
+        token: "tok",
+        pid: 4242,
+        protocolVersion: PROTOCOL_VERSION
+      }
+      const started = yield* Deferred.make<void>()
+      const resume = yield* Deferred.make<void>()
+      const scope = yield* Scope.make()
+      const writer = yield* writeEndpointFile(endpoint).pipe(
+        Effect.provideService(Scope.Scope, scope),
+        Effect.provideService(AppContext, appContext),
+        Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+          ...fs,
+          writeFileString: (file, data, options) => Effect.gen(function*() {
+            yield* fs.writeFileString(file, "", options)
+            yield* Deferred.succeed(started, undefined)
+            yield* Deferred.await(resume)
+            yield* fs.writeFileString(file, data, options)
+          })
+        })),
+        Effect.forkChild
+      )
+      yield* Deferred.await(started)
+      const visibleDuringWrite = yield* fs.exists(appContext.paths.endpointFile)
+      yield* Deferred.succeed(resume, undefined)
+      yield* Fiber.join(writer)
+      const published = yield* Schema.decodeUnknownEffect(EndpointFromJson)(
+        yield* fs.readFileString(appContext.paths.endpointFile)
+      )
+      const mode = Number((yield* fs.stat(appContext.paths.endpointFile)).mode & 0o777)
+      const files = yield* fs.readDirectory(directory)
+      yield* Scope.close(scope, Exit.void)
+      expect(visibleDuringWrite).toBe(false)
+      expect(published).toEqual(endpoint)
+      expect(mode).toBe(0o600)
+      expect(files).toEqual(["server.json"])
+      expect(yield* fs.readDirectory(directory)).toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  for (const operation of ["writeFileString", "chmod", "rename"] as const) {
+    it.live(`removes unpublished files after ${operation} fails`, () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "expand-ep-publication-failure-" })
+        const appContext = makeTestAppContext(directory, path)
+        const denied = PlatformError.systemError({
+          _tag: "PermissionDenied",
+          module: "FileSystem",
+          method: operation,
+          pathOrDescriptor: appContext.paths.endpointFile
+        })
+        const exit = yield* Effect.scoped(writeEndpointFile({
+          url: "ws://127.0.0.1:51789/rpc",
+          token: "tok",
+          pid: 4242,
+          protocolVersion: PROTOCOL_VERSION
+        })).pipe(
+          Effect.provideService(AppContext, appContext),
+          Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+            ...fs,
+            [operation]: () => Effect.fail(denied)
+          })),
+          Effect.exit
+        )
+        expect(Exit.isFailure(exit)).toBe(true)
+        if (Exit.isFailure(exit)) {
+          expect(exit.cause.reasons.some((reason) => Cause.isFailReason(reason) && reason.error === denied)).toBe(true)
+        }
+        expect(yield* fs.readDirectory(directory)).toEqual([])
+      }).pipe(Effect.provide(NodeServices.layer)))
+  }
+
   it.live("writes the file inside the scope and removes it when the scope closes", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -87,7 +168,9 @@ describe("endpoint file (I-3)", () => {
         Effect.provideService(AppContext, appContext),
         Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
           ...fs,
-          remove: () => Effect.fail(permission)
+          remove: (file, options) => file === appContext.paths.endpointFile
+            ? Effect.fail(permission)
+            : fs.remove(file, options)
         }))
       )
       const primary = new Error("primary failure")
@@ -126,7 +209,9 @@ describe("endpoint file (I-3)", () => {
           pidReads += 1
           return 4242
         },
-        probe: () => Effect.succeed("alive")
+        probe: () => Effect.succeed("alive"),
+        currentIdentity: () => Effect.sync((): undefined => undefined),
+        identify: () => Effect.succeed({ status: "alive", identity: undefined })
       }
       const program = runServer(options).pipe(
         Effect.provideService(Crypto.Crypto, crypto),
@@ -269,7 +354,9 @@ describe("endpoint file (I-3)", () => {
         pidReads += 1
         return 4242
       },
-      probe: () => Effect.succeed("alive")
+      probe: () => Effect.succeed("alive"),
+      currentIdentity: () => Effect.sync((): undefined => undefined),
+      identify: () => Effect.succeed({ status: "alive", identity: undefined })
     }
 
     return Effect.gen(function*() {

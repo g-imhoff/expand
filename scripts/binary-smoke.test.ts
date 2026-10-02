@@ -525,7 +525,9 @@ describe("binary certification live ownership", () => {
           remove: () => Effect.void
         }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
-          probe: () => Effect.succeed("dead" as const)
+          probe: () => Effect.succeed("dead" as const),
+          currentIdentity: () => Effect.sync((): undefined => undefined),
+          identify: () => Effect.succeed({ status: "dead" as const })
         }), fixture.layer)),
         Effect.forkChild({ startImmediately: true })
       )
@@ -620,7 +622,9 @@ describe("binary certification live ownership", () => {
           readFileString: () => Effect.succeed(phase === "auto" ? "{\"pid\":41}" : `{\"pid\":${directPid}}`)
         }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
-          probe: (pid) => Effect.sync(() => pid === directPid && directRunning ? "alive" as const : "dead" as const)
+          probe: (pid) => Effect.sync(() => pid === directPid && directRunning ? "alive" as const : "dead" as const),
+          currentIdentity: () => Effect.sync((): undefined => undefined),
+          identify: (pid) => Effect.sync(() => pid === directPid && directRunning ? { status: "alive" as const, identity: undefined } : { status: "dead" as const })
         }), layer)),
         Effect.forkChild({ startImmediately: true })
       )
@@ -637,7 +641,9 @@ describe("binary certification live ownership", () => {
       const fiber = yield* certifyBinaries("/repo").pipe(
         Effect.provide(Layer.mergeAll(FileSystem.layerNoop({ remove: () => Effect.void, makeDirectory: () => Effect.void, chmod: () => Effect.void }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
-          probe: () => Effect.succeed("dead" as const)
+          probe: () => Effect.succeed("dead" as const),
+          currentIdentity: () => Effect.sync((): undefined => undefined),
+          identify: () => Effect.succeed({ status: "dead" as const })
         }), fixture.layer)),
         Effect.forkChild({ startImmediately: true })
       )
@@ -830,7 +836,9 @@ describe("binary certification live ownership", () => {
           readFileString: () => Effect.succeed("malformed")
         }), Path.layer, Layer.succeed(ProcessControl, {
           currentPid: 1,
-          probe: () => Effect.succeed("dead" as const)
+          probe: () => Effect.succeed("dead" as const),
+          currentIdentity: () => Effect.sync((): undefined => undefined),
+          identify: () => Effect.succeed({ status: "dead" as const })
         }), fixture.layer)),
         Effect.exit
       )
