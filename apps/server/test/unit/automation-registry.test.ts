@@ -301,6 +301,68 @@ describe("trusted automation registry", () => {
       }
     }))
 
+  for (const nested of [false, true]) {
+    for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+      it.effect(`rejects approximate oneOf in ${location} with nesting ${nested} before publishing any definition`, () =>
+        Effect.gen(function*() {
+          const union = Schema.Union([Schema.Struct({ value: Schema.Json }), Schema.Struct({ value: Schema.String })], { mode: "oneOf" })
+          const schema = nested ? Schema.Struct({ choice: union }) : union
+          const valid = nested ? { choice: { value: null } } : { value: null }
+          const invalid = nested ? { choice: { value: "text" } } : { value: "text" }
+          expect(yield* decodeJson(schema, valid)).toEqual(valid)
+          yield* failCode(decodeJson(schema, invalid), "invalid-contract")
+          const handler = vi.fn(() => Effect.succeed({ summary: "unused", total: 1 }))
+          const sample = makeSampleExtension(handler)
+          const integration = location === "integration" ? defineIntegration({ ...sampleIntegration, configurationSchema: schema }) : sampleIntegration
+          const trigger = location === "trigger configuration" ? defineTrigger({ ...sampleTrigger, configurationSchema: schema }) :
+            location === "trigger payload" ? defineTrigger({ ...sampleTrigger, payloadSchema: schema }) : sampleTrigger
+          const action = location === "integration" ? defineAction({ ...sample.action, integrationConfigurationSchema: schema, handler }) :
+            location === "action arguments" ? defineAction({ ...sample.action, argumentsSchema: schema, handler }) :
+            location === "action result" ? defineAction({ ...sample.action, resultSchema: schema, handler: () => Effect.succeed(valid) }) : sample.action
+          const routine = location === "routine" ? defineRoutine({ ...sampleRoutine, configurationSchema: schema }) : sampleRoutine
+          const registry = new AutomationRegistry()
+          yield* registry.register({ ...emptyExtension, integrations: [defineIntegration({ ...sampleIntegration, definition: { id: "sample:existing", version: 1 } })] })
+          const before = registry.catalog()
+          yield* failCode(registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] }), "unsupported-schema")
+          expect(registry.catalog()).toEqual(before)
+          yield* failCode(registry.invokeAction(invocation, sampleAuthority), "missing-definition")
+          expect(handler).not.toHaveBeenCalled()
+          yield* registry.register(sample.extension)
+          expect(registry.catalog().definitions).toHaveLength(5)
+          expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "unused", total: 1 })
+          expect(handler).toHaveBeenCalledTimes(1)
+        }))
+    }
+  }
+
+  it.effect("publishes default JSON anyOf arguments and preserves exact oneOf rejection before handlers", () =>
+    Effect.gen(function*() {
+      for (const mode of ["anyOf", "oneOf"] as const) {
+        const argumentsSchema = mode === "anyOf" ? Schema.Union([Schema.Struct({ value: Schema.Json }), Schema.Struct({ value: Schema.String })]) :
+          Schema.Struct({ value: Schema.Union([Schema.String, Schema.Literal("overlap")], { mode: "oneOf" }), metadata: Schema.Json })
+        const handler = vi.fn(() => Effect.succeed({ summary: "ok", total: 1 }))
+        const sample = makeSampleExtension()
+        const registry = new AutomationRegistry()
+        yield* registry.register({ ...sample.extension, actions: [defineAction({ ...sample.action, argumentsSchema, handler })] })
+        const descriptor = registry.catalog().definitions.find((definition) => definition.kind === "action")!
+        expect(descriptor.kind).toBe("action")
+        if (descriptor.kind === "action") expect(descriptor.argumentsSchema.schema).toMatchObject(mode === "anyOf" ?
+          { anyOf: expect.any(Array) } : { properties: { value: { oneOf: expect.any(Array) }, metadata: {} } })
+        const configuration = cloneConfiguration()
+        configuration.process.actions["triggered"]![0]!.bindings = {
+          value: { kind: "literal", value: mode === "anyOf" ? "text" : "overlap" },
+          ...(mode === "oneOf" ? { metadata: { kind: "literal" as const, value: null } } : {})
+        }
+        if (mode === "oneOf") {
+          yield* failCode(registry.invokeAction({ ...invocation, configuration }, sampleAuthority), "invalid-contract")
+          expect(handler).not.toHaveBeenCalled()
+          configuration.process.actions["triggered"]![0]!.bindings["value"] = { kind: "literal", value: "text" }
+        }
+        expect(yield* registry.invokeAction({ ...invocation, configuration }, sampleAuthority)).toEqual({ summary: "ok", total: 1 })
+        expect(handler).toHaveBeenCalledTimes(1)
+      }
+    }))
+
   it.effect("keeps valid concurrent registration atomic when transformed array checks reject", () =>
     Effect.gen(function*() {
       const registry = new AutomationRegistry()

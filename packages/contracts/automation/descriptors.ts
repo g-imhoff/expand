@@ -136,6 +136,7 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
       for (const element of ast.rest) assertSupported(element, visited)
       break
     case "Union":
+      if (ast.options?.mode === "oneOf" && containsJsonDeclaration(ast, new Set())) throw new Error("JSON declaration makes oneOf approximate")
       for (const member of ast.types) {
         if (ast.context?.isOptional && member._tag === "Undefined") continue
         assertSupported(member, visited)
@@ -152,6 +153,21 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
   }
   if (["Unknown", "Any", "ObjectKeyword", "BigInt", "Symbol", "UniqueSymbol", "Void"].includes(encoded._tag)) throw new Error("Non-JSON encoded type")
   if (encoded._tag === "Undefined" && !encoded.context?.isOptional) throw new Error("Non-JSON undefined")
+}
+
+const containsJsonDeclaration = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): boolean => {
+  if (visited.has(ast)) return false
+  visited.add(ast)
+  if (ast.encoding?.some((link) => containsJsonDeclaration(link.to, visited))) return true
+  switch (ast._tag) {
+    case "Declaration": return ast === Schema.Json.ast || ast === Schema.toEncoded(Schema.Json).ast
+    case "Objects": return ast.propertySignatures.some((property) => containsJsonDeclaration(property.type, visited)) ||
+      ast.indexSignatures.some((signature) => containsJsonDeclaration(signature.type, visited))
+    case "Arrays": return [...ast.elements, ...ast.rest].some((element) => containsJsonDeclaration(element, visited))
+    case "Union": return ast.types.some((member) => containsJsonDeclaration(member, visited))
+    case "Suspend": return containsJsonDeclaration(ast.thunk(), visited)
+    default: return false
+  }
 }
 
 const checkLeaves = (checks: ReadonlyArray<SchemaAST.Check<unknown>>): ReadonlyArray<SchemaAST.Check<unknown>> =>

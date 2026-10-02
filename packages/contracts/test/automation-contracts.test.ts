@@ -233,6 +233,73 @@ describe("versioned automation contracts", () => {
     }
   }
 
+  for (const [name, branch, overlap, exclusive] of [
+    ["string", Schema.String, "text", null],
+    ["object", Schema.Struct({ item: Schema.String }), { item: "text" }, "text"],
+    ["array", Schema.Array(Schema.String), ["text"], "text"]
+  ] as const) {
+    for (const [shape, wrapSchema, wrapValue] of [
+      ["root", (schema: ContextFreeCodec) => schema, (value: Schema.Json) => value],
+      ["nested object", (schema: ContextFreeCodec) => Schema.Struct({ choice: schema }), (value: Schema.Json) => ({ choice: value })],
+      ["nested tuple", (schema: ContextFreeCodec) => Schema.Tuple([schema]), (value: Schema.Json) => [value]]
+    ] as const) {
+      it.effect(`rejects approximate JSON/${name} oneOf inside ${shape}`, () =>
+        Effect.gen(function*() {
+          const schema = wrapSchema(Schema.Union([Schema.Json, branch], { mode: "oneOf" }))
+          yield* reject(schema, wrapValue(overlap))
+          yield* roundtrip(schema, wrapValue(exclusive))
+          const result = yield* editorSchema(schema).pipe(Effect.result)
+          expect(Result.isFailure(result)).toBe(true)
+          if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+        }))
+    }
+  }
+
+  for (const [name, branch] of [
+    ["object property", Schema.Struct({ value: Schema.Json })],
+    ["array element", Schema.Array(Schema.Json)],
+    ["tuple element", Schema.Tuple([Schema.Json])],
+    ["record value", Schema.Record(Schema.String, Schema.Json)],
+    ["named reference", Schema.Struct({ value: Schema.Json }).annotate({ identifier: "JsonBranch" })],
+    ["suspended reference", Schema.suspend(() => Schema.Struct({ value: Schema.Json }))],
+    ["anyOf member", Schema.Union([Schema.Struct({ value: Schema.Json }), Schema.Boolean])]
+  ] as const) {
+    it.effect(`rejects oneOf approximation inherited through ${name}`, () =>
+      Effect.gen(function*() {
+        const result = yield* editorSchema(Schema.Union([branch, Schema.String], { mode: "oneOf" })).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }))
+  }
+
+  it.effect("rejects oneOf approximation behind a recursive named reference", () =>
+    Effect.gen(function*() {
+      const recursive: ContextFreeCodec = Schema.suspend(() => Schema.Struct({ next: Schema.optional(recursive), value: Schema.Json }))
+        .annotate({ identifier: "RecursiveJsonBranch" })
+      const schema = Schema.Union([recursive, Schema.String], { mode: "oneOf" })
+      yield* roundtrip(schema, { value: null, next: { value: "text" } })
+      const result = yield* editorSchema(schema).pipe(Effect.result)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+    }))
+
+  it.effect("keeps default JSON unions and exact primitive oneOf descriptors supported", () =>
+    Effect.gen(function*() {
+      for (const branch of [Schema.String, Schema.Struct({ item: Schema.String }), Schema.Array(Schema.String)]) {
+        const schema = Schema.Union([Schema.Json, branch])
+        expect((yield* editorSchema(schema)).schema).toMatchObject({ anyOf: expect.any(Array) })
+        for (const value of [null, "text", { item: "text" }, ["text"]]) yield* roundtrip(schema, value)
+      }
+      const exact = Schema.Union([Schema.String, Schema.Literal("overlap")], { mode: "oneOf" })
+      expect((yield* editorSchema(exact)).schema).toMatchObject({ oneOf: [{ type: "string" }, { enum: ["overlap"] }] })
+      yield* roundtrip(exact, "text")
+      yield* reject(exact, "overlap")
+      const sibling = Schema.Struct({ choice: exact, metadata: Schema.Json })
+      expect((yield* editorSchema(sibling)).schema).toMatchObject({ properties: { choice: { oneOf: expect.any(Array) }, metadata: {} } })
+      yield* roundtrip(sibling, { choice: "text", metadata: [null] })
+      yield* reject(sibling, { choice: "overlap", metadata: [null] })
+    }))
+
   it.effect("keeps primitive array uniqueness and length constraints representable", () =>
     Effect.gen(function*() {
       for (const [schema, expected] of [
