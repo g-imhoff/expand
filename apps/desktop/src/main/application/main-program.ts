@@ -38,6 +38,7 @@ export interface DesktopAppHost {
   readonly disableHardwareAcceleration: () => void
   readonly onBeforeQuit: (listener: (event: { preventDefault: () => void }) => void) => () => void
   readonly onWindowAllClosed: (listener: () => void) => () => void
+  readonly onActivate: (listener: () => void) => () => void
   readonly quit: () => void
 }
 
@@ -167,8 +168,15 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
         const shutdown = yield* Deferred.make<void>()
         const callbackFailure = yield* Deferred.make<Cause.Cause<unknown>>()
         const callbacks = yield* FiberSet.make<unknown, never>()
-        const dispatchEffect = yield* FiberSet.runtime(callbacks)<never>()
+        const dispatchEffect = yield* FiberSet.runtime(callbacks)<Path.Path>()
         let appListenersActive = true
+        const dispatch = (effect: Effect.Effect<void, unknown, Path.Path>) => {
+          dispatchEffect(effect.pipe(
+            Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
+              ? Effect.void
+              : Deferred.succeed(callbackFailure, cause))
+          ))
+        }
         const beforeQuit = (event: { preventDefault: () => void }) => {
           if (authorized) return
           event.preventDefault()
@@ -187,31 +195,41 @@ function* mainProgramEffect<Port extends PortEndpoint>(deps: MainProgramDeps<Por
           Effect.sync(() => deps.app.onWindowAllClosed(windowAllClosed)),
           (dispose) => Effect.sync(dispose)
         )
-        yield* Effect.addFinalizer(() => Effect.sync(() => { appListenersActive = false }))
         const runtime = yield* Effect.acquireRelease(
           Effect.sync(deps.makeRuntime),
           (ownedRuntime) => ownedRuntime.disposeEffect
         )
         const ownerScope = yield* Scope.Scope
+        let windowAlive = false
+        const spawnWindow = Effect.gen(function* () {
+          if (windowAlive || !appListenersActive) return
+          if (yield* Deferred.isDone(shutdown)) return
+          windowAlive = true
+          const windowScope = yield* Scope.fork(ownerScope)
+          yield* Scope.addFinalizer(windowScope, Effect.sync(() => { windowAlive = false }))
+          const closeWindow = yield* Effect.cached(Scope.close(windowScope, Exit.void))
+          yield* Scope.addFinalizer(ownerScope, closeWindow)
+          yield* openWindow(
+            deps,
+            runtime,
+            devUrl,
+            closeWindow,
+            dispatch
+          ).pipe(Scope.provide(windowScope))
+        })
+        const activate = () => {
+          if (!appListenersActive || windowAlive) return
+          dispatch(spawnWindow)
+        }
+        yield* Effect.acquireRelease(
+          Effect.sync(() => deps.app.onActivate(activate)),
+          (dispose) => Effect.sync(dispose)
+        )
+        yield* Effect.addFinalizer(() => Effect.sync(() => { appListenersActive = false }))
         const startup = deps.app.ready.pipe(
           Effect.andThen(
             Effect.gen(function* () {
-              const windowScope = yield* Scope.fork(ownerScope)
-              const closeWindow = yield* Effect.cached(Scope.close(windowScope, Exit.void))
-              yield* Scope.addFinalizer(ownerScope, closeWindow)
-              yield* openWindow(
-                deps,
-                runtime,
-                devUrl,
-                closeWindow,
-                (effect) => {
-                  dispatchEffect(effect.pipe(
-                    Effect.catchCause((cause) => Cause.hasInterruptsOnly(cause)
-                      ? Effect.void
-                      : Deferred.succeed(callbackFailure, cause))
-                  ))
-                }
-              ).pipe(Scope.provide(windowScope))
+              yield* spawnWindow
               yield* waitFor(shutdown)
             })
           )

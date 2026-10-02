@@ -131,6 +131,7 @@ const electron = vi.hoisted(() => {
   const reset = () => {
     windows.length = 0
     utilityForks.length = 0
+    appListeners.length = 0
   }
 
   const currentWindow = () => {
@@ -138,6 +139,8 @@ const electron = vi.hoisted(() => {
     if (current === undefined) throw new Error("browser window was not constructed")
     return current
   }
+
+  const appListeners: Array<{ readonly event: string; readonly listener: Listener }> = []
 
   return {
     BrowserWindow: FakeBrowserWindow,
@@ -148,8 +151,15 @@ const electron = vi.hoisted(() => {
       whenReady: () => undefined,
       commandLine: { appendSwitch: () => {} },
       disableHardwareAcceleration: () => {},
-      on: () => {},
-      off: () => {},
+      on: (event: string, listener: Listener) => {
+        appListeners.push({ event, listener })
+      },
+      off: (event: string, listener: Listener) => {
+        const index = appListeners.findIndex(
+          (candidate) => candidate.event === event && candidate.listener === listener
+        )
+        if (index >= 0) appListeners.splice(index, 1)
+      },
       quit: () => {}
     },
     session: {
@@ -171,6 +181,7 @@ const electron = vi.hoisted(() => {
       }
     },
     utilityForks,
+    appListeners,
     reset,
     currentWindow
   }
@@ -285,6 +296,20 @@ describe("desktop main window host", () => {
       window: browserWindow,
       rendererOrigin: "http://localhost:5173"
     })
+  }))
+
+  it.effect("subscribes the application host to Electron activate and removes it on dispose", () => Effect.gen(function* () {
+    const events: Array<string> = []
+    const dispose = program.deps().app.onActivate(() => {
+      events.push("activate")
+    })
+    expect(electron.appListeners.map((record) => record.event)).toContain("activate")
+    const record = electron.appListeners.find((candidate) => candidate.event === "activate")
+    record?.listener()
+    expect(events).toEqual(["activate"])
+    dispose()
+    dispose()
+    expect(electron.appListeners.map((candidate) => candidate.event)).not.toContain("activate")
   }))
 
   it.effect("skips exact listener removal after Electron destroys both sources", () => Effect.gen(function* () {
