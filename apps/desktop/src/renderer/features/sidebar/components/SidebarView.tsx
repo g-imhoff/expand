@@ -215,9 +215,9 @@ export const SidebarView = ({
               <SidebarMenuButton
                 type="button"
                 aria-label="Automations"
-                aria-current={automationsActive ? "page" : undefined}
+                aria-current={automationsActive && canOpenAutomations ? "page" : undefined}
                 aria-disabled={!canOpenAutomations || undefined}
-                isActive={automationsActive}
+                isActive={automationsActive && canOpenAutomations}
                 tooltip={{ children: automationTooltip, hidden: false }}
                 onClick={() => {
                   if (canOpenAutomations) onOpenAutomations?.(activeProject.id)
