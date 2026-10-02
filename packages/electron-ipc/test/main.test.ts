@@ -50,6 +50,14 @@ const first = <A>(values: ReadonlySet<A>): A => {
   return value
 }
 const options = { window: browserWindow, rendererOrigin: "https://app.example", maxPayloadBytes: 1024 }
+const packagedDocumentUrl = "file:///app/index.html"
+const automationFragments = [
+  "",
+  "#/p/project-1/automations",
+  "#/p/project-1/automations/integrations",
+  "#/p/project-1/automations/routines/new",
+  "#/p/project-1/automations/history"
+]
 
 const handlers = {
   send: (payload: string, sender: { readonly frameUrl: string }) => Runtime.pipe(
@@ -111,12 +119,20 @@ describe("main Electron IPC facade", () => {
       { ...options, rendererOrigin: "file://" },
       { ...options, rendererOrigin: "https://app.example/" },
       { ...options, rendererUrl: "file:///app/index.html?query" },
-      { ...options, rendererUrl: "file:///app/index.html#hash" }
+      { ...options, rendererUrl: "file:///app/index.html#hash" },
+      { window: browserWindow, rendererUrl: "file:/app/index.html" },
+      { window: browserWindow, rendererUrl: "file:///app/./index.html" },
+      { window: browserWindow, rendererUrl: "file:///app/index.html?query" },
+      { window: browserWindow, rendererUrl: "file:///app/index.html#hash" },
+      { window: browserWindow, rendererUrl: "file://user:pass@app/index.html" },
+      { window: browserWindow, rendererUrl: "https://app.example/index.html" },
+      { window: browserWindow, rendererUrl: "not a url" }
     ]
     for (const [index, invalidOptions] of invalid.entries()) {
       const exit = yield* withRuntime(Effect.scoped(bindElectronIpc<typeof contract, Runtime>(contract, handlers, invalidOptions as never)).pipe(Effect.exit))
       expect(Exit.isFailure(exit), `invalid location case ${index}`).toBe(true)
       expect(electron.listeners.size).toBe(0)
+      expect(electron.handlers.size).toBe(0)
     }
   }))
 
@@ -161,6 +177,150 @@ describe("main Electron IPC facade", () => {
     })))
     expect(sent).toEqual(["injected:trusted:https://app.example/"])
   }))
+
+  for (const fragment of automationFragments) {
+    it.effect(`admits trusted packaged send, invoke, and port exchange with fragment ${fragment || "none"}`, () => Effect.gen(function* () {
+      frame.url = `${packagedDocumentUrl}${fragment}`
+      const nonce = "trusted-nonce"
+      let send: MainListener | undefined
+      let port: MainListener | undefined
+      yield* withRuntime(Effect.scoped(Effect.gen(function* () {
+        yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, {
+          window: browserWindow,
+          rendererUrl: packagedDocumentUrl
+        })
+        send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+        port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+        const invoke = electron.handlers.get("main:invoke")
+        if (invoke === undefined) throw new Error("expected a registered invoke handler")
+        send(eventFor(), "trusted")
+        expect(yield* Effect.promise(() => invoke(eventFor(), "hello"))).toEqual({ _tag: "IpcSuccess", value: 5 })
+        expect(yield* Effect.promise(() => invoke(eventFor(), "failure"))).toEqual({ _tag: "IpcFailure", error: "injected:domain" })
+        port(eventFor(), { nonce })
+        yield* TestClock.adjust("10 millis")
+        expect(sent).toEqual([`injected:trusted:${frame.url}`])
+        expect(contents.postMessage).toHaveBeenCalledExactlyOnceWith("main:port:grant", { nonce }, [portValue])
+      })))
+      expect(electron.listeners.size).toBe(0)
+      expect(electron.handlers.size).toBe(0)
+      send?.(eventFor(), "released")
+      port?.(eventFor(), { nonce: "released" })
+      expect(sent).toEqual([`injected:trusted:${frame.url}`])
+      expect(contents.postMessage).toHaveBeenCalledTimes(1)
+    }))
+  }
+
+  it.effect("rejects packaged document, path, authority, query, protocol, and parsing attacks on every request channel", () =>
+    withRuntime(Effect.scoped(Effect.gen(function* () {
+      yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, rendererUrl: packagedDocumentUrl })
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      const fragment = "#/p/project-1/automations/history"
+      for (const url of [
+        "file:///app/hostile.html" + fragment,
+        "file:///other/index.html" + fragment,
+        "file://attacker/app/index.html" + fragment,
+        "file:///app/%69ndex.html" + fragment,
+        "file:///app/index.html%2fhostile.html" + fragment,
+        "file:///app/index.html%5chostile.html" + fragment,
+        `${packagedDocumentUrl}?query${fragment}`,
+        `${packagedDocumentUrl}?${fragment}`,
+        `${packagedDocumentUrl}?`,
+        "https://app.example/index.html" + fragment,
+        "https://attacker.example/index.html" + fragment,
+        "data:text/html,hostile" + fragment,
+        "not a url",
+        "file://[invalid/index.html"
+      ]) {
+        frame.url = url
+        send(eventFor(), "hostile")
+        port(eventFor(), { nonce: "hostile" })
+        expect(yield* Effect.promise(() => invoke(eventFor(), "hostile")), url).toEqual({ _tag: "IpcDefect", message: "sender rejected" })
+      }
+      yield* TestClock.adjust("10 millis")
+      expect(sent).toEqual([])
+      expect(contents.postMessage).not.toHaveBeenCalled()
+    }))))
+
+  it.effect("rejects foreign senders, subframes, detached, stale, and missing frames on packaged request channels", () =>
+    withRuntime(Effect.scoped(Effect.gen(function* () {
+      frame.url = `${packagedDocumentUrl}#/p/project-1/automations/history`
+      yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, rendererUrl: packagedDocumentUrl })
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      const reject = (event: unknown) => Effect.gen(function* () {
+        send(event, "hostile")
+        port(event, { nonce: "hostile" })
+        expect(yield* Effect.promise(() => invoke(event, "hostile"))).toEqual({ _tag: "IpcDefect", message: "sender rejected" })
+      })
+      yield* reject(eventFor({ mainFrame: frame }, frame))
+      yield* reject(eventFor(contents, { url: frame.url, detached: false }))
+      yield* reject({ sender: contents, senderFrame: null })
+      yield* reject({ sender: contents })
+      yield* reject(null)
+      frame.detached = true
+      yield* reject(eventFor())
+      frame.detached = false
+      contents.mainFrame = { url: frame.url, detached: false }
+      yield* reject(eventFor())
+      Reflect.deleteProperty(contents, "mainFrame")
+      yield* reject(eventFor())
+      contents.mainFrame = frame
+      yield* TestClock.adjust("10 millis")
+      expect(sent).toEqual([])
+      expect(contents.postMessage).not.toHaveBeenCalled()
+    }))))
+
+  it.effect("preserves UTF-8 bounds and codecs on packaged fragment request channels", () =>
+    withRuntime(Effect.scoped(Effect.gen(function* () {
+      frame.url = `${packagedDocumentUrl}#/p/project-1/automations/history`
+      yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, rendererUrl: packagedDocumentUrl, maxPayloadBytes: 16 })
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      const admittedPayload = "😀".repeat(4)
+      const oversizedPayload = "😀".repeat(5)
+      send(eventFor(), admittedPayload)
+      send(eventFor(), oversizedPayload)
+      send(eventFor(), 42)
+      expect(yield* Effect.promise(() => invoke(eventFor(), admittedPayload))).toEqual({ _tag: "IpcSuccess", value: 8 })
+      expect(yield* Effect.promise(() => invoke(eventFor(), oversizedPayload))).toEqual({ _tag: "IpcDefect", message: "sender rejected" })
+      expect(yield* Effect.promise(() => invoke(eventFor(), 42))).toEqual({ _tag: "IpcDefect", message: "internal error" })
+      port(eventFor(), { nonce: "éé" })
+      port(eventFor(), { nonce: oversizedPayload })
+      port(eventFor(), { nonce: 42 })
+      yield* TestClock.adjust("10 millis")
+      expect(sent).toEqual([`injected:${admittedPayload}:${frame.url}`])
+      expect(contents.postMessage).toHaveBeenCalledExactlyOnceWith("main:port:grant", { nonce: "éé" }, [portValue])
+    }))))
+
+  it.effect("preserves development origin admission across paths, queries, and fragments on every request channel", () =>
+    withRuntime(Effect.scoped(Effect.gen(function* () {
+      yield* bind()
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      frame.url = "https://app.example/other?query#/p/project-1/automations/history"
+      const trustedUrl = frame.url
+      send(eventFor(), "trusted")
+      port(eventFor(), { nonce: "trusted" })
+      expect(yield* Effect.promise(() => invoke(eventFor(), "hello"))).toEqual({ _tag: "IpcSuccess", value: 5 })
+      for (const url of ["https://app.example:444/", "http://app.example/", "https://attacker.example/", `${packagedDocumentUrl}#/p/project-1/automations/history`]) {
+        frame.url = url
+        send(eventFor(), "hostile")
+        port(eventFor(), { nonce: "hostile" })
+        expect(yield* Effect.promise(() => invoke(eventFor(), "hostile")), url).toEqual({ _tag: "IpcDefect", message: "sender rejected" })
+      }
+      yield* TestClock.adjust("10 millis")
+      expect(sent).toEqual([`injected:trusted:${trustedUrl}`])
+      expect(contents.postMessage).toHaveBeenCalledExactlyOnceWith("main:port:grant", { nonce: "trusted" }, [portValue])
+    }))))
 
   it.effect("measures admitted payloads in UTF-8 bytes", () => Effect.gen(function* () {
     yield* withRuntime(Effect.scoped(Effect.gen(function* () {
