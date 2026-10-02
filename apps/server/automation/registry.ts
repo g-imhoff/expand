@@ -112,8 +112,9 @@ export class AutomationRegistry {
     const selected = resolved.actions.find((action) => action.stepId === request.stepId)
     if (!selected) return yield* invalidReference("Action step is not in the selected outcome")
     const action = yield* requireDefinition(this.definitions, selected.action, "action")
-    const grant = authority.actionGrants.find((grant) => sameDefinition(grant.action, selected.action) && grant.integrationId === selected.integrationId)
-    if (!authority.integrationIds.includes(selected.integrationId) || !grant || action.capabilities.some((capability) => !grant.capabilities.includes(capability))) {
+    const hasGrant = authority.actionGrants.some((grant) => sameDefinition(grant.action, selected.action) &&
+      grant.integrationId === selected.integrationId && action.capabilities.every((capability) => grant.capabilities.includes(capability)))
+    if (!authority.integrationIds.includes(selected.integrationId) || !hasGrant) {
       return yield* denied("Authority does not grant this exact action version, integration and capabilities")
     }
     const integration = configuration.integrations.find((integration) => integration.id === selected.integrationId)

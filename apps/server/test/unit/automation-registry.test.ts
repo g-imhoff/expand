@@ -400,18 +400,66 @@ describe("trusted automation registry", () => {
       expect(registry.catalog().definitions).toEqual([])
     }))
 
+  for (const sufficientFirst of [false, true]) {
+    it.effect(`authorizes overlapping grants with the sufficient grant first ${sufficientFirst}`, () =>
+      Effect.gen(function*() {
+        const handler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: args.message, total: args.count }))
+        const registry = new AutomationRegistry()
+        yield* registry.register(makeSampleExtension(handler).extension)
+        const sufficient = sampleAuthority.actionGrants[0]!
+        const insufficient = { ...sufficient, capabilities: [] }
+        const authority = { ...sampleAuthority, actionGrants: sufficientFirst ? [sufficient, insufficient] : [insufficient, sufficient] }
+        const result = yield* registry.invokeAction(invocation, authority).pipe(Effect.result)
+        expect(handler).toHaveBeenCalledTimes(1)
+        expect(handler.mock.calls[0]?.[0]).toEqual({ message: "hello", count: 3 })
+        expect(Result.isSuccess(result)).toBe(true)
+        if (Result.isSuccess(result)) expect(result.success).toEqual({ summary: "hello", total: 3 })
+      }))
+  }
+
+  it.effect("requires one complete matching grant without combining partial capabilities", () =>
+    Effect.gen(function*() {
+      const handler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: args.message, total: args.count }))
+      const sample = makeSampleExtension(handler)
+      const capabilities = ["send", "audit"]
+      const registry = new AutomationRegistry()
+      yield* registry.register({ ...sample.extension,
+        integrations: [defineIntegration({ ...sampleIntegration, capabilities })],
+        actions: [defineAction({ ...sample.action, capabilities })]
+      })
+      const sufficient = { ...sampleAuthority.actionGrants[0]!, capabilities }
+      const send = { ...sufficient, capabilities: ["send"] }
+      const audit = { ...sufficient, capabilities: ["audit"] }
+      for (const actionGrants of [
+        [send], [send, audit], [audit, send],
+        [send, { ...sufficient, action: { id: "sample:other", version: 1 } }],
+        [send, { ...sufficient, action: { ...sufficient.action, version: 2 } }],
+        [send, { ...sufficient, integrationId: "other" }]
+      ]) {
+        yield* failCode(registry.invokeAction(invocation, { ...sampleAuthority, actionGrants }), "denied")
+        expect(handler).not.toHaveBeenCalled()
+      }
+      for (const actionGrants of [[send, sufficient], [sufficient, send]]) {
+        expect(yield* registry.invokeAction(invocation, { ...sampleAuthority, actionGrants })).toEqual({ summary: "hello", total: 3 })
+      }
+      expect(handler).toHaveBeenCalledTimes(2)
+    }))
+
   it.effect("requires matching host scope, routine revision, integration and exact action capability grants", () =>
     Effect.gen(function*() {
       const handler = vi.fn(() => Effect.succeed({ summary: "ok", total: 1 }))
       const registry = new AutomationRegistry()
       yield* registry.register(makeSampleExtension(handler).extension)
+      const sufficient = sampleAuthority.actionGrants[0]!
+      const actionGrants = [{ ...sufficient, capabilities: [] }, sufficient]
       for (const authority of [
-        { ...sampleAuthority, scope: { ...sampleAuthority.scope, ownerId: "other" } },
-        { ...sampleAuthority, scope: { ...sampleAuthority.scope, projectId: "other" } },
-        { ...sampleAuthority, configuration: { ...sampleAuthority.configuration, routineId: "other" } },
-        { ...sampleAuthority, configuration: { ...sampleAuthority.configuration, revision: 1 } },
-        { ...sampleAuthority, integrationIds: [] },
+        { ...sampleAuthority, actionGrants, scope: { ...sampleAuthority.scope, ownerId: "other" } },
+        { ...sampleAuthority, actionGrants, scope: { ...sampleAuthority.scope, projectId: "other" } },
+        { ...sampleAuthority, actionGrants, configuration: { ...sampleAuthority.configuration, routineId: "other" } },
+        { ...sampleAuthority, actionGrants, configuration: { ...sampleAuthority.configuration, revision: 1 } },
+        { ...sampleAuthority, actionGrants, integrationIds: [] },
         { ...sampleAuthority, actionGrants: [] },
+        { ...sampleAuthority, actionGrants: [{ ...sufficient, action: { id: "sample:other", version: 1 } }] },
         { ...sampleAuthority, actionGrants: [{ action: { id: "sample:send", version: 2 }, integrationId: "mail", capabilities: ["send"] }] },
         { ...sampleAuthority, actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "other", capabilities: ["send"] }] },
         { ...sampleAuthority, actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "mail", capabilities: [] }] }
