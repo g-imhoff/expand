@@ -1,5 +1,5 @@
 import { NodeFileSystem, NodeRuntime, NodeServices } from "@effect/platform-node"
-import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, References } from "effect"
+import { Cause, Console, Effect, Exit, FileSystem, Layer, Logger, Path, References, Stdio } from "effect"
 import { nodeAppContextLayer } from "@expand/server/runtime/node-app-context"
 import { minimumLogLevel } from "@expand/server/runtime/server-config"
 import * as AppContext from "@expand/contracts/app-context"
@@ -20,19 +20,39 @@ const loggerLayer = Logger.layer([fileLogger], { mergeWithExisting: true }).pipe
   Layer.provide(NodeFileSystem.layer)
 )
 
-const loggedProgram = Effect.gen(function* () {
+const loggedProgram = (keepRunning: boolean) => Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const { paths } = yield* AppContext.AppContext
   yield* fs.makeDirectory(path.dirname(paths.dbPath), { recursive: true })
-  yield* ServerApp.runServer({ dbPath: paths.dbPath })
+  yield* ServerApp.runServer({ dbPath: paths.dbPath, keepRunning })
 }).pipe(Effect.provide(loggerLayer))
 
+const helpText = [
+  "Expand backend",
+  "",
+  "Usage: npm run dev:server -- [options]",
+  "",
+  "Options:",
+  "  --keep-running    Keep serving when no clients are connected. Default: stop after the last client disconnects.",
+  "                    Stop a keep-running backend explicitly with Ctrl-C or SIGINT/SIGTERM.",
+  "  --data-dir DIR    Store the database, endpoint and lock files in DIR.",
+  "  --help            Show this help and exit."
+].join("\n")
+
 const program = Effect.gen(function* () {
+  const stdio = yield* Stdio.Stdio
+  const args = yield* stdio.args
+  const dataDirIndex = args.indexOf("--data-dir")
+  const launchArgs = dataDirIndex === -1 ? args : args.filter((_, index) => index !== dataDirIndex + 1)
+  if (launchArgs.includes("--help")) {
+    yield* Console.log(helpText)
+    return
+  }
   yield* Effect.logInfo("starting Expand server", { appVersion })
   const { paths } = yield* AppContext.AppContext
   yield* StateRootLock.stateRootLockForStartup(paths.dataDir, paths.endpointFile)
-  yield* loggedProgram
+  yield* loggedProgram(launchArgs.includes("--keep-running"))
 }).pipe(Effect.scoped)
 
 // Every file this process creates — the SQLite event store (+ WAL/SHM), the
