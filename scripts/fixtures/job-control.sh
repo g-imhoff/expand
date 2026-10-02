@@ -20,7 +20,7 @@ start_job() {
   pgid="${pgid//[[:space:]]/}"
   printf 'job=%%%s pid=%s jobPid=%s pgid=%s\n' "$job_number" "$pid" "$job_pid" "$pgid"
   if [[ "$mode" != "guardian" ]]; then
-    kill -CONT "$pid"
+    kill -CONT "%$job_number"
   fi
   set +e
   wait -f "%$job_number" 2>/dev/null

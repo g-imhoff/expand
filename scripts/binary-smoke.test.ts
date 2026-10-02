@@ -478,9 +478,9 @@ describe("binary certification live ownership", () => {
       Effect.provide(NodeServices.layer)
     ))
 
-  it.live.each([0, 23])("captures ownership for ten immediately exiting commands with status %i", (exitStatus) =>
+  it.live.each([0, 23])("captures ownership for fifty immediately exiting commands with status %i", (exitStatus) =>
     Effect.gen(function*() {
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+      for (let attempt = 0; attempt < 50; attempt += 1) {
         const fact = yield* runJobControlFact(".", ["bash", "-c", `exit ${exitStatus}`])
         expect(fact.job).toBe("%2")
         expect(fact.pid).toBeGreaterThan(0)
