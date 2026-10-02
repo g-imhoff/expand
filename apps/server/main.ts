@@ -42,14 +42,16 @@ const helpText = [
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
   const args = yield* stdio.args
-  if (args.includes("--help")) {
+  const dataDirIndex = args.indexOf("--data-dir")
+  const launchArgs = dataDirIndex === -1 ? args : args.filter((_, index) => index !== dataDirIndex + 1)
+  if (launchArgs.includes("--help")) {
     yield* Console.log(helpText)
     return
   }
   yield* Effect.logInfo("starting Expand server", { appVersion })
   const { paths } = yield* AppContext.AppContext
   yield* StateRootLock.stateRootLockForStartup(paths.dataDir, paths.endpointFile)
-  yield* loggedProgram(args.includes("--keep-running"))
+  yield* loggedProgram(launchArgs.includes("--keep-running"))
 }).pipe(Effect.scoped)
 
 // Every file this process creates — the SQLite event store (+ WAL/SHM), the

@@ -116,15 +116,16 @@ const childOutput = (
 
 const startProductionChild = Effect.fn("KeepRunning.startProductionChild")(function*(
   dataDir: string,
-  args: ReadonlyArray<string>
+  args: ReadonlyArray<string>,
+  cwd?: string
 ) {
   const path = yield* Path.Path
   const child = yield* ChildProcess.make(
     "node",
-    ["--import", "tsx", "apps/server/main.ts", ...args, "--data-dir", dataDir],
+    ["--import", import.meta.resolve("tsx"), path.resolve("apps/server/main.ts"), ...args, "--data-dir", dataDir],
     {
-      cwd: path.resolve("."),
-      env: { HOME: dataDir, EXPAND_LOG_LEVEL: "None" },
+      cwd: cwd ?? path.resolve("."),
+      env: { HOME: cwd ?? dataDir, EXPAND_LOG_LEVEL: "None", TSX_TSCONFIG_PATH: path.resolve("tsconfig.json") },
       extendEnv: true,
       stdin: "ignore",
       stdout: "pipe",
@@ -375,6 +376,29 @@ describe("keep-running lifecycle", { concurrent: false }, () => {
       expect(yield* fs.exists(path.join(dir, "server.json"))).toBe(false)
       expect(yield* fs.exists(path.join(dir, "events.db"))).toBe(false)
     }).pipe(Effect.provide(NodeServices.layer))))
+
+  for (const dataDir of ["--keep-running", "--help"]) {
+    it.live(`uses ${dataDir} as the data directory and stops after the last client disconnects`, () =>
+      Effect.scoped(Effect.gen(function*() {
+        const path = yield* Path.Path
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-keep-running-data-dir-" })
+        const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir })
+        const server = yield* startProductionChild(dataDir, [], dir)
+        const endpoint = yield* awaitChildEndpoint(context, server, `${dataDir} directory server`)
+        const port = Number(new URL(endpoint.url).port)
+
+        expect(Number(endpoint.pid)).toBe(Number(server.child.pid))
+        expect(yield* runClient(context, (client) => client.Health())).toBe("ok")
+        const exitCode = yield* server.child.exitCode.pipe(Effect.timeout("5 seconds"))
+
+        expect(Number(exitCode)).toBe(0)
+        yield* awaitPathAbsent(fs, context.paths.endpointFile)
+        yield* awaitPathAbsent(fs, path.join(context.paths.dataDir, "backend.lock"))
+        expect(yield* awaitTcpClosed(port)).toBe("closed")
+        expect(yield* fs.exists(context.paths.dbPath)).toBe(true)
+      })).pipe(Effect.provide(NodeServices.layer)))
+  }
 
   it.live("stops and reopens the default backend on SIGINT", () =>
     runSignalCase("SIGINT", false, false).pipe(Effect.provide(NodeServices.layer)),
