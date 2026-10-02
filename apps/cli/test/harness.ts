@@ -1,5 +1,5 @@
 import { Cause, Console, Effect, Layer, Runtime } from "effect"
-import { CliOutput, Command } from "effect/unstable/cli"
+import { CliOutput, Command } from "effect/cli"
 import { NodeServices } from "@effect/platform-node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { ServerClient, type ServerClientApi } from "@expand/client-ts/server"

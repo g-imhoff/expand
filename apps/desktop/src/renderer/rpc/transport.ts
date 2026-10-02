@@ -1,5 +1,5 @@
 import { Cause, Context, Deferred, Effect, Exit, Queue, Scope } from "effect"
-import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/unstable/rpc"
+import { RpcClient, type RpcClientError, type RpcMessage, RpcSerialization } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
 import { supervised } from "@expand/desktop/renderer/app/supervised"
@@ -33,7 +33,7 @@ const makePortProtocol = Effect.fn("DesktopRenderer.makePortProtocol")((port: Re
       const parser = serialization.makeUnsafe()
       const ownerScope = yield* Scope.Scope
       const protocolScope = yield* Scope.fork(ownerScope)
-      const inbound = yield* Queue.bounded<RpcIngressFrame>(RPC_INGRESS_MAX_QUEUED_FRAMES)
+      const inbound = yield* Queue.make<RpcIngressFrame>({ capacity: RPC_INGRESS_MAX_QUEUED_FRAMES })
       yield* Scope.addFinalizer(protocolScope, Queue.shutdown(inbound))
       // Synchronous admission gate: the single decoding fiber below cannot
       // exert backpressure on the port listener, so the listener enforces the
@@ -120,9 +120,10 @@ const makePortProtocol = Effect.fn("DesktopRenderer.makePortProtocol")((port: Re
           Effect.sync(() => {
             const encoded = parser.encode(request)
             if (encoded !== undefined) port.postMessage(encoded)
-          }),
+        }),
         supportsAck: true,
-        supportsTransferables: false
+        supportsTransferables: false,
+        codecFor: serialization.codecFor
       }
     })
   )

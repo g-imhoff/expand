@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("Events replay with fromSeq", () => {
+describe("Events replay with fromSeq", { concurrent: false }, () => {
   it.live("replays the backlog strictly after the cursor, then continues live without duplicates",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-events-replay-')

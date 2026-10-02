@@ -3,5 +3,5 @@
 // (see scripts/fold-version.ts PROJECTIONS).
 // Staleness is caught by test/architecture/fold-version-lockstep.test.ts.
 export const FOLD_VERSIONS = {
-  "projects": "sha256:67a8abab689b4dd0e906805608944c1fa2444e66b29065539915c5a002142b6c"
+  "projects": "sha256:92490885af757b707f28106fe264c44027ee50629931c37413c0b36be6b1938b"
 } as const

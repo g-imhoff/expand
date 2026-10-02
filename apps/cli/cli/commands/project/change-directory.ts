@@ -1,4 +1,4 @@
-import { Argument } from "effect/unstable/cli"
+import { Argument } from "effect/cli"
 import { Effect } from "effect"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { Project } from "@expand/contracts/project"
@@ -7,8 +7,8 @@ import { defineCommand } from "@expand/cli/commands/define-command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
 
 export const changeDirectoryCommand = (() => {
-  const target = Argument.string("project")
-  const directory = Argument.string("directory")
+  const target = Argument.String("project")
+  const directory = Argument.String("directory")
 
   return defineCommand(
     "change-directory",

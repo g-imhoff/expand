@@ -234,7 +234,7 @@ const makeRendererPort = (started: Queue.Queue<void>, onClose?: () => void) => {
 describe("main rpc ingress bounds", () => {
   effectIt.effect("rejects an oversized frame and closes the connection", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const parts = yield* makeMainLayer()
       const mainLayer = Layer.mergeAll(
         Layer.succeed(ClientSession, parts.session),
@@ -265,7 +265,7 @@ describe("main rpc ingress bounds", () => {
 
   effectIt.effect("a capacity-plus-one burst closes the connection without exceeding the bound", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const parts = yield* makeMainLayer()
       const mainLayer = Layer.mergeAll(
         Layer.succeed(ClientSession, parts.session),
@@ -300,7 +300,7 @@ describe("main rpc ingress bounds", () => {
 
   effectIt.effect("a retained-bytes overflow closes the connection before the count bound", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const parts = yield* makeMainLayer()
       const mainLayer = Layer.mergeAll(
         Layer.succeed(ClientSession, parts.session),
@@ -336,7 +336,7 @@ describe("main rpc ingress bounds", () => {
 
   effectIt.effect("unsupported and malformed frames tear down instead of stranding the producer", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const parts = yield* makeMainLayer()
       const mainLayer = Layer.mergeAll(
         Layer.succeed(ClientSession, parts.session),
@@ -368,7 +368,7 @@ describe("main rpc ingress bounds", () => {
 
   effectIt.effect("rejects an unsupported frame type at the listener boundary", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const parts = yield* makeMainLayer()
       const mainLayer = Layer.mergeAll(
         Layer.succeed(ClientSession, parts.session),
@@ -397,10 +397,10 @@ describe("main rpc ingress bounds", () => {
   effectIt.effect("accepted traffic below the limits stays ordered and lossless", () =>
     Effect.scoped(
       Effect.gen(function* () {
-        const mainStarted = yield* Queue.unbounded<void>()
-        const rendererStarted = yield* Queue.unbounded<void>()
-        const mainMessages = yield* Queue.unbounded<unknown>()
-        const rendererMessages = yield* Queue.unbounded<unknown>()
+        const mainStarted = yield* Queue.make<void>()
+        const rendererStarted = yield* Queue.make<void>()
+        const mainMessages = yield* Queue.make<unknown>()
+        const rendererMessages = yield* Queue.make<unknown>()
         const status = yield* SubscriptionRef.make<ConnectionStatus>("connected")
         const seq = yield* Ref.make(0)
         const mainLayer = Layer.mergeAll(
@@ -475,7 +475,7 @@ describe("main rpc ingress bounds", () => {
 describe("renderer rpc ingress bounds", () => {
   effectIt.effect("rejects an oversized frame and closes the connection", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const scope = yield* Scope.make()
       const closed = yield* Deferred.make<void>()
       const fake = makeRendererPort(started, () => {
@@ -494,7 +494,7 @@ describe("renderer rpc ingress bounds", () => {
 
   effectIt.effect("a capacity-plus-one burst closes the connection without exceeding the bound", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const scope = yield* Scope.make()
       const closed = yield* Deferred.make<void>()
       const fake = makeRendererPort(started, () => {
@@ -515,7 +515,7 @@ describe("renderer rpc ingress bounds", () => {
 
   effectIt.effect("unsupported and malformed frames tear down instead of stranding the producer", () =>
     Effect.gen(function* () {
-      const started = yield* Queue.unbounded<void>()
+      const started = yield* Queue.make<void>()
       const scope = yield* Scope.make()
       const closed = yield* Deferred.make<void>()
       const fake = makeRendererPort(started, () => {

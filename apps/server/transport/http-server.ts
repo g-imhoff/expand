@@ -1,6 +1,6 @@
 import { Effect, Layer, Option } from "effect"
-import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http"
+import { RpcSerialization, RpcServer } from "effect/rpc"
 import { NodeHttpServer } from "@effect/platform-node"
 import { timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"

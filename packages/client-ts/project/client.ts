@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Stream } from "effect"
 import type { Crypto, FileSystem, Path } from "effect"
-import type { RpcClientError } from "effect/unstable/rpc"
+import type { RpcClientError } from "effect/rpc"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import type { AppContext } from "@expand/contracts/app-context"

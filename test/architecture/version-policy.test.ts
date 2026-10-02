@@ -96,13 +96,13 @@ const forbiddenGitUses = (source: string) => {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
     const bindings = statement.importClause?.namedBindings
     if (bindings === undefined) continue
-    if (statement.moduleSpecifier.text === "effect/unstable/process" && ts.isNamespaceImport(bindings)) {
+    if (statement.moduleSpecifier.text === "effect/process" && ts.isNamespaceImport(bindings)) {
       processModuleBindings.add(bindings.name.text)
     }
-    if (statement.moduleSpecifier.text === "effect/unstable/process/ChildProcess" && ts.isNamespaceImport(bindings)) {
+    if (statement.moduleSpecifier.text === "effect/process/ChildProcess" && ts.isNamespaceImport(bindings)) {
       childProcessBindings.add(bindings.name.text)
     }
-    if (statement.moduleSpecifier.text === "effect/unstable/process" && ts.isNamedImports(bindings)) {
+    if (statement.moduleSpecifier.text === "effect/process" && ts.isNamedImports(bindings)) {
       for (const element of bindings.elements) {
         if ((element.propertyName?.text ?? element.name.text) === "ChildProcess") childProcessBindings.add(element.name.text)
       }
@@ -238,13 +238,13 @@ describe("version policy", () => {
   })
 
   it("detects parenthesized executable structured Git calls", () => {
-    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/unstable/process"\nChildProcess.make("git", ["describe", "--tags"])')).toBe(true)
-    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/unstable/process"\n(ChildProcess).make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/process"\nChildProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import { ChildProcess } from "effect/process"\n(ChildProcess).make("git", ["describe", "--tags"])')).toBe(true)
   })
 
   it("resolves aliased Effect ChildProcess imports", () => {
-    expect(hasForbiddenGitUse('import { ChildProcess as Process } from "effect/unstable/process"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
-    expect(hasForbiddenGitUse('import * as Process from "effect/unstable/process/ChildProcess"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import { ChildProcess as Process } from "effect/process"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
+    expect(hasForbiddenGitUse('import * as Process from "effect/process/ChildProcess"\nProcess.make("git", ["describe", "--tags"])')).toBe(true)
     expect(hasForbiddenGitUse('const ChildProcess = { make: () => undefined }\nChildProcess.make("git", ["describe"])')).toBe(false)
   })
 
