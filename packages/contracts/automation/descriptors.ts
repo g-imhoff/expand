@@ -1,4 +1,4 @@
-import { Data, Effect, Schema, SchemaAST, SchemaRepresentation, SchemaTransformation } from "effect"
+import { Data, Effect, Schema, SchemaAST, SchemaRepresentation } from "effect"
 import { CredentialReference, DefinitionReference, LocalId, PersonalScope } from "./ids.js"
 
 export class AutomationError extends Data.TaggedError("AutomationError")<{
@@ -91,26 +91,34 @@ export const editorSchema = Effect.fn("Automation.editorSchema")((schema: Schema
 const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void => {
   if (visited.has(ast)) return
   visited.add(ast)
-  for (const check of ast.checks ?? []) assertRepresentableCheck(check)
-  if ("encodingChecks" in ast) for (const check of ast.encodingChecks ?? []) assertRepresentableCheck(check)
+  if (!["Declaration", "Objects", "Arrays", "Union", "Suspend", "String", "Number", "Boolean", "Literal", "Null", "Never", "Undefined"].includes(ast._tag)) {
+    throw new Error("Unsupported encoded schema node")
+  }
+  for (const check of ast.checks ?? []) descriptorCheck(check, ast)
+  if ("encodingChecks" in ast) for (const check of ast.encodingChecks ?? []) descriptorCheck(check, ast)
   for (const link of ast.encoding ?? []) {
     const transformation = link.transformation
     if (transformation._tag !== "Transformation") throw new Error("Unsupported schema middleware")
     for (const getter of [transformation.decode, transformation.encode]) {
-      if ((getter._tag === "TransformEffect" || getter._tag === "TransformOptionalEffect") &&
-        getter !== SchemaTransformation.numberFromString.decode && getter !== SchemaTransformation.numberFromString.encode) {
-        throw new Error("Unsupported effectful codec")
-      }
+      if (getter._tag !== "Transform" && getter._tag !== "Passthrough") throw new Error("Unsupported codec getter")
     }
     assertSupported(link.to, visited)
   }
+  if (ast.encoding?.length) assertFiniteTransformation(ast)
   switch (ast._tag) {
+    case "Literal":
+      if (!isJsonValue(ast.literal)) throw new Error("Non-JSON literal")
+      break
     case "Declaration":
       if (ast !== Schema.Json.ast && ast !== Schema.toEncoded(Schema.Json).ast) throw new Error("Unsupported declaration")
       break
     case "Objects":
-      for (const property of ast.propertySignatures) assertSupported(property.type, visited)
+      for (const property of ast.propertySignatures) {
+        if (typeof property.name !== "string") throw new Error("Non-JSON property name")
+        assertSupported(property.type, visited)
+      }
       for (const signature of ast.indexSignatures) {
+        if (signature.parameter._tag !== "String" || signature.parameter.checks || signature.parameter.encoding) throw new Error("Unsupported record key constraint")
         assertSupported(signature.parameter, visited)
         assertSupported(signature.type, visited)
       }
@@ -138,25 +146,30 @@ const jsonEncodedAst = (ast: SchemaAST.AST, cache = new Map<SchemaAST.AST, Schem
   const cached = cache.get(ast)
   if (cached) return cached
   const recur = (child: SchemaAST.AST): SchemaAST.AST => jsonEncodedAst(child, cache)
+  const checks = ast.checks?.map((check) => descriptorCheck(check, ast)) as SchemaAST.Checks | undefined
   let result: SchemaAST.AST
   switch (ast._tag) {
     case "Union":
       result = new SchemaAST.Union(
         ast.types.filter((member) => !(ast.context?.isOptional && member._tag === "Undefined")).map(recur),
-        ast.options, ast.annotations, ast.checks, ast.encoding, ast.context, ast.encodingChecks)
+        ast.options, ast.annotations, checks, ast.encoding, ast.context, ast.encodingChecks)
       break
     case "Objects":
       result = new SchemaAST.Objects(
         ast.propertySignatures.map((property) => new SchemaAST.PropertySignature(property.name, recur(property.type))),
         ast.indexSignatures.map((signature) => new SchemaAST.IndexSignature(recur(signature.parameter), recur(signature.type))),
-        ast.annotations, ast.checks, ast.encoding, ast.context, ast.encodingChecks)
+        ast.annotations, checks, ast.encoding, ast.context, ast.encodingChecks)
       break
     case "Arrays":
-      result = new SchemaAST.Arrays(ast.isMutable, ast.elements.map(recur), ast.rest.map(recur), ast.annotations, ast.checks, ast.encoding, ast.context, ast.encodingChecks)
+      result = new SchemaAST.Arrays(ast.isMutable, ast.elements.map(recur), ast.rest.map(recur), ast.annotations, checks, ast.encoding, ast.context, ast.encodingChecks)
       break
     case "Suspend":
-      result = new SchemaAST.Suspend(() => recur(ast.thunk()), ast.annotations, ast.checks, ast.encoding, ast.context)
+      result = new SchemaAST.Suspend(() => recur(ast.thunk()), ast.annotations, checks, ast.encoding, ast.context)
       break
+    case "String": result = new SchemaAST.String(ast.annotations, checks, ast.encoding, ast.context); break
+    case "Number": result = new SchemaAST.Number(ast.annotations, checks, ast.encoding, ast.context); break
+    case "Boolean": result = new SchemaAST.Boolean(ast.annotations, checks, ast.encoding, ast.context); break
+    case "Literal": result = new SchemaAST.Literal(ast.literal, ast.annotations, checks, ast.encoding, ast.context); break
     default:
       result = ast
   }
@@ -164,11 +177,99 @@ const jsonEncodedAst = (ast: SchemaAST.AST, cache = new Map<SchemaAST.AST, Schem
   return result
 }
 
-const assertRepresentableCheck = (check: SchemaAST.Check<unknown>): void => {
-  if (check.annotations?.toJsonSchema) return
-  if (check._tag === "FilterGroup") {
-    for (const child of check.checks) assertRepresentableCheck(child)
-    return
+const assertFiniteTransformation = (ast: SchemaAST.AST): void => {
+  const schema = Schema.make<Schema.Codec<unknown, unknown>>(ast)
+  const encoded = Schema.toEncoded(schema)
+  const values = finiteValues(encoded.ast)
+  if (!values.length || values.length > 256) throw new Error("Codec has no supported finite encoded domain")
+  for (const value of values) {
+    if (!Schema.is(encoded)(value)) continue
+    const decoded = Schema.decodeUnknownSync(schema, { onExcessProperty: "error" })(value)
+    const roundtrip = Schema.encodeUnknownSync(schema, { onExcessProperty: "error" })(decoded)
+    if (!Object.is(roundtrip, value)) throw new Error("Codec is not reversible on its encoded domain")
   }
-  throw new Error("Validation check has no editor representation")
+}
+
+const finiteValues = (ast: SchemaAST.AST): ReadonlyArray<Schema.Json> => {
+  if (ast._tag === "Literal" && isJsonValue(ast.literal)) return [ast.literal]
+  if (ast._tag === "Null") return [null]
+  if (ast._tag === "Boolean") return [false, true]
+  if (ast._tag === "Union") return ast.types.flatMap((member) => finiteValues(member))
+  throw new Error("Unsupported transformation of an open encoded domain")
+}
+
+const descriptorCheck = (check: SchemaAST.Check<unknown>, ast: SchemaAST.AST): SchemaAST.Check<unknown> => {
+  if (check._tag === "FilterGroup") {
+    return new SchemaAST.FilterGroup(check.checks.map((child) => descriptorCheck(child, ast)) as [SchemaAST.Check<unknown>, ...Array<SchemaAST.Check<unknown>>])
+  }
+  const representation = check.annotations?.representation
+  const payload = representation?.payload as Record<string, unknown> | null | undefined
+  const bound = (name: string): number => {
+    const value = payload?.[name]
+    if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Invalid constraint bound")
+    return value
+  }
+  const isString = ast._tag === "String" || ast._tag === "Literal" && typeof ast.literal === "string"
+  const isNumber = ast._tag === "Number" || ast._tag === "Literal" && typeof ast.literal === "number"
+  let fragment: Schema.Json
+  switch (representation?.id) {
+    case "effect/schema/isPattern": {
+      if (!isString || payload?.["flags"] !== "u" || typeof payload["source"] !== "string") throw new Error("Unsupported pattern flags")
+      fragment = { pattern: payload["source"] }
+      break
+    }
+    case "effect/schema/isMinLength":
+    case "effect/schema/isMaxLength":
+    case "effect/schema/isBetweenLength": {
+      const minimum = representation.id === "effect/schema/isMaxLength" ? 0 : bound(representation.id === "effect/schema/isMinLength" ? "minLength" : "minimum")
+      const maximum = representation.id === "effect/schema/isMinLength" ? undefined : bound(representation.id === "effect/schema/isMaxLength" ? "maxLength" : "maximum")
+      if (isString) {
+        const lower = minimum <= 1 ? { minLength: minimum } : { pattern: utf16MinimumPattern(minimum) }
+        fragment = maximum === undefined ? lower : { allOf: [lower, { not: { pattern: utf16MinimumPattern(maximum + 1) } }] }
+      } else if (ast._tag === "Arrays") {
+        fragment = { minItems: minimum, ...(maximum === undefined ? {} : { maxItems: maximum }) }
+      } else throw new Error("Unsupported length constraint")
+      break
+    }
+    case "effect/schema/isMinCodePoints":
+    case "effect/schema/isMaxCodePoints":
+    case "effect/schema/isBetweenCodePoints":
+      if (!isString) throw new Error("Unsupported code point constraint")
+      fragment = representation.id === "effect/schema/isMinCodePoints" ? { minLength: bound("minCodePoints") } :
+        representation.id === "effect/schema/isMaxCodePoints" ? { maxLength: bound("maxCodePoints") } :
+        { minLength: bound("minimum"), maxLength: bound("maximum") }
+      break
+    case "effect/schema/isFinite":
+    case "effect/schema/isInt":
+    case "effect/schema/isGreaterThan":
+    case "effect/schema/isGreaterThanOrEqualTo":
+    case "effect/schema/isLessThan":
+    case "effect/schema/isLessThanOrEqualTo":
+      if (!isNumber) throw new Error("Unsupported numeric constraint")
+      fragment = representation.id === "effect/schema/isFinite" ? { type: "number" } :
+        representation.id === "effect/schema/isInt" ? { type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER } :
+        representation.id === "effect/schema/isGreaterThan" ? { exclusiveMinimum: bound("exclusiveMinimum") } :
+        representation.id === "effect/schema/isGreaterThanOrEqualTo" ? { minimum: bound("minimum") } :
+        representation.id === "effect/schema/isLessThan" ? { exclusiveMaximum: bound("exclusiveMaximum") } : { maximum: bound("maximum") }
+      break
+    case "effect/schema/isUnique":
+      if (ast._tag !== "Arrays" || [...ast.elements, ...ast.rest].some((element) => !isPrimitiveAst(element))) throw new Error("Unsupported object equality constraint")
+      fragment = { uniqueItems: true }
+      break
+    default:
+      throw new Error("Unsupported validation check")
+  }
+  return new SchemaAST.Filter(check.run, { toJsonSchema: () => fragment }, check.aborted)
+}
+
+const isPrimitiveAst = (ast: SchemaAST.AST): boolean =>
+  ["String", "Number", "Boolean", "Literal", "Null"].includes(ast._tag) || ast._tag === "Union" && ast.types.every(isPrimitiveAst)
+
+const utf16MinimumPattern = (minimum: number): string => {
+  if (!Number.isInteger(minimum) || minimum < 0 || minimum > 512) throw new Error("Unsupported UTF-16 length bound")
+  const astral = "[\\u{10000}-\\u{10FFFF}]"
+  const single = "[^\\u{10000}-\\u{10FFFF}]"
+  const alternatives = Array.from({ length: Math.floor(minimum / 2) + 1 }, (_, pairs) =>
+    `${pairs === 0 ? "" : `(?=(?:${single}*${astral}){${pairs}})`}(?=[\\s\\S]{${minimum - pairs},})`)
+  return `^(?:${alternatives.join("|")})`
 }

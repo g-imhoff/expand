@@ -73,13 +73,13 @@ export const deriveSelectedActions = Effect.fn("Automation.deriveSelectedActions
   const process = yield* validateProcess(input)
   if (process.decision === undefined) {
     if (decisionInput !== undefined) return yield* new AutomationError({ code: "invalid-reference", message: "Process has no decision" })
-    return { kind: "selected", outcomeId: "triggered", actions: process.actions["triggered"] ?? [] }
+    return { kind: "selected", outcomeId: "triggered", actions: ownActions(process, "triggered") }
   }
   if (decisionInput === undefined) return { kind: "unresolved", reason: "Decision has not selected an outcome", actions: [] }
   const decision = yield* decodeJson(JevDecisionResult, decisionInput)
   if (decision.kind === "abstained") return { kind: "unresolved", reason: decision.reason, actions: [] }
   if (!process.decision.outcomes.includes(decision.outcomeId)) return yield* new AutomationError({ code: "invalid-reference", message: "Decision selected an unknown outcome" })
-  return { kind: "selected", outcomeId: decision.outcomeId, actions: process.actions[decision.outcomeId] ?? [] }
+  return { kind: "selected", outcomeId: decision.outcomeId, actions: ownActions(process, decision.outcomeId) }
 })
 
 export const resolveBindings = Effect.fn("Automation.resolveBindings")(function*(input: unknown, sources: BindingSources) {
@@ -111,6 +111,9 @@ export const resolveActionArguments = Effect.fn("Automation.resolveActionArgumen
   const decoded = yield* decodeJson(schema, encoded)
   return { encoded, decoded }
 })
+
+const ownActions = (process: ProcessDefinition, outcomeId: string): ReadonlyArray<ActionStep> =>
+  Object.hasOwn(process.actions, outcomeId) ? process.actions[outcomeId]! : []
 
 const forbiddenFields = new Set(["__proto__", "prototype", "constructor"])
 const bindingError = (message: string): AutomationError => new AutomationError({ code: "invalid-binding", message })

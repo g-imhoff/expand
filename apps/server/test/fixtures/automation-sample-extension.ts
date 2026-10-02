@@ -1,10 +1,13 @@
-import { Effect, Schema } from "effect"
+import { Effect, Schema, SchemaGetter } from "effect"
 import { defineAction, defineExtension, defineIntegration, defineRoutine, defineTrigger, fieldBinding } from "@expand/contracts/automation"
 import type { AutomationFailure, InvocationAuthority, InvocationContext, ProcessDefinition, RoutineConfiguration } from "@expand/contracts/automation"
 
 export const SampleIntegrationConfiguration = Schema.Struct({ mailbox: Schema.String.check(Schema.isMinLength(1)) })
-export const SamplePayload = Schema.Struct({ subject: Schema.String, count: Schema.FiniteFromString })
-export const SampleArguments = Schema.Struct({ message: Schema.String.check(Schema.isMinLength(1)), count: Schema.FiniteFromString })
+export const SampleCount = Schema.Literals(["1", "2", "3", "4", "5"]).pipe(Schema.decodeTo(Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(5)), {
+  decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "1" | "2" | "3" | "4" | "5")
+}))
+export const SamplePayload = Schema.Struct({ subject: Schema.String, count: SampleCount })
+export const SampleArguments = Schema.Struct({ message: Schema.String.check(Schema.isMinLength(1)), count: SampleCount })
 export const SampleResult = Schema.Struct({ summary: Schema.String, total: Schema.Finite })
 export const sampleIntegration = defineIntegration({
   definition: { id: "sample:mail", version: 1 }, title: "Fictitious mail", capabilities: ["send"],

@@ -51,19 +51,22 @@ export const defineTrigger = <C extends ContextFreeCodec, P extends ContextFreeC
 export const defineRoutine = <C extends ContextFreeCodec>(definition: Omit<RoutineDefinition<C>, "kind">): RoutineDefinition<C> => ({ kind: "routine-template", ...definition })
 export const defineAction = <A extends ContextFreeCodec, R extends ContextFreeCodec, C extends ContextFreeCodec>(
   definition: Omit<ActionDefinition<A, R, C>, "kind" | "invoke">
-): ActionDefinition<A, R, C> => ({
-  kind: "action", ...definition,
-  invoke: Effect.fn("AutomationExtension.invoke")(function*(arguments_: unknown, configuration: unknown, context: InvocationContext) {
-    const args = yield* decodeJson(definition.argumentsSchema, arguments_)
-    const config = yield* decodeJson(definition.integrationConfigurationSchema, configuration)
-    const result = yield* definition.handler(args, config, context).pipe(
-      Effect.catch((failure) => decodeJson(AutomationFailure, failure).pipe(
-        Effect.flatMap((error) => Effect.fail(new AutomationError({ code: "handler-failed", message: error.message, failure: error }))))))
-    const encoded = yield* Schema.encodeUnknownEffect(definition.resultSchema, { onExcessProperty: "error" })(result).pipe(
-      Effect.mapError(() => new AutomationError({ code: "invalid-contract", message: "Action result does not match its registered contract" })))
-    if (!isJsonValue(encoded)) return yield* new AutomationError({ code: "invalid-contract", message: "Action result is not encoded JSON" })
-    yield* decodeJson(definition.resultSchema, encoded)
-    return encoded
-  })
-})
+): ActionDefinition<A, R, C> => {
+  const { argumentsSchema, integrationConfigurationSchema, resultSchema, handler } = definition
+  return {
+    kind: "action", ...definition,
+    invoke: Effect.fn("AutomationExtension.invoke")(function*(arguments_: unknown, configuration: unknown, context: InvocationContext) {
+      const args = yield* decodeJson(argumentsSchema, arguments_)
+      const config = yield* decodeJson(integrationConfigurationSchema, configuration)
+      const result = yield* handler(args, config, context).pipe(
+        Effect.catch((failure) => decodeJson(AutomationFailure, failure).pipe(
+          Effect.flatMap((error) => Effect.fail(new AutomationError({ code: "handler-failed", message: error.message, failure: error }))))))
+      const encoded = yield* Schema.encodeUnknownEffect(resultSchema, { onExcessProperty: "error" })(result).pipe(
+        Effect.mapError(() => new AutomationError({ code: "invalid-contract", message: "Action result does not match its registered contract" })))
+      if (!isJsonValue(encoded)) return yield* new AutomationError({ code: "invalid-contract", message: "Action result is not encoded JSON" })
+      yield* decodeJson(resultSchema, encoded)
+      return encoded
+    })
+  }
+}
 export const defineExtension = (extension: AutomationExtension): AutomationExtension => extension

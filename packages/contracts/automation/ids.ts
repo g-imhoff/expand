@@ -1,8 +1,6 @@
 import { Schema } from "effect"
 
-export const DefinitionId = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/, {
-  toJsonSchema: () => ({ pattern: "^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$" })
-}))
+export const DefinitionId = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9.-]*:[a-z][a-z0-9.-]*$/u))
 export const PositiveVersion = Schema.Int.check(Schema.isGreaterThan(0))
 export const LocalId = Schema.String.check(Schema.isMinLength(1))
 export const DefinitionReference = Schema.Struct({ id: DefinitionId, version: PositiveVersion })

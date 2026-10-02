@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Result, Schema } from "effect"
+import { Effect, Result, Schema, SchemaGetter } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import { deriveSelectedActions, fieldBinding, resolveActionArguments, resolveBindings, validateProcess } from "@expand/contracts/automation/process"
 import type { BindingSources, FieldPath } from "@expand/contracts/automation/process"
@@ -24,6 +24,17 @@ const fail = Effect.fn("Test.fail")(function*<A, E>(effect: Effect.Effect<A, E>)
 })
 
 describe("automation process", () => {
+  it.effect("selects only own routes for inherited outcome names", () =>
+    Effect.gen(function*() {
+      for (const outcomeId of ["constructor", "toString", "__proto__"]) {
+        const process = { ...processDefinition, decision: { ...decision, outcomes: [outcomeId] } }
+        const selected = { schemaVersion: 1, kind: "selected", outcomeId, data: {} }
+        expect(yield* deriveSelectedActions(process, selected)).toEqual({ kind: "selected", outcomeId, actions: [] })
+        expect(yield* deriveSelectedActions({ ...process, actions: { [outcomeId]: [step] } }, selected))
+          .toEqual({ kind: "selected", outcomeId, actions: [step] })
+      }
+    }))
+
   it.effect("rejects outcome routes other than triggered when there is no decision", () =>
     fail(validateProcess({ ...processDefinition, actions: { approved: [] } })))
 
@@ -64,7 +75,10 @@ describe("automation process", () => {
         message: { kind: "field", source: "decision", path: ["detail", "message"] }
       }, sources)
       expect(resolved).toEqual({ literal: { enabled: true }, sender: "Owner", count: "5", label: "personal", prefix: "Hello", message: "Approved" })
-      const schema = Schema.Struct({ count: Schema.FiniteFromString })
+      const schema = Schema.Struct({ count: Schema.Literals(["5", "6"]).pipe(Schema.decodeTo(
+        Schema.Finite.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(5), Schema.isLessThanOrEqualTo(6)), {
+          decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "5" | "6")
+        })) })
       const args = yield* resolveActionArguments(schema, { count: fieldBinding(schema, "trigger", ["count"]) }, sources)
       expect(args).toEqual({ encoded: { count: "5" }, decoded: { count: 5 } })
       expectTypeOf(args.decoded).toEqualTypeOf<typeof schema.Type>()

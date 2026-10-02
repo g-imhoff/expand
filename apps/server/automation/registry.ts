@@ -1,4 +1,4 @@
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Semaphore } from "effect"
 import {
   ActionDescriptor, AutomationError, Catalog, decodeJson, definitionKey, deriveSelectedActions, editorSchema,
   IntegrationDescriptor, InvocationAuthority, JevDecisionResult, resolveActionArguments, RoutineConfiguration,
@@ -22,17 +22,18 @@ export interface ResolvedSelection {
 }
 
 export class AutomationRegistry {
+  private readonly registrationLock = Semaphore.makeUnsafe(1)
   private definitions = new Map<string, InstalledDefinition>()
   private descriptors: ReadonlyArray<DefinitionDescriptor> = []
 
   readonly register = Effect.fn("AutomationRegistry.register")(function*(this: AutomationRegistry, extension: AutomationExtension) {
     const pending = new Map(this.definitions)
     const descriptors: Array<DefinitionDescriptor> = []
-    const additions: ReadonlyArray<InstalledDefinition> = [...extension.integrations, ...extension.triggers, ...extension.actions, ...extension.routines]
+    const additions = [...extension.integrations, ...extension.triggers, ...extension.actions, ...extension.routines].map(snapshotDefinition)
     for (const definition of additions) {
       const key = definitionKey(definition.definition)
       if (pending.has(key)) return yield* new AutomationError({ code: "duplicate-definition", message: `Definition already registered: ${key}` })
-      pending.set(key, snapshotDefinition(definition))
+      pending.set(key, definition)
       descriptors.push(yield* describeDefinition(definition))
     }
     for (const definition of additions) {
@@ -42,6 +43,9 @@ export class AutomationRegistry {
           for (const capability of definition.capabilities) {
             if (!integration.capabilities.includes(capability)) return yield* invalidReference("Action requires an undeclared integration capability")
           }
+          if (definition.integrationConfigurationSchema !== integration.configurationSchema) {
+            return yield* invalidReference("Action must share its integration definition's configuration codec")
+          }
           yield* editorSchema(definition.integrationConfigurationSchema)
         }
       }
@@ -49,7 +53,7 @@ export class AutomationRegistry {
     }
     this.definitions = pending
     this.descriptors = [...this.descriptors, ...descriptors]
-  })
+  }, (effect) => this.registrationLock.withPermit(effect))
 
   readonly catalog = (): Catalog => ({ schemaVersion: 1, kind: "catalog", definitions: structuredClone(this.descriptors) })
 

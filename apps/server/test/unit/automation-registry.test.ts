@@ -1,11 +1,11 @@
 import { it } from "@effect/vitest"
 import { Effect, Result, Schema, SchemaGetter, Context } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
-import { defineAction, defineIntegration, editorSchema } from "@expand/contracts/automation"
+import { defineAction, defineIntegration, defineTrigger, editorSchema } from "@expand/contracts/automation"
 import type { ContextFreeCodec, FieldPath } from "@expand/contracts/automation"
 import { AutomationRegistry } from "@expand/server/automation/registry"
 import {
-  makeSampleExtension, sampleAuthority, sampleConfiguration, sampleIntegration, SampleArguments, SampleIntegrationConfiguration,
+  makeSampleExtension, sampleAuthority, sampleConfiguration, sampleIntegration, SampleArguments, SampleCount, SampleIntegrationConfiguration,
   SamplePayload, SampleResult, sampleRoutine, sampleTrigger
 } from "../fixtures/automation-sample-extension"
 
@@ -20,12 +20,169 @@ const failCode = Effect.fn("Test.failCode")(function*<A>(effect: Effect.Effect<A
 })
 
 describe("trusted automation registry", () => {
+  it.effect("captures both versions' handlers and codecs when reusing builder input", () =>
+    Effect.gen(function*() {
+      const firstHandler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: `first:${args.message}`, total: args.count }))
+      const secondHandler = vi.fn((args: typeof SampleArguments.Type) => Effect.succeed({ summary: `second:${args.message}`, total: args.count }))
+      const input = {
+        definition: { id: "sample:send", version: 1 }, title: "Reusable action", integration: sampleIntegration.definition,
+        capabilities: ["send"], argumentsSchema: SampleArguments, resultSchema: SampleResult,
+        integrationConfigurationSchema: SampleIntegrationConfiguration, handler: firstHandler
+      }
+      const first = defineAction(input)
+      input.definition = { ...input.definition, version: 2 }
+      input.handler = secondHandler
+      input.argumentsSchema = Schema.Struct({ message: Schema.String.check(Schema.isMinLength(2)), count: SampleCount })
+      const second = defineAction(input)
+      input.argumentsSchema = Schema.Struct({ message: Schema.String.check(Schema.isMinLength(100)), count: SampleCount })
+      input.resultSchema = Schema.Struct({ summary: Schema.String.check(Schema.isMinLength(100)), total: Schema.Finite })
+      input.integrationConfigurationSchema = Schema.Struct({ mailbox: Schema.String.check(Schema.isMinLength(100)) })
+      input.handler = vi.fn(() => Effect.succeed({ summary: "mutated", total: 0 }))
+      const registry = new AutomationRegistry()
+      yield* registry.register({ ...makeSampleExtension().extension, actions: [first, second] })
+      expect(yield* registry.invokeAction({ ...invocation, triggerPayload: { subject: "x", count: "3" } }, sampleAuthority)).toEqual({ summary: "first:x", total: 3 })
+      const configuration = cloneConfiguration()
+      configuration.process.actions["triggered"]![0]!.action.version = 2
+      const authority = { ...sampleAuthority, actionGrants: [{ ...sampleAuthority.actionGrants[0]!, action: second.definition }] }
+      expect(yield* registry.invokeAction({ ...invocation, configuration }, authority)).toEqual({ summary: "second:hello", total: 3 })
+      expect(firstHandler).toHaveBeenCalledTimes(1)
+      expect(secondHandler).toHaveBeenCalledTimes(1)
+      yield* failCode(registry.invokeAction({ ...invocation, configuration, triggerPayload: { subject: "x", count: "3" } }, authority), "invalid-contract")
+      expect(secondHandler).toHaveBeenCalledTimes(1)
+      expect(input.handler).not.toHaveBeenCalled()
+    }))
+
+  it.effect("rejects a concurrent duplicate registration without duplicate catalog entries", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      const extension = { ...emptyExtension, integrations: Array.from({ length: 100 }, (_, index) =>
+        defineIntegration({ ...sampleIntegration, definition: { id: `concurrent:item-${index}`, version: 1 } })) }
+      const results = yield* Effect.all([registry.register(extension).pipe(Effect.result), registry.register(extension).pipe(Effect.result)], { concurrency: "unbounded" })
+      expect(results.filter(Result.isSuccess)).toHaveLength(1)
+      const failures = results.filter(Result.isFailure)
+      expect(failures.map((result) => result.failure.code)).toEqual(["duplicate-definition"])
+      expect(registry.catalog().definitions).toHaveLength(100)
+    }))
+
+  it.effect("retains concurrent distinct definitions and every catalog reference", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      const integrations = ["left", "right"].map((lane) => Array.from({ length: 100 }, (_, index) =>
+        defineIntegration({ ...sampleIntegration, definition: { id: `concurrent:${lane}-${index}`, version: 1 } })))
+      yield* Effect.all(integrations.map((definitions) => registry.register({ ...emptyExtension, integrations: definitions })), { concurrency: "unbounded" })
+      expect(registry.catalog().definitions).toHaveLength(200)
+      for (const definitions of integrations) {
+        yield* registry.register({ ...emptyExtension, triggers: definitions.map((integration) => defineTrigger({
+          ...sampleTrigger, definition: { id: `${integration.definition.id}-trigger`, version: 1 }, integration: integration.definition
+        })) })
+      }
+      expect(registry.catalog().definitions).toHaveLength(400)
+      expect(new Set(registry.catalog().definitions.map((entry) => `${entry.definition.id}@${entry.definition.version}`)).size).toBe(400)
+    }))
+
+  it.effect("rejects incompatible integration configuration codecs atomically", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      yield* registry.register(makeSampleExtension().extension)
+      const before = registry.catalog()
+      const mismatched = defineAction({
+        ...makeSampleExtension().action, definition: { id: "sample:incompatible", version: 1 },
+        integrationConfigurationSchema: Schema.Struct({ endpoint: Schema.String }),
+        handler: (_args, config) => Effect.succeed({ summary: config.endpoint, total: 1 })
+      })
+      yield* failCode(registry.register({ ...emptyExtension,
+        integrations: [defineIntegration({ ...sampleIntegration, definition: { id: "sample:rollback", version: 1 } })], actions: [mismatched]
+      }), "invalid-reference")
+      expect(registry.catalog()).toEqual(before)
+      yield* registry.register({ ...emptyExtension, integrations: [defineIntegration({ ...sampleIntegration, definition: { id: "sample:rollback", version: 1 } })] })
+    }))
+
+  it.effect("rejects different decoded integration types even with identical encoded descriptors", () =>
+    Effect.gen(function*() {
+      const mailbox = Schema.Literals(["inbox", "outbox"])
+      const encoded = Schema.Struct({ mailbox })
+      const decoded = Schema.Struct({ mailbox: mailbox.pipe(Schema.decodeTo(Schema.Literals([1, 2]), {
+        decode: SchemaGetter.transform((value) => value === "inbox" ? 1 : 2),
+        encode: SchemaGetter.transform((value) => value === 1 ? "inbox" as const : "outbox" as const)
+      })) })
+      expect(yield* editorSchema(encoded)).toEqual(yield* editorSchema(decoded))
+      const integration = defineIntegration({ ...sampleIntegration, configurationSchema: encoded })
+      const action = defineAction({ ...makeSampleExtension().action, integrationConfigurationSchema: decoded,
+        handler: (_args, config) => {
+          expectTypeOf(config.mailbox).toEqualTypeOf<1 | 2>()
+          return Effect.succeed({ summary: "decoded", total: config.mailbox })
+        }
+      })
+      const registry = new AutomationRegistry()
+      yield* failCode(registry.register({ ...emptyExtension, integrations: [integration], actions: [action] }), "invalid-reference")
+      expect(registry.catalog().definitions).toEqual([])
+    }))
+
+
+  it.effect("decodes shared integration codecs into the handler configuration type", () =>
+    Effect.gen(function*() {
+      const configurationSchema = Schema.Struct({ mailbox: Schema.Literals(["inbox", "outbox"]).pipe(Schema.decodeTo(Schema.Finite, {
+        decode: SchemaGetter.transform((value) => value === "inbox" ? 1 : 2),
+        encode: SchemaGetter.transform((value) => value === 1 ? "inbox" as const : "outbox" as const)
+      })) })
+      const integration = defineIntegration({ ...sampleIntegration, configurationSchema })
+      const handler = vi.fn((args: typeof SampleArguments.Type, config: typeof configurationSchema.Type) => Effect.succeed({ summary: "shared", total: args.count + config.mailbox }))
+      const action = defineAction({ ...makeSampleExtension().action, integrationConfigurationSchema: configurationSchema,
+        handler: (args, config) => {
+          expectTypeOf(config.mailbox).toEqualTypeOf<number>()
+          return handler(args, config)
+        }
+      })
+      const registry = new AutomationRegistry()
+      yield* registry.register({ ...makeSampleExtension().extension, integrations: [integration], actions: [action] })
+      expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "shared", total: 4 })
+      expect(handler.mock.calls[0]?.[1]).toEqual({ mailbox: 1 })
+    }))
+
+  it.effect("rejects lossy encoded constraints and partial transformations without publishing definitions", () =>
+    Effect.gen(function*() {
+      const refined = Schema.Literals(["-1", "1"]).pipe(Schema.decodeTo(Schema.Finite.check(Schema.isGreaterThan(0)), {
+        decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "-1" | "1")
+      }))
+      for (const schema of [
+        Schema.String.check(Schema.isPattern(/^HELLO$/i)), Schema.FiniteFromString, refined,
+        Schema.String.check(Schema.makeFilter((value: string) => value === "only", { toJsonSchema: () => ({ type: "string" }) }))
+      ]) {
+        const registry = new AutomationRegistry()
+        yield* failCode(registry.register({ ...emptyExtension, integrations: [sampleIntegration,
+          defineIntegration({ ...sampleIntegration, definition: { id: "sample:lossy", version: 1 }, configurationSchema: schema })]
+        }), "unsupported-schema")
+        expect(registry.catalog().definitions).toEqual([])
+        yield* registry.register({ ...emptyExtension, integrations: [sampleIntegration] })
+      }
+    }))
+
+  it.effect("resolves inherited outcome names with absent and explicit own routes", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      yield* registry.register(makeSampleExtension().extension)
+      for (const outcomeId of ["constructor", "toString", "__proto__"]) {
+        for (const routed of [false, true]) {
+          const configuration = cloneConfiguration()
+          const step = configuration.process.actions["triggered"]![0]!
+          configuration.process = { ...configuration.process,
+            decision: { kind: "jev", provider: "opencode-zen", model: "jev", version: "1.13", outcomes: [outcomeId] },
+            actions: routed ? { [outcomeId]: [step] } : {}
+          }
+          const resolved = yield* registry.resolveSelectedActions(configuration, invocation.triggerPayload,
+            { schemaVersion: 1, kind: "selected", outcomeId, data: {} })
+          expect(Array.isArray(resolved.selection.actions)).toBe(true)
+          expect(resolved.actions.map((action) => action.stepId)).toEqual(routed ? ["send"] : [])
+        }
+      }
+    }))
+
   it.effect("registers a separate public extension and invokes only one explicitly authorized action", () =>
     Effect.gen(function*() {
       const handler = vi.fn((args: typeof SampleArguments.Type, config: typeof SampleIntegrationConfiguration.Type) => Effect.succeed({ summary: `${config.mailbox}:${args.message}`, total: args.count }))
       const sample = makeSampleExtension(handler)
       expectTypeOf(sample.action.handler).parameter(0).toEqualTypeOf<typeof SampleArguments.Type>()
-      expectTypeOf<typeof SampleArguments.Encoded>().toEqualTypeOf<{ readonly message: string; readonly count: string }>()
+      expectTypeOf<typeof SampleArguments.Encoded>().toEqualTypeOf<{ readonly message: string; readonly count: typeof SampleCount.Encoded }>()
       expectTypeOf<typeof SamplePayload.Type>().toEqualTypeOf<{ readonly subject: string; readonly count: number }>()
       expectTypeOf<readonly ["subject"]>().toExtend<FieldPath<typeof SamplePayload.Encoded>>()
       expectTypeOf<readonly ["absent"]>().not.toExtend<FieldPath<typeof SamplePayload.Encoded>>()
@@ -232,7 +389,7 @@ describe("trusted automation registry", () => {
   it.effect("emits encoded editor fields for transformed argument schemas", () =>
     Effect.gen(function*() {
       const descriptor = yield* editorSchema(SampleArguments)
-      expect(descriptor.schema).toMatchObject({ type: "object", required: ["message", "count"], properties: { message: { type: "string", minLength: 1 }, count: { type: "string" } }, additionalProperties: false })
+      expect(descriptor.schema).toMatchObject({ type: "object", required: ["message", "count"], properties: { message: { type: "string", minLength: 1 }, count: { enum: ["1", "2", "3", "4", "5"] } }, additionalProperties: false })
       expect(yield* editorSchema(SampleIntegrationConfiguration)).toMatchObject({ schema: { properties: { mailbox: { minLength: 1 } } } })
     }))
 })

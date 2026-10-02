@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Result, Schema } from "effect"
+import { Effect, Result, Schema, SchemaGetter } from "effect"
 import { describe, expect, expectTypeOf } from "vitest"
 import {
   ActionDescriptor, ActionOutcome, AutomationRun, Catalog, CredentialReference, decodeJson, DefinitionReference,
@@ -37,6 +37,56 @@ const reject = Effect.fn("Test.reject")(function*(schema: ContextFreeCodec, inpu
 })
 
 describe("versioned automation contracts", () => {
+  it.effect("represents exact UTF-16 string length boundaries", () =>
+    Effect.gen(function*() {
+      for (const minimum of [2, 3, 4, 64, 128, 512]) {
+        const schema = Schema.String.check(Schema.isMinLength(minimum))
+        const descriptor = yield* editorSchema(schema)
+        expect(descriptor.schema).toMatchObject({ type: "string", pattern: expect.any(String) })
+        const pattern = (descriptor.schema as Record<string, Schema.Json>)["pattern"]
+        expect(typeof pattern).toBe("string")
+        if (typeof pattern !== "string") throw new Error("Missing exact length pattern")
+        for (const value of ["", "a", "ab", "abc", "abcd", "😀", "😀a", "a😀", "😀😀", "\n", "a\n", "\ud800", "a".repeat(minimum - 1), "a".repeat(minimum), "😀".repeat(minimum / 2), "😀".repeat(minimum / 2 - 1) + "a"]) {
+          const accepted = Result.isSuccess(yield* decodeJson(schema, value).pipe(Effect.result))
+          expect(new RegExp(pattern, "u").test(value), `minimum ${minimum}, value ${value}`).toBe(accepted)
+        }
+      }
+    }))
+
+
+  it.effect("preserves exact maximum UTF-16 lengths including astral characters", () =>
+    Effect.gen(function*() {
+      for (const maximum of [0, 1, 2, 3, 4]) {
+        const schema = Schema.String.check(Schema.isMaxLength(maximum))
+        const descriptor = yield* editorSchema(schema)
+        const clauses = (descriptor.schema as Record<string, Schema.Json>)["allOf"] as ReadonlyArray<Record<string, Schema.Json>>
+        const not = clauses[1]!["not"] as Record<string, Schema.Json>
+        const pattern = not["pattern"]
+        expect(typeof pattern).toBe("string")
+        if (typeof pattern !== "string") throw new Error("Missing maximum length pattern")
+        for (const value of ["", "a", "ab", "abc", "abcd", "abcde", "😀", "😀a", "a😀", "😀😀", "😀😀a", "a\n", "\ud800"]) {
+          const accepted = Result.isSuccess(yield* decodeJson(schema, value).pipe(Effect.result))
+          expect(!new RegExp(pattern, "u").test(value), `maximum ${maximum}, value ${value}`).toBe(accepted)
+        }
+      }
+    }))
+
+  it.effect("preserves safe integer bounds in editor descriptors", () =>
+    Effect.gen(function*() {
+      expect((yield* editorSchema(Schema.Int)).schema).toMatchObject({
+        type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER
+      })
+      yield* reject(Schema.Int, Number.MAX_SAFE_INTEGER + 1)
+    }))
+
+  it.effect("rejects partial numeric-string codecs and decoded refinements before describing them", () =>
+    Effect.gen(function*() {
+      for (const value of ["foo", "not-a-number", "Infinity", "-Infinity", "NaN"]) yield* reject(Schema.FiniteFromString, value)
+      const result = yield* editorSchema(Schema.FiniteFromString).pipe(Effect.result)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+    }))
+
   it.effect("roundtrips every definition, configuration, decision and run contract", () =>
     Effect.gen(function*() {
       for (const [schema, value] of [
@@ -100,11 +150,11 @@ describe("versioned automation contracts", () => {
   it.effect("describes encoded constrained, optional and union fields without accepting decoded values", () =>
     Effect.gen(function*() {
       const schema = Schema.Struct({
-        count: Schema.FiniteFromString, note: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
+        count: Schema.Literals(["4", "5"]).pipe(Schema.decodeTo(Schema.Finite, { decode: SchemaGetter.transform(Number), encode: SchemaGetter.transform((value) => String(value) as "4" | "5") })), note: Schema.optional(Schema.String.check(Schema.isMinLength(1))),
         choice: Schema.Union([Schema.Literal("skip"), Schema.Struct({ enabled: Schema.Boolean })])
       })
       const descriptor = yield* editorSchema(schema)
-      expect(descriptor.schema).toMatchObject({ type: "object", required: ["count", "choice"], additionalProperties: false, properties: { count: { type: "string" } } })
+      expect(descriptor.schema).toMatchObject({ type: "object", required: ["count", "choice"], additionalProperties: false, properties: { count: { enum: ["4", "5"] } } })
       const properties = (descriptor.schema as Record<string, Schema.Json>)["properties"] as Record<string, Schema.Json>
       expect(properties["note"]).toMatchObject({ anyOf: [{ type: "string", minLength: 1 }] })
       expect(properties["choice"]).toMatchObject({ anyOf: [{ enum: ["skip"] }, { type: "object", properties: { enabled: { type: "boolean" } } }] })
