@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { Cause, Console, Context, Effect, Runtime, Schema } from "effect"
-import { CliError } from "effect/unstable/cli"
+import { CliError } from "effect/cli"
 import { describe, expect, expectTypeOf } from "vitest"
 import { ProjectAlreadyExists } from "@expand/contracts/rpc"
 import { renderErrors } from "@expand/cli/errors/render-errors"

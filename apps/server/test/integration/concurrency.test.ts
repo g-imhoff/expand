@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("project operations under concurrency", () => {
+describe("project operations under concurrency", { concurrent: false }, () => {
   it.live("name-uniqueness guard rejects a SEQUENTIAL re-use with ProjectNameConflict",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-concurrency-')

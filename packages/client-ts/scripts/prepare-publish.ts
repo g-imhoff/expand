@@ -1,7 +1,7 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Console, Data, Effect, Exit, FileSystem, Path, Schema } from "effect"
-import { Command } from "effect/unstable/cli"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { Command } from "effect/cli"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { resolveAppVersion } from "../../../scripts/app-version"
 
 export class PublishStageError extends Data.TaggedError("PublishStageError")<{

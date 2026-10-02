@@ -34,7 +34,7 @@
  * @packageDocumentation
  */
 
-import type { RpcClientError as RpcClientErrorNS } from "effect/unstable/rpc"
+import type { RpcClientError as RpcClientErrorNS } from "effect/rpc"
 
 // Composition
 export { ClientLayer } from "./client-layer"

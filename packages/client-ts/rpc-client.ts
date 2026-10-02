@@ -1,5 +1,5 @@
-import { RpcClient } from "effect/unstable/rpc"
-import type { RpcClientError } from "effect/unstable/rpc"
+import { RpcClient } from "effect/rpc"
+import type { RpcClientError } from "effect/rpc"
 import { Cause, Data, Deferred, Effect, Layer, PlatformError, Stream } from "effect"
 import type { Crypto, FileSystem, Path, Scope } from "effect"
 import { ExpandRpcs } from "@expand/contracts/rpc"

@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { SqlError } from "effect/unstable/sql/SqlError"
+import { SqlClient } from "effect/sql/SqlClient"
+import { SqlError } from "effect/sql/SqlError"
 import { DatabaseReady } from "@expand/server/migrations/sqlite"
 
 /**
