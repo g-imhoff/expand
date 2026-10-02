@@ -12,7 +12,7 @@ import {
   SubscriptionRef
 } from "effect"
 import type { Crypto, FileSystem, Path, Scope } from "effect"
-import { RpcClient } from "effect/unstable/rpc"
+import { RpcClient } from "effect/rpc"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
 import type { RuntimeAdapter } from "./adapter"
@@ -41,9 +41,10 @@ export const ClientSessionLayer = (
 > =>
   Layer.effect(ClientSession, makeSession(adapter))
 
-const reconnectPolicy = Schedule.exponential("500 millis", 1.5).pipe(
-  Schedule.either(Schedule.spaced("5 seconds"))
-)
+const reconnectPolicy = Schedule.min([
+  Schedule.exponential("500 millis", 1.5),
+  Schedule.spaced("5 seconds")
+])
 
 interface ConnectionAttempt {
   readonly disconnected: Deferred.Deferred<void>

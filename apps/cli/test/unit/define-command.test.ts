@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Argument, Command, GlobalFlag } from "effect/unstable/cli"
+import { Argument, Command, GlobalFlag } from "effect/cli"
 import { Effect, Schema } from "effect"
 import { defineCommand } from "@expand/cli/commands/define-command"
 import { Format, Quiet } from "@expand/cli/commands/global-flags"
@@ -11,7 +11,7 @@ const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Any))
 
 const create = defineCommand(
   "make",
-  { name: Argument.string("name") },
+  { name: Argument.String("name") },
   {
     envelope: (r: { created: boolean; project: { id: string; name: string; createdAt: string } }) => ({
       apiVersion: "expand/v1", kind: "Project", created: r.created, data: r.project

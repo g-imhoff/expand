@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { Deferred, Effect, Fiber, Layer, Ref, Stream } from "effect"
-import { RpcClient } from "effect/unstable/rpc"
+import { RpcClient } from "effect/rpc"
 import { describe, expect, vi } from "vitest"
 import { ProcessServices } from "../process-services"
 import { AppContext } from "@expand/contracts/app-context"

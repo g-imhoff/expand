@@ -1,4 +1,4 @@
-import { Argument } from "effect/unstable/cli"
+import { Argument } from "effect/cli"
 import { Effect } from "effect"
 import type { Project } from "@expand/contracts/project"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
@@ -7,8 +7,8 @@ import { defineCommand } from "@expand/cli/commands/define-command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
 
 export const renameCommand = (() => {
-  const target = Argument.string("project")
-  const name = Argument.string("name")
+  const target = Argument.String("project")
+  const name = Argument.String("name")
 
   return defineCommand(
     "rename",

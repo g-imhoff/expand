@@ -2,7 +2,7 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
 import { Effect, FileSystem, Path, Fiber, Option, Schedule, Layer } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { runServer } from "@expand/server/composition/app"
@@ -25,7 +25,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("durability across a backend restart", () => {
+describe("durability across a backend restart", { concurrent: false }, () => {
   it.live("upgrades a revisionless legacy database once and replays ProjectCreated revision 1", () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory("expand-durability-legacy-")

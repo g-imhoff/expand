@@ -1,7 +1,8 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Schema, Stream } from "effect"
-import { HttpServer } from "effect/unstable/http"
+import { NetAddress } from "effect/net"
+import { HttpServer } from "effect/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { readEndpoint, withClient } from "@expand/client-ts"
 import { runServer } from "@expand/server/composition/app"
@@ -21,8 +22,8 @@ import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases
 import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
-import { ChildProcess } from "effect/unstable/process"
-import * as Socket from "effect/unstable/socket/Socket"
+import { ChildProcess } from "effect/process"
+import * as Socket from "effect/socket/Socket"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
@@ -67,15 +68,12 @@ const testCore = (dbPath: string) => {
 
 const probeTcp = (host: string, port: number) =>
   Effect.scoped(Effect.gen(function*() {
-    const opened = yield* Queue.unbounded<void>()
     const socket = yield* NodeSocket.makeNet({ host, port, openTimeout: "2 seconds" })
-    const run = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
-      Effect.forkScoped
+    return yield* socket.reader.pipe(
+      Effect.as("open" as const),
+      Effect.catchCause(() => Effect.succeed("closed" as const)),
+      Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) })
     )
-    return yield* Effect.race(
-      Queue.take(opened).pipe(Effect.as("open" as const)),
-      Fiber.join(run).pipe(Effect.as("closed" as const), Effect.catchCause(() => Effect.succeed("closed" as const)))
-    ).pipe(Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) }))
   }))
 
 const OffLoopbackTargets = Schema.fromJsonString(Schema.Array(Schema.String))
@@ -143,20 +141,17 @@ const assertChildAlive = Effect.fn("TrustBoundary.assertChildAlive")(function*(
 
 const probeWs = (url: string) =>
   Effect.scoped(Effect.gen(function*() {
-    const opened = yield* Queue.unbounded<void>()
     const socket = yield* Socket.makeWebSocket(url, { openTimeout: "2 seconds" }).pipe(
       Effect.provide(NodeSocket.layerWebSocketConstructorWS)
     )
-    const run = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
-      Effect.forkScoped
+    return yield* socket.reader.pipe(
+      Effect.as("open" as const),
+      Effect.catchCause(() => Effect.succeed("closed" as const)),
+      Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) })
     )
-    return yield* Effect.race(
-      Queue.take(opened).pipe(Effect.as("open" as const)),
-      Fiber.join(run).pipe(Effect.as("closed" as const), Effect.catchCause(() => Effect.succeed("closed" as const)))
-    ).pipe(Effect.timeoutOrElse({ duration: "2 seconds", orElse: () => Effect.succeed("closed" as const) }))
   }))
 
-describe.sequential("trust boundary", () => {
+describe("trust boundary", { concurrent: false }, () => {
   it.live("surfaces an early failing child before readiness times out", () => Effect.gen(function*() {
     const path = yield* Path.Path
     const dir = yield* makeTestDirectory("expand-trust-boundary-early-exit-")
@@ -174,7 +169,7 @@ describe.sequential("trust boundary", () => {
     )
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.live("binds to a 127.0.0.1 TcpAddress",  () => Effect.gen(function*() {
+  it.live("binds to a 127.0.0.1 InetAddress",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-trust-boundary-')
     const program = Effect.gen(function* () {
@@ -186,7 +181,7 @@ describe.sequential("trust boundary", () => {
       )
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
-      return addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
+      return NetAddress.isInetAddress(addr) ? String(addr.address) : `unexpected:${addr._tag}`
     }).pipe(Effect.scoped, Effect.provide(Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, makeTestAppContext(path, dir)))))
 
     const hostname = yield* (program)

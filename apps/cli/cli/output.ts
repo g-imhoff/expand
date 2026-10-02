@@ -13,4 +13,4 @@ export const successLine = (
   parts: { readonly envelope: object; readonly text: string; readonly quiet: string }
 ): string => (opts.quiet ? parts.quiet : opts.format === "json" ? encodeUnknown(parts.envelope) : parts.text)
 
-const encodeUnknown = Schema.encodeSync(Schema.UnknownFromJsonString)
+const encodeUnknown = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))

@@ -1,4 +1,4 @@
-import { Argument } from "effect/unstable/cli"
+import { Argument } from "effect/cli"
 import { Effect } from "effect"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { ProjectDeleteResult } from "@expand/contracts/project"
@@ -7,7 +7,7 @@ import { defineCommand } from "@expand/cli/commands/define-command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
 
 export const deleteCommand = (() => {
-  const target = Argument.string("project")
+  const target = Argument.String("project")
 
   return defineCommand(
     "delete",

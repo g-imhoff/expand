@@ -1,5 +1,5 @@
 import { Effect, PlatformError, Schema } from "effect"
-import { isSqlError, type SqlError } from "effect/unstable/sql/SqlError"
+import { isSqlError, type SqlError } from "effect/sql/SqlError"
 
 export const guard = Effect.fnUntraced(function* guard<A, E, R>(
   effect: Effect.Effect<A, E, R>

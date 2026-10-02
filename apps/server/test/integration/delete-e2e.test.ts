@@ -20,7 +20,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   Effect.timeoutOrElse({ duration: "5 seconds", orElse: () => Effect.fail("server never advertised an endpoint") })
 )
 
-describe.sequential("project delete e2e", () => {
+describe("project delete e2e", { concurrent: false }, () => {
   it.live("deletes a project, emits ProjectDeleted, removes it from the list, and survives a restart",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-delete-e2e-')

@@ -68,9 +68,10 @@ type SinkFailure<E> = {
   readonly error: E
 }
 
-const epochRetryPolicy = Schedule.exponential("100 millis", 2).pipe(
-  Schedule.either(Schedule.spaced("5 seconds"))
-)
+const epochRetryPolicy = Schedule.min([
+  Schedule.exponential("100 millis", 2),
+  Schedule.spaced("5 seconds")
+])
 
 const epochEnded = Symbol("epoch ended")
 
