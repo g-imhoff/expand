@@ -35,6 +35,7 @@ const helpText = [
   "",
   "Options:",
   "  --keep-running    Keep serving when no clients are connected. Default: stop after the last client disconnects.",
+  "                    Stop a keep-running backend explicitly with Ctrl-C or SIGINT/SIGTERM.",
   "  --data-dir DIR    Store the database, endpoint and lock files in DIR.",
   "  --help            Show this help and exit."
 ].join("\n")
