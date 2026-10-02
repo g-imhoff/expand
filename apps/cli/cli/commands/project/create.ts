@@ -1,13 +1,13 @@
-import { Argument, Flag } from "effect/unstable/cli"
+import { Argument, Flag } from "effect/cli"
 import { Effect, Option } from "effect"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import { ProjectClient } from "@expand/client-ts/project"
 import { defineCommand } from "@expand/cli/commands/define-command"
 
 export const createCommand = (() => {
-  const name = Argument.string("name")
-  const ensure = Flag.boolean("ensure").pipe(Flag.withDefault(false))
-  const directory = Flag.string("directory").pipe(Flag.optional)
+  const name = Argument.String("name")
+  const ensure = Flag.Boolean("ensure").pipe(Flag.withDefault(false))
+  const directory = Flag.String("directory").pipe(Flag.optional)
 
   return defineCommand(
     "create",

@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { CliError } from "effect/unstable/cli"
+import { CliError } from "effect/cli"
 import { describe, expect, expectTypeOf, it } from "vitest"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import { ErrorEnvelope, ErrorEnvelopeFromJson } from "@expand/cli/errors/envelope"
@@ -9,7 +9,7 @@ import { jsonCliErrorFormatter } from "@expand/cli/errors/parser-errors"
 describe("Error envelope JSON", () => {
   it("constructs the shared envelope fields before the body fields", () => {
     expect(
-      Schema.encodeSync(Schema.UnknownFromJsonString)(
+      Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(
         makeEnvelope("Project", { created: false, data: { id: "project-id" } })
       )
     )

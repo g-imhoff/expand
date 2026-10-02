@@ -1,5 +1,5 @@
 import type { Effect, FileSystem, Layer } from "effect"
-import type { RpcClient } from "effect/unstable/rpc"
+import type { RpcClient } from "effect/rpc"
 import type { BackendUnavailable } from "./errors"
 
 /**

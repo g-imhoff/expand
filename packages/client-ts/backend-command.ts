@@ -11,7 +11,7 @@ export const resolveBackendCommand = (() => {
 
   return Effect.fn("BackendCommand.resolve")(function*(options: ResolveBackendCommandOptions) {
     const fs = yield* FileSystem.FileSystem
-    const override = yield* Config.option(Config.string("EXPAND_BACKEND_CMD")).pipe(
+    const override = yield* Config.option(Config.String("EXPAND_BACKEND_CMD")).pipe(
       Effect.mapError((cause) => new BackendCommandError({
         reason: "invalid-override",
         detail: cause.message,

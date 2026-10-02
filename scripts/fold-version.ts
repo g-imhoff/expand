@@ -1,6 +1,7 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import * as ts from "typescript"
-import { Console, Crypto, Data, Effect, Encoding, FileSystem, Path } from "effect"
+import { Console, Crypto, Data, Effect, FileSystem, Path } from "effect"
+import { Hex } from "effect/encoding"
 
 const PROJECTIONS: Readonly<Record<string, ReadonlyArray<{ readonly file: string; readonly name: string }>>> = {
   projects: [
@@ -86,7 +87,7 @@ export const computeFoldHashes = Effect.fn("scripts.fold-version.computeFoldHash
       const digest = yield* crypto.digest("SHA-256", textEncoder.encode(canonical)).pipe(
         Effect.mapError((cause) => new FoldVersionError({ reason: "digest-failed", file: projection, cause }))
       )
-      versions[projection] = `sha256:${Encoding.encodeHex(digest)}`
+      versions[projection] = `sha256:${Hex.encode(digest)}`
     }
 
     return versions as Readonly<Record<string, string>>

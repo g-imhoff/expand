@@ -1,4 +1,4 @@
-import { Command } from "effect/unstable/cli"
+import { Command } from "effect/cli"
 import { Effect } from "effect"
 import { Format, Quiet } from "@expand/cli/commands/global-flags"
 import { successLine, writeOut } from "@expand/cli/output"

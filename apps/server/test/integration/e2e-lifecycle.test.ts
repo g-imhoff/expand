@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("end-to-end lifecycle", () => {
+describe("end-to-end lifecycle", { concurrent: false }, () => {
   it.live("boots, serves RPCs over WebSocket, and shuts down when the last client leaves",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-e2e-lifecycle-')

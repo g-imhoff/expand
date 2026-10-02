@@ -61,7 +61,7 @@ describe("resolveProjectTarget Effect contract", () => {
     const transport = {
       _tag: "RpcClientError",
       message: "transport"
-    } as unknown as import("effect/unstable/rpc").RpcClientError.RpcClientError
+    } as unknown as import("effect/rpc").RpcClientError.RpcClientError
     const layer = Layer.succeed(ProjectClient, {
       list: () => Effect.fail(transport)
     } as unknown as ProjectClientApi)
@@ -79,7 +79,7 @@ describe("resolveProjectTarget Effect contract", () => {
     type SuccessMatches = Equal<Effect.Success<typeof resolution>, string>
     type ErrorMatches = Equal<
       Effect.Error<typeof resolution>,
-      import("effect/unstable/rpc").RpcClientError.RpcClientError | import("@expand/contracts/rpc").ProjectNotFound
+      import("effect/rpc").RpcClientError.RpcClientError | import("@expand/contracts/rpc").ProjectNotFound
     >
     type ServicesMatch = Equal<Effect.Services<typeof resolution>, ProjectClient>
     const assertions: [SuccessMatches, ErrorMatches, ServicesMatch] = [true, true, true]

@@ -152,7 +152,7 @@ describe("Effect language service diagnostics", () => {
       const desktopConfig = yield* readJson("apps/desktop/tsconfig.json", DesktopConfigJson)
 
       expect(packageJson.devDependencies["@effect/language-service"]).toBe("0.86.6")
-      expect(packageJson.devDependencies["@effect/vitest"]).toBe("4.0.0-beta.74")
+      expect(packageJson.devDependencies["@effect/vitest"]).toBe("4.0.0")
       expect(packageJson.scripts).toMatchObject(expectedScripts)
       expect(rootConfig.compilerOptions.plugins).toEqual([{
         name: "@effect/language-service",
