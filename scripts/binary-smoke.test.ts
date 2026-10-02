@@ -478,6 +478,17 @@ describe("binary certification live ownership", () => {
       Effect.provide(NodeServices.layer)
     ))
 
+  it.live.each([0, 23])("captures ownership for ten immediately exiting commands with status %i", (exitStatus) =>
+    Effect.gen(function*() {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const fact = yield* runJobControlFact(".", ["bash", "-c", `exit ${exitStatus}`])
+        expect(fact.job).toBe("%2")
+        expect(fact.pid).toBeGreaterThan(0)
+        expect(fact.pgid).toBe(fact.pid)
+        expect(fact.exitStatus).toBe(exitStatus)
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.live("keeps the guardian child stopped until production acknowledges ownership", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
