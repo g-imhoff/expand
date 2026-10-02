@@ -2,7 +2,7 @@ import { Effect, Option, Schedule } from "effect"
 import { AppContext } from "@expand/contracts/app-context"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { RuntimeAdapter } from "./adapter"
-import { BackendUnavailable, type SpawnLockError } from "./errors"
+import { BackendUnavailable, type EndpointDiscoveryError, type SpawnLockError } from "./errors"
 import { readEndpoint } from "./discovery"
 import { acquireSpawnLock, releaseSpawnLock } from "./spawn-lock"
 
@@ -36,6 +36,9 @@ export const findOrSpawnBackend = Effect.fn("Spawn.findOrSpawnBackend")(function
     }),
     Effect.catchTag("SpawnLockError", (error) =>
       Effect.fail(spawnLockUnavailable(error))
+    ),
+    Effect.catchTag("EndpointDiscoveryError", (error) =>
+      Effect.fail(discoveryUnavailable(error))
     )
   )
 })
@@ -44,6 +47,13 @@ const spawnLockUnavailable = (error: SpawnLockError): BackendUnavailable =>
   new BackendUnavailable({
     reason: `spawn lock ${error.operation} failed at ${error.path}: ${String(error.cause)}`
   })
+
+const discoveryUnavailable = (error: EndpointDiscoveryError): BackendUnavailable =>
+  new BackendUnavailable({
+    reason: `endpoint discovery ${error.operation} failed at ${error.path}: ${String(error.cause)}`,
+    cause: error
+  })
+
 const BACKEND_START_DEADLINE = "30 seconds"
 
 const awaitEndpoint = (rejectedEndpoints: ReadonlyArray<Endpoint>) => readEndpoint.pipe(

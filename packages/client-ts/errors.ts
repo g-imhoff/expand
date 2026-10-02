@@ -17,3 +17,9 @@ export class SpawnLockError extends Data.TaggedError("SpawnLockError")<{
   readonly path: string
   readonly cause: unknown
 }> {}
+
+export class EndpointDiscoveryError extends Data.TaggedError("EndpointDiscoveryError")<{
+  readonly operation: string
+  readonly path: string
+  readonly cause: unknown
+}> {}
