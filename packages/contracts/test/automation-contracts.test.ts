@@ -170,6 +170,34 @@ describe("versioned automation contracts", () => {
       yield* reject(Schema.Int, Number.MAX_SAFE_INTEGER + 1)
     }))
 
+  for (const [name, schema, expected] of [
+    ["plain", Schema.Number, { type: "number" }],
+    ["bounded", Schema.Number.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThan(2)), { type: "number", minimum: 0, exclusiveMaximum: 2 }],
+    ["finite control", Schema.Finite, { type: "number" }],
+    ["integer control", Schema.Int, { type: "integer", minimum: Number.MIN_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER }]
+  ] as const) {
+    it.effect(`describes ${name} numbers using only finite JSON numbers`, () =>
+      Effect.gen(function*() {
+        expect((yield* editorSchema(schema)).schema).toEqual(expected)
+        for (const value of ["NaN", "Infinity", "-Infinity", Number.NaN, Infinity, -Infinity]) yield* reject(schema, value)
+        yield* roundtrip(schema, 1)
+      }))
+  }
+
+  for (const [name, wrap, expected] of [
+    ["object", (schema: ContextFreeCodec) => Schema.Struct({ value: schema }), { properties: { value: { type: "number", minimum: 0, exclusiveMaximum: 2 } } }],
+    ["array", (schema: ContextFreeCodec) => Schema.Array(schema), { items: { type: "number", minimum: 0, exclusiveMaximum: 2 } }],
+    ["record", (schema: ContextFreeCodec) => Schema.Record(Schema.String, schema), { additionalProperties: { type: "number", minimum: 0, exclusiveMaximum: 2 } }],
+    ["union", (schema: ContextFreeCodec) => Schema.Union([schema, Schema.Null]), { anyOf: [{ type: "number", minimum: 0, exclusiveMaximum: 2 }, { type: "null" }] }],
+    ["optional", (schema: ContextFreeCodec) => Schema.Struct({ value: Schema.optional(schema) }), { properties: { value: { anyOf: [{ type: "number", minimum: 0, exclusiveMaximum: 2 }] } } }]
+  ] as const) {
+    it.effect(`preserves finite numeric bounds inside ${name} descriptors`, () =>
+      Effect.gen(function*() {
+        const schema = wrap(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThan(2)))
+        expect((yield* editorSchema(schema)).schema).toMatchObject(expected)
+      }))
+  }
+
   it.effect("rejects partial numeric-string codecs and decoded refinements before describing them", () =>
     Effect.gen(function*() {
       for (const value of ["foo", "not-a-number", "Infinity", "-Infinity", "NaN"]) yield* reject(Schema.FiniteFromString, value)

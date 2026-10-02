@@ -287,6 +287,27 @@ describe("trusted automation registry", () => {
       expect(handler.mock.calls[0]?.[0].count).toBe(3)
     }))
 
+  it.effect("publishes finite numeric descriptors for every registered codec", () =>
+    Effect.gen(function*() {
+      const number = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThan(2))
+      const configurationSchema = Schema.Struct({ value: number })
+      const integration = defineIntegration({ definition: { id: "numeric:integration", version: 1 }, title: "Numeric", capabilities: [], configurationSchema })
+      const trigger = defineTrigger({ definition: { id: "numeric:trigger", version: 1 }, title: "Numeric", integration: integration.definition,
+        configurationSchema: Schema.Array(number), payloadSchema: Schema.Record(Schema.String, number) })
+      const action = defineAction({ definition: { id: "numeric:action", version: 1 }, title: "Numeric", integration: integration.definition, capabilities: [],
+        integrationConfigurationSchema: configurationSchema, argumentsSchema: Schema.Struct({ value: Schema.optional(number) }),
+        resultSchema: Schema.Union([Schema.Number, Schema.Null]), handler: () => Effect.succeed(1) })
+      const registry = new AutomationRegistry()
+      yield* registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [] })
+      const catalog = registry.catalog()
+      expect(catalog.definitions).toHaveLength(3)
+      expect(catalog.definitions[0]).toMatchObject({ configurationSchema: { schema: { properties: { value: { type: "number", minimum: 0, exclusiveMaximum: 2 } } } } })
+      expect(catalog.definitions[1]).toMatchObject({ configurationSchema: { schema: { items: { type: "number", minimum: 0, exclusiveMaximum: 2 } } },
+        payloadSchema: { schema: { additionalProperties: { type: "number", minimum: 0, exclusiveMaximum: 2 } } } })
+      expect(catalog.definitions[2]).toMatchObject({ argumentsSchema: { schema: { properties: { value: { anyOf: [{ type: "number", minimum: 0, exclusiveMaximum: 2 }] } } } },
+        resultSchema: { schema: { anyOf: [{ type: "number" }, { type: "null" }] } } })
+    }))
+
   it.effect("keeps exact definition versions together and never falls back to latest", () =>
     Effect.gen(function*() {
       const registry = new AutomationRegistry()

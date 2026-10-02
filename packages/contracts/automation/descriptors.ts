@@ -175,7 +175,7 @@ const jsonEncodedAst = (ast: SchemaAST.AST, cache = new Map<SchemaAST.AST, Schem
       result = new SchemaAST.Suspend(() => recur(ast.thunk()), ast.annotations, checks, ast.encoding, ast.context)
       break
     case "String": result = new SchemaAST.String(ast.annotations, checks, ast.encoding, ast.context); break
-    case "Number": result = new SchemaAST.Number(ast.annotations, checks, ast.encoding, ast.context); break
+    case "Number": result = new SchemaAST.Number(ast.annotations, [Schema.isFinite(), ...checks ?? []], ast.encoding, ast.context); break
     case "Boolean": result = new SchemaAST.Boolean(ast.annotations, checks, ast.encoding, ast.context); break
     case "Literal": result = new SchemaAST.Literal(ast.literal, ast.annotations, checks, ast.encoding, ast.context); break
     default:
