@@ -8,20 +8,20 @@ signal_job() {
 }
 start_job() {
   true &
-  if [[ "$mode" == "guardian" ]]; then
-    (kill -STOP "$BASHPID"; exec "$@") &
-  else
-    "$@" &
-  fi
+  (kill -STOP "$BASHPID"; exec "$@") &
   pid=$!
   job_line="$(jobs -l %%)"
   job_marker="${job_line%% *}"
   job_number="${job_marker#[}"
   job_number="${job_number%%]*}"
+  wait "%$job_number" 2>/dev/null || true
   job_pid="$(jobs -p "%$job_number")"
   pgid="$(ps -o pgid= -p "$pid")"
   pgid="${pgid//[[:space:]]/}"
   printf 'job=%%%s pid=%s jobPid=%s pgid=%s\n' "$job_number" "$pid" "$job_pid" "$pgid"
+  if [[ "$mode" != "guardian" ]]; then
+    kill -CONT "%$job_number"
+  fi
   set +e
   wait -f "%$job_number" 2>/dev/null
   status=$?
