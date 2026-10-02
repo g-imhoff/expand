@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Result, Schema, SchemaGetter } from "effect"
+import { Context, Effect, Result, Schema, SchemaGetter, SchemaIssue } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import {
   ActionDescriptor, ActionOutcome, AutomationRun, Catalog, CredentialReference, decodeJson, DefinitionReference,
@@ -320,6 +320,96 @@ describe("versioned automation contracts", () => {
         if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
       }
     }))
+
+  for (const [name, codec] of [
+    ["decoded refinement", Schema.Null.pipe(Schema.decodeTo(Schema.Undefined.check(Schema.makeFilter(() => false)), {
+      decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+    }))],
+    ["decode getter", Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+      decode: SchemaGetter.transformEffect(() => Effect.fail(new SchemaIssue.InvalidValue())), encode: SchemaGetter.transform(() => null)
+    }))],
+    ["encode getter", Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+      decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transformEffect(() => Effect.succeed(null))
+    }))],
+    ["irreversible codec", Schema.Union([Schema.Null, Schema.Literal("null")]).pipe(Schema.decodeTo(Schema.Undefined, {
+      decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+    }))],
+    ["open encoded domain", Schema.String.pipe(Schema.decodeTo(Schema.Undefined, {
+      decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => "null")
+    }))],
+    ["refined Undefined", Schema.Undefined.check(Schema.makeFilter(() => false))]
+  ] as const) {
+    for (const [wrapper, wrap] of [
+      ["required", (schema: ContextFreeCodec) => Schema.Struct({ value: schema })],
+      ["optionalKey", (schema: ContextFreeCodec) => Schema.Struct({ value: Schema.optionalKey(schema) })],
+      ["optional", (schema: ContextFreeCodec) => Schema.Struct({ value: Schema.optional(schema) })]
+    ] as const) {
+      it.effect(`rejects ${name} decoded as Undefined through ${wrapper}`, () =>
+        Effect.gen(function*() {
+          const result = yield* editorSchema(wrap(codec)).pipe(Effect.result)
+          expect(Result.isFailure(result)).toBe(true)
+          if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+        }))
+    }
+  }
+
+  it.effect("rejects required services on transformed optional Undefined members", () =>
+    Effect.gen(function*() {
+      class UndefinedService extends Context.Service<UndefinedService, undefined>()("UndefinedService") {}
+      const codec = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+        decode: SchemaGetter.transformEffect(() => UndefinedService), encode: SchemaGetter.transform(() => null)
+      }))
+      expectTypeOf<typeof codec.DecodingServices>().toEqualTypeOf<UndefinedService>()
+      expectTypeOf<typeof codec>().not.toExtend<ContextFreeCodec>()
+      for (const schema of [
+        Schema.Struct({ value: codec }), Schema.Struct({ value: Schema.optionalKey(codec) }), Schema.Struct({ value: Schema.optional(codec) })
+      ]) {
+        const result = yield* editorSchema(schema).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }
+    }))
+
+  it.effect("rejects the optional null-to-Undefined decoded refinement before describing it", () =>
+    Effect.gen(function*() {
+      const codec = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined.check(Schema.makeFilter(() => false)), {
+        decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+      }))
+      const schema = Schema.Struct({ value: Schema.optional(codec) })
+      const contextFree: ContextFreeCodec = schema
+      yield* roundtrip(contextFree, {})
+      yield* reject(contextFree, { value: null })
+      const result = yield* editorSchema(contextFree).pipe(Effect.result)
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+    }))
+
+  for (const [wrapper, wrap] of [
+    ["required", (schema: ContextFreeCodec) => Schema.Struct({ value: schema })],
+    ["optionalKey", (schema: ContextFreeCodec) => Schema.Struct({ value: Schema.optionalKey(schema) })],
+    ["optional", (schema: ContextFreeCodec) => Schema.Struct({ value: Schema.optional(schema) })]
+  ] as const) {
+    it.effect(`keeps finite reversible null-to-Undefined faithful through ${wrapper}`, () =>
+      Effect.gen(function*() {
+        const codec = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+          decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+        }))
+        const schema = wrap(codec)
+        expect((yield* editorSchema(schema)).schema).toMatchObject({ properties: {
+          value: wrapper === "optional" ? { anyOf: [{ type: "null" }] } : { type: "null" }
+        } })
+        const decoded = yield* decodeJson(schema, { value: null })
+        expect(Object.hasOwn(decoded, "value")).toBe(true)
+        expect(decoded.value).toBeUndefined()
+        expect(yield* Schema.encodeUnknownEffect(schema)(decoded)).toEqual({ value: null })
+        if (wrapper === "required") yield* reject(schema, {})
+        else {
+          expect(Object.hasOwn(yield* decodeJson(schema, {}), "value")).toBe(false)
+          yield* roundtrip(schema, {})
+        }
+        for (const value of ["null", 0, false, undefined]) yield* reject(schema, { value })
+      }))
+  }
 
   it.effect("keeps Undefined union omission, ordinary optional fields and encoded null transformations faithful", () =>
     Effect.gen(function*() {

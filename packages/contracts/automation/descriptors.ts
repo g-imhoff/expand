@@ -138,7 +138,7 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
     case "Union":
       if (ast.options?.mode === "oneOf" && containsJsonDeclaration(ast, new Set())) throw new Error("JSON declaration makes oneOf approximate")
       for (const member of ast.types) {
-        if (ast.context?.isOptional && member._tag === "Undefined") continue
+        if (ast.context?.isOptional && member._tag === "Undefined" && !member.encoding?.length && !member.checks?.length) continue
         assertSupported(member, visited)
       }
       break

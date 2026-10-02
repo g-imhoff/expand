@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Result, Schema, SchemaGetter, Context } from "effect"
+import { Effect, Result, Schema, SchemaGetter, SchemaIssue, Context } from "effect"
 import { describe, expect, expectTypeOf, vi } from "vitest"
 import { decodeJson, defineAction, defineIntegration, defineRoutine, defineTrigger, editorSchema } from "@expand/contracts/automation"
 import type { ContextFreeCodec, FieldPath } from "@expand/contracts/automation"
@@ -378,6 +378,107 @@ describe("trusted automation registry", () => {
           expect(priorHandler).toHaveBeenCalledTimes(1)
         }))
     }
+  }
+
+  for (const form of ["decoded refinement", "decode getter", "encode getter", "required service", "irreversible codec", "open encoded domain", "refined Undefined"] as const) {
+    for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+      it.effect(`rejects optional transformed Undefined ${form} in ${location} and preserves the catalog and handler`, () =>
+        Effect.gen(function*() {
+          class UndefinedService extends Context.Service<UndefinedService, undefined>()("RegistryUndefinedService") {}
+          const contextual = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+            decode: SchemaGetter.transformEffect(() => UndefinedService), encode: SchemaGetter.transform(() => null)
+          }))
+          expectTypeOf<typeof contextual>().not.toExtend<ContextFreeCodec>()
+          const codec = form === "required service" ? contextual as unknown as ContextFreeCodec :
+            form === "refined Undefined" ? Schema.Undefined.check(Schema.makeFilter(() => false)) :
+            form === "decoded refinement" ? Schema.Null.pipe(Schema.decodeTo(Schema.Undefined.check(Schema.makeFilter(() => false)), {
+              decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+            })) : form === "decode getter" ? Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+              decode: SchemaGetter.transformEffect(() => Effect.fail(new SchemaIssue.InvalidValue())), encode: SchemaGetter.transform(() => null)
+            })) : form === "encode getter" ? Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+              decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transformEffect(() => Effect.succeed(null))
+            })) : form === "open encoded domain" ? Schema.String.pipe(Schema.decodeTo(Schema.Undefined, {
+              decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => "null")
+            })) : Schema.Union([Schema.Null, Schema.Literal("null")]).pipe(Schema.decodeTo(Schema.Undefined, {
+              decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+            }))
+          const schema = Schema.Struct({ value: Schema.optional(codec) })
+          const priorHandler = vi.fn(() => Effect.succeed({ summary: "prior", total: 1 }))
+          const handler = vi.fn(() => Effect.succeed({ summary: "candidate", total: 1 }))
+          const resultHandler = vi.fn(() => Effect.succeed({ value: undefined }))
+          const sample = makeSampleExtension(priorHandler)
+          const integrationSchema = location === "integration" ? schema : SampleIntegrationConfiguration
+          const integration = defineIntegration({ ...sampleIntegration, definition: { ...sampleIntegration.definition, version: 2 }, configurationSchema: integrationSchema })
+          const trigger = defineTrigger({ ...sampleTrigger, definition: { ...sampleTrigger.definition, version: 2 }, integration: integration.definition,
+            configurationSchema: location === "trigger configuration" ? schema : sampleTrigger.configurationSchema,
+            payloadSchema: location === "trigger payload" ? schema : SamplePayload })
+          const action = location === "action result" ? defineAction({ ...sample.action,
+            definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+            integrationConfigurationSchema: integrationSchema, resultSchema: schema, handler: resultHandler
+          }) : defineAction({ ...sample.action, definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+            integrationConfigurationSchema: integrationSchema, argumentsSchema: location === "action arguments" ? schema : SampleArguments, handler })
+          const routine = defineRoutine({ ...sampleRoutine, definition: { ...sampleRoutine.definition, version: 2 },
+            configurationSchema: location === "routine" ? schema : sampleRoutine.configurationSchema })
+          const registry = new AutomationRegistry()
+          yield* registry.register(sample.extension)
+          const before = registry.catalog()
+          yield* failCode(registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] }), "unsupported-schema")
+          expect(registry.catalog()).toEqual(before)
+          const candidate = cloneConfiguration()
+          candidate.process.actions["triggered"]![0]!.action.version = 2
+          yield* failCode(registry.invokeAction({ ...invocation, configuration: candidate }, sampleAuthority), "missing-definition")
+          expect(handler).not.toHaveBeenCalled()
+          expect(resultHandler).not.toHaveBeenCalled()
+          expect(priorHandler).not.toHaveBeenCalled()
+          expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "prior", total: 1 })
+          expect(priorHandler).toHaveBeenCalledTimes(1)
+        }))
+    }
+  }
+
+  for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+    it.effect(`registers and invokes reversible optional null-to-Undefined in ${location}`, () =>
+      Effect.gen(function*() {
+        const codec = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+          decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+        }))
+        const schema = Schema.Struct({ value: Schema.optional(codec) })
+        const sample = makeSampleExtension()
+        const integrationSchema = location === "integration" ? schema : SampleIntegrationConfiguration
+        const integration = defineIntegration({ ...sampleIntegration, configurationSchema: integrationSchema })
+        const trigger = defineTrigger({ ...sampleTrigger,
+          configurationSchema: location === "trigger configuration" ? schema : sampleTrigger.configurationSchema,
+          payloadSchema: location === "trigger payload" ? schema : SamplePayload })
+        const handler = vi.fn(() => Effect.succeed({ summary: "valid", total: 1 }))
+        const resultHandler = vi.fn(() => Effect.succeed({ value: undefined }))
+        const action = location === "action result" ? defineAction({ ...sample.action,
+          integrationConfigurationSchema: integrationSchema, resultSchema: schema, handler: resultHandler
+        }) : defineAction({ ...sample.action, integrationConfigurationSchema: integrationSchema,
+          argumentsSchema: location === "action arguments" ? schema : SampleArguments, handler })
+        const routine = defineRoutine({ ...sampleRoutine, configurationSchema: location === "routine" ? schema : sampleRoutine.configurationSchema })
+        const registry = new AutomationRegistry()
+        yield* registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] })
+        expect(registry.catalog().definitions).toHaveLength(4)
+        for (const input of [{}, { value: null }]) {
+          const decoded = yield* decodeJson(schema, input)
+          expect(Object.hasOwn(decoded, "value")).toBe(Object.hasOwn(input, "value"))
+          expect(yield* Schema.encodeUnknownEffect(schema)(decoded)).toEqual(input)
+          const configuration = cloneConfiguration()
+          if (location === "integration") configuration.integrations[0]!.configuration = input
+          if (location === "trigger configuration") configuration.process.trigger.configuration = input
+          if (location === "routine") configuration.configuration = input
+          if (location === "trigger payload") configuration.process.actions["triggered"]![0]!.bindings = {
+            message: { kind: "literal", value: "valid" }, count: { kind: "literal", value: "1" }
+          }
+          if (location === "action arguments") configuration.process.actions["triggered"]![0]!.bindings =
+            Object.hasOwn(input, "value") ? { value: { kind: "literal", value: null } } : {}
+          const result = yield* registry.invokeAction({ ...invocation, configuration,
+            triggerPayload: location === "trigger payload" ? input : invocation.triggerPayload }, sampleAuthority)
+          expect(result).toEqual(location === "action result" ? { value: null } : { summary: "valid", total: 1 })
+        }
+        expect(location === "action result" ? resultHandler : handler).toHaveBeenCalledTimes(2)
+        expect(location === "action result" ? handler : resultHandler).not.toHaveBeenCalled()
+      }))
   }
 
   it.effect("invokes ordinary optional and literal null arguments while rejecting explicit null before handlers", () =>
