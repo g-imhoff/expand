@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import type { RpcClientError } from "effect/unstable/rpc"
+import type { RpcClientError } from "effect/rpc"
 import type { Crypto, FileSystem, Path } from "effect"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"

@@ -1,33 +1,33 @@
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
+import { Rpc, RpcGroup } from "effect/rpc"
 import { Schema } from "effect"
 import { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 
-export class ProjectAlreadyExists extends Schema.TaggedErrorClass<ProjectAlreadyExists>()(
+export class ProjectAlreadyExists extends Schema.TaggedError<ProjectAlreadyExists>()(
   "ProjectAlreadyExists",
   { name: Schema.String }
 ) { }
 
-export class ProjectNotFound extends Schema.TaggedErrorClass<ProjectNotFound>()(
+export class ProjectNotFound extends Schema.TaggedError<ProjectNotFound>()(
   "ProjectNotFound",
   { id: Schema.String }
 ) { }
 
-export class ProjectNameConflict extends Schema.TaggedErrorClass<ProjectNameConflict>()(
+export class ProjectNameConflict extends Schema.TaggedError<ProjectNameConflict>()(
   "ProjectNameConflict",
   { name: Schema.String }
 ) { }
 
-export class ProjectDirectoryInvalid extends Schema.TaggedErrorClass<ProjectDirectoryInvalid>()(
+export class ProjectDirectoryInvalid extends Schema.TaggedError<ProjectDirectoryInvalid>()(
   "ProjectDirectoryInvalid",
   { directory: Schema.String, reason: Schema.String }
 ) { }
 
-export class ProjectDirectoryConflict extends Schema.TaggedErrorClass<ProjectDirectoryConflict>()(
+export class ProjectDirectoryConflict extends Schema.TaggedError<ProjectDirectoryConflict>()(
   "ProjectDirectoryConflict",
   { directory: Schema.String }
 ) { }
 
-export class ProjectInvalidInput extends Schema.TaggedErrorClass<ProjectInvalidInput>()(
+export class ProjectInvalidInput extends Schema.TaggedError<ProjectInvalidInput>()(
   "ProjectInvalidInput",
   { field: Schema.String, reason: Schema.String }
 ) { }

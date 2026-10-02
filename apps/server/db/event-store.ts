@@ -1,6 +1,6 @@
 import { Context, Effect, Schema, Stream } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
-import { SqlError } from "effect/unstable/sql/SqlError"
+import { SqlClient } from "effect/sql/SqlClient"
+import { SqlError } from "effect/sql/SqlError"
 import { DomainEvent, DomainEventFromJson, SequencedEvent } from "@expand/contracts/events/domain"
 import { DatabaseReady } from "@expand/server/migrations/sqlite"
 import { decodeStoredEvent, EVENT_REVISIONS } from "@expand/server/migrations/events"

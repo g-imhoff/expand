@@ -18,7 +18,7 @@ import {
   Schema,
   Stream
 } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"

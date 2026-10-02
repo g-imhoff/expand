@@ -1,4 +1,4 @@
-import { Argument, Flag } from "effect/unstable/cli"
+import { Argument, Flag } from "effect/cli"
 import { Effect, Option } from "effect"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { Project } from "@expand/contracts/project"
@@ -7,11 +7,11 @@ import { defineCommand } from "@expand/cli/commands/define-command"
 import { resolveProjectTarget } from "@expand/cli/commands/project/resolve-project-target"
 
 export const setMetadataCommand = (() => {
-  const target = Argument.string("project")
-  const description = Flag.string("description").pipe(Flag.optional)
+  const target = Argument.String("project")
+  const description = Flag.String("description").pipe(Flag.optional)
   // Raw strings: the backend validates tags at ingestion (ProjectInvalidInput).
-  const tag = Flag.string("tag").pipe(Flag.atLeast(0))
-  const clearTags = Flag.boolean("clear-tags").pipe(Flag.withDefault(false))
+  const tag = Flag.String("tag").pipe(Flag.atLeast(0))
+  const clearTags = Flag.Boolean("clear-tags").pipe(Flag.withDefault(false))
 
   return defineCommand(
     "set-metadata",

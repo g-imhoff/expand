@@ -1,7 +1,7 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, Layer } from "effect"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"

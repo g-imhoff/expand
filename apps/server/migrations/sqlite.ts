@@ -1,7 +1,7 @@
 import { Context, Data, Effect, Layer } from "effect"
-import { Migrator, SqlClient } from "effect/unstable/sql"
-import type { MigrationError } from "effect/unstable/sql/Migrator"
-import type { SqlError } from "effect/unstable/sql/SqlError"
+import { Migrator, SqlClient } from "effect/sql"
+import type { MigrationError } from "effect/sql/Migrator"
+import type { SqlError } from "effect/sql/SqlError"
 
 export class DatabaseVersionError extends Data.TaggedError("DatabaseVersionError")<{
   readonly current: number

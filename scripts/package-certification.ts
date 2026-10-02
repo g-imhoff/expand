@@ -1,6 +1,6 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import { Cause, Context, Data, Effect, Exit, FileSystem, Layer, Path, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { stage as stageContracts } from "../packages/contracts/scripts/prepare-publish"
 import { stage as stageClient } from "../packages/client-ts/scripts/prepare-publish"
 
@@ -170,7 +170,7 @@ const stageBuiltLibrary = Effect.fn("PackageCertification.stageBuiltLibrary")(
     yield* fs.copy(dist, path.join(target, "dist")).pipe(
       Effect.mapError((cause) => failure(workspace, "stage", "built package could not be staged", cause))
     )
-    const manifest = yield* Schema.encodeEffect(Schema.UnknownFromJsonString)({
+    const manifest = yield* Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))({
       name: workspace,
       version,
       private: false,
@@ -218,7 +218,7 @@ const mapCertificationError = (workspace: Workspace, phase: PackageCertification
 
 export const encodeCertificationJson = Effect.fn("PackageCertification.encodeJson")(
   (workspace: Workspace, phase: PackageCertificationError["phase"], detail: string, value: unknown) =>
-    Schema.encodeEffect(Schema.UnknownFromJsonString)(value).pipe(mapCertificationError(workspace, phase, detail))
+    Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))(value).pipe(mapCertificationError(workspace, phase, detail))
 )
 
 const sameValue = (actual: unknown, expected: unknown): boolean => {

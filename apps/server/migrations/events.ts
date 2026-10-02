@@ -61,7 +61,7 @@ export const decodeStoredEventWithRegistry = Effect.fn("StoredEvent.decodeWithRe
     return yield* new StoredEventMigrationError({ input, targetRevision, reason: "future-revision" })
   }
 
-  let payload = yield* Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(input.payload).pipe(
+  let payload = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(input.payload).pipe(
     Effect.mapError((cause) => new StoredEventMigrationError({ input, targetRevision, reason: "invalid-json", cause }))
   )
   if (!isRecord(payload) || payload._tag !== input.eventType) {
