@@ -1,0 +1,34 @@
+{
+  "brief": "design/prompt-input-brief.md",
+  "project": "prompt-input-specimen",
+  "url": "https://dev-guillaume-imhoff-prompt-input-specimen.ui.getyodea.com/",
+  "retired": false,
+  "status": "historical",
+  "hosted_bundle": {
+    "files": 3,
+    "bytes": 368551,
+    "source_digest": null,
+    "dist_assets": {
+      "index_html": "sha256:05d94c66c1958e40373a88420083681791f5f46f537fc5df3e2d104a709c1b52",
+      "js_file": "assets/index-Cw4wTcpk.js",
+      "js": "sha256:c50b108c633751c3e8d6fe46c996e4195c2572376529af2dcd326c415aad95b8",
+      "css_file": "assets/index-yMRe6Ujd.css",
+      "css": "sha256:a87b59e5a97135546268804376fe7108bc42f41328095fb24ec6e728ac00cb8b"
+    },
+    "load_check": "An earlier session authenticated check returned HTTP 200 for this bundle. No new deployment or live asset comparison has been verified for the current local candidate."
+  },
+  "local_candidate": {
+    "code_pin": "d1746a390e65b39c6981e4ee7b4686673fc4640b",
+    "source_path": "apps/desktop/src/renderer/features/chat/components/PromptInput.tsx",
+    "source_digest": "sha256:2aaa611af62e3b7d5e6227eca32c0b3fca6cf71768c5f61c86989ca3a58446d3",
+    "specimen_build": {
+      "files": 3,
+      "bytes": 372770,
+      "dist_assets": {
+        "assets/index-BB9aYL-9.css": "sha256:bd509ebb920f82881eadf468ec123f1011f19d61ea742aaf0f27584ff83e829b",
+        "assets/index-BPwriwY0.js": "sha256:b71cda16118fbcac7b2c14ae13e1a9e793822fb24d7dc57026390d301e57f170",
+        "index.html": "sha256:8abfe41a18eef0e2bb3527cd7971bfec53de113b8953a8188575d04299dbc16e"
+      }
+    }
+  }
+}

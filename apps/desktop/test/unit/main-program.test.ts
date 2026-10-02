@@ -300,6 +300,11 @@ const makeHarness = Effect.fn("DesktopMainProgramTest.makeHarness")(function* (
     portGrants: () => portGrants,
     boundIdentity: () => boundIdentity,
     isCspInstalled: () => cspListener !== undefined,
+    fireHeadersReceived: (responseHeaders: Record<string, Array<string>> = {}) => {
+      let result: Record<string, string | Array<string>> | undefined
+      cspListener?.({ responseHeaders }, (response) => { result = response.responseHeaders })
+      return result
+    },
     hasIpcListener: () => boundRpcPort !== undefined,
     hasNavigationListener: () => navigation !== undefined || willNavigate !== undefined
   }
@@ -309,6 +314,27 @@ const start = (harness: Effect.Success<ReturnType<typeof makeHarness>>) =>
   harness.program.pipe(Effect.forkChild({ startImmediately: true }))
 
 describe("mainProgram startup and shutdown", () => {
+  it.effect("allows blob image previews in the installed packaged CSP without relaxing other sources", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ packaged: true })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        const headers = harness.fireHeadersReceived({ "Content-Type": ["text/html"] })
+        expect(headers?.["Content-Type"]).toEqual(["text/html"])
+        expect(headers?.["Content-Security-Policy"]).toEqual([
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+          "connect-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        ])
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
   it.effect("uses the exact packaged renderer identity for loading, navigation, and IPC", () =>
     Effect.scoped(
       Effect.gen(function* () {
