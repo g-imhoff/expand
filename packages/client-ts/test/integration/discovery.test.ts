@@ -163,6 +163,7 @@ effectLayer(TestLayer, { excludeTestServices: true })("readEndpoint", (it) => {
   it.effect("returns None when the file vanishes between the presence check and the read", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
+      yield* writeEndpoint("read-raced-away", ProcessServices.alivePid)
       const context = yield* appContext("read-raced-away")
       const failure = PlatformError.systemError({
         _tag: "NotFound",
