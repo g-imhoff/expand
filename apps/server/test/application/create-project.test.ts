@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Crypto, Effect, Layer, PlatformError, PubSub, Stream } from "effect"
+import { Crypto, Effect, Layer, PlatformError, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, expect, expectTypeOf } from "vitest"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -82,7 +82,7 @@ describe("ProjectUseCases.createProject", () => {
       const replay = yield* ReplayFeed
       const subscription = yield* bus.subscribe
       const { project } = yield* useCases.createProject("clocked", false)
-      const broadcast = yield* PubSub.take(subscription)
+      const broadcast = yield* subscription.take
       const persisted = yield* Stream.runCollect(replay.read(0)).pipe(Effect.map((events) => Array.from(events)))
 
       expect(project.id).toBe("00000000-0000-4000-8000-000000000000")

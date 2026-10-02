@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, FileSystem, Layer, PubSub, Stream } from "effect"
+import { Effect, FileSystem, Layer, Stream } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
@@ -38,7 +38,7 @@ describe("ProjectUseCases.createProject", () => {
       const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("hello", false)
 
-      const broadcast = yield* PubSub.take(sub)
+      const broadcast = yield* sub.take
       const persisted = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
       const listed = yield* useCases.listProjects()
 
@@ -326,7 +326,7 @@ describe("ProjectUseCases.setMetadata", () => {
       const { project } = yield* useCases.createProject("meta", false)
       const sub = yield* bus.subscribe
       const updated = yield* useCases.setMetadata(project.id, { description: "hi", tags: ["a", "a", "b"] })
-      const broadcast = yield* PubSub.take(sub)
+      const broadcast = yield* sub.take
       const persisted = yield* Stream.runCollect(feed.read(0)).pipe(Effect.map((c) => Array.from(c)))
       return { project, updated, broadcast, persisted }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))
@@ -399,9 +399,9 @@ describe("ProjectUseCases.deleteProject", () => {
       const bus = yield* EventBus
       const sub = yield* bus.subscribe
       const { project } = yield* useCases.createProject("doomed", false)
-      yield* PubSub.take(sub)
+      yield* sub.take
       const result = yield* useCases.deleteProject(project.id)
-      const broadcast = yield* PubSub.take(sub)
+      const broadcast = yield* sub.take
       const listed = yield* useCases.listProjects()
       return { result, broadcast, listed, id: project.id }
     }).pipe(Effect.scoped, Effect.provide(TestLayerFs))

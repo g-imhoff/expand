@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, PubSub } from "effect"
+import { Effect } from "effect"
 import { EventBus, EventBusLayer } from "@expand/server/application/event-bus"
 import { ProjectCreated } from "@expand/contracts/events/project"
 
@@ -15,7 +15,7 @@ describe("EventBus", () => {
         seq: 1,
         event: ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" })
       })
-      return yield* PubSub.take(sub)
+      return yield* sub.take
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
 
     const se = yield* (program)
@@ -32,7 +32,7 @@ describe("EventBus — subscription timing", () => {
       yield* bus.publish({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "early", occurredAt: "t0" }) })
       const sub = yield* bus.subscribe
       yield* bus.publish({ seq: 2, event: ProjectCreated.make({ projectId: uid(2), name: "late", occurredAt: "t1" }) })
-      return yield* PubSub.take(sub)
+      return yield* sub.take
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
     const se = yield* (program)
     expect(se.event.projectId).toBe(uid(2))
@@ -44,8 +44,8 @@ describe("EventBus — subscription timing", () => {
       const subA = yield* bus.subscribe
       const subB = yield* bus.subscribe
       yield* bus.publish({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }) })
-      const a = yield* PubSub.take(subA)
-      const b = yield* PubSub.take(subB)
+      const a = yield* subA.take
+      const b = yield* subB.take
       return { a, b }
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
     const { a, b } = yield* (program)
@@ -61,13 +61,13 @@ describe("EventBus — subscription timing", () => {
         Effect.gen(function* () {
           const transient = yield* bus.subscribe
           yield* bus.publish({ seq: 1, event: ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }) })
-          const first = yield* PubSub.take(transient)
+          const first = yield* transient.take
           expect(first.event.projectId).toBe(uid(1))
         })
       )
       yield* bus.publish({ seq: 2, event: ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }) })
-      const a1 = yield* PubSub.take(survivor)
-      const a2 = yield* PubSub.take(survivor)
+      const a1 = yield* survivor.take
+      const a2 = yield* survivor.take
       return [a1.event.projectId, a2.event.projectId]
     }).pipe(Effect.scoped, Effect.provide(EventBusLayer))
     const got = yield* (program)

@@ -37,7 +37,7 @@ export const streamHandlers = {
             // so reading the Ref inside Stream.unwrap sees its final value.
             const live = Stream.unwrap(
               Effect.map(Ref.get(lastReplayed), (last) =>
-                Stream.filter(Stream.fromSubscription(sub), (se) => se.seq > last)
+                Stream.filter(Stream.fromEffectRepeat(sub.take), (se) => se.seq > last)
               )
             )
             return Stream.concat(backlog, live)

@@ -16,3 +16,5 @@ export {
   ProjectDirectoryConflict,
   ProjectInvalidInput
 } from "@expand/contracts/rpc/projects"
+
+export { EventsLagged } from "@expand/contracts/rpc/stream"

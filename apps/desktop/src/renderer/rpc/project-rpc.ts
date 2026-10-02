@@ -4,6 +4,7 @@ import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { ProjectSyncStatus } from "@expand/contracts/project-sync"
 import type {
+  EventsLagged,
   ProjectAlreadyExists,
   ProjectDirectoryConflict,
   ProjectDirectoryInvalid,
@@ -55,7 +56,7 @@ export interface ProjectRpcApi {
   readonly status: Stream.Stream<ProjectSyncStatus, RpcClientError.RpcClientError>
   readonly events: (
     payload: { readonly fromSeq: number }
-  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
+  ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError | EventsLagged>
 }
 
 export class ProjectRpc extends Context.Service<ProjectRpc, ProjectRpcApi>()(
