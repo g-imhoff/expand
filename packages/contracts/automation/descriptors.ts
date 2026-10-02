@@ -152,7 +152,7 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
     if (checkLeaves(ast.checks ?? []).some((check) => !preserved.has(check))) throw new Error("Array checks are lost in the encoded schema")
   }
   if (["Unknown", "Any", "ObjectKeyword", "BigInt", "Symbol", "UniqueSymbol", "Void"].includes(encoded._tag)) throw new Error("Non-JSON encoded type")
-  if (encoded._tag === "Undefined" && !encoded.context?.isOptional) throw new Error("Non-JSON undefined")
+  if (encoded._tag === "Undefined") throw new Error("Non-JSON undefined")
 }
 
 const containsJsonDeclaration = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): boolean => {

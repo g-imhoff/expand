@@ -283,6 +283,79 @@ describe("versioned automation contracts", () => {
       if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
     }))
 
+  for (const [name, wrap] of [
+    ["root", (schema: ContextFreeCodec) => schema],
+    ["object", (schema: ContextFreeCodec) => Schema.Struct({ value: schema })],
+    ["nested object", (schema: ContextFreeCodec) => Schema.Struct({ inner: Schema.Struct({ value: schema }) })],
+    ["tuple", (schema: ContextFreeCodec) => Schema.Tuple([schema])],
+    ["array", (schema: ContextFreeCodec) => Schema.Array(Schema.Struct({ value: schema }))],
+    ["record", (schema: ContextFreeCodec) => Schema.Record(Schema.String, Schema.Struct({ value: schema }))],
+    ["named reference", (schema: ContextFreeCodec) => Schema.Struct({ value: schema }).annotate({ identifier: "OptionalUndefined" })],
+    ["suspended reference", (schema: ContextFreeCodec) => Schema.suspend(() => Schema.Struct({ value: schema }))],
+    ["anyOf", (schema: ContextFreeCodec) => Schema.Union([Schema.Struct({ value: schema }), Schema.String])],
+    ["oneOf", (schema: ContextFreeCodec) => Schema.Union([Schema.Struct({ value: schema }), Schema.Struct({ value: Schema.Null })], { mode: "oneOf" })],
+    ["optional nested object", (schema: ContextFreeCodec) => Schema.Struct({ inner: Schema.optional(Schema.Struct({ value: schema })) })]
+  ] as const) {
+    it.effect(`rejects standalone optional encoded Undefined inside ${name}`, () =>
+      Effect.gen(function*() {
+        const schema = wrap(Schema.optionalKey(Schema.Undefined))
+        const result = yield* editorSchema(schema).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }))
+  }
+
+  it.effect("distinguishes missing optional Undefined fields from explicit null and oneOf null branches", () =>
+    Effect.gen(function*() {
+      const optional = Schema.Struct({ value: Schema.optionalKey(Schema.Undefined) })
+      yield* roundtrip(optional, {})
+      yield* reject(optional, { value: null })
+      yield* reject(optional, { value: undefined })
+      const union = Schema.Union([optional, Schema.Struct({ value: Schema.Null })], { mode: "oneOf" })
+      yield* roundtrip(union, {})
+      yield* roundtrip(union, { value: null })
+      for (const schema of [optional, union]) {
+        const result = yield* editorSchema(schema).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }
+    }))
+
+  it.effect("keeps Undefined union omission, ordinary optional fields and encoded null transformations faithful", () =>
+    Effect.gen(function*() {
+      const nullToUndefined = Schema.Null.pipe(Schema.decodeTo(Schema.Undefined, {
+        decode: SchemaGetter.transform(() => undefined), encode: SchemaGetter.transform(() => null)
+      }))
+      const schema = Schema.Struct({
+        empty: Schema.optional(Schema.Undefined), label: Schema.optional(Schema.String),
+        exact: Schema.optionalKey(Schema.String), nullable: Schema.optionalKey(Schema.Union([Schema.Undefined, Schema.Null])),
+        decoded: Schema.optionalKey(nullToUndefined)
+      })
+      expect((yield* editorSchema(schema)).schema).toMatchObject({ properties: {
+        empty: { not: {} }, label: { anyOf: [{ type: "string" }] }, exact: { type: "string" },
+        nullable: { anyOf: [{ type: "null" }] }, decoded: { type: "null" }
+      } })
+      yield* roundtrip(schema, {})
+      expect(yield* decodeJson(schema, { nullable: null, decoded: null })).toEqual({ nullable: null, decoded: undefined })
+      expect(yield* Schema.encodeUnknownEffect(schema)({ nullable: null, decoded: undefined })).toEqual({ nullable: null, decoded: null })
+      for (const key of ["empty", "label", "exact"]) yield* reject(schema, { [key]: null })
+      yield* roundtrip(Schema.Null, null)
+      expect((yield* editorSchema(Schema.Null)).schema).toEqual({ type: "null" })
+    }))
+
+  it.effect("rejects optional Void and unmarked Undefined unions without publishing null", () =>
+    Effect.gen(function*() {
+      for (const schema of [
+        Schema.optionalKey(Schema.Void), Schema.optional(Schema.Void),
+        Schema.Union([Schema.Undefined, Schema.Null]),
+        Schema.Struct({ value: Schema.optional(Schema.Union([Schema.Undefined, Schema.Null])) })
+      ]) {
+        const result = yield* editorSchema(schema).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }
+    }))
+
   it.effect("keeps default JSON unions and exact primitive oneOf descriptors supported", () =>
     Effect.gen(function*() {
       for (const branch of [Schema.String, Schema.Struct({ item: Schema.String }), Schema.Array(Schema.String)]) {

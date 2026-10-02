@@ -335,6 +335,71 @@ describe("trusted automation registry", () => {
     }
   }
 
+  for (const shape of ["direct", "nested", "oneOf"] as const) {
+    for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+      it.effect(`rejects optional encoded Undefined in ${location} inside ${shape} and retains prior handlers`, () =>
+        Effect.gen(function*() {
+          const optional = Schema.Struct({ value: Schema.optionalKey(Schema.Undefined) })
+          const schema = shape === "nested" ? Schema.Struct({ inner: optional }) : shape === "oneOf" ?
+            Schema.Union([optional, Schema.Struct({ value: Schema.Null })], { mode: "oneOf" }) : optional
+          const missing: typeof schema.Type = shape === "nested" ? { inner: {} } : {}
+          const explicitNull = shape === "nested" ? { inner: { value: null } } : { value: null }
+          expect(yield* decodeJson(schema, missing)).toEqual(missing)
+          if (shape === "oneOf") expect(yield* decodeJson(schema, explicitNull)).toEqual(explicitNull)
+          else yield* failCode(decodeJson(schema, explicitNull), "invalid-contract")
+          const priorHandler = vi.fn(() => Effect.succeed({ summary: "prior", total: 1 }))
+          const handler = vi.fn(() => Effect.succeed({ summary: "candidate", total: 1 }))
+          const resultHandler = vi.fn(() => Effect.succeed(missing))
+          const sample = makeSampleExtension(priorHandler)
+          const integrationSchema = location === "integration" ? schema : SampleIntegrationConfiguration
+          const integration = defineIntegration({ ...sampleIntegration, definition: { ...sampleIntegration.definition, version: 2 }, configurationSchema: integrationSchema })
+          const trigger = defineTrigger({ ...sampleTrigger, definition: { ...sampleTrigger.definition, version: 2 }, integration: integration.definition,
+            configurationSchema: location === "trigger configuration" ? schema : sampleTrigger.configurationSchema,
+            payloadSchema: location === "trigger payload" ? schema : SamplePayload })
+          const action = location === "action result" ? defineAction({ ...sample.action,
+            definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+            integrationConfigurationSchema: integrationSchema, resultSchema: schema, handler: resultHandler
+          }) : defineAction({ ...sample.action, definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+            integrationConfigurationSchema: integrationSchema, argumentsSchema: location === "action arguments" ? schema : SampleArguments, handler })
+          const routine = defineRoutine({ ...sampleRoutine, definition: { ...sampleRoutine.definition, version: 2 },
+            configurationSchema: location === "routine" ? schema : sampleRoutine.configurationSchema })
+          const registry = new AutomationRegistry()
+          yield* registry.register(sample.extension)
+          const before = registry.catalog()
+          yield* failCode(registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] }), "unsupported-schema")
+          expect(registry.catalog()).toEqual(before)
+          const candidate = cloneConfiguration()
+          candidate.process.actions["triggered"]![0]!.action.version = 2
+          yield* failCode(registry.invokeAction({ ...invocation, configuration: candidate }, sampleAuthority), "missing-definition")
+          expect(handler).not.toHaveBeenCalled()
+          expect(resultHandler).not.toHaveBeenCalled()
+          expect(priorHandler).not.toHaveBeenCalled()
+          expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "prior", total: 1 })
+          expect(priorHandler).toHaveBeenCalledTimes(1)
+        }))
+    }
+  }
+
+  it.effect("invokes ordinary optional and literal null arguments while rejecting explicit null before handlers", () =>
+    Effect.gen(function*() {
+      const argumentsSchema = Schema.Struct({ value: Schema.optionalKey(Schema.String), literal: Schema.Null })
+      const handler = vi.fn((_args: typeof argumentsSchema.Type) => Effect.succeed({ summary: "optional", total: 1 }))
+      const sample = makeSampleExtension()
+      const registry = new AutomationRegistry()
+      yield* registry.register({ ...sample.extension, actions: [defineAction({ ...sample.action, argumentsSchema, handler })] })
+      const configuration = cloneConfiguration()
+      configuration.process.actions["triggered"]![0]!.bindings = { literal: { kind: "literal", value: null } }
+      expect(yield* registry.invokeAction({ ...invocation, configuration }, sampleAuthority)).toEqual({ summary: "optional", total: 1 })
+      expect(handler).toHaveBeenCalledTimes(1)
+      expect(handler.mock.calls[0]?.[0]).toEqual({ literal: null })
+      configuration.process.actions["triggered"]![0]!.bindings["value"] = { kind: "literal", value: null }
+      yield* failCode(registry.invokeAction({ ...invocation, configuration }, sampleAuthority), "invalid-contract")
+      expect(handler).toHaveBeenCalledTimes(1)
+      configuration.process.actions["triggered"]![0]!.bindings["value"] = { kind: "literal", value: "present" }
+      yield* registry.invokeAction({ ...invocation, configuration }, sampleAuthority)
+      expect(handler).toHaveBeenCalledTimes(2)
+    }))
+
   it.effect("publishes default JSON anyOf arguments and preserves exact oneOf rejection before handlers", () =>
     Effect.gen(function*() {
       for (const mode of ["anyOf", "oneOf"] as const) {
