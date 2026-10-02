@@ -3,12 +3,22 @@ import type { DomainEvent } from "@expand/contracts/events/domain"
 
 export class Project extends Schema.Class<Project>("Project")({
   id: Schema.String.pipe(Schema.check(Schema.isUUID(4)), Schema.brand("ProjectId")),
-  name: Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)), Schema.brand("ProjectName")),
+  name: Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/, {
+      toJsonSchema: () => ({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" })
+    })),
+    Schema.brand("ProjectName")
+  ),
   directory: Schema.NullOr(Schema.String).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
   description: Schema.NullOr(Schema.String.pipe(Schema.check(Schema.isMaxLength(2048)))).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(null))
   ),
-  tags: Schema.Array(Schema.String.pipe(Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/)), Schema.brand("Tag"))).pipe(
+  tags: Schema.Array(Schema.String.pipe(
+    Schema.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,63}$/, {
+      toJsonSchema: () => ({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" })
+    })),
+    Schema.brand("Tag")
+  )).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed([]))
   ),
   archived: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(false))),

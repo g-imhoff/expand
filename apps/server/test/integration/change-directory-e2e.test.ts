@@ -23,7 +23,7 @@ const awaitEndpointUp = readEndpoint.pipe(
   })
 )
 
-describe.sequential("change-directory end-to-end", () => {
+describe("change-directory end-to-end", { concurrent: false }, () => {
   it.live("change-directory commits, broadcasts ProjectDirectoryChanged, and survives a re-fold",  () => Effect.gen(function*() {
     const path = yield* Path.Path.pipe(Effect.provide(NodeServices.layer))
     const dir = yield* makeTestDirectory('expand-change-directory-e2e-')

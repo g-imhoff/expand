@@ -21,7 +21,7 @@ const writeTestEndpoint = (file: string, endpoint: Endpoint) =>
     yield* fs.writeFileString(file, encoded)
   })
 
-describe.sequential("connect-during-shutdown race (Bug 2)", () => {
+describe("connect-during-shutdown race (Bug 2)", { concurrent: false }, () => {
   it.live(
     "does not hang on a stale endpoint and preserves a healthy replacement",
     () => Effect.gen(function*() {

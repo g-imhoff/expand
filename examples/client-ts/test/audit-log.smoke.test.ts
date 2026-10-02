@@ -1,7 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Cause, Data, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Schedule, Schema, Stream, SubscriptionRef } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 import { describe, expect } from "vitest"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { ProjectRenamed } from "@expand/contracts/events/project"

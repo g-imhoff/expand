@@ -1,8 +1,8 @@
-import { Rpc, RpcGroup } from "effect/unstable/rpc"
+import { Rpc, RpcGroup } from "effect/rpc"
 import { Schema } from "effect"
 import { SequencedEvent } from "@expand/contracts/events/domain"
 
-export class EventsLagged extends Schema.TaggedErrorClass<EventsLagged>()(
+export class EventsLagged extends Schema.TaggedError<EventsLagged>()(
   "EventsLagged",
   { lagCapacity: Schema.Int }
 ) {}

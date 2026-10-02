@@ -1,5 +1,5 @@
 import { Effect } from "effect"
-import type { RpcGroup } from "effect/unstable/rpc"
+import type { RpcGroup } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ProjectClient } from "@expand/client-ts/project"
 import { dieOnRpcClientError } from "@expand/desktop/main/rpc/guard"

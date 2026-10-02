@@ -1,5 +1,5 @@
 import { Cause, Data, Deferred, Effect, Exit, FileSystem, Path, Ref, Stream, SubscriptionRef } from "effect"
-import { ChildProcess } from "effect/unstable/process"
+import { ChildProcess } from "effect/process"
 
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 

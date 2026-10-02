@@ -42,7 +42,7 @@ const sourceManifest = {
   type: "module" as const,
   sideEffects: false,
   exports: { ".": "./index.ts" },
-  dependencies: { effect: "4.0.0-beta.74", "@expand/contracts": "0.0.0" }
+  dependencies: { effect: "4.0.0", "@expand/contracts": "0.0.0" }
 }
 
 const sourceJson = Schema.encodeSync(Schema.fromJsonString(SourceManifest))(sourceManifest)
@@ -343,7 +343,7 @@ describe("client publish workflow", () => {
           "./package.json": "./package.json"
         },
         files: ["dist"],
-        dependencies: { effect: "4.0.0-beta.74", "@expand/contracts": "4.5.6" }
+        dependencies: { effect: "4.0.0", "@expand/contracts": "4.5.6" }
       })
     }))))
 

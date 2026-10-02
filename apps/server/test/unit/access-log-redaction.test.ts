@@ -1,9 +1,10 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, Fiber, Queue, FileSystem, Layer, Logger, Path, References, Schedule, Schema } from "effect"
+import { NetAddress } from "effect/net"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
-import * as Socket from "effect/unstable/socket/Socket"
-import { HttpServer } from "effect/unstable/http"
+import * as Socket from "effect/socket/Socket"
+import { HttpServer } from "effect/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { httpServerLayer } from "@expand/server/transport/http-server"
@@ -37,23 +38,17 @@ const testCore = (dbPath: string) => {
 
 const probeWs = (url: string) =>
   Effect.scoped(Effect.gen(function*() {
-    const opened = yield* Queue.unbounded<void>()
     const socket = yield* Socket.makeWebSocket(url, { openTimeout: "2 seconds" }).pipe(
       Effect.provide(NodeSocket.layerWebSocketConstructorWS)
     )
-    const run = yield* socket.runRaw(() => undefined, {
-      onOpen: Queue.offer(opened, undefined)
-    }).pipe(Effect.forkScoped)
-    return yield* Effect.race(
-      Queue.take(opened).pipe(Effect.as("open" as const)),
-      Fiber.join(run).pipe(
-        Effect.as("closed" as const),
-        Effect.catchCause(() => Effect.succeed("closed" as const))
-      )
-    ).pipe(Effect.timeoutOrElse({
+    return yield* socket.reader.pipe(
+      Effect.as("open" as const),
+      Effect.catchCause(() => Effect.succeed("closed" as const)),
+      Effect.timeoutOrElse({
       duration: "2 seconds",
       orElse: () => Effect.succeed("closed" as const)
-    }))
+      })
+    )
   }))
 
 describe("access log redaction", () => {
@@ -82,7 +77,7 @@ describe("access log redaction", () => {
       )
       const server = yield* HttpServer.HttpServer.pipe(Effect.provide(transport))
       const addr = server.address
-      const port = addr._tag === "TcpAddress" ? addr.port : 0
+      const port = NetAddress.isInetAddress(addr) ? addr.port : 0
       const opened = yield* probeWs(`ws://127.0.0.1:${port}/rpc?token=${token}`)
       yield* Effect.suspend(() =>
         rpcRecords().length > 0 ? Effect.void : Effect.fail("pending" as const)
@@ -93,7 +88,7 @@ describe("access log redaction", () => {
           orElse: () => Effect.fail("no /rpc access-log record was captured")
         })
       )
-      const hostname = addr._tag === "TcpAddress" ? addr.hostname : `unexpected:${addr._tag}`
+      const hostname = NetAddress.isInetAddress(addr) ? String(addr.address) : `unexpected:${addr._tag}`
       return { hostname, opened }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 

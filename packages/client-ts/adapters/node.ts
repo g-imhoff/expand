@@ -1,8 +1,7 @@
-import { NodeChildProcessSpawner, NodePath } from "@effect/platform-node"
-import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
+import { NodeChildProcessSpawner, NodePath, NodeSocket } from "@effect/platform-node"
+import { RpcClient, RpcSerialization } from "effect/rpc"
 import { Effect, Layer } from "effect"
-import { Socket } from "effect/unstable/socket"
-import { WebSocket as WS } from "ws"
+import { Socket } from "effect/socket"
 import type { FileSystem } from "effect"
 import type { RuntimeAdapter } from "../adapter"
 import { BackendUnavailable, type BackendCommandError } from "../errors"
@@ -35,16 +34,10 @@ const nodeChildProcessSpawnerLayer = NodeChildProcessSpawner.layer.pipe(
   Layer.provide(NodePath.layer)
 )
 
-const wsConstructor = Layer.succeed(
-  Socket.WebSocketConstructor,
-  (url: string, protocols?: string | ReadonlyArray<string>) =>
-    new WS(url, protocols as string | Array<string> | undefined) as unknown as globalThis.WebSocket
-)
-
 const protocolLayer = (url: string) =>
   RpcClient.layerProtocolSocket().pipe(
     Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(wsConstructor)))
+    Layer.provide(Socket.layerWebSocket(url).pipe(Layer.provide(NodeSocket.layerWebSocketConstructorWS)))
   )
 
 const resolveCommand = Effect.fn("NodeAdapter.resolveCommand")((

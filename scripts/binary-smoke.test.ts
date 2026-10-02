@@ -4,7 +4,7 @@ import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Ref, Schedule, Sink, Stream } from "effect"
 import { TestClock } from "effect/testing"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { describe, expect } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
 import {

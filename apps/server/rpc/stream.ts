@@ -1,5 +1,5 @@
 import { Effect, Ref, Stream } from "effect"
-import type { RpcGroup } from "effect/unstable/rpc"
+import type { RpcGroup } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { EventBus } from "@expand/server/application/event-bus"
 import { ConnectionTracker } from "@expand/server/runtime/connection-tracker"
