@@ -1,5 +1,6 @@
-import { Context, Effect, Exit, FileSystem, Layer, Path, Scope } from "effect"
-import { HttpServer } from "effect/unstable/http"
+import { Context, Effect, Exit, Fiber, FileSystem, Layer, Path, Scope } from "effect"
+import { HttpServer } from "effect/http"
+import { NetAddress } from "effect/net"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
@@ -56,7 +57,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
         Effect.provide(transport)
       )
       const addr = yield* address
-      const boundPort = addr._tag === "TcpAddress" ? addr.port : portHint
+      const boundPort = NetAddress.isInetAddress(addr) ? addr.port : portHint
       const url = `ws://127.0.0.1:${boundPort}/rpc`
 
       yield* fs.chmod(path.dirname(dbPath), 0o700)
@@ -87,11 +88,26 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
 
 const HTTP_SHUTDOWN_GRACE = "1 second"
 
-const closeHttpScope = Effect.fn("Server.closeHttpScope")((scope: Scope.Closeable, exit: Exit.Exit<unknown, unknown>) =>
-  Scope.close(scope, exit).pipe(
-    Effect.timeoutOrElse({
-      duration: HTTP_SHUTDOWN_GRACE,
-      orElse: () => Effect.logInfo("http server did not stop within grace window — abandoning")
+const closeHttpScope = Effect.fn("Server.closeHttpScope")((
+  scope: Scope.Closeable,
+  exit: Exit.Exit<unknown, unknown>
+): Effect.Effect<void> =>
+  Effect.uninterruptibleMask(() =>
+    Effect.gen(function*() {
+      const closing = yield* Effect.forkDetach(
+        Scope.close(scope, exit),
+        { startImmediately: true, uninterruptible: true }
+      )
+      const waiting = yield* Effect.forkDetach(
+        Fiber.join(closing).pipe(
+          Effect.timeoutOrElse({
+            duration: HTTP_SHUTDOWN_GRACE,
+            orElse: () => Effect.logInfo("http server did not stop within grace window — abandoning")
+          })
+        ),
+        { startImmediately: true }
+      )
+      return yield* Fiber.join(waiting)
     })
   )
 )

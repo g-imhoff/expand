@@ -104,7 +104,7 @@ const failedText = (exit: Exit.Exit<unknown, unknown>): string => {
 }
 
 const provideNode = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, never> => effect.pipe(Effect.provide(NodeServices.layer)) as Effect.Effect<A, E, never>
-const showUnknown = Schema.encodeSync(Schema.UnknownFromJsonString)
+const showUnknown = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 describe("Electron public behavioral contract", () => {
   it.live("acquires a port with internally supplied browser crypto and no Crypto environment", () => provideNode(Effect.gen(function* () {

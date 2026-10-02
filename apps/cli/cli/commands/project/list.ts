@@ -1,4 +1,4 @@
-import { Flag } from "effect/unstable/cli"
+import { Flag } from "effect/cli"
 import { Effect } from "effect"
 import { makeEnvelope } from "@expand/cli/contract/envelope"
 import type { Project } from "@expand/contracts/project"
@@ -9,8 +9,8 @@ export const listCommand = (() => {
   const sorted = (ps: ReadonlyArray<Project>) =>
     [...ps].sort((a, b) => (a.createdAt === b.createdAt ? a.id.localeCompare(b.id) : a.createdAt.localeCompare(b.createdAt)))
 
-  const archived = Flag.boolean("archived").pipe(Flag.withDefault(false))
-  const all = Flag.boolean("all").pipe(Flag.withDefault(false))
+  const archived = Flag.Boolean("archived").pipe(Flag.withDefault(false))
+  const all = Flag.Boolean("all").pipe(Flag.withDefault(false))
 
   return defineCommand(
     "list",

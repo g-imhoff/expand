@@ -1,4 +1,4 @@
-import { Command, GlobalFlag, CliOutput } from "effect/unstable/cli"
+import { Command, GlobalFlag, CliOutput } from "effect/cli"
 import { makeNodeAdapter, ProcessServices } from "@expand/client-ts/adapters/node"
 import { Effect, Layer, Path, type FileSystem } from "effect"
 import { NodePath, NodeRuntime } from "@effect/platform-node"

@@ -2,7 +2,7 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, FileSystem, Path } from "effect"
 import { NodeServices } from "@effect/platform-node"
-import { SqlClient } from "effect/unstable/sql/SqlClient"
+import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 
 // Locks the production default: a file-backed client must run in WAL so the single

@@ -14,7 +14,7 @@ import {
 } from "effect"
 import { TestClock } from "effect/testing"
 import { describe, expect, expectTypeOf } from "vitest"
-import { RpcClient } from "effect/unstable/rpc"
+import { RpcClient } from "effect/rpc"
 import { AppContext, makeAppContext, type AppContextShape } from "@expand/contracts/app-context"
 import { type Endpoint } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
@@ -159,7 +159,8 @@ describe("process control integration", () => {
           run: () => Effect.never,
           send: () => Queue.offer(attempted, undefined).pipe(Effect.asVoid),
           supportsAck: false,
-          supportsTransferables: false
+          supportsTransferables: false,
+          codecFor: Schema.toCodecJson
         }),
         spawnBackend: () => Effect.sync(() => {
           generation += 1
@@ -181,7 +182,7 @@ describe("process control integration", () => {
       }
       const exit = yield* Fiber.join(fiber)
       expect(Exit.isFailure(exit)).toBe(true)
-      const serialized = Schema.encodeSync(Schema.UnknownFromJsonString)(exit)
+      const serialized = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(exit)
       for (const token of tokens) expect(serialized).not.toContain(token)
     }).pipe(Effect.provide(TestClock.layer()))))
 

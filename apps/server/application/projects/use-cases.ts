@@ -1,5 +1,5 @@
 import { Context, Crypto, DateTime, Effect, FileSystem, Layer, Path, PlatformError, Schema, Semaphore } from "effect"
-import { SqlError } from "effect/unstable/sql/SqlError"
+import { SqlError } from "effect/sql/SqlError"
 import { Project } from "@expand/contracts/project"
 import type { ProjectCreateResult, ProjectDeleteResult } from "@expand/contracts/project"
 import { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"

@@ -59,5 +59,5 @@ export type Action =
   | { readonly _tag: "Reconcile"; readonly projects: ReadonlyArray<Project> }
 
 export const assertNever = (value: never): never => {
-  throw new Error(`unreachable: ${Schema.encodeSync(Schema.UnknownFromJsonString)(value)}`)
+  throw new Error(`unreachable: ${Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(value)}`)
 }

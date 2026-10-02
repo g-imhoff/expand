@@ -1,8 +1,9 @@
 import { NodeHttpServer, NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, PlatformError, Queue, Result, Schema, Scope, Stream, SubscriptionRef } from "effect"
-import { HttpRouter, HttpServer } from "effect/unstable/http"
-import { RpcClient, RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { HttpRouter, HttpServer } from "effect/http"
+import { NetAddress } from "effect/net"
+import { RpcClient, RpcSerialization, RpcServer } from "effect/rpc"
 import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { makeNodeAdapter, ProcessServices } from "../../adapters/node"
@@ -119,6 +120,8 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
       currentTimeMillis: clock.currentTimeMillis,
       currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
       currentTimeNanos: clock.currentTimeNanos,
+      monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
+      monotonicTimeNanos: clock.monotonicTimeNanos,
       sleep: (duration) => clock.sleep(Duration.min(duration, Duration.millis(500)))
     })
     const node = NodeHttpServer.layerTest
@@ -135,7 +138,7 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
         Effect.map((server) => server.address),
         Effect.provide(transport)
       )
-      const port = address._tag === "TcpAddress" ? address.port : 0
+      const port = NetAddress.isInetAddress(address) ? address.port : 0
       const endpoint = yield* Schema.encodeEffect(EndpointFromJson)({
         url: `ws://127.0.0.1:${port}/rpc`,
         token: "client-session-test",
@@ -455,7 +458,8 @@ const runEndpointReplacementRaceScenario = () =>
             run: () => Effect.never,
             send: () => Deferred.succeed(staleAttemptStarted, undefined),
             supportsAck: false,
-            supportsTransferables: false
+            supportsTransferables: false,
+            codecFor: Schema.toCodecJson
           })
           : nodeAdapter.protocolLayer(url)
       },

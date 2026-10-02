@@ -18,7 +18,7 @@ import {
   Scope,
   Stream
 } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import {
   ProcessControl,
   ProcessProbeError,
@@ -105,6 +105,8 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
         },
         currentTimeNanos: clock.currentTimeNanos,
         currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+        monotonicTimeNanos: clock.monotonicTimeNanos,
+        monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
         sleep: (duration) => clock.sleep(duration)
       }
       const trackedFileSystem = FileSystem.FileSystem.of({
@@ -255,6 +257,8 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
         currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
         currentTimeNanos: clock.currentTimeNanos,
         currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+        monotonicTimeNanos: clock.monotonicTimeNanos,
+        monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
         sleep: (duration) => Queue.offer(handoff, undefined).pipe(
           Effect.andThen(clock.sleep(duration))
         )
@@ -1183,6 +1187,8 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
         currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
         currentTimeNanos: clock.currentTimeNanos,
         currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+        monotonicTimeNanos: clock.monotonicTimeNanos,
+        monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
         sleep: () => Effect.sync(() => {
           sleeps += 1
         })

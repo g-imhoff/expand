@@ -3,8 +3,8 @@ import { ENVELOPE_VERSION } from "@expand/contracts/cli/version"
 import { ProcessControl, type ProcessControlShape } from "@expand/contracts/process-control"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { Cause, Config, Data, Effect, Exit, Fiber, FileSystem, Option, Path, Ref, Schedule, Schema, Stream } from "effect"
-import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
-import type { ChildProcessHandle } from "effect/unstable/process/ChildProcessSpawner"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
+import type { ChildProcessHandle } from "effect/process/ChildProcessSpawner"
 import {
   assessArtifacts,
   assessDeparture,
@@ -746,7 +746,7 @@ export const certifyBinaries = Effect.fn("BinarySmoke.certifyBinaries")(
     )
     const expectedVersion = yield* resolveBuildAppVersion(root)
     yield* certifyCompiledVersion(root, expectedVersion)
-    const attempts = yield* Config.int("EXPAND_BINARY_SMOKE_ATTEMPTS").pipe(Config.withDefault(250))
+    const attempts = yield* Config.Int("EXPAND_BINARY_SMOKE_ATTEMPTS").pipe(Config.withDefault(250))
     yield* Effect.scoped(Effect.gen(function*() {
       const dataDir = yield* fs.makeTempDirectoryScoped({ prefix: "expand-binary-smoke-" })
       const home = path.join(dataDir, "default-sentinel")

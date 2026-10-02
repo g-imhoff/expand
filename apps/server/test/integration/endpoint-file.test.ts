@@ -1,9 +1,9 @@
 import { it } from "@effect/vitest"
-import { Cause, Crypto, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schedule, Scope } from "effect"
+import { Cause, Crypto, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, PlatformError, Queue, Schedule, Scope } from "effect"
 import { describe, expect } from "vitest"
 import { NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
-import * as Socket from "effect/unstable/socket/Socket"
+import * as Socket from "effect/socket/Socket"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
@@ -182,14 +182,16 @@ describe("endpoint file (I-3)", () => {
         Effect.forkChild
       )
       const endpoint = yield* endpointUp.pipe(Effect.provideService(AppContext, appContext))
-      const opened = yield* Queue.unbounded<void>()
       const socket = yield* Socket.makeWebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`).pipe(
         Effect.provide(NodeSocket.layerWebSocketConstructorWS)
       )
-      const socketFiber = yield* socket.runRaw(() => undefined, { onOpen: Queue.offer(opened, undefined) }).pipe(
-        Effect.forkChild
-      )
-      yield* Queue.take(opened).pipe(Effect.timeout("5 seconds"))
+      const opened = yield* Deferred.make<void>()
+      const socketFiber = yield* Effect.scoped(Effect.gen(function*() {
+        const reader = yield* socket.reader
+        yield* Deferred.succeed(opened, undefined)
+        return yield* Effect.forever(reader.pull)
+      })).pipe(Effect.forkChild)
+      yield* Deferred.await(opened).pipe(Effect.timeout("5 seconds"))
       const interruption = yield* Fiber.interrupt(server).pipe(Effect.forkChild)
       const completed = yield* Fiber.join(interruption).pipe(
         Effect.as(true),

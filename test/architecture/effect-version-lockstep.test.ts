@@ -11,13 +11,27 @@ const EFFECT_PACKAGES = [
   "@effect/sql-sqlite-node"
 ] as const
 
+const EFFECT_MANIFESTS = [
+  "package.json",
+  "packages/contracts/package.json",
+  "packages/client-ts/package.json",
+  "packages/electron-ipc/package.json"
+] as const
+
 const DIRECT_PINS = [
   "effect",
   "@effect/platform-node",
   "@effect/sql-sqlite-node"
 ] as const
 
-const RootPackage = Schema.fromJsonString(Schema.Struct({ dependencies: Schema.Record(Schema.String, Schema.String) }))
+const RootPackage = Schema.fromJsonString(Schema.Struct({
+  dependencies: Schema.Record(Schema.String, Schema.String)
+}))
+
+const Package = Schema.fromJsonString(Schema.Struct({
+  dependencies: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  devDependencies: Schema.optional(Schema.Record(Schema.String, Schema.String))
+}))
 
 const installedVersions = Effect.fn("EffectVersionLockstep.installedVersions")(function*() {
   const source = `(() => { const { createRequire } = require("module"); const root = createRequire(require.resolve("./package.json")); const parent = createRequire(root.resolve("@effect/platform-node/package.json")); const packages = ["effect", "@effect/platform-node", "@effect/platform-node-shared", "@effect/sql-sqlite-node"]; const versions = packages.map((pkg) => { let file; try { file = root.resolve(pkg + "/package.json") } catch { file = parent.resolve(pkg + "/package.json") } return pkg + "\\t" + root(file).version }); return versions.join("\\n") })()`
@@ -46,7 +60,25 @@ describe("effect version lockstep", () => {
         const declared = root.dependencies[name]
         expect(declared, `expected ${name} in package.json dependencies`).toBeDefined()
         expect(declared, `expected ${name} to be an exact pin, got ${String(declared)}`).toMatch(/^\d/)
-        expect(declared, `expected ${name} pin to equal installed ${String(versions[name])}`).toBe(versions[name])
+      expect(declared, `expected ${name} pin to equal installed ${String(versions[name])}`).toBe(versions[name])
+      }
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("declares stable Effect and Vitest pins across all owned manifests", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      for (const path of EFFECT_MANIFESTS) {
+        const manifest = yield* Schema.decodeUnknownEffect(Package)(yield* fs.readFileString(path))
+        const declared = { ...manifest.dependencies, ...manifest.devDependencies }
+        for (const name of EFFECT_PACKAGES) {
+          if (name in declared) expect(declared[name], `${path} ${name}`).toBe("4.0.0")
+        }
+        if (path === "package.json") {
+          expect(declared["@effect/vitest"], `${path} @effect/vitest`).toBe("4.0.0")
+          expect(declared.vitest, `${path} vitest`).toBe("5.0.3")
+          expect(declared["@vitest/coverage-istanbul"], `${path} @vitest/coverage-istanbul`).toBe("5.0.3")
+          expect(declared["@vitest/coverage-v8"], `${path} @vitest/coverage-v8`).toBe("5.0.3")
+        }
       }
     }).pipe(Effect.provide(NodeServices.layer)))
 })
