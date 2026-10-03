@@ -5,6 +5,7 @@ import { CommandPalette } from "@expand/desktop/renderer/features/command/compon
 import { SidebarInset, SidebarProvider, useSidebar } from "@expand/desktop/renderer/components/ui/sidebar"
 import { AppSidebar } from "@expand/desktop/renderer/features/sidebar/components/AppSidebar"
 import { defaultSidebarDevices, defaultSidebarWorktrees } from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
+import { automationPageForPath, automationRoutes } from "@expand/desktop/renderer/features/automations/model/automation-routes"
 
 export const RootLayout = () => {
   return (
@@ -19,6 +20,7 @@ const RootLayoutContent = () => {
   const { openMobile, setOpenMobile, mobileTriggerRef } = useSidebar()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const activeProjectId = pathname.startsWith("/p/") ? decodeURIComponent(pathname.slice(3).split("/")[0] ?? "") : null
+  const automationPage = automationPageForPath(pathname)
   const [activeDeviceId, setActiveDeviceId] = useState<string | undefined>(defaultSidebarDevices[0]?.id)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const activeConversation = defaultSidebarWorktrees
@@ -36,7 +38,16 @@ const RootLayoutContent = () => {
         onSelectProject={(projectId) => {
           setActiveConversationId(null)
           setOpenMobile(false)
-          void navigate({ to: "/p/$projectId", params: { projectId } })
+          void navigate({
+            to: automationPage === null ? "/p/$projectId" : automationRoutes[automationPage],
+            params: { projectId }
+          })
+        }}
+        automationsActive={automationPage !== null && activeConversation === undefined}
+        onOpenAutomations={(projectId) => {
+          setActiveConversationId(null)
+          setOpenMobile(false)
+          void navigate({ to: automationRoutes.overview, params: { projectId } })
         }}
         activeDeviceId={activeDeviceId}
         onSelectDevice={(deviceId) => {
@@ -71,7 +82,7 @@ const RootLayoutContent = () => {
               className="inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Back to {activeProjectId === null ? "projects" : "workspace"}
+              Back to {automationPage !== null ? "automations" : activeProjectId === null ? "projects" : "workspace"}
             </button>
             <div className="mt-8 border-b pb-6">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
