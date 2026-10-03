@@ -4,13 +4,17 @@ import { SqlClient } from "effect/sql/SqlClient"
 import { DatabaseReady } from "../migrations/sqlite.js"
 import { encodeJson, decode, guard, readJson, RoutineStatus, same, protectStorage, StorageError, validateConfiguration } from "./persistence-models.js"
 
+export interface RoutineHead { readonly revision: number; readonly version: number; readonly status: RoutineStatus }
+export interface ListedRoutine { readonly routineId: string; readonly head: RoutineHead }
+
 export class ConfigurationRepository extends Context.Service<ConfigurationRepository, {
   readonly putIntegration: (scope: PersonalScope, input: IntegrationConfiguration, expectedVersion: number) => Effect.Effect<number, StorageError>
   readonly appendRoutineRevision: (input: RoutineConfiguration, expectedRevision: number, status: RoutineStatus) => Effect.Effect<number, StorageError>
   readonly getIntegration: (scope: PersonalScope, id: string) => Effect.Effect<{ configuration: IntegrationConfiguration; version: number } | null, StorageError>
   readonly getRevision: (scope: PersonalScope, routineId: string, revision: number) => Effect.Effect<RoutineConfiguration | null, StorageError>
-  readonly getHead: (scope: PersonalScope, routineId: string) => Effect.Effect<Head | null, StorageError>
-  readonly setStatus: (scope: PersonalScope, routineId: string, status: RoutineStatus, expectedVersion: number) => Effect.Effect<Head, StorageError>
+  readonly getHead: (scope: PersonalScope, routineId: string) => Effect.Effect<RoutineHead | null, StorageError>
+  readonly listHeads: (scope: PersonalScope) => Effect.Effect<ReadonlyArray<ListedRoutine>, StorageError>
+  readonly setStatus: (scope: PersonalScope, routineId: string, status: RoutineStatus, expectedVersion: number) => Effect.Effect<RoutineHead, StorageError>
 }>()("expand/ConfigurationRepository", {
   make: Effect.gen(function* () {
     yield* DatabaseReady
@@ -65,7 +69,8 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
       yield* guard((head?.revision ?? 0) === expectedRevision && reference.revision === expectedRevision + 1, "conflict")
       for (const integration of config.integrations) {
         const stored = yield* getIntegration(scope, integration.id)
-        yield* guard(stored !== null && same(stored.configuration.definition, integration.definition), "missing")
+        if (stored === null) yield* sql`INSERT INTO automation_integrations ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: integration.id, definition_id: integration.definition.id, definition_version: integration.definition.version, version: 1, json: encodeJson(integration) })}`
+        else yield* guard(same(stored.configuration.definition, integration.definition), "missing")
       }
       if (head) { const moved = yield* sql<{ head_revision: number }>`UPDATE automation_routines SET head_revision=${reference.revision}, status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${reference.routineId} AND head_revision=${expectedRevision} RETURNING head_revision`; yield* guard(moved.length > 0, "conflict") }
       else yield* sql`INSERT INTO automation_routines ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: reference.routineId, head_revision: reference.revision, status, version: 1 })}`
@@ -81,11 +86,22 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
       yield* guard(touched.length > 0, "conflict")
       return { revision: head!.revision, status, version: expectedVersion + 1 }
     })))
-    return { putIntegration, appendRoutineRevision, setStatus, getIntegration: (scope, id) => protectStorage(getIntegration(scope, id)), getRevision: (scope, id, revision) => protectStorage(getRevision(scope, id, revision)), getHead: (scope, id) => protectStorage(getHead(scope, id)) }
+    const listHeads = Effect.fn("Configuration.listHeads")(function*(scope: PersonalScope) {
+      yield* decode(PersonalScope, scope)
+      const rows = yield* sql<{ id: string; head_revision: number; version: number; status: string }>`SELECT id, head_revision, version, status FROM automation_routines WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} ORDER BY id`
+      const heads: Array<ListedRoutine> = []
+      for (const row of rows) {
+        const status = yield* decode(RoutineStatus, row.status)
+        yield* decode(LocalId, row.id)
+        yield* decode(PositiveVersion, row.version); yield* decode(PositiveVersion, row.head_revision)
+        heads.push({ routineId: row.id, head: { revision: row.head_revision, version: row.version, status } })
+      }
+      return heads as ReadonlyArray<ListedRoutine>
+    })
+    return { putIntegration, appendRoutineRevision, setStatus, listHeads: (scope) => protectStorage(listHeads(scope)), getIntegration: (scope, id) => protectStorage(getIntegration(scope, id)), getRevision: (scope, id, revision) => protectStorage(getRevision(scope, id, revision)), getHead: (scope, id) => protectStorage(getHead(scope, id)) }
   })
 }) {}
 export const ConfigurationRepositoryLayer = Layer.effect(ConfigurationRepository, ConfigurationRepository.make)
 
-interface Head { readonly revision: number; readonly version: number; readonly status: RoutineStatus }
 interface IntegrationRow { readonly json: string; readonly id: string; readonly definition_id: string; readonly definition_version: number; readonly version: number }
 interface RevisionRow { readonly json: string; readonly routine_id: string; readonly revision: number }
