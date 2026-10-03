@@ -189,3 +189,39 @@ export const NotificationPage = Schema.Struct({
 })
 export type NotificationPage = typeof NotificationPage.Type
 export const NotificationScope = PersonalScope
+
+export const ManualPreviewAction = Schema.Struct({
+  stepId: LocalId,
+  arguments: JsonValue
+})
+export type ManualPreviewAction = typeof ManualPreviewAction.Type
+
+export const ManualPreviewSelected = Schema.Struct({
+  kind: Schema.Literal("selected"),
+  outcomeId: LocalId,
+  actions: Schema.Array(ManualPreviewAction)
+})
+export type ManualPreviewSelected = typeof ManualPreviewSelected.Type
+
+export const ManualPreviewUnresolved = Schema.Struct({
+  kind: Schema.Literal("unresolved"),
+  reason: Schema.String
+})
+export type ManualPreviewUnresolved = typeof ManualPreviewUnresolved.Type
+
+export const ManualPreview = Schema.Union([ManualPreviewSelected, ManualPreviewUnresolved])
+export type ManualPreview = typeof ManualPreview.Type
+
+export const ManualPreviewResult = Schema.Struct({
+  routineId: LocalId,
+  revision: PositiveVersion,
+  preview: ManualPreview
+})
+export type ManualPreviewResult = typeof ManualPreviewResult.Type
+
+export const ManualStartResult = Schema.Struct({
+  deliveryId: LocalId,
+  jobIds: Schema.Array(LocalId),
+  runIds: Schema.Array(LocalId)
+})
+export type ManualStartResult = typeof ManualStartResult.Type
