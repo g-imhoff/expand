@@ -34,7 +34,7 @@ const child = Effect.fn(function*(mode: string, filename: string, checkpoint?: s
 })
 const database = Effect.tryPromise(() => mkdtemp(join(tmpdir(), "automation-restart-"))).pipe(Effect.map((dir) => join(dir, "state.sqlite")))
 const controls = (reader: Observation) => {
-  expect(reader.pragma).toEqual([{ journal_mode: "wal" }]); expect(reader.fk).toEqual([{ foreign_keys: 1 }]); expect(reader.tables).toHaveLength(9)
+  expect(reader.pragma).toEqual([{ journal_mode: "wal" }]); expect(reader.fk).toEqual([{ foreign_keys: 1 }]); expect(reader.tables).toHaveLength(10)
   expect(reader.legacy).toMatchObject([{ seq: 1, event_revision: 1, payload: '{"original":"é"}' }]); expect(reader.revisions).toEqual(configuration)
 }
 const inspected = Effect.fn(function*(filename: string) { const read = yield* (yield* child("inspect", filename)).done; expect(read.code).toBe(0); expect(read.signal).toBeNull(); controls(read.value); return read.value })
