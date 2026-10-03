@@ -247,7 +247,7 @@ export const runIssueClassification = Effect.fn("IssueClassification.run")(funct
     ).pipe(
       Effect.mapError((registryError) =>
         new AutomationError({
-          code: "invalid-reference",
+          code: registryError.code,
           message: registryError.message,
           ...(registryError.failure === undefined ? {} : { failure: registryError.failure })
         })
