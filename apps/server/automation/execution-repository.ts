@@ -13,6 +13,7 @@ export interface Summary { readonly expectedRunVersion: number; readonly expecte
 export interface History { readonly run: RecordVersion<AutomationRun>; readonly job: RecordVersion<Job>; readonly attempts: ReadonlyArray<Attempt> }
 export interface Query { readonly limit: number; readonly cursor?: string; readonly routineId?: string; readonly deliveryId?: string; readonly mode?: "preview" | "live"; readonly state?: AutomationRun["state"]["kind"] }
 export interface Page<A> { readonly items: ReadonlyArray<A>; readonly cursor: string | null }
+export interface DueRun { readonly scope: PersonalScope; readonly runId: string; readonly jobId: string; readonly state: "queued" | "running" }
 export class ExecutionRepository extends Context.Service<ExecutionRepository, {
   readonly ingest: (input: Ingestion) => Effect.Effect<Accepted, StorageError>
   readonly recordAttempt: (scope: PersonalScope, attempt: Attempt, summary?: Summary) => Effect.Effect<void, StorageError>
@@ -24,6 +25,7 @@ export class ExecutionRepository extends Context.Service<ExecutionRepository, {
   readonly history: (scope: PersonalScope, id: string) => Effect.Effect<History | null, StorageError>
   readonly listRuns: (scope: PersonalScope, query: Query) => Effect.Effect<Page<RecordVersion<AutomationRun>>, StorageError>
   readonly listJobs: (scope: PersonalScope, query: Query) => Effect.Effect<Page<RecordVersion<Job>>, StorageError>
+  readonly scanDue: (limit: number) => Effect.Effect<ReadonlyArray<DueRun>, StorageError>
 }>()("expand/ExecutionRepository", {
   make: Effect.gen(function* () {
     yield* DatabaseReady
@@ -223,7 +225,21 @@ export class ExecutionRepository extends Context.Service<ExecutionRepository, {
       for (const row of rows.slice(0, query.limit)) { const value = yield* (table === "runs" ? getRun(scope, row.id) : getJob(scope, row.id)); yield* guard(value !== null, "missing"); items.push(value!) }
       return { items, cursor: rows.length > query.limit ? encodeJson({ schemaVersion: 1, scope, table, filter: filterKey, after: items[items.length - 1]!.sequence }) : null }
     })
-    return { ingest, recordAttempt, update, replay, history,
+    const scanDue = Effect.fn(function*(limit: number) {
+      yield* guard(Number.isSafeInteger(limit) && limit > 0 && limit <= 100)
+      const rows = yield* sql<{ owner_id: string; project_id: string; id: string; job_id: string; state: string }>`SELECT owner_id, project_id, id, job_id, state FROM automation_runs WHERE state IN ('queued', 'running') ORDER BY seq LIMIT ${limit}`
+      const due: Array<DueRun> = []
+      for (const row of rows) {
+        const scope = yield* decode(PersonalScope, { ownerId: row.owner_id, projectId: row.project_id })
+        const runId = yield* decode(LocalId, row.id)
+        const jobId = yield* decode(LocalId, row.job_id)
+        yield* guard(row.state === "queued" || row.state === "running")
+        const state = row.state === "running" ? "running" as const : "queued" as const
+        due.push({ scope, runId, jobId, state })
+      }
+      return due as ReadonlyArray<DueRun>
+    })
+    return { ingest, recordAttempt, update, replay, history, scanDue: (limit: number) => protectStorage(sql.withTransaction(scanDue(limit))),
       getDelivery: (scope, id) => protectStorage(sql.withTransaction(getDelivery(scope, id))), getRun: (scope, id) => protectStorage(sql.withTransaction(getRun(scope, id))), getJob: (scope, id) => protectStorage(sql.withTransaction(getJob(scope, id))),
       listRuns: (scope, query) => protectStorage(sql.withTransaction(list(scope, query, "runs"))).pipe(Effect.map((page) => page as Page<RecordVersion<AutomationRun>>)),
       listJobs: (scope, query) => protectStorage(sql.withTransaction(list(scope, query, "jobs"))).pipe(Effect.map((page) => page as Page<RecordVersion<Job>>)) }
