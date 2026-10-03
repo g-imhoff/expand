@@ -141,3 +141,27 @@ describe("credential commit error", () => {
     expect(yield* sql`SELECT count(*) n FROM automation_credentials`).toEqual([{ n: 0 }])
   }).pipe(Effect.provide(Repositories)))
 })
+
+describe("credential racing creates", () => {
+  it.live("maps a concurrent insert to conflict with no partial writes", () => Effect.gen(function* () {
+    const sql = yield* SqlClient
+    let armed = true
+    const controlled = new Proxy(sql, {
+      apply(target, thisArg, args) {
+        const head = String((args[0] as unknown as ArrayLike<string>)?.[0] ?? "")
+        if (armed && head.includes("INSERT INTO automation_credentials")) {
+          armed = false
+          const landed = (target as unknown as (...parts: Array<unknown>) => Effect.Effect<unknown>)`INSERT INTO automation_credentials (owner_id, project_id, id, version, secret) VALUES (${scope.ownerId}, ${scope.projectId}, ${"racer"}, ${1}, ${new Uint8Array([0])})`
+          return Effect.andThen(landed, Reflect.apply(target, thisArg, args as Array<unknown>))
+        }
+        return Reflect.apply(target, thisArg, args as Array<unknown>)
+      }
+    })
+    const credentials = yield* CredentialRepository.make.pipe(Effect.provideService(SqlClient, controlled))
+    const exit = yield* Effect.exit(credentials.putCredential(scope, "racer", secretA, 0))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(storageCode(exit)).toBe("conflict")
+    const rows = yield* sql<{ secret: Uint8Array }>`SELECT secret FROM automation_credentials WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id='racer'`
+    expect(rows.length).toBe(0)
+  }).pipe(Effect.provide(Repositories)))
+})
