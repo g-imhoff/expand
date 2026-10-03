@@ -4,6 +4,7 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
 import { supervised } from "@expand/desktop/main/runtime/supervised"
 
@@ -23,7 +24,7 @@ export interface MainPortLike {
 
 export const runRpcServer = Effect.fn("DesktopMain.runRpcServer")((
   port: MainPortLike
-): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | Scope.Scope> =>
+): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | AutomationClient | Scope.Scope> =>
   RpcServer.make(ExpandRpcs).pipe(
     Effect.provide(DesktopRpcHandlers),
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),

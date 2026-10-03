@@ -11,5 +11,6 @@ export {
 } from "./automation/github.js"
 export type { GithubLabelHandler } from "./automation/github.js"
 export { OriginalInputReference, JevDecisionRequest, JevDecisionResult, ActionOutcome, ActionGrant, InvocationAuthority, RunState, AutomationRun } from "./automation/run.js"
+export { Delivery, Job, Attempt, RoutineStatus, CredentialStatus } from "./automation/execution.js"
 export { defineIntegration, defineTrigger, defineRoutine, defineAction, defineExtension } from "./automation/extension.js"
 export type { IntegrationDefinition, TriggerDefinition, ActionDefinition, RoutineDefinition, AutomationExtension, ContextFreeCodec, InstalledAction } from "./automation/extension.js"

@@ -335,6 +335,11 @@ describe("client publish workflow", () => {
             import: "./dist/server/index.js",
             default: "./dist/server/index.js"
           },
+          "./automation": {
+            types: "./dist/automation/index.d.ts",
+            import: "./dist/automation/index.js",
+            default: "./dist/automation/index.js"
+          },
           "./adapters/node": {
             types: "./dist/adapters/node.d.ts",
             import: "./dist/adapters/node.js",
