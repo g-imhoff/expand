@@ -109,8 +109,8 @@ export const validateClassificationInput = Effect.fn("Automation.validateClassif
   }
   return { classification, process }
 })
-export type GithubLabelHandler = (args: typeof GithubLabelArguments.Type, configuration: typeof GithubRepositoryConfiguration.Type, context: InvocationContext) => Effect.Effect<typeof GithubLabelResult.Type, AutomationFailure>
-export const makeGithubExtension = (handler: GithubLabelHandler = () => Effect.succeed({ applied: true })) => {
+export type GithubLabelHandler<Requirements = never> = (args: typeof GithubLabelArguments.Type, configuration: typeof GithubRepositoryConfiguration.Type, context: InvocationContext) => Effect.Effect<typeof GithubLabelResult.Type, AutomationFailure, Requirements>
+export const makeGithubExtension = <Requirements = never>(handler: GithubLabelHandler<Requirements> = () => Effect.succeed({ applied: true })) => {
   const action = defineAction({
     definition: githubLabelActionReference, title: "GitHub label issue", integration: githubIntegrationReference,
     capabilities: ["label"], argumentsSchema: GithubLabelArguments, resultSchema: GithubLabelResult,
