@@ -18,7 +18,7 @@ export interface TriggerDefinition<C extends ContextFreeCodec = ContextFreeCodec
   readonly configurationSchema: C
   readonly payloadSchema: P
 }
-export interface ActionDefinition<A extends ContextFreeCodec = ContextFreeCodec, R extends ContextFreeCodec = ContextFreeCodec, C extends ContextFreeCodec = ContextFreeCodec> {
+export interface ActionDefinition<A extends ContextFreeCodec = ContextFreeCodec, R extends ContextFreeCodec = ContextFreeCodec, C extends ContextFreeCodec = ContextFreeCodec, E = never> {
   readonly kind: "action"
   readonly definition: DefinitionReference
   readonly title: string
@@ -27,8 +27,8 @@ export interface ActionDefinition<A extends ContextFreeCodec = ContextFreeCodec,
   readonly argumentsSchema: A
   readonly resultSchema: R
   readonly integrationConfigurationSchema: C
-  readonly handler: (arguments_: A["Type"], configuration: C["Type"], context: InvocationContext) => Effect.Effect<R["Type"], AutomationFailure>
-  readonly invoke: (arguments_: unknown, configuration: unknown, context: InvocationContext) => Effect.Effect<Schema.Json, AutomationError>
+  readonly handler: (arguments_: A["Type"], configuration: C["Type"], context: InvocationContext) => Effect.Effect<R["Type"], AutomationFailure, E>
+  readonly invoke: (arguments_: unknown, configuration: unknown, context: InvocationContext) => Effect.Effect<Schema.Json, AutomationError, E>
 }
 export interface RoutineDefinition<C extends ContextFreeCodec = ContextFreeCodec> {
   readonly kind: "routine-template"
@@ -49,9 +49,9 @@ export type InstalledAction = Omit<ActionDefinition, "handler">
 export const defineIntegration = <S extends ContextFreeCodec>(definition: Omit<IntegrationDefinition<S>, "kind">): IntegrationDefinition<S> => ({ kind: "integration", ...definition })
 export const defineTrigger = <C extends ContextFreeCodec, P extends ContextFreeCodec>(definition: Omit<TriggerDefinition<C, P>, "kind">): TriggerDefinition<C, P> => ({ kind: "trigger", ...definition })
 export const defineRoutine = <C extends ContextFreeCodec>(definition: Omit<RoutineDefinition<C>, "kind">): RoutineDefinition<C> => ({ kind: "routine-template", ...definition })
-export const defineAction = <A extends ContextFreeCodec, R extends ContextFreeCodec, C extends ContextFreeCodec>(
-  definition: Omit<ActionDefinition<A, R, C>, "kind" | "invoke">
-): ActionDefinition<A, R, C> => {
+export const defineAction = <A extends ContextFreeCodec, R extends ContextFreeCodec, C extends ContextFreeCodec, E = never>(
+  definition: Omit<ActionDefinition<A, R, C, E>, "kind" | "invoke">
+): ActionDefinition<A, R, C, E> => {
   const { argumentsSchema, integrationConfigurationSchema, resultSchema, handler } = definition
   return {
     kind: "action", ...definition,
