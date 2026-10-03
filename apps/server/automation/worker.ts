@@ -12,6 +12,7 @@ import type { ActionOutcome, AutomationFailure, AutomationRun, DefinitionReferen
 import { AutomationRunChanged } from "@expand/contracts/events/automation"
 import { EventBus } from "@expand/server/application/event-bus"
 import { AutomationEventStore } from "@expand/server/automation/event-store"
+import { emitNotificationForRun } from "./notification-emit.js"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { ExecutionRepository } from "./execution-repository.js"
@@ -166,6 +167,7 @@ const processSingleRunNotified = Effect.fn("AutomationWorker.processSingleRunNot
 ) {
   yield* processSingleRun(deps, scope, runId)
   yield* Effect.result(notifyRunChanged(deps, scope, runId))
+  yield* Effect.result(emitNotificationForRun(deps.executions, deps.configurations, scope, runId))
 })
 
 const notifyRunChanged = Effect.fn("AutomationWorker.notifyRunChanged")(function*(

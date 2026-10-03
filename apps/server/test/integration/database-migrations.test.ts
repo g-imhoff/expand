@@ -22,7 +22,7 @@ describe("database migrations", () => {
         SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id
       `
       expect(eventColumns.map((column) => column.name)).toContain("event_revision")
-      expect(migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3])
+      expect(migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3, 4])
     }).pipe(Effect.provide(Ready)))
 
   it.live("upgrades legacy tables without changing stored bytes and is idempotent", () =>
@@ -74,7 +74,7 @@ describe("database migrations", () => {
       `
       expect(events).toEqual([{ payload, event_revision: 1 }])
       expect(projections).toEqual([{ state }])
-      expect(migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3])
+      expect(migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3, 4])
     }).pipe(Effect.provide(Sql)))
 
   it.live("rolls back migration 1 when its transaction cannot complete", () =>
@@ -115,14 +115,14 @@ describe("database migrations", () => {
     Effect.gen(function* () {
       const sql = yield* SqlClient
       yield* migrateDatabase
-      yield* sql`INSERT INTO effect_sql_migrations ${sql.insert({ migration_id: 4, name: "future" })}`
+      yield* sql`INSERT INTO effect_sql_migrations ${sql.insert({ migration_id: 5, name: "future" })}`
 
       const exit = yield* Effect.exit(migrateDatabase)
       expect(Exit.isFailure(exit)).toBe(true)
       if (Exit.isFailure(exit)) {
         const error = Cause.squash(exit.cause)
         expect(error).toBeInstanceOf(DatabaseVersionError)
-        expect(error).toMatchObject({ current: 3, found: 4 })
+        expect(error).toMatchObject({ current: 4, found: 5 })
       }
     }).pipe(Effect.provide(Sql)))
 })
