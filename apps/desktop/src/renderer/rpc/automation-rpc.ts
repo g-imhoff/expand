@@ -90,7 +90,7 @@ export interface AutomationRpcApi {
   }) => Effect.Effect<RunMetrics, AutomationRpcError>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
   readonly events: (
-    payload: { readonly fromSeq: number }
+    payload: { readonly fromSeq?: number }
   ) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
 

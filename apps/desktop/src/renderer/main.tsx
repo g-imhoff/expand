@@ -9,6 +9,7 @@ import { startRendererRoot } from "@expand/desktop/renderer/app/runner"
 import { boot } from "@expand/desktop/renderer/app/runtime"
 import { router } from "@expand/desktop/renderer/app/router"
 import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
+import { AutomationContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-context"
 import { supervised } from "@expand/desktop/renderer/app/supervised"
 
 interface RendererHotContext {
@@ -46,7 +47,9 @@ ownRendererRoot({
             root.render(
               <RendererRunnerProvider value={runner}>
                 <ProjectContextProvider value={value}>
-                  <RouterProvider router={router} />
+                  <AutomationContextProvider value={value.automation ?? null}>
+                    <RouterProvider router={router} />
+                  </AutomationContextProvider>
                 </ProjectContextProvider>
               </RendererRunnerProvider>
             )
