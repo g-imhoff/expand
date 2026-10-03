@@ -20,7 +20,7 @@ export const automationMigration = Effect.gen(function* () {
     seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, project_id TEXT NOT NULL,
     routine_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), json TEXT NOT NULL CHECK(json_valid(json)),
     UNIQUE(owner_id, project_id, routine_id, revision),
-    FOREIGN KEY(owner_id, project_id, routine_id) REFERENCES automation_routines(owner_id, project_id, id)
+    FOREIGN KEY(owner_id, project_id, routine_id) REFERENCES automation_routines(owner_id, project_id, id) DEFERRABLE INITIALLY DEFERRED
   ) STRICT`
   yield* sql`CREATE TABLE automation_deliveries (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, project_id TEXT NOT NULL,
