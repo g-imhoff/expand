@@ -1,3 +1,4 @@
+import { automationMigration } from "./automation.js"
 import { Context, Data, Effect, Layer } from "effect"
 import { Migrator, SqlClient } from "effect/sql"
 import type { MigrationError } from "effect/sql/Migrator"
@@ -12,10 +13,11 @@ export class DatabaseReady extends Context.Service<DatabaseReady, {
   readonly ready: true
 }>()("expand/DatabaseReady") {}
 
-export const CURRENT_DATABASE_MIGRATION = 1
+export const CURRENT_DATABASE_MIGRATION = 2
 
 export const DATABASE_MIGRATIONS = {
-  "1_initial": Effect.gen(initialMigration)
+  "1_initial": Effect.gen(initialMigration),
+  "2_automation": automationMigration
 } as const
 
 export const migrateDatabase: Effect.Effect<
