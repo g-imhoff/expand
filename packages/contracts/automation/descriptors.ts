@@ -123,6 +123,7 @@ const assertSupported = (ast: SchemaAST.AST, visited: Set<SchemaAST.AST>): void 
     case "Objects":
       for (const property of ast.propertySignatures) {
         if (typeof property.name !== "string") throw new Error("Non-JSON property name")
+        if (property.name in Object.prototype) throw new Error("Inherited object property name")
         assertSupported(property.type, visited)
       }
       for (const signature of ast.indexSignatures) {

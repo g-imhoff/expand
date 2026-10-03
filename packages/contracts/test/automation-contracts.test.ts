@@ -37,6 +37,71 @@ const reject = Effect.fn("Test.reject")(function*(schema: ContextFreeCodec, inpu
 })
 
 describe("versioned automation contracts", () => {
+  for (const key of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+    it.effect(`exposes inherited ${key} decoding differences for serialized-equivalent inputs`, () =>
+      Effect.gen(function*() {
+        const optional = Schema.Struct({ [key]: Schema.optional(Schema.String) })
+        const ordinary = {}
+        const missing = Object.create(null) as Record<string, never>
+        const serialize = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Json))
+        expect(serialize(ordinary)).toBe(serialize(missing))
+        yield* reject(optional, ordinary)
+        const decodedOptional = yield* decodeJson(optional, missing)
+        expect(decodedOptional).toEqual({})
+        expect(Result.isFailure(yield* Schema.encodeUnknownEffect(optional)(decodedOptional).pipe(Effect.result))).toBe(true)
+        yield* roundtrip(optional, { [key]: "explicit" })
+        const required = Schema.Struct({ [key]: Schema.Struct({}) })
+        const decoded = yield* decodeJson(required, ordinary)
+        expect(Object.hasOwn(decoded, key)).toBe(true)
+        expect(decoded[key]).toBe(Reflect.get(Object.prototype, key))
+        expect(isJsonValue(decoded)).toBe(false)
+        yield* reject(required, missing)
+        yield* roundtrip(required, { [key]: {} })
+      }))
+
+    for (const form of ["optional", "optionalKey", "required string", "required object"] as const) {
+      for (const shape of ["direct", "nested", "array", "union", "suspended"] as const) {
+        it.effect(`rejects inherited ${key} descriptors for ${form} inside ${shape}`, () =>
+          Effect.gen(function*() {
+            const field = form === "optional" ? Schema.optional(Schema.String) : form === "optionalKey" ?
+              Schema.optionalKey(Schema.String) : form === "required string" ? Schema.String : Schema.Struct({})
+            const affected = Schema.Struct({ [key]: field })
+            const schema = shape === "nested" ? Schema.Struct({ inner: affected }) : shape === "array" ?
+              Schema.Array(affected) : shape === "union" ? Schema.Union([affected, Schema.Null]) :
+                shape === "suspended" ? Schema.suspend(() => affected) : affected
+            const result = yield* editorSchema(schema).pipe(Effect.result)
+            expect(Result.isFailure(result)).toBe(true)
+            if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+          }))
+      }
+    }
+  }
+
+  for (const key of Object.getOwnPropertyNames(Object.prototype)) {
+    it.effect(`rejects Object.prototype property signature ${key}`, () =>
+      Effect.gen(function*() {
+        const result = yield* editorSchema(Schema.Struct({ [key]: Schema.optional(Schema.String) })).pipe(Effect.result)
+        expect(Result.isFailure(result)).toBe(true)
+        if (Result.isFailure(result)) expect(result.failure.code).toBe("unsupported-schema")
+      }))
+  }
+
+  it.effect("keeps ordinary optional own fields and inherited spellings as record keys supported", () =>
+    Effect.gen(function*() {
+      const own = Schema.Struct({ label: Schema.optional(Schema.Union([Schema.String, Schema.Null])) })
+      const descriptor = yield* editorSchema(own)
+      expect(descriptor.schema).toMatchObject({ type: "object", additionalProperties: false })
+      yield* roundtrip(own, {})
+      yield* roundtrip(own, { label: "explicit" })
+      yield* roundtrip(own, { label: null })
+      const record = Schema.Record(Schema.String, Schema.String)
+      yield* editorSchema(record)
+      yield* roundtrip(record, {})
+      for (const key of ["label", "constructor", "toString", "valueOf", "hasOwnProperty"]) {
+        yield* roundtrip(record, { [key]: "explicit" })
+      }
+    }))
+
   it.effect("roundtrips custom configurations without template provenance", () =>
     Effect.gen(function*() {
       const custom = { ...configuration }

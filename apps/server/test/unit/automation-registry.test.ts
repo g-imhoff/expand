@@ -20,6 +20,50 @@ const failCode = Effect.fn("Test.failCode")(function*<A>(effect: Effect.Effect<A
 })
 
 describe("trusted automation registry", () => {
+  for (const key of ["constructor", "toString", "valueOf", "hasOwnProperty"]) {
+    for (const form of ["optional", "required object"] as const) {
+      for (const shape of ["direct", "nested", "array", "union"] as const) {
+        for (const location of ["integration", "trigger configuration", "trigger payload", "action arguments", "action result", "routine"] as const) {
+          it.effect(`rejects inherited ${key} ${form} in ${location} inside ${shape} atomically`, () =>
+            Effect.gen(function*() {
+              const affected = Schema.Struct({ [key]: form === "optional" ? Schema.optional(Schema.String) : Schema.Struct({}) })
+              const schema = shape === "nested" ? Schema.Struct({ inner: affected }) : shape === "array" ?
+                Schema.Array(affected) : shape === "union" ? Schema.Union([affected, Schema.Null]) : affected
+              const priorHandler = vi.fn(() => Effect.succeed({ summary: "prior", total: 1 }))
+              const handler = vi.fn(() => Effect.succeed({ summary: "candidate", total: 1 }))
+              const resultHandler = vi.fn(() => Effect.succeed({}))
+              const sample = makeSampleExtension(priorHandler)
+              const integrationSchema = location === "integration" ? schema : SampleIntegrationConfiguration
+              const integration = defineIntegration({ ...sampleIntegration, definition: { ...sampleIntegration.definition, version: 2 }, configurationSchema: integrationSchema })
+              const trigger = defineTrigger({ ...sampleTrigger, definition: { ...sampleTrigger.definition, version: 2 }, integration: integration.definition,
+                configurationSchema: location === "trigger configuration" ? schema : sampleTrigger.configurationSchema,
+                payloadSchema: location === "trigger payload" ? schema : SamplePayload })
+              const action = location === "action result" ? defineAction({ ...sample.action,
+                definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+                integrationConfigurationSchema: integrationSchema, resultSchema: schema, handler: resultHandler
+              }) : defineAction({ ...sample.action, definition: { ...sample.action.definition, version: 2 }, integration: integration.definition,
+                integrationConfigurationSchema: integrationSchema, argumentsSchema: location === "action arguments" ? schema : SampleArguments, handler })
+              const routine = defineRoutine({ ...sampleRoutine, definition: { ...sampleRoutine.definition, version: 2 },
+                configurationSchema: location === "routine" ? schema : sampleRoutine.configurationSchema })
+              const registry = new AutomationRegistry()
+              yield* registry.register(sample.extension)
+              const before = registry.catalog()
+              yield* failCode(registry.register({ integrations: [integration], triggers: [trigger], actions: [action], routines: [routine] }), "unsupported-schema")
+              expect(registry.catalog()).toEqual(before)
+              const candidate = cloneConfiguration()
+              candidate.process.actions["triggered"]![0]!.action.version = 2
+              yield* failCode(registry.invokeAction({ ...invocation, configuration: candidate }, sampleAuthority), "missing-definition")
+              expect(handler).not.toHaveBeenCalled()
+              expect(resultHandler).not.toHaveBeenCalled()
+              expect(priorHandler).not.toHaveBeenCalled()
+              expect(yield* registry.invokeAction(invocation, sampleAuthority)).toEqual({ summary: "prior", total: 1 })
+              expect(priorHandler).toHaveBeenCalledTimes(1)
+            }))
+        }
+      }
+    }
+  }
+
   for (const templatesInstalled of [false, true]) {
     for (const operation of ["validate", "resolve", "invoke"] as const) {
       it.effect(`${operation}s template-free custom configurations with templates installed ${templatesInstalled}`, () =>
