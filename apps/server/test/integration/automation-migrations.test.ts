@@ -11,16 +11,16 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
-const tables = ["integrations", "routines", "routine_revisions", "deliveries", "jobs", "runs", "job_attempts", "decision_attempts", "action_attempts"].map((name) => `automation_${name}`)
+const tables = ["integrations", "routines", "routine_revisions", "deliveries", "jobs", "runs", "job_attempts", "decision_attempts", "action_attempts", "credentials"].map((name) => `automation_${name}`)
 
 describe("automation migrations", () => {
-  it.live("adds nine STRICT scoped tables and ledger 2 through native readiness", () => Effect.gen(function* () {
+  it.live("adds ten STRICT scoped tables and ledger 3 through native readiness", () => Effect.gen(function* () {
     const sql = yield* SqlClient
     const actual = yield* sql<{ name: string; strict: number }>`SELECT name, strict FROM pragma_table_list WHERE name LIKE 'automation_%'`
     const ledger = yield* sql<{ migration_id: number }>`SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id`
     expect.soft(actual.map((row) => row.name).sort()).toEqual([...tables].sort())
     expect.soft(actual.every((row) => row.strict === 1)).toBe(true)
-    expect.soft(ledger.map((row) => row.migration_id)).toEqual([1, 2])
+    expect.soft(ledger.map((row) => row.migration_id)).toEqual([1, 2, 3])
   }).pipe(Effect.provide(Ready)))
   it.live("rolls back partial later DDL and retries migration 2", () => Effect.gen(function* () {
     const dir = mkdtempSync(join(tmpdir(), "automation-ddl-"))
@@ -38,7 +38,7 @@ describe("automation migrations", () => {
       const sql = yield* SqlClient
       yield* sql`DROP TABLE automation_runs`
       yield* migrateDatabase
-      expect((yield* sql`SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id`)).toEqual([{ migration_id: 1 }, { migration_id: 2 }])
+      expect((yield* sql`SELECT migration_id FROM effect_sql_migrations ORDER BY migration_id`)).toEqual([{ migration_id: 1 }, { migration_id: 2 }, { migration_id: 3 }])
     }).pipe(Effect.provide(SqliteClient.layer({ filename })))
   }))
 })

@@ -65,3 +65,14 @@ export const automationMigration = Effect.gen(function* () {
   yield* sql`CREATE INDEX idx_automation_runs_filter ON automation_runs(owner_id, project_id, routine_id, mode, state, seq)`
   yield* sql`CREATE INDEX idx_automation_jobs_filter ON automation_jobs(owner_id, project_id, routine_id, mode, state, seq)`
 })
+
+export const automationCredentialsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient
+  yield* sql`CREATE TABLE automation_credentials (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, project_id TEXT NOT NULL,
+    id TEXT NOT NULL, version INTEGER NOT NULL CHECK(version > 0),
+    json TEXT NOT NULL CHECK(json_valid(json)),
+    UNIQUE(owner_id, project_id, id)
+  ) STRICT`
+  yield* sql`CREATE INDEX idx_automation_credentials_scope ON automation_credentials(owner_id, project_id, seq)`
+})
