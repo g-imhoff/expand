@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber, Ref } from "effect"
+import { Deferred, Effect, Fiber, Layer, Ref } from "effect"
 import type { Cause, Scope } from "effect"
 import type { RpcClientError } from "effect/rpc"
 import { runProjectSync, type ProjectSyncSink } from "@expand/contracts/project-sync"
@@ -8,6 +8,7 @@ import type { ProjectContextValue } from "@expand/desktop/renderer/features/proj
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
 import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
+import { AutomationRpc, AutomationRpcLayer } from "@expand/desktop/renderer/rpc/automation-rpc"
 import { buildRendererClient, RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 
@@ -50,9 +51,12 @@ export const boot = Effect.fn("DesktopRenderer.boot")(
           Effect.provide(ProjectRpcLayer),
           Effect.provideService(RendererRpcClient, client)
         )
+        const automation = yield* AutomationRpc.pipe(
+          Effect.provide(AutomationRpcLayer.pipe(Layer.provide(Layer.succeed(RendererRpcClient, client))))
+        )
         const store = makeProjectsStore()
         return {
-          value: { store, rpc },
+          value: { store, rpc, automation },
           sink: makeProjectSyncSink(store)
         }
       }),
