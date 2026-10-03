@@ -45,8 +45,8 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
       yield* guard(Number.isSafeInteger(expectedVersion) && expectedVersion >= 0)
       const existing = yield* readRow(scope, credentialId)
       if (existing) {
-        if (bytesEqual(existing.secret, secret)) return existing.version
         yield* guard(existing.version === expectedVersion, "conflict")
+        if (bytesEqual(existing.secret, secret)) return existing.version
         const moved = yield* sql<{ version: number }>`UPDATE automation_credentials SET secret=${secret}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${credentialId} AND version=${expectedVersion} RETURNING version`
         yield* guard(moved.length > 0, "conflict")
         return expectedVersion + 1

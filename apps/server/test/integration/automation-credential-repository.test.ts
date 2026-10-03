@@ -17,32 +17,52 @@ const secretA = encoder.encode("t03-secret-alpha")
 const secretB = encoder.encode("t03-secret-beta")
 const credentialId = integration.credentials["account"]!.credentialId
 
+const storageCode = (exit: Exit.Exit<unknown, unknown>) => {
+  if (Exit.isFailure(exit)) {
+    const error = Cause.squash(exit.cause)
+    if (error instanceof StorageError) return error.code
+  }
+  return null
+}
+
 describe("credential repository", () => {
   it.live("configures replaces and removes credentials with CAS and scope isolation", () => Effect.gen(function* () {
     const credentials = yield* CredentialRepository
     expect(yield* credentials.resolveSecret(scope, credentialId)).toBeNull()
     expect(yield* credentials.getStatus(scope, credentialId)).toBeNull()
     expect(yield* credentials.putCredential(scope, credentialId, secretA, 0)).toBe(1)
-    expect(yield* credentials.putCredential(scope, credentialId, secretA, 0)).toBe(1)
+    expect(yield* credentials.putCredential(scope, credentialId, secretA, 1)).toBe(1)
+    expect(storageCode(yield* Effect.exit(credentials.putCredential(scope, credentialId, secretA, 0)))).toBe("conflict")
     expect(yield* credentials.getStatus(scope, credentialId)).toEqual({ credentialId, version: 1, configured: true })
     const first = yield* credentials.resolveSecret(scope, credentialId)
     expect(first instanceof Uint8Array).toBe(true)
     expect(Array.from(first ?? new Uint8Array())).toEqual(Array.from(secretA))
+    if (first) first[0] = 0
+    const reread = yield* credentials.resolveSecret(scope, credentialId)
+    expect(Array.from(reread ?? new Uint8Array())).toEqual(Array.from(secretA))
     expect(yield* credentials.putCredential(scope, credentialId, secretB, 1)).toBe(2)
     const second = yield* credentials.resolveSecret(scope, credentialId)
     expect(Array.from(second ?? new Uint8Array())).toEqual(Array.from(secretB))
-    expect(Exit.isFailure(yield* Effect.exit(credentials.putCredential(scope, credentialId, secretA, 1)))).toBe(true)
-    expect(Exit.isFailure(yield* Effect.exit(credentials.removeCredential(scope, credentialId, 1)))).toBe(true)
+    expect(storageCode(yield* Effect.exit(credentials.putCredential(scope, credentialId, secretA, 1)))).toBe("conflict")
+    expect(storageCode(yield* Effect.exit(credentials.removeCredential(scope, credentialId, 1)))).toBe("conflict")
+    expect(storageCode(yield* Effect.exit(credentials.putCredential(scope, credentialId, secretA, 99)))).toBe("conflict")
     yield* credentials.removeCredential(scope, credentialId, 2)
     expect(yield* credentials.resolveSecret(scope, credentialId)).toBeNull()
     expect(yield* credentials.getStatus(scope, credentialId)).toBeNull()
-    expect(Exit.isFailure(yield* Effect.exit(credentials.removeCredential(scope, credentialId, 2)))).toBe(true)
+    expect(storageCode(yield* Effect.exit(credentials.removeCredential(scope, credentialId, 2)))).toBe("missing")
     expect(yield* credentials.putCredential(scope, credentialId, secretA, 0)).toBe(1)
     const other = { ...scope, ownerId: "other-person" }
     expect(yield* credentials.getStatus(other, credentialId)).toBeNull()
     expect(yield* credentials.listStatuses(other)).toEqual([])
     expect(yield* credentials.putCredential(other, credentialId, secretB, 0)).toBe(1)
     expect(yield* credentials.listStatuses(scope)).toEqual([{ credentialId, version: 1, configured: true }])
+    const otherProject = { ...scope, projectId: "other-project" }
+    expect(yield* credentials.getStatus(otherProject, credentialId)).toBeNull()
+    expect(yield* credentials.listStatuses(otherProject)).toEqual([])
+    expect(yield* credentials.resolveSecret(otherProject, credentialId)).toBeNull()
+    expect(yield* credentials.putCredential(otherProject, credentialId, secretB, 0)).toBe(1)
+    expect(yield* credentials.listStatuses(scope)).toEqual([{ credentialId, version: 1, configured: true }])
+    expect(yield* credentials.listStatuses(otherProject)).toEqual([{ credentialId, version: 1, configured: true }])
   }).pipe(Effect.provide(Repositories)))
 
   it.live("resolves integration references server-side and reports redacted connection status", () => Effect.gen(function* () {
@@ -52,7 +72,7 @@ describe("credential repository", () => {
     const missing = yield* credentials.statusForIntegration(scope, integration)
     expect(missing.configured).toBe(false)
     expect(missing.missing).toEqual(["account"])
-    expect(Exit.isFailure(yield* Effect.exit(credentials.requireIntegrationSecrets(scope, integration)))).toBe(true)
+    expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(scope, integration)))).toBe("missing")
     yield* credentials.putCredential(scope, credentialId, secretA, 0)
     const ready = yield* credentials.statusForIntegration(scope, integration)
     expect(ready.configured).toBe(true)
@@ -65,9 +85,12 @@ describe("credential repository", () => {
     const replaced = yield* credentials.requireIntegrationSecrets(scope, integration)
     const replacedSecret = replaced["account"] ?? new Uint8Array()
     expect(Array.from(replacedSecret)).toEqual(Array.from(secretB))
+    const otherProject = { ...scope, projectId: "other-project" }
+    expect((yield* credentials.statusForIntegration(otherProject, integration)).configured).toBe(false)
+    expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(otherProject, integration)))).toBe("missing")
     yield* credentials.removeCredential(scope, credentialId, 2)
     expect((yield* credentials.statusForIntegration(scope, integration)).configured).toBe(false)
-    expect(Exit.isFailure(yield* Effect.exit(credentials.requireIntegrationSecrets(scope, integration)))).toBe(true)
+    expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(scope, integration)))).toBe("missing")
   }).pipe(Effect.provide(Repositories)))
 
   it.live("keeps secrets in BLOB storage and out of JSON history and redacted reads", () => Effect.gen(function* () {
@@ -101,7 +124,10 @@ describe("credential commit error", () => {
     const credentials = yield* CredentialRepository.make.pipe(Effect.provideService(SqlClient, controlled))
     const exit = yield* Effect.exit(credentials.putCredential(scope, "probe", secretA, 0))
     expect(Exit.isFailure(exit)).toBe(true)
-    if (Exit.isFailure(exit)) expect.soft(Cause.squash(exit.cause)).toBeInstanceOf(StorageError)
+    if (Exit.isFailure(exit)) {
+      expect(Cause.squash(exit.cause)).toBeInstanceOf(StorageError)
+      expect(storageCode(exit)).toBe("storage")
+    }
     expect(yield* sql`SELECT count(*) n FROM automation_credentials`).toEqual([{ n: 0 }])
   }).pipe(Effect.provide(Repositories)))
 })
