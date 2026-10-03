@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Result } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import { describe, expect } from "vitest"
 import {
   buildGithubClassificationProcess, githubLabelActionReference, githubTriggerReference,
@@ -20,8 +20,13 @@ const classification = {
   labels: { bug: "type: bug", question: "type: question" },
   notifications: { onMatch: true, onNoMatch: false }
 }
-const fail = Effect.fn("Test.fail")(function*<A, E>(effect: Effect.Effect<A, E>) {
-  expect(Result.isFailure(yield* effect.pipe(Effect.result))).toBe(true)
+const fail = Effect.fn("Test.fail")(function*<A, E>(effect: Effect.Effect<A, E>, codes: ReadonlyArray<string> = ["invalid-reference", "invalid-contract"]) {
+  const exit = yield* effect.pipe(Effect.exit)
+  expect(Exit.isFailure(exit)).toBe(true)
+  if (Exit.isFailure(exit)) expect(codes).toContain(String((Cause.squash(exit.cause) as { code?: string }).code ?? Cause.squash(exit.cause)))
+})
+const failRef = Effect.fn("Test.failRef")(function*<A, E>(effect: Effect.Effect<A, E>) {
+  yield* fail(effect, ["invalid-reference"])
 })
 const build = (input: unknown = classification, integrationId: unknown = "github") =>
   buildGithubClassificationProcess(integrationId, input)
@@ -89,6 +94,15 @@ describe("github classification template", () => {
       yield* fail(validateClassificationInput(validInput(missingOutcome)))
       const extraOutcome = { ...clone(process), decision: { ...process.decision!, outcomes: ["bug", "question", "docs"] } }
       yield* fail(validateClassificationInput(validInput(extraOutcome)))
+      const multiStep = clone(process)
+      multiStep.actions["bug"] = [...multiStep.actions["bug"]!, ...multiStep.actions["bug"]!]
+      yield* failRef(validateClassificationInput(validInput(multiStep)))
+      const fieldLabel = clone(process)
+      fieldLabel.actions["bug"]![0]!.bindings = { issueNumber: { kind: "literal", value: 7 }, label: { kind: "field", source: "trigger", path: ["issueNumber"] } }
+      yield* failRef(validateClassificationInput(validInput(fieldLabel)))
+      const extraBinding = clone(process)
+      extraBinding.actions["bug"]![0]!.bindings = { ...extraBinding.actions["bug"]![0]!.bindings, extra: { kind: "literal", value: "x" } }
+      yield* failRef(validateClassificationInput(validInput(extraBinding)))
     }))
   it.effect("rejects loop attempts, graph keys, duplicate steps and foreign integrations", () =>
     Effect.gen(function*() {

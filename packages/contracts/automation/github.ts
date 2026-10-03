@@ -94,18 +94,19 @@ export const validateClassificationInput = Effect.fn("Automation.validateClassif
   if (triggerInstance === undefined || !sameDefinition(triggerInstance.definition, process.trigger.integration.definition)) return yield* invalid("Missing configured trigger integration")
   for (const category of classification.categories) {
     const steps = process.actions[category]
-    if (steps === undefined || steps.length === 0) return yield* invalid("Every category needs at least one label action")
+    if (steps === undefined || steps.length !== 1) return yield* invalid("Every category needs exactly one label action")
     const label = classification.labels[category]
     if (label === undefined) return yield* invalid("Missing label mapping")
-    for (const step of steps) {
-      if (!sameDefinition(step.action, githubLabelActionReference)) return yield* invalid("Only the GitHub label action is allowed")
-      const instance = parsed.integrations.find((candidate) => candidate.id === step.integration.id)
-      if (instance === undefined || !sameDefinition(instance.definition, step.integration.definition)) return yield* invalid("Missing configured action integration")
-      const issueBinding = step.bindings["issueNumber"]
-      const labelBinding = step.bindings["label"]
-      if (issueBinding === undefined || labelBinding === undefined) return yield* invalid("Label actions need an issue number and a label")
-      if (labelBinding.kind === "literal" && labelBinding.value !== label) return yield* invalid("Literal labels must use the mapped category label")
-    }
+    const step = steps[0]!
+    if (!sameDefinition(step.action, githubLabelActionReference)) return yield* invalid("Only the GitHub label action is allowed")
+    const instance = parsed.integrations.find((candidate) => candidate.id === step.integration.id)
+    if (instance === undefined || !sameDefinition(instance.definition, step.integration.definition)) return yield* invalid("Missing configured action integration")
+    const keys = Object.keys(step.bindings).sort()
+    if (keys.length !== 2 || keys[0] !== "issueNumber" || keys[1] !== "label") return yield* invalid("Label actions need an issue number and a label")
+    const issueBinding = step.bindings["issueNumber"]!
+    const labelBinding = step.bindings["label"]!
+    if (issueBinding.kind !== "field" || issueBinding.source !== "trigger" || issueBinding.path.length !== 1 || issueBinding.path[0] !== "issueNumber") return yield* invalid("Label actions need the trigger issue number")
+    if (labelBinding.kind !== "literal" || labelBinding.value !== label) return yield* invalid("Literal labels must use the mapped category label")
   }
   return { classification, process }
 })

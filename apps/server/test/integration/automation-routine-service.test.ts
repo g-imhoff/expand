@@ -11,7 +11,7 @@ import { RoutineService, RoutineServiceLayer } from "../../automation/routine-se
 import { AutomationRegistry } from "../../automation/registry.js"
 import { StorageError } from "../../automation/persistence-models.js"
 import type { Delivery } from "../../automation/persistence-models.js"
-import type { AutomationRun } from "@expand/contracts/automation"
+import type { AutomationError, AutomationRun } from "@expand/contracts/automation"
 import {
   buildGithubClassificationProcess, githubIntegrationReference, githubLabelActionReference,
   githubTemplateReference, githubTriggerReference, makeGithubExtension
@@ -50,6 +50,15 @@ const triageInput = Effect.gen(function*() {
   const process = yield* buildGithubClassificationProcess("github", classification)
   return { routineId: "triage", template: githubTemplateReference, configuration: classification, integrations: [githubIntegration], process }
 })
+const errorCode = (cause: unknown): string => {
+  const value = cause as { code?: unknown; _tag?: unknown };
+  if (typeof value?.code === "string") return value.code;
+  return String(cause);
+};
+const expectFailure = (exit: Exit.Exit<unknown, unknown>, code: string) => {
+  expect(Exit.isFailure(exit)).toBe(true);
+  if (Exit.isFailure(exit)) expect(errorCode(Cause.squash(exit.cause))).toBe(code);
+};
 const revisionCount = Effect.gen(function*() {
   const sql = yield* SqlClient
   return yield* sql<{ n: number }>`SELECT count(*) n FROM automation_routine_revisions`
@@ -65,12 +74,13 @@ describe("routine lifecycle", () => {
     expect(created.head).toEqual({ revision: 1, version: 1, status: "enabled" })
     expect(created.configuration.template).toEqual(githubTemplateReference)
     expect(created.credentials).toEqual([{ credentialId: "github-token", version: 1, configured: true }])
-    expect(Exit.isFailure(yield* Effect.exit(routines.create(scope, yield* triageInput)))).toBe(true)
+    expectFailure(yield* Effect.exit(routines.create(scope, yield* triageInput)), "conflict")
     const edited = { ...classification, notifications: { onMatch: false, onNoMatch: true } }
     expect(yield* routines.edit(scope, "triage", { ...(yield* triageInput), configuration: edited, process: yield* buildGithubClassificationProcess("github", edited) })).toBe(2)
     expect((yield* routines.get(scope, "triage"))?.head).toEqual({ revision: 2, version: 2, status: "enabled" })
     expect(yield* config.getRevision(scope, "triage", 1)).toEqual(created.configuration)
-    expect(Exit.isFailure(yield* Effect.exit(routines.pause(scope, "triage", 1)))).toBe(true)
+    expectFailure(yield* Effect.exit(routines.pause(scope, "triage", 1)), "conflict")
+    expectFailure(yield* Effect.exit(routines.enable(scope, "triage", 1)), "conflict")
     expect(yield* routines.pause(scope, "triage", 2)).toEqual({ revision: 2, status: "paused", version: 3 })
     expect((yield* routines.due(scope))).toEqual([])
     expect(yield* routines.enable(scope, "triage", 3)).toEqual({ revision: 2, status: "enabled", version: 4 })
@@ -78,9 +88,12 @@ describe("routine lifecycle", () => {
     expect((yield* routines.list(scope)).map((routine) => routine.routineId)).toEqual(["triage"])
     expect(yield* routines.remove(scope, "triage", 4)).toEqual({ revision: 2, status: "deleted", version: 5 })
     expect((yield* routines.due(scope))).toEqual([])
-    expect(Exit.isFailure(yield* Effect.exit(routines.edit(scope, "triage", yield* triageInput)))).toBe(true)
-    expect(Exit.isFailure(yield* Effect.exit(routines.assertDue(scope, "triage")))).toBe(true)
-    expect(Exit.isFailure(yield* Effect.exit(routines.assertDue(scope, "missing")))).toBe(true)
+    expectFailure(yield* Effect.exit(routines.edit(scope, "triage", yield* triageInput)), "invalid-reference")
+    expectFailure(yield* Effect.exit(routines.enable(scope, "triage", 5)), "invalid-reference")
+    expectFailure(yield* Effect.exit(routines.pause(scope, "triage", 5)), "invalid-reference")
+    expectFailure(yield* Effect.exit(routines.remove(scope, "triage", 5)), "invalid-reference")
+    expectFailure(yield* Effect.exit(routines.assertDue(scope, "triage")), "invalid")
+    expectFailure(yield* Effect.exit(routines.assertDue(scope, "missing")), "missing")
     expect(yield* routines.get(scope, "missing")).toBeNull()
     expect((yield* routines.get(scope, "triage"))?.head.status).toBe("deleted")
   }).pipe(Effect.provide(All)))
@@ -117,15 +130,28 @@ describe("routine validation", () => {
     for (const input of cases) {
       const exit = yield* Effect.exit(routines.create(scope, input))
       expect(Exit.isFailure(exit)).toBe(true)
-      if (Exit.isFailure(exit)) expect(String(Cause.squash(exit.cause))).not.toContain(secretText)
+      if (Exit.isFailure(exit)) {
+        expect(errorCode(Cause.squash(exit.cause)).length).toBeGreaterThan(0)
+        expect(String(Cause.squash(exit.cause))).not.toContain(secretText)
+      }
     }
+    const multiStep = mutateProcess((process) => ({ ...process, actions: { bug: [...process.actions["bug"]!, ...process.actions["bug"]!], question: process.actions["question"] } }))
+    expectFailure(yield* Effect.exit(routines.create(scope, multiStep)), "invalid-reference")
+    const fieldLabel = mutateProcess((process) => ({ ...process, actions: { bug: [{ ...process.actions["bug"]![0]!, bindings: { issueNumber: { kind: "literal", value: 7 }, label: { kind: "field", source: "trigger", path: ["issueNumber"] } } }], question: process.actions["question"] } }))
+    expectFailure(yield* Effect.exit(routines.create(scope, fieldLabel)), "invalid-reference")
+    const extraBinding = mutateProcess((process) => ({ ...process, actions: { bug: [{ ...process.actions["bug"]![0]!, bindings: { ...process.actions["bug"]![0]!.bindings, extra: { kind: "literal", value: "x" } } }], question: process.actions["question"] } }))
+    expectFailure(yield* Effect.exit(routines.create(scope, extraBinding)), "invalid-reference")
+    yield* routines.create(scope, { ...base, routineId: "stored" })
+    const conflicting = { ...base, routineId: "invalid", integrations: [{ ...githubIntegration, configuration: { owner: "other", repo: "hello" } }] }
+    expectFailure(yield* Effect.exit(routines.create(scope, conflicting)), "conflict")
+    expect(yield* routines.get(scope, "invalid")).toBeNull()
     const missingCredential = { ...base, routineId: "invalid", integrations: [{ ...githubIntegration, credentials: { token: { schemaVersion: 1, kind: "credential-reference", credentialId: "absent" } } }] }
     const missing = yield* Effect.exit(routines.create(scope, missingCredential))
     expect(Exit.isFailure(missing)).toBe(true)
     if (Exit.isFailure(missing)) expect(Cause.squash(missing.cause)).toBeInstanceOf(StorageError)
     expect(yield* routines.get(scope, "invalid")).toBeNull()
-    expect(yield* revisionCount).toEqual([{ n: 0 }])
-    expect(yield* sql`SELECT count(*) n FROM automation_integrations`).toEqual([{ n: 0 }])
+    expect(yield* revisionCount).toEqual([{ n: 1 }])
+    expect(yield* sql`SELECT count(*) n FROM automation_integrations`).toEqual([{ n: 1 }])
   }).pipe(Effect.provide(All)))
   it.live("accepts user-created custom processes through the same validated API", () => Effect.gen(function*() {
     const routines = yield* RoutineService

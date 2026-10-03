@@ -62,8 +62,7 @@ export const RoutineServiceLayer = (registry: AutomationRegistry): Layer.Layer<R
     const syncIntegrations = Effect.fn("RoutineService.syncIntegrations")(function*(scope: PersonalScope, integrations: ReadonlyArray<IntegrationConfiguration>) {
       for (const integration of integrations) {
         const existing = yield* configuration.getIntegration(scope, integration.id)
-        if (existing === null) yield* configuration.putIntegration(scope, integration, 0)
-        else if (!same(existing.configuration, integration)) return yield* new StorageError({ code: "conflict", message: "Integration instance differs from stored configuration" })
+        if (existing !== null && !same(existing.configuration, integration)) return yield* new StorageError({ code: "conflict", message: "Integration instance differs from stored configuration" })
       }
     })
     const readRoutine = Effect.fn("RoutineService.readRoutine")(function*(scope: PersonalScope, routineId: string, head: RoutineHead) {
@@ -73,7 +72,8 @@ export const RoutineServiceLayer = (registry: AutomationRegistry): Layer.Layer<R
       for (const integration of value.integrations) {
         for (const reference of Object.values(integration.credentials)) {
           const status = yield* credentials.getStatus(scope, reference.credentialId)
-          if (status !== null) statuses.push(status)
+          if (status === null) return yield* new StorageError({ code: "missing", message: "Credential reference is not configured" })
+          statuses.push(status)
         }
       }
       return { routineId, head, configuration: value, credentials: statuses }
@@ -101,7 +101,9 @@ export const RoutineServiceLayer = (registry: AutomationRegistry): Layer.Layer<R
       return yield* configuration.appendRoutineRevision(value, head.revision, head.status)
     })
     const setStatus = (status: RoutineStatus) => Effect.fn(`RoutineService.${status}`)(function*(scope: PersonalScope, routineId: string, expectedVersion: number) {
-      yield* decodeJson(LocalId, routineId)
+      const head = yield* loadHead(scope, routineId)
+      if (head === null) return yield* new StorageError({ code: "missing", message: "Routine does not exist" })
+      if (head.status === "deleted") return yield* new AutomationError({ code: "invalid-reference", message: "Routine is deleted" })
       return yield* configuration.setStatus(scope, routineId, status, expectedVersion)
     })
     const get = Effect.fn("RoutineService.get")(function*(scope: PersonalScope, routineId: string) {
