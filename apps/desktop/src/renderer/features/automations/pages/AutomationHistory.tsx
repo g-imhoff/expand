@@ -2,7 +2,9 @@ import { useState } from "react"
 import { useParams } from "@tanstack/react-router"
 import { RunDetails } from "@expand/desktop/renderer/features/automations/components/RunDetails"
 import { RunHistoryList } from "@expand/desktop/renderer/features/automations/components/RunHistoryList"
+import { AutomationNotificationsPanel } from "@expand/desktop/renderer/features/automations/components/AutomationNotifications"
 import { useOptionalAutomationRpc } from "@expand/desktop/renderer/features/automations/data/automation-run-context"
+import { automationScope } from "@expand/desktop/renderer/features/automations/data/automation-scope"
 
 export const AutomationHistory = () => {
   const { projectId } = useParams({ from: "/p/$projectId/automations" })
@@ -18,6 +20,11 @@ export const AutomationHistory = () => {
         <div className="mt-4 grid gap-8 lg:grid-cols-2">
           <RunHistoryList projectId={projectId} selectedRunId={selectedRunId} onSelectRun={setSelectedRunId} />
           <RunDetails projectId={projectId} runId={selectedRunId} onBack={() => setSelectedRunId(undefined)} />
+        </div>
+      )}
+      {rpc === undefined ? null : (
+        <div className="mt-8">
+          <AutomationNotificationsPanel projectId={projectId} scope={automationScope(projectId)} rpc={rpc} />
         </div>
       )}
     </>

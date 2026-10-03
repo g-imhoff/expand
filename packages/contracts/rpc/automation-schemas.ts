@@ -2,6 +2,9 @@ import { Schema } from "effect"
 import {
   Attempt,
   AutomationFailure,
+  AutomationNotification,
+  AutomationNotificationKind,
+  AutomationNotificationStatus,
   AutomationRun,
   CredentialStatus,
   IntegrationConfiguration,
@@ -10,6 +13,7 @@ import {
   Job,
   JsonValue,
   LocalId,
+  PersonalScope,
   PositiveVersion,
   RoutineConfiguration,
   RoutineStatus
@@ -171,3 +175,17 @@ export const RunMetrics = Schema.Struct({
   cancelled: Schema.Int
 })
 export type RunMetrics = typeof RunMetrics.Type
+
+export const NotificationKindFilter = AutomationNotificationKind
+export const NotificationStatusFilter = AutomationNotificationStatus
+export const NotificationRecord = Schema.Struct({
+  notification: AutomationNotification,
+  version: PositiveVersion,
+  sequence: PositiveVersion
+})
+export type NotificationRecord = typeof NotificationRecord.Type
+export const NotificationPage = Schema.Struct({
+  notifications: Schema.Array(NotificationRecord)
+})
+export type NotificationPage = typeof NotificationPage.Type
+export const NotificationScope = PersonalScope

@@ -20,6 +20,7 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
 import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { NotificationRepositoryLayer } from "@expand/server/automation/notification-repository"
 import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
 import { makeGithubServerExtension } from "@expand/server/automation/github-client"
 import { AutomationRegistry, AutomationRegistryService } from "@expand/server/automation/registry"
@@ -43,13 +44,14 @@ const testCore = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
+  const notifications = NotificationRepositoryLayer.pipe(Layer.provide(database))
   const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
   Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
   const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
   const registryService = Layer.succeed(AutomationRegistryService, registry)
   const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
   const httpOutbound = NodeHttpClient.layerFetch
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, registryService, automationEvents, httpOutbound)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, notifications, routines, registryService, automationEvents, httpOutbound)
 }
 
 const probeWs = (url: string) =>
