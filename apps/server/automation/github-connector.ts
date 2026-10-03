@@ -11,6 +11,7 @@ import {
 import {
   defineAction, defineExtension
 } from "@expand/contracts/automation"
+import type { InstalledAction } from "@expand/contracts/automation"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import {
@@ -25,6 +26,12 @@ export class GithubConnectorError extends Data.TaggedError("GithubConnectorError
 }> {}
 
 export interface GithubConnectorOptions extends GithubTransportOptions {}
+
+export interface GithubConnectorServices {
+  readonly configurations: ConfigurationRepository["Service"]
+  readonly credentials: CredentialRepository["Service"]
+  readonly http: HttpClient.HttpClient
+}
 
 export interface GithubConnectionStatus {
   readonly ok: boolean
@@ -186,7 +193,7 @@ export const checkGithubConnection = (
     return { ...configuredBase, ok: true, labels: labels.value.length }
   })
 
-export const makeGithubConnectorExtension = (options?: GithubConnectorOptions) => {
+export const makeGithubConnectorExtension = (options: GithubConnectorOptions | undefined, services: GithubConnectorServices) => {
   const action = defineAction({
     definition: githubLabelActionReference,
     title: "GitHub label issue",
@@ -247,12 +254,27 @@ export const makeGithubConnectorExtension = (options?: GithubConnectorOptions) =
       return { applied: true }
     })
   })
+  const installed: InstalledAction = {
+    kind: action.kind,
+    definition: action.definition,
+    title: action.title,
+    integration: action.integration,
+    capabilities: action.capabilities,
+    argumentsSchema: action.argumentsSchema,
+    resultSchema: action.resultSchema,
+    integrationConfigurationSchema: action.integrationConfigurationSchema,
+    invoke: (arguments_, configuration, context) => action.invoke(arguments_, configuration, context).pipe(
+      Effect.provideService(ConfigurationRepository, services.configurations),
+      Effect.provideService(CredentialRepository, services.credentials),
+      Effect.provideService(HttpClient.HttpClient, services.http)
+    )
+  }
   return {
     action,
     extension: defineExtension({
       integrations: [githubIntegrationDefinition],
       triggers: [githubTriggerDefinition],
-      actions: [action as unknown as import("@expand/contracts/automation").InstalledAction],
+      actions: [installed],
       routines: [githubClassificationTemplate]
     })
   }
