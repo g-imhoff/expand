@@ -380,9 +380,9 @@ const ConversationRow = ({
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-sidebar-primary" />
       )}
       <span className="truncate font-medium">{conversation.title}</span>
-      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{conversation.updatedAt}</span>
+      <span className="ml-auto shrink-0 text-xs text-muted-foreground [button:is([data-active=true],:hover)_&]:text-sidebar-accent-foreground">{conversation.updatedAt}</span>
     </span>
-    <span className="line-clamp-2 w-full text-xs whitespace-break-spaces text-muted-foreground">
+    <span className="line-clamp-2 w-full text-xs whitespace-break-spaces text-muted-foreground [button:is([data-active=true],:hover)_&]:text-sidebar-accent-foreground">
       {conversation.teaser}
     </span>
   </button>
