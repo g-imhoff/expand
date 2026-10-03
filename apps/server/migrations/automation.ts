@@ -31,7 +31,7 @@ export const automationMigration = Effect.gen(function* () {
   ) STRICT`
   yield* sql`CREATE TABLE automation_jobs (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, project_id TEXT NOT NULL,
-    id TEXT NOT NULL, delivery_id TEXT NOT NULL, routine_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    id TEXT NOT NULL, delivery_id TEXT NOT NULL, routine_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0),
     mode TEXT NOT NULL CHECK(mode IN ('preview','live')), replay_key TEXT NOT NULL,
     state TEXT NOT NULL CHECK(state IN ('queued','running','succeeded','unresolved','failed','cancelled')),
     version INTEGER NOT NULL CHECK(version > 0), json TEXT NOT NULL CHECK(json_valid(json)),
@@ -42,7 +42,7 @@ export const automationMigration = Effect.gen(function* () {
   ) STRICT`
   yield* sql`CREATE TABLE automation_runs (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, project_id TEXT NOT NULL,
-    id TEXT NOT NULL, job_id TEXT NOT NULL, delivery_id TEXT NOT NULL, routine_id TEXT NOT NULL, revision INTEGER NOT NULL,
+    id TEXT NOT NULL, job_id TEXT NOT NULL, delivery_id TEXT NOT NULL, routine_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0),
     mode TEXT NOT NULL CHECK(mode IN ('preview','live')),
     state TEXT NOT NULL CHECK(state IN ('queued','running','succeeded','unresolved','failed','cancelled')),
     version INTEGER NOT NULL CHECK(version > 0), json TEXT NOT NULL CHECK(json_valid(json)),

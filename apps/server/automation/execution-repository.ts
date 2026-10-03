@@ -167,8 +167,10 @@ export class ExecutionRepository extends Context.Service<ExecutionRepository, {
     })
     const writeSummary = Effect.fn(function*(scope: PersonalScope, summary: Summary) {
       const { run, job } = yield* validateSummary(scope, summary, true)
-      yield* sql`UPDATE automation_runs SET json=${encodeJson(run)}, state=${run.state.kind}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${run.id} AND version=${summary.expectedRunVersion}`
-      yield* sql`UPDATE automation_jobs SET json=${encodeJson(job)}, state=${job.state.kind}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${job.id} AND version=${summary.expectedJobVersion}`
+      const movedRun = yield* sql<{ version: number }>`UPDATE automation_runs SET json=${encodeJson(run)}, state=${run.state.kind}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${run.id} AND version=${summary.expectedRunVersion} RETURNING version`
+      yield* guard(movedRun.length > 0, "conflict")
+      const movedJob = yield* sql<{ version: number }>`UPDATE automation_jobs SET json=${encodeJson(job)}, state=${job.state.kind}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${job.id} AND version=${summary.expectedJobVersion} RETURNING version`
+      yield* guard(movedJob.length > 0, "conflict")
     })
     const recordAttempt = (scope: PersonalScope, input: Attempt, summary?: Summary) => protectStorage(sql.withTransaction(Effect.gen(function* () {
       yield* decode(PersonalScope, scope)
@@ -184,7 +186,8 @@ export class ExecutionRepository extends Context.Service<ExecutionRepository, {
         }
         yield* guard(existing.status === "started" && attempt.status === "completed" && same(attemptStart(existing), attemptStart(attempt)), "conflict")
         const currentRun = yield* getRun(scope, attempt.runId); yield* guard(currentRun !== null && !isTerminal(currentRun.value), "conflict")
-        yield* sql`UPDATE ${table} SET json=${encodeJson(attempt)}, status='completed' WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${attempt.id} AND status='started'`
+        const finished = yield* sql<{ id: string }>`UPDATE ${table} SET json=${encodeJson(attempt)}, status='completed' WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${attempt.id} AND status='started' RETURNING id`
+        yield* guard(finished.length > 0, "conflict")
       } else {
         yield* guard(attempt.status === "started")
         const currentRun = yield* getRun(scope, attempt.runId); yield* guard(currentRun !== null && !isTerminal(currentRun.value), "conflict")
