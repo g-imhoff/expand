@@ -54,7 +54,9 @@ describe("credential repository", () => {
     const other = { ...scope, ownerId: "other-person" }
     expect(yield* credentials.getStatus(other, credentialId)).toBeNull()
     expect(yield* credentials.listStatuses(other)).toEqual([])
+    expect(yield* credentials.resolveSecret(other, credentialId)).toBeNull()
     expect(yield* credentials.putCredential(other, credentialId, secretB, 0)).toBe(1)
+    expect((yield* credentials.resolveSecret(other, credentialId)) instanceof Uint8Array).toBe(true)
     expect(yield* credentials.listStatuses(scope)).toEqual([{ credentialId, version: 1, configured: true }])
     const otherProject = { ...scope, projectId: "other-project" }
     expect(yield* credentials.getStatus(otherProject, credentialId)).toBeNull()
@@ -88,6 +90,14 @@ describe("credential repository", () => {
     const otherProject = { ...scope, projectId: "other-project" }
     expect((yield* credentials.statusForIntegration(otherProject, integration)).configured).toBe(false)
     expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(otherProject, integration)))).toBe("missing")
+    const otherOwner = { ...scope, ownerId: "other-person" }
+    expect((yield* credentials.statusForIntegration(otherOwner, integration)).configured).toBe(false)
+    expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(otherOwner, integration)))).toBe("missing")
+    expect(yield* credentials.resolveSecret(otherOwner, credentialId)).toBeNull()
+    const mutable = yield* credentials.requireIntegrationSecrets(scope, integration)
+    mutable["account"]![0] = 0
+    const refetched = yield* credentials.requireIntegrationSecrets(scope, integration)
+    expect(Array.from(refetched["account"] ?? new Uint8Array())).toEqual(Array.from(secretB))
     yield* credentials.removeCredential(scope, credentialId, 2)
     expect((yield* credentials.statusForIntegration(scope, integration)).configured).toBe(false)
     expect(storageCode(yield* Effect.exit(credentials.requireIntegrationSecrets(scope, integration)))).toBe("missing")

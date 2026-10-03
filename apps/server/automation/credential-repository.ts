@@ -52,7 +52,8 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
         return expectedVersion + 1
       }
       yield* guard(expectedVersion === 0, "conflict")
-      yield* sql`INSERT INTO automation_credentials ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: credentialId, version: 1, secret })}`
+      const inserted = yield* sql<{ version: number }>`INSERT INTO automation_credentials ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: credentialId, version: 1, secret })} ON CONFLICT(owner_id, project_id, id) DO NOTHING RETURNING version`
+      yield* guard(inserted.length > 0, "conflict")
       return 1
     })))
     const removeCredential = (scope: PersonalScope, credentialId: string, expectedVersion: number) => protectStorage(sql.withTransaction(Effect.gen(function* () {
