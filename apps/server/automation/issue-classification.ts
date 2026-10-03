@@ -135,11 +135,15 @@ export const buildClassificationAuthority = Effect.fn("IssueClassification.autho
   })
   const steps = Object.values(validated.process.actions).flat()
   const catalog = registry.catalog()
-  const capabilitiesFor = (actionId: string): ReadonlyArray<string> => {
-    for (const entry of catalog.definitions) {
-      if (entry.kind === "action" && entry.definition.id === actionId) return [...entry.capabilities]
+  const actionGrants: Array<{ readonly action: (typeof steps)[number]["action"]; readonly integrationId: string; readonly capabilities: ReadonlyArray<string> }> = []
+  for (const step of steps) {
+    const entry = catalog.definitions.find(
+      (candidate) => candidate.kind === "action" && candidate.definition.id === step.action.id
+    )
+    if (entry === undefined || entry.kind !== "action") {
+      return yield* new AutomationError({ code: "missing-definition", message: "Missing action definition for authority grant" })
     }
-    return ["label"]
+    actionGrants.push({ action: step.action, integrationId: step.integration.id, capabilities: [...entry.capabilities] })
   }
   return yield* decodeJson(InvocationAuthority, {
     schemaVersion: 1,
@@ -147,11 +151,7 @@ export const buildClassificationAuthority = Effect.fn("IssueClassification.autho
     scope: configuration.scope,
     configuration: configuration.reference,
     integrationIds: configuration.integrations.map((integration) => integration.id),
-    actionGrants: steps.map((step) => ({
-      action: step.action,
-      integrationId: step.integration.id,
-      capabilities: capabilitiesFor(step.action.id)
-    }))
+    actionGrants
   })
 })
 
