@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path } from "effect"
+import { Cause, Effect, Exit, FileSystem, Layer, Logger, Path, Schema } from "effect"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeServices } from "@effect/platform-node"
@@ -22,6 +22,7 @@ const Credentials = WithCredentials
 
 const secretA = "t03-backend-secret-alpha"
 const secretB = "t03-backend-secret-beta"
+const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 describe("credential repository", () => {
   it.live("configures replaces and removes credentials with scoped CAS versions", () => Effect.gen(function* () {
@@ -135,14 +136,14 @@ describe("credential redaction", () => {
     yield* Effect.gen(function* () {
       const inner = yield* CredentialRepository
       yield* inner.putCredential(scope, "account-1", secretA, 0)
-      expect(JSON.stringify(yield* inner.status(scope, "account-1"))).not.toContain(secretA)
-      expect(JSON.stringify(yield* inner.list(scope))).not.toContain(secretA)
+      expect(encode(yield* inner.status(scope, "account-1"))).not.toContain(secretA)
+      expect(encode(yield* inner.list(scope))).not.toContain(secretA)
       yield* Effect.logInfo("credential status read")
     }).pipe(Effect.provide(Logger.layer([capture])), Effect.provide(Credentials))
     yield* credentials.putCredential(scope, "account-1", secretA, 0)
     const statusValue = yield* credentials.status(scope, "account-1")
     const listed = yield* credentials.list(scope)
-    expect(JSON.stringify({ statusValue, listed })).not.toContain(secretA)
+    expect(encode({ statusValue, listed })).not.toContain(secretA)
     expect(messages.join("\n")).not.toContain(secretA)
     yield* config.putIntegration(scope, integration, 0)
     yield* config.appendRoutineRevision(configuration, 0, "enabled")
@@ -151,7 +152,7 @@ describe("credential redaction", () => {
     const storedIntegration = yield* config.getIntegration(scope, integration.id)
     const storedRevision = yield* config.getRevision(scope, "routine", 1)
     const runs = yield* repository.listRuns(scope, { limit: 10 })
-    expect(JSON.stringify({ history, storedIntegration, storedRevision, runs })).not.toContain(secretA)
+    expect(encode({ history, storedIntegration, storedRevision, runs })).not.toContain(secretA)
     const sql = yield* SqlClient
     for (const table of ["automation_integrations", "automation_routine_revisions", "automation_deliveries", "automation_jobs", "automation_runs"]) {
       const rows = yield* sql<{ json: string }>`SELECT json FROM ${sql(table)}`

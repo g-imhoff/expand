@@ -1,12 +1,13 @@
 import { describe, expect } from "vitest"
 import { it } from "@effect/vitest"
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Effect, Exit, Schema } from "effect"
 import { CredentialReference } from "@expand/contracts/automation"
 import { CredentialStatus, StoredCredential, decode } from "../../automation/persistence-models.js"
 
 const secret = "t03-unit-secret-value"
 const stored = { schemaVersion: 1, kind: "credential", credentialId: "account-1", secret } as const
 const status = { credentialId: "account-1", version: 1, configured: true } as const
+const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 
 describe("credential models", () => {
   it.live("accepts exact stored credential and redacted status without secret fields", () => Effect.gen(function* () {
@@ -36,8 +37,8 @@ describe("credential models", () => {
   }))
   it.live("never exposes the secret through redacted status encoding", () => Effect.gen(function* () {
     const value = yield* decode(CredentialStatus, status)
-    expect(JSON.stringify(value)).not.toContain(secret)
-    expect(JSON.stringify([value])).not.toContain(secret)
+    expect(encode(value)).not.toContain(secret)
+    expect(encode([value])).not.toContain(secret)
     expect(Object.keys(value).sort()).toEqual(["configured", "credentialId", "version"])
   }))
 })
