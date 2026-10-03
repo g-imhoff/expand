@@ -6,15 +6,19 @@ import { timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
+import { GithubWebhook, GithubWebhookLayer, GithubWebhookRoutePath } from "@expand/server/automation/github-webhook"
+import type { GithubWebhookOptions } from "@expand/server/automation/github-webhook"
 
-export const httpServerLayer = (port: number, token: string) => {
+export const httpServerLayer = (port: number, token: string, webhookOptions?: GithubWebhookOptions) => {
   const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
   const rpc = RpcServer.layer(ExpandRpcs).pipe(
     Layer.provide(ExpandHandlers),
     Layer.provide(guardedRpcWebsocket(token)),
     Layer.provide(RpcSerialization.layerNdjson)
   )
-  return HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }).pipe(
+  const webhooks = githubWebhookRoutes().pipe(Layer.provide(GithubWebhookLayer(webhookOptions)))
+  const app = Layer.mergeAll(rpc, webhooks)
+  return HttpRouter.serve(app, { disableLogger: true, middleware: accessLogger }).pipe(
     Layer.provideMerge(node)
   )
 }
@@ -76,5 +80,24 @@ const guardedRpcWebsocket = (token: string) =>
         })
       )
       return protocol
+    })
+  )
+
+const githubWebhookRoutes = () =>
+  Layer.effectDiscard(
+    Effect.gen(function*() {
+      const router = yield* HttpRouter.HttpRouter
+      const webhooks = yield* GithubWebhook
+      yield* router.add("POST", GithubWebhookRoutePath, Effect.gen(function*() {
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const raw = yield* request.arrayBuffer.pipe(Effect.map((buffer) => new Uint8Array(buffer)))
+        const handled = yield* webhooks.handle({
+          raw,
+          event: request.headers["x-github-event"],
+          deliveryId: request.headers["x-github-delivery"],
+          signature: request.headers["x-hub-signature-256"]
+        })
+        return yield* HttpServerResponse.json(handled.body, { status: handled.status })
+      }))
     })
   )

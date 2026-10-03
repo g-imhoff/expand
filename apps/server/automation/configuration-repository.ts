@@ -1,11 +1,12 @@
 import { Context, Effect, Layer } from "effect"
-import { IntegrationConfiguration, LocalId, PersonalScope, PositiveVersion, RoutineConfiguration } from "@expand/contracts/automation"
+import { GithubRepositoryConfiguration, IntegrationConfiguration, LocalId, PersonalScope, PositiveVersion, RoutineConfiguration, githubIntegrationReference, sameDefinition } from "@expand/contracts/automation"
 import { SqlClient } from "effect/sql/SqlClient"
 import { DatabaseReady } from "../migrations/sqlite.js"
 import { encodeJson, decode, guard, readJson, RoutineStatus, same, protectStorage, StorageError, validateConfiguration } from "./persistence-models.js"
 
 export interface RoutineHead { readonly revision: number; readonly version: number; readonly status: RoutineStatus }
 export interface ListedRoutine { readonly routineId: string; readonly head: RoutineHead }
+export interface GithubIntegrationMatch { readonly scope: PersonalScope; readonly integration: IntegrationConfiguration }
 
 export class ConfigurationRepository extends Context.Service<ConfigurationRepository, {
   readonly putIntegration: (scope: PersonalScope, input: IntegrationConfiguration, expectedVersion: number) => Effect.Effect<number, StorageError>
@@ -14,6 +15,7 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
   readonly getRevision: (scope: PersonalScope, routineId: string, revision: number) => Effect.Effect<RoutineConfiguration | null, StorageError>
   readonly getHead: (scope: PersonalScope, routineId: string) => Effect.Effect<RoutineHead | null, StorageError>
   readonly listHeads: (scope: PersonalScope) => Effect.Effect<ReadonlyArray<ListedRoutine>, StorageError>
+  readonly listMatchingGithubIntegrations: (owner: string, repo: string) => Effect.Effect<ReadonlyArray<GithubIntegrationMatch>, StorageError>
   readonly setStatus: (scope: PersonalScope, routineId: string, status: RoutineStatus, expectedVersion: number) => Effect.Effect<RoutineHead, StorageError>
 }>()("expand/ConfigurationRepository", {
   make: Effect.gen(function* () {
@@ -95,7 +97,21 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
       }
       return heads as ReadonlyArray<ListedRoutine>
     })
-    return { putIntegration, appendRoutineRevision, setStatus, listHeads: (scope) => protectStorage(listHeads(scope)), getIntegration: (scope, id) => protectStorage(getIntegration(scope, id)), getRevision: (scope, id, revision) => protectStorage(getRevision(scope, id, revision)), getHead: (scope, id) => protectStorage(getHead(scope, id)) }
+    const listMatchingGithubIntegrations = Effect.fn("Configuration.listMatchingGithubIntegrations")(function*(owner: string, repo: string) {
+      const rows = yield* sql<{ owner_id: string; project_id: string; id: string; json: string }>`SELECT owner_id, project_id, id, json FROM automation_integrations WHERE definition_id=${githubIntegrationReference.id} ORDER BY owner_id, project_id, id`
+      const matches: Array<GithubIntegrationMatch> = []
+      for (const row of rows) {
+        const integration = yield* readJson(IntegrationConfiguration, row.json)
+        yield* guard(integration.id === row.id)
+        if (!sameDefinition(integration.definition, githubIntegrationReference)) continue
+        const repository = yield* decode(GithubRepositoryConfiguration, integration.configuration)
+        if (repository.owner !== owner || repository.repo !== repo) continue
+        const scope = yield* decode(PersonalScope, { ownerId: row.owner_id, projectId: row.project_id })
+        matches.push({ scope, integration })
+      }
+      return matches as ReadonlyArray<GithubIntegrationMatch>
+    })
+    return { putIntegration, appendRoutineRevision, setStatus, listHeads: (scope) => protectStorage(listHeads(scope)), listMatchingGithubIntegrations: (owner, repo) => protectStorage(listMatchingGithubIntegrations(owner, repo)), getIntegration: (scope, id) => protectStorage(getIntegration(scope, id)), getRevision: (scope, id, revision) => protectStorage(getRevision(scope, id, revision)), getHead: (scope, id) => protectStorage(getHead(scope, id)) }
   })
 }) {}
 export const ConfigurationRepositoryLayer = Layer.effect(ConfigurationRepository, ConfigurationRepository.make)

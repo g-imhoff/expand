@@ -22,6 +22,9 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { httpServerLayer } from "@expand/server/transport/http-server"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl } from "@expand/contracts/process-control"
+import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
@@ -47,13 +50,19 @@ const harnessServerLayer = (dbPath: string) => {
     Layer.provide(EventBusLayer),
     Layer.provide(projection)
   )
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
+  const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
+  const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
   const core = Layer.mergeAll(
     projectUseCases,
     ServerUseCasesLayer,
     EventBusLayer,
     ConnectionTrackerLayer,
     projection,
-    replay
+    replay,
+    configurations,
+    automationCredentials,
+    executions
   )
   return Layer.mergeAll(httpServerLayer(0, "harness-token").pipe(Layer.provide(core)), database)
 }

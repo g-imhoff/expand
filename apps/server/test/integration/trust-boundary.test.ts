@@ -27,6 +27,9 @@ import * as Socket from "effect/socket/Socket"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 
 const nodeAdapter = makeNodeAdapter({
   backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
@@ -63,7 +66,10 @@ const testCore = (dbPath: string) => {
     Layer.provide(NodeFileSystem.layer),
     Layer.provide(ProcessServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
+  const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
+  const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions)
 }
 
 const probeTcp = (host: string, port: number) =>
