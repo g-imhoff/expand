@@ -9,6 +9,7 @@
     "./project": "./project/index.ts",
     "./server": "./server/index.ts",
     "./adapters/node": "./adapters/node.ts",
+    "./remote": "./remote.ts",
     "./package.json": "./package.json",
     "./automation": "./automation/index.ts"
   },
