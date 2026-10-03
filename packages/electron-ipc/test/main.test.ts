@@ -143,6 +143,81 @@ describe("main Electron IPC facade", () => {
     }
   }))
 
+  for (const [locationKind, location] of [["rendererUrl", packagedDocumentUrl], ["rendererOrigin", options.rendererOrigin]] as const) {
+    for (const delimiter of ["?", "#", "?#", "#?", "?query", "#hash", "?query#", "?#hash", "?query#hash"]) {
+      it.effect(`rejects configured ${locationKind} literal delimiter ${delimiter} before IPC registration`, () => Effect.gen(function* () {
+        const exit = yield* withRuntime(Effect.scoped(bindElectronIpc<typeof contract, Runtime>(contract, handlers, {
+          window: browserWindow,
+          [locationKind]: `${location}${delimiter}`
+        })).pipe(Effect.exit))
+        expect({
+          acquisitionFailed: Exit.isFailure(exit),
+          onCalls: electron.ipcMain.on.mock.calls.length,
+          handleCalls: electron.ipcMain.handle.mock.calls.length,
+          listeners: electron.listeners.size,
+          handlers: electron.handlers.size,
+          offCalls: electron.ipcMain.off.mock.calls.length,
+          removeHandlerCalls: electron.ipcMain.removeHandler.mock.calls.length,
+          sent: [...sent],
+          eventCalls: contents.send.mock.calls.length,
+          portGrants: contents.postMessage.mock.calls.length
+        }).toEqual({
+          acquisitionFailed: true,
+          onCalls: 0,
+          handleCalls: 0,
+          listeners: 0,
+          handlers: 0,
+          offCalls: 0,
+          removeHandlerCalls: 0,
+          sent: [],
+          eventCalls: 0,
+          portGrants: 0
+        })
+      }))
+    }
+  }
+
+  for (const [locationKind, location, frameUrl] of [
+    ["rendererUrl", packagedDocumentUrl, `${packagedDocumentUrl}#/p/project-1/automations/history`],
+    ["rendererUrl", "file:///app/index%3F.html", "file:///app/index%3F.html#/p/project-1/automations/history"],
+    ["rendererUrl", "file:///app/index%23.html", "file:///app/index%23.html#/p/project-1/automations/history"],
+    ["rendererUrl", "file:///app/index%3F%23.html", "file:///app/index%3F%23.html#/p/project-1/automations/history"],
+    ["rendererOrigin", options.rendererOrigin, "https://app.example/other?query#/p/project-1/automations/history"]
+  ] as const) {
+    it.effect(`binds, uses, and releases canonical ${locationKind} ${location}`, () => Effect.gen(function* () {
+      frame.url = frameUrl
+      let send: MainListener | undefined
+      let port: MainListener | undefined
+      yield* withRuntime(Effect.scoped(Effect.gen(function* () {
+        yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, [locationKind]: location })
+        expect(electron.ipcMain.on).toHaveBeenCalledTimes(2)
+        expect(electron.ipcMain.handle).toHaveBeenCalledTimes(1)
+        expect(electron.listeners.size).toBe(2)
+        expect(electron.handlers.size).toBe(1)
+        send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+        port = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+        const invoke = electron.handlers.get("main:invoke")
+        if (invoke === undefined) throw new Error("expected a registered invoke handler")
+        send(eventFor(), "trusted")
+        expect(yield* Effect.promise(() => invoke(eventFor(), "hello"))).toEqual({ _tag: "IpcSuccess", value: 5 })
+        port(eventFor(), { nonce: "trusted" })
+        yield* TestClock.adjust("10 millis")
+        expect(sent).toEqual([`injected:trusted:${frameUrl}`])
+        expect(contents.postMessage).toHaveBeenCalledExactlyOnceWith("main:port:grant", { nonce: "trusted" }, [portValue])
+      })))
+      expect(electron.listeners.size).toBe(0)
+      expect(electron.handlers.size).toBe(0)
+      expect(electron.ipcMain.off).toHaveBeenCalledTimes(2)
+      expect(electron.ipcMain.off).toHaveBeenCalledWith("main:send", send)
+      expect(electron.ipcMain.off).toHaveBeenCalledWith("main:port:request", port)
+      expect(electron.ipcMain.removeHandler).toHaveBeenCalledExactlyOnceWith("main:invoke")
+      send?.(eventFor(), "released")
+      port?.(eventFor(), { nonce: "released" })
+      expect(sent).toEqual([`injected:trusted:${frameUrl}`])
+      expect(contents.postMessage).toHaveBeenCalledTimes(1)
+    }))
+  }
+
   it.effect("binds a canonical exact URL and a canonical nonopaque origin", () => Effect.gen(function* () {
     const fileFrame = { url: "file:///app/index.html", detached: false }
     const fileTarget = { webContents: { mainFrame: fileFrame, send: vi.fn(), postMessage: vi.fn() } } as unknown as BrowserWindow
