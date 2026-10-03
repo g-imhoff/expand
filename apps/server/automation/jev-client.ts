@@ -232,7 +232,11 @@ function resolveSettings(options?: JevClassifyOptions): Effect.Effect<ResolvedSe
       return yield* new JevDecisionError({ code: "invalid-contract", message: "Zen endpoint is not configured" })
     }
     yield* Effect.try({
-      try: () => new URL(endpoint),
+      try: () => {
+        const url = new URL(endpoint)
+        if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol")
+        return url
+      },
       catch: () => new JevDecisionError({ code: "invalid-contract", message: "Zen endpoint is not a usable URL" })
     })
     const timeoutMs = options?.timeoutMs ?? JevDefaultTimeoutMs

@@ -56,7 +56,11 @@ export const postSystemOne = Effect.fn("ZenTransport.postSystemOne")(function*(i
     return yield* new ZenTransportError({ code: "auth", message: "Zen rejected the API key" })
   }
   const endpoint = yield* Effect.try({
-    try: () => new URL(input.endpoint).toString(),
+    try: () => {
+      const url = new URL(input.endpoint)
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol")
+      return url.toString()
+    },
     catch: () => new ZenTransportError({ code: "invalid-contract", message: "Zen endpoint is not a usable URL" })
   })
   const validated = yield* Schema.decodeUnknownEffect(ZenSystemOneRequest, { onExcessProperty: "error" })(input.body).pipe(
@@ -84,7 +88,7 @@ export const postSystemOne = Effect.fn("ZenTransport.postSystemOne")(function*(i
   if (response.status < 200 || response.status >= 300) {
     return yield* new ZenTransportError({ code: "invalid-contract", message: "Zen responded with an unexpected status", status: response.status })
   }
-  return yield* HttpClientResponse.schemaBodyJson(ZenSystemOneResponse)(response).pipe(
+  return yield* HttpClientResponse.schemaBodyJson(ZenSystemOneResponse, { onExcessProperty: "error" })(response).pipe(
     Effect.mapError(() => new ZenTransportError({ code: "invalid-contract", message: "Zen response does not match the decision contract", status: response.status }))
   )
 })
