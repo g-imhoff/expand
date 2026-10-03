@@ -162,6 +162,58 @@ describe("github webhook validation", () => {
       Effect.provide(Live),
     ),
   )
+  it.live("fans out to every routine on the same integration and deduplicates redelivery", () =>
+    servicesFor.pipe(
+      Effect.flatMap(({ services, routines }) =>
+        Effect.gen(function* () {
+          yield* services.credentials.putCredential(scope, "github-token", tokenSecretBytes, 0)
+          yield* services.credentials.putCredential(scope, "github-webhook", webhookSecretBytes, 0)
+          for (const routineId of ["triage", "triage-second"]) {
+            const process = yield* buildGithubClassificationProcess("github", classification)
+            yield* routines.create(scope, {
+              routineId,
+              template: githubTemplateReference,
+              configuration: classification,
+              integrations: [githubIntegration],
+              process,
+            })
+          }
+          const handler = makeGithubWebhookHandler(services)
+          const raw = rawOf(openedBody)
+          const deliveryId = "delivery-fanout-1"
+          const first = yield* handler.handle({
+            deliveryId,
+            event: "issues",
+            signature: sign(webhookSecretText, raw),
+            raw,
+          })
+          expect(first.status).toBe(200)
+          expect(first.accepted).toBe(true)
+          if (first.accepted) {
+            expect(first.jobIds).toHaveLength(2)
+            expect(first.runIds).toHaveLength(2)
+          }
+          const runsBefore = yield* services.executions.listRuns(scope, { limit: 10 })
+          expect(runsBefore.items).toHaveLength(2)
+          const second = yield* handler.handle({
+            deliveryId,
+            event: "issues",
+            signature: sign(webhookSecretText, raw),
+            raw,
+          })
+          expect(second.status).toBe(200)
+          expect(second.accepted).toBe(true)
+          if (first.accepted && second.accepted) {
+            expect(second.jobIds).toEqual(first.jobIds)
+            expect(second.runIds).toEqual(first.runIds)
+          }
+          const runsAfter = yield* services.executions.listRuns(scope, { limit: 10 })
+          expect(runsAfter.items).toHaveLength(2)
+        }),
+      ),
+      Effect.provide(Live),
+    ),
+  )
   it.live("rejects invalid signatures with 401 and creates no jobs", () =>
     servicesFor.pipe(
       Effect.flatMap(({ services, routines }) =>
