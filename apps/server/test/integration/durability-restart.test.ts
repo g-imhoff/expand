@@ -87,7 +87,7 @@ describe("durability across a backend restart", { concurrent: false }, () => {
     const result = yield* program
     expect(result.first.projects).toMatchObject([{ id: projectId, name: "legacy", directory: null }])
     expect(result.second.projects).toMatchObject([{ id: projectId, name: "legacy", directory: null }])
-    expect(result.migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3])
+    expect(result.migrations.map((migration) => migration.migration_id)).toEqual([1, 2, 3, 4])
   }))
 
   it.live("re-folds all mutations after a full backend restart on the same db",  () => Effect.gen(function*() {

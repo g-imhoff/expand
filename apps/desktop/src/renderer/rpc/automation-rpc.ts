@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Stream } from "effect"
 import type { RpcClientError } from "effect/rpc"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Catalog, CredentialStatus, JevDecisionResult, JsonValue } from "@expand/contracts/automation"
-import type { GithubStatus, IntegrationRecord, PreviewOutcome, RoutineHead, RoutineRecord, RunHistory, RunMetrics, RunPage } from "@expand/contracts/rpc/automation-schemas"
+import type { GithubStatus, IntegrationRecord, NotificationPage, NotificationRecord, PreviewOutcome, RoutineHead, RoutineRecord, RunHistory, RunMetrics, RunPage } from "@expand/contracts/rpc/automation-schemas"
 import type { AutomationRpcError, RoutineWrite } from "@expand/client-ts/automation"
 import { RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 
@@ -88,6 +88,15 @@ export interface AutomationRpcApi {
     readonly routineId?: string
     readonly mode?: "preview" | "live"
   }) => Effect.Effect<RunMetrics, AutomationRpcError>
+  readonly notificationList: (payload: {
+    readonly scope: { readonly ownerId: string; readonly projectId: string }
+    readonly limit: number
+    readonly status?: "pending" | "read"
+  }) => Effect.Effect<NotificationPage, AutomationRpcError>
+  readonly notificationMarkRead: (payload: {
+    readonly scope: { readonly ownerId: string; readonly projectId: string }
+    readonly runId: string
+  }) => Effect.Effect<NotificationRecord, AutomationRpcError>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
   readonly events: (
     payload: { readonly fromSeq: number }
@@ -118,6 +127,8 @@ export const AutomationRpcLayer: Layer.Layer<AutomationRpc, never, RendererRpcCl
     runList: (p) => client.AutomationRunList(p),
     runGet: (p) => client.AutomationRunGet(p),
     runMetrics: (p) => client.AutomationRunMetrics(p),
+    notificationList: (p) => client.AutomationNotificationList(p),
+    notificationMarkRead: (p) => client.AutomationNotificationMarkRead(p),
     catalog: () => client.AutomationCatalog({}),
     events: (payload) => client.Events(payload)
   }))

@@ -20,6 +20,7 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
 import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { NotificationRepositoryLayer } from "@expand/server/automation/notification-repository"
 import { AutomationRegistry } from "@expand/server/automation/registry"
 import { AutomationRegistryService } from "@expand/server/automation/registry"
 import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
@@ -148,6 +149,7 @@ const coreLayer = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
+  const notifications = NotificationRepositoryLayer.pipe(Layer.provide(database))
   const httpOutbound = NodeHttpClient.layerFetch
   const registry = makeAutomationRegistry()
   const registryService = Layer.succeed(AutomationRegistryService, registry)
@@ -156,7 +158,7 @@ const coreLayer = (dbPath: string) => {
   const worker = AutomationWorkerLayer(registry, {}).pipe(
     Layer.provide(Layer.mergeAll(executions, configurations, automationCredentials, routines, httpOutbound))
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, worker, httpOutbound, registryService, automationEvents)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, notifications, routines, worker, httpOutbound, registryService, automationEvents)
 }
 
 const makeAutomationRegistry = (): AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient> => {

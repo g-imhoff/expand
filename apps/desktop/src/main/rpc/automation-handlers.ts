@@ -24,6 +24,8 @@ export const automationHandlers: Pick<
   | "AutomationRunGet"
   | "AutomationRunMetrics"
   | "AutomationCatalog"
+  | "AutomationNotificationList"
+  | "AutomationNotificationMarkRead"
 > = {
   AutomationRoutineCreate: Effect.fn("DesktopRpc.AutomationRoutineCreate")((payload) =>
     dieOnRpcClientError(
@@ -125,6 +127,16 @@ export const automationHandlers: Pick<
   AutomationCatalog: Effect.fn("DesktopRpc.AutomationCatalog")(() =>
     dieOnRpcClientError(
       Effect.flatMap(AutomationClient, (client) => client.catalog())
+    )
+  ),
+  AutomationNotificationList: Effect.fn("DesktopRpc.AutomationNotificationList")((payload) =>
+    dieOnRpcClientError(
+      Effect.flatMap(AutomationClient, (client) => client.notificationList(payload))
+    )
+  ),
+  AutomationNotificationMarkRead: Effect.fn("DesktopRpc.AutomationNotificationMarkRead")((payload) =>
+    dieOnRpcClientError(
+      Effect.flatMap(AutomationClient, (client) => client.notificationMarkRead(payload))
     )
   )
 }
