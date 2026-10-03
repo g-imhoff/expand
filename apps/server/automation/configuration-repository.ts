@@ -47,7 +47,8 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
         yield* guard(same(existing.configuration.definition, value.definition), "conflict")
         if (same(existing.configuration, value)) return existing.version
         yield* guard(existing.version === expectedVersion, "conflict")
-        yield* sql`UPDATE automation_integrations SET json=${encodeJson(value)}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${value.id} AND version=${expectedVersion}`
+        const updated = yield* sql<{ version: number }>`UPDATE automation_integrations SET json=${encodeJson(value)}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${value.id} AND version=${expectedVersion} RETURNING version`
+        yield* guard(updated.length > 0, "conflict")
         return expectedVersion + 1
       }
       yield* guard(expectedVersion === 0, "conflict")
@@ -66,7 +67,7 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
         const stored = yield* getIntegration(scope, integration.id)
         yield* guard(stored !== null && same(stored.configuration.definition, integration.definition), "missing")
       }
-      if (head) yield* sql`UPDATE automation_routines SET head_revision=${reference.revision}, status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${reference.routineId} AND head_revision=${expectedRevision}`
+      if (head) { const moved = yield* sql<{ head_revision: number }>`UPDATE automation_routines SET head_revision=${reference.revision}, status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${reference.routineId} AND head_revision=${expectedRevision} RETURNING head_revision`; yield* guard(moved.length > 0, "conflict") }
       else yield* sql`INSERT INTO automation_routines ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: reference.routineId, head_revision: reference.revision, status, version: 1 })}`
       yield* sql`INSERT INTO automation_routine_revisions ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, routine_id: reference.routineId, revision: reference.revision, json: encodeJson(config) })}`
       return reference.revision
@@ -76,7 +77,8 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
       const head = yield* getHead(scope, routineId)
       yield* guard(head !== null, "missing")
       yield* guard(head!.version === expectedVersion, "conflict")
-      yield* sql`UPDATE automation_routines SET status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${routineId} AND version=${expectedVersion}`
+      const touched = yield* sql<{ version: number }>`UPDATE automation_routines SET status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${routineId} AND version=${expectedVersion} RETURNING version`
+      yield* guard(touched.length > 0, "conflict")
       return { revision: head!.revision, status, version: expectedVersion + 1 }
     })))
     return { putIntegration, appendRoutineRevision, setStatus, getIntegration: (scope, id) => protectStorage(getIntegration(scope, id)), getRevision: (scope, id, revision) => protectStorage(getRevision(scope, id, revision)), getHead: (scope, id) => protectStorage(getHead(scope, id)) }
