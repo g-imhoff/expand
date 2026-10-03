@@ -21,12 +21,12 @@ export interface ResolvedSelection {
   readonly actions: ReadonlyArray<{ readonly stepId: string; readonly action: DefinitionReference; readonly integrationId: string; readonly arguments: Schema.Json }>
 }
 
-export class AutomationRegistry {
+export class AutomationRegistry<Requirements = never> {
   private readonly registrationLock = Semaphore.makeUnsafe(1)
-  private definitions = new Map<string, InstalledDefinition>()
+  private definitions = new Map<string, InstalledDefinition<Requirements>>()
   private descriptors: ReadonlyArray<DefinitionDescriptor> = []
 
-  readonly register = Effect.fn("AutomationRegistry.register")(function*(this: AutomationRegistry, extension: AutomationExtension) {
+  readonly register = Effect.fn("AutomationRegistry.register")(function*(this: AutomationRegistry<Requirements>, extension: AutomationExtension<Requirements>) {
     const pending = new Map(this.definitions)
     const descriptors: Array<DefinitionDescriptor> = []
     const additions = [...extension.integrations, ...extension.triggers, ...extension.actions, ...extension.routines].map(snapshotDefinition)
@@ -57,7 +57,7 @@ export class AutomationRegistry {
 
   readonly catalog = (): Catalog => ({ schemaVersion: 1, kind: "catalog", definitions: structuredClone(this.descriptors) })
 
-  readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry, input: unknown) {
+  readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry<Requirements>, input: unknown) {
     const configuration = yield* decodeJson(RoutineConfiguration, input)
     if (configuration.template !== undefined) {
       const routine = yield* requireDefinition(this.definitions, configuration.template, "routine-template")
@@ -80,7 +80,7 @@ export class AutomationRegistry {
     return configuration
   })
 
-  readonly resolveSelectedActions = Effect.fn("AutomationRegistry.resolveSelectedActions")(function*(this: AutomationRegistry, input: unknown, triggerPayload: unknown, decisionInput?: unknown): Effect.fn.Return<ResolvedSelection, AutomationError> {
+  readonly resolveSelectedActions = Effect.fn("AutomationRegistry.resolveSelectedActions")(function*(this: AutomationRegistry<Requirements>, input: unknown, triggerPayload: unknown, decisionInput?: unknown): Effect.fn.Return<ResolvedSelection, AutomationError> {
     const configuration = yield* this.validateConfiguration(input)
     const trigger = yield* requireDefinition(this.definitions, configuration.process.trigger.definition, "trigger")
     yield* decodeJson(trigger.payloadSchema, triggerPayload)
@@ -99,7 +99,7 @@ export class AutomationRegistry {
     return { selection, actions }
   })
 
-  readonly invokeAction = Effect.fn("AutomationRegistry.invokeAction")(function*(this: AutomationRegistry, input: SingleActionInvocation, trustedAuthority: unknown) {
+  readonly invokeAction = Effect.fn("AutomationRegistry.invokeAction")(function*(this: AutomationRegistry<Requirements>, input: SingleActionInvocation, trustedAuthority: unknown) {
     const request = yield* decodeJson(InvocationRequest, input)
     const authority = yield* decodeJson(InvocationAuthority, trustedAuthority)
     const configuration = yield* this.validateConfiguration(request.configuration)
@@ -129,16 +129,16 @@ export class AutomationRegistry {
   })
 }
 
-type InstalledDefinition = IntegrationDefinition | TriggerDefinition | InstalledAction | RoutineDefinition
+type InstalledDefinition<Requirements = never> = IntegrationDefinition | TriggerDefinition | InstalledAction<Requirements> | RoutineDefinition
 const InvocationRequest = Schema.Struct({
   configuration: RoutineConfiguration, stepId: Schema.String.check(Schema.isMinLength(1)), triggerPayload: Schema.Json,
   decision: Schema.optional(JevDecisionResult), mode: Schema.Literals(["preview", "live"])
 })
 const invalidReference = (message: string): AutomationError => new AutomationError({ code: "invalid-reference", message })
 const denied = (message: string): AutomationError => new AutomationError({ code: "denied", message })
-const requireDefinition = Effect.fn("AutomationRegistry.requireDefinition")(function*<K extends InstalledDefinition["kind"]>(
-  definitions: ReadonlyMap<string, InstalledDefinition>, reference: DefinitionReference, kind: K
-): Effect.fn.Return<Extract<InstalledDefinition, { kind: K }>, AutomationError> {
+const requireDefinition = Effect.fn("AutomationRegistry.requireDefinition")(function*<K extends InstalledDefinition["kind"], Requirements>(
+  definitions: ReadonlyMap<string, InstalledDefinition<Requirements>>, reference: DefinitionReference, kind: K
+): Effect.fn.Return<Extract<InstalledDefinition<Requirements>, { kind: K }>, AutomationError> {
   const definition = definitions.get(definitionKey(reference))
   if (!definition || definition.kind !== kind) return yield* new AutomationError({ code: "missing-definition", message: `Missing ${kind}: ${definitionKey(reference)}` })
   return definition as Extract<InstalledDefinition, { kind: K }>
@@ -150,8 +150,8 @@ const configuredIntegration = Effect.fn("AutomationRegistry.configuredIntegratio
   if (!integration || !sameDefinition(integration.definition, reference.definition)) return yield* invalidReference("Missing exact configured integration reference")
   return integration
 })
-const validateDefinitionReferences = Effect.fn("AutomationRegistry.validateDefinitionReferences")(function*(
-  definitions: ReadonlyMap<string, InstalledDefinition>, input: unknown
+const validateDefinitionReferences = Effect.fn("AutomationRegistry.validateDefinitionReferences")(function*<Requirements>(
+  definitions: ReadonlyMap<string, InstalledDefinition<Requirements>>, input: unknown
 ) {
   const process = yield* validateProcess(input)
   const trigger = yield* requireDefinition(definitions, process.trigger.definition, "trigger")
@@ -166,7 +166,7 @@ const validateDefinitionReferences = Effect.fn("AutomationRegistry.validateDefin
   }
   return process
 })
-const describeDefinition = Effect.fn("AutomationRegistry.describeDefinition")(function*(definition: InstalledDefinition): Effect.fn.Return<DefinitionDescriptor, AutomationError> {
+const describeDefinition = Effect.fn("AutomationRegistry.describeDefinition")(function*<Requirements>(definition: InstalledDefinition<Requirements>): Effect.fn.Return<DefinitionDescriptor, AutomationError> {
   const common = { schemaVersion: 1 as const, definition: definition.definition, title: definition.title }
   switch (definition.kind) {
     case "integration":
@@ -182,7 +182,7 @@ const describeDefinition = Effect.fn("AutomationRegistry.describeDefinition")(fu
   }
 })
 
-const snapshotDefinition = (definition: InstalledDefinition): InstalledDefinition => {
+const snapshotDefinition = <Requirements>(definition: InstalledDefinition<Requirements>): InstalledDefinition<Requirements> => {
   const common = { ...definition, definition: { ...definition.definition } }
   switch (definition.kind) {
     case "integration": return { ...definition, ...common, kind: definition.kind, capabilities: [...definition.capabilities] }
