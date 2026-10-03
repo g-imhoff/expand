@@ -154,9 +154,10 @@ export const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
         const routines = yield* findMatchingRoutines(services, candidate.scope, candidate.integration.id)
         if (routines.length === 0) continue
         matchedAny = true
+        const storedDeliveryId = `${input.deliveryId}:${candidate.integration.id}`
         const delivery = {
           schemaVersion: 1 as const,
-          id: input.deliveryId,
+          id: storedDeliveryId,
           scope: candidate.scope,
           integration: { id: candidate.integration.id, definition: candidate.integration.definition },
           externalId: input.deliveryId,
@@ -166,8 +167,8 @@ export const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
         const targets = routines.map((routine) => {
           const routineId = routine.reference.routineId
           const revision = routine.reference.revision
-          const jobId = `${input.deliveryId}:${routineId}:job`
-          const runId = `${input.deliveryId}:${routineId}:run`
+          const jobId = `${storedDeliveryId}:${routineId}:job`
+          const runId = `${storedDeliveryId}:${routineId}:run`
           const integrationIds = routine.integrations.map((integration) => integration.id)
           const seen = new Set<string>()
           const actionGrants: Array<{ action: { id: string; version: number }; integrationId: string; capabilities: ReadonlyArray<string> }> = []
@@ -189,7 +190,7 @@ export const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
             id: runId,
             scope: candidate.scope,
             configuration: { routineId, revision },
-            input: { kind: "input-reference" as const, id: input.deliveryId },
+            input: { kind: "input-reference" as const, id: storedDeliveryId },
             mode: "live" as const,
             authority: {
               schemaVersion: 1 as const,
@@ -289,7 +290,8 @@ const findCandidateIntegrations = (
         onExcessProperty: "error",
       })(stored.configuration.configuration).pipe(Effect.option)
       if (repository._tag === "None") continue
-      if (repository.value.owner !== owner || repository.value.repo !== repo) continue
+      if (repository.value.owner.toLowerCase() !== owner.toLowerCase()) continue
+      if (repository.value.repo.toLowerCase() !== repo.toLowerCase()) continue
       if (!sameDefinition(stored.configuration.definition, githubIntegrationReference)) continue
       candidates.push({ scope, integration: stored.configuration })
     }

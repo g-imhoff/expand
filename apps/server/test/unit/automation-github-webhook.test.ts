@@ -139,7 +139,7 @@ describe("github webhook validation", () => {
             expect(first.jobIds).toHaveLength(1)
             expect(first.runIds).toHaveLength(1)
           }
-          const stored = yield* services.executions.getDelivery(scope, deliveryId)
+          const stored = yield* services.executions.getDelivery(scope, `${deliveryId}:github`)
           expect(stored !== null).toBe(true)
           expect(stored?.value.externalId).toBe(deliveryId)
           expect([...(stored?.raw ?? [])]).toEqual([...raw])
