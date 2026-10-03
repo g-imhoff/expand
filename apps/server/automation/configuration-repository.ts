@@ -70,7 +70,7 @@ export class ConfigurationRepository extends Context.Service<ConfigurationReposi
       for (const integration of config.integrations) {
         const stored = yield* getIntegration(scope, integration.id)
         if (stored === null) yield* sql`INSERT INTO automation_integrations ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: integration.id, definition_id: integration.definition.id, definition_version: integration.definition.version, version: 1, json: encodeJson(integration) })}`
-        else yield* guard(same(stored.configuration, integration), "conflict")
+        else yield* guard(same(stored.configuration.definition, integration.definition), "missing")
       }
       if (head) { const moved = yield* sql<{ head_revision: number }>`UPDATE automation_routines SET head_revision=${reference.revision}, status=${status}, version=version+1 WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${reference.routineId} AND head_revision=${expectedRevision} RETURNING head_revision`; yield* guard(moved.length > 0, "conflict") }
       else yield* sql`INSERT INTO automation_routines ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, id: reference.routineId, head_revision: reference.revision, status, version: 1 })}`
