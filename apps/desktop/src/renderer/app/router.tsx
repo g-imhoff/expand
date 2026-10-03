@@ -6,6 +6,7 @@ import { AutomationLayout } from "@expand/desktop/renderer/features/automations/
 import { AutomationOverview } from "@expand/desktop/renderer/features/automations/pages/AutomationOverview"
 import { AutomationIntegrations } from "@expand/desktop/renderer/features/automations/pages/AutomationIntegrations"
 import { AutomationRoutineSetup } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineSetup"
+import { AutomationRoutineEdit } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineEdit"
 import { AutomationHistory } from "@expand/desktop/renderer/features/automations/pages/AutomationHistory"
 
 export const createAppRouter = (history: RouterHistory = createHashHistory()) => {
@@ -25,12 +26,14 @@ export const createAppRouter = (history: RouterHistory = createHashHistory()) =>
   const overviewRoute = createRoute({ getParentRoute: () => automationRoute, path: "/", component: AutomationOverview })
   const integrationsRoute = createRoute({ getParentRoute: () => automationRoute, path: "integrations", component: AutomationIntegrations })
   const routineSetupRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/new", component: AutomationRoutineSetup })
+  const routineEditRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/$routineId", component: AutomationRoutineEdit })
+  const routineTestRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/$routineId/test", component: AutomationRoutineEdit })
   const historyRoute = createRoute({ getParentRoute: () => automationRoute, path: "history", component: AutomationHistory })
 
   const routeTree = rootRoute.addChildren([
     indexRoute,
     projectRoute,
-    automationRoute.addChildren([overviewRoute, integrationsRoute, routineSetupRoute, historyRoute])
+    automationRoute.addChildren([overviewRoute, integrationsRoute, routineSetupRoute, routineEditRoute, routineTestRoute, historyRoute])
   ])
   return createRouter({ routeTree, history })
 }
