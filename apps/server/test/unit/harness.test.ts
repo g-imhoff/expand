@@ -1,10 +1,10 @@
-import { NodeServices } from "@effect/platform-node"
+import { NodeHttpClient, NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { it } from "@effect/vitest"
 import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Stream } from "effect"
 import { NetAddress } from "effect/net"
-import { HttpServer } from "effect/http"
+import { HttpClient, HttpServer } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ChildProcess } from "effect/process"
 import * as Socket from "effect/socket/Socket"
@@ -22,9 +22,13 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { httpServerLayer } from "@expand/server/transport/http-server"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl } from "@expand/contracts/process-control"
-import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
-import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
+import { makeGithubServerExtension } from "@expand/server/automation/github-client"
+import { AutomationRegistry, AutomationRegistryService } from "@expand/server/automation/registry"
+import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 
@@ -53,6 +57,12 @@ const harnessServerLayer = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
+  const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
+  Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const httpOutbound = NodeHttpClient.layerFetch
   const core = Layer.mergeAll(
     projectUseCases,
     ServerUseCasesLayer,
@@ -62,7 +72,11 @@ const harnessServerLayer = (dbPath: string) => {
     replay,
     configurations,
     automationCredentials,
-    executions
+    executions,
+    routines,
+    registryService,
+    automationEvents,
+    httpOutbound
   )
   return Layer.mergeAll(httpServerLayer(0, "harness-token").pipe(Layer.provide(core)), database)
 }

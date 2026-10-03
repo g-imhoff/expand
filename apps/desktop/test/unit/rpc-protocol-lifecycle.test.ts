@@ -21,6 +21,8 @@ import {
   type ProjectClientApi
 } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
+import { AutomationClient } from "@expand/client-ts/automation"
+import { unusedAutomationClient } from "../support/automation-stub"
 import { runRpcServer } from "@expand/desktop/main/rpc/server"
 import { buildRendererClient } from "@expand/desktop/renderer/rpc/transport"
 
@@ -49,7 +51,8 @@ const makeMainLayer = Effect.fn("DesktopRpcLifecycleTest.makeMainLayer")(functio
   return Layer.mergeAll(
     Layer.succeed(ClientSession, session),
     Layer.succeed(ProjectClient, project),
-    Layer.succeed(ServerClient, { health: () => Effect.die("unused") })
+    Layer.succeed(ServerClient, { health: () => Effect.die("unused") }),
+    Layer.succeed(AutomationClient, unusedAutomationClient)
   )
 })
 

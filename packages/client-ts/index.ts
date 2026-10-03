@@ -11,6 +11,8 @@
  *   the project contract vocabulary.
  * - `@expand/client-ts/server` — the server domain: the `ServerClient`
  *   health/presence facade.
+ * - `@expand/client-ts/automation` — the automation domain: the
+ *   `AutomationClient` facade and the automation error tags.
  * - `@expand/client-ts/adapters/node` — the Node platform seam
  *   (`makeNodeAdapter`).
  *

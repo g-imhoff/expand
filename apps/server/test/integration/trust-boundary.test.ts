@@ -2,7 +2,7 @@ import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
 import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Schema, Stream } from "effect"
 import { NetAddress } from "effect/net"
-import { HttpServer } from "effect/http"
+import { HttpClient, HttpServer } from "effect/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { readEndpoint, withClient } from "@expand/client-ts"
 import { runServer } from "@expand/server/composition/app"
@@ -20,16 +20,20 @@ import { ProjectionStateStoreLayer } from "@expand/server/db/projection-state-st
 import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-cases"
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
-import { NodeFileSystem, NodeServices } from "@effect/platform-node"
+import { NodeFileSystem, NodeHttpClient, NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { ChildProcess } from "effect/process"
 import * as Socket from "effect/socket/Socket"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
-import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
-import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
+import { makeGithubServerExtension } from "@expand/server/automation/github-client"
+import { AutomationRegistry, AutomationRegistryService } from "@expand/server/automation/registry"
+import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
 
 const nodeAdapter = makeNodeAdapter({
   backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
@@ -69,7 +73,13 @@ const testCore = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions)
+  const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
+  Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const httpOutbound = NodeHttpClient.layerFetch
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, registryService, automationEvents, httpOutbound)
 }
 
 const probeTcp = (host: string, port: number) =>

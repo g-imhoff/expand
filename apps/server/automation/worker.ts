@@ -1,4 +1,4 @@
-import { Clock, Config, Context, Duration, Effect, Layer, Option, Result, Schema } from "effect"
+import { Clock, Config, Context, DateTime, Duration, Effect, Layer, Option, Result, Schema } from "effect"
 import { HttpClient } from "effect/http"
 import {
   AutomationError,
@@ -9,6 +9,9 @@ import {
   sameDefinition
 } from "@expand/contracts/automation"
 import type { ActionOutcome, AutomationFailure, AutomationRun, DefinitionReference, RoutineConfiguration } from "@expand/contracts/automation"
+import { AutomationRunChanged } from "@expand/contracts/events/automation"
+import { EventBus } from "@expand/server/application/event-bus"
+import { AutomationEventStore } from "@expand/server/automation/event-store"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { ExecutionRepository } from "./execution-repository.js"
@@ -70,7 +73,7 @@ export const AutomationWorkerLayer = (
       const httpClient = yield* HttpClient.HttpClient
       const deps: WorkerDeps = { executions, configurations, credentials, httpClient, routines, registry, options: settled }
       return AutomationWorker.of({
-        processRun: (scope, runId) => processSingleRun(deps, scope, runId),
+        processRun: (scope, runId) => processSingleRunNotified(deps, scope, runId),
         runOnce: () => runBatch(deps, false),
         reclaim: () => runBatch(deps, true),
         runLoop: () => workerLoop(deps)
@@ -152,8 +155,39 @@ const serviceLayerFor = (deps: WorkerDeps) =>
 const runBatch = Effect.fn("AutomationWorker.runBatch")(function*(deps: WorkerDeps, runningOnly: boolean) {
   const due = yield* deps.executions.scanDue(deps.options.pollBatchSize)
   const items = runningOnly ? due.filter((item) => item.state === "running") : due
-  yield* Effect.all(items.map((item: DueRun) => processSingleRun(deps, item.scope, item.runId).pipe(Effect.catch(() => Effect.void))), { concurrency: deps.options.concurrency })
+  yield* Effect.all(items.map((item: DueRun) => processSingleRunNotified(deps, item.scope, item.runId).pipe(Effect.catch(() => Effect.void))), { concurrency: deps.options.concurrency })
   return items.length
+})
+
+const processSingleRunNotified = Effect.fn("AutomationWorker.processSingleRunNotified")(function*(
+  deps: WorkerDeps,
+  scope: PersonalScope,
+  runId: string
+) {
+  yield* processSingleRun(deps, scope, runId)
+  yield* Effect.result(notifyRunChanged(deps, scope, runId))
+})
+
+const notifyRunChanged = Effect.fn("AutomationWorker.notifyRunChanged")(function*(
+  deps: WorkerDeps,
+  scope: PersonalScope,
+  runId: string
+) {
+  const store = yield* Effect.serviceOption(AutomationEventStore)
+  const bus = yield* Effect.serviceOption(EventBus)
+  if (Option.isNone(store) || Option.isNone(bus)) return
+  const current = yield* deps.executions.getRun(scope, runId)
+  if (current === null) return
+  const event = AutomationRunChanged.make({
+    projectId: scope.projectId,
+    ownerId: scope.ownerId,
+    runId,
+    routineId: current.value.configuration.routineId,
+    state: current.value.state.kind,
+    occurredAt: yield* DateTime.now.pipe(Effect.map(DateTime.formatIso))
+  })
+  const seq = yield* store.value.append(event)
+  yield* bus.value.publish({ seq, event })
 })
 
 const workerLoop = Effect.fn("AutomationWorker.runLoop")(function*(deps: WorkerDeps) {

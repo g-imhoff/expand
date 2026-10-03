@@ -13,6 +13,7 @@ export default defineConfig({
     "index": "index.ts",
     "project/index": "project/index.ts",
     "server/index": "server/index.ts",
+    "automation/index": "automation/index.ts",
     "adapters/node": "adapters/node.ts"
   },
   format: ["esm"],

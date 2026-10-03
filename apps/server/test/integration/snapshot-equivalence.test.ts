@@ -10,6 +10,7 @@ import type { DomainEvent } from "@expand/contracts/events/domain"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
 } from "@expand/contracts/events/project"
+import type { ProjectEvent } from "@expand/contracts/events/project"
 import { ReplayFeed, ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStore, ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { ProjectionStateStore, ProjectionStateStoreLayer } from "@expand/server/db/projection-state-store"
@@ -22,7 +23,7 @@ const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
   events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
 
 // A representative sequence touching all 7 event types.
-const script: ReadonlyArray<DomainEvent> = [
+const script: ReadonlyArray<ProjectEvent> = [
   ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }),
   ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }),
   ProjectRenamed.make({ projectId: uid(1), name: "alpha2", occurredAt: "t3" }),
