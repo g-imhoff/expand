@@ -25,6 +25,7 @@ import { AutomationRegistry } from "@expand/server/automation/registry"
 import { AutomationRegistryService } from "@expand/server/automation/registry"
 import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
 import { makeGithubServerExtension } from "@expand/server/automation/github-client"
+import { makeGmailServerExtension } from "@expand/server/automation/gmail-client"
 import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { AutomationWorker, AutomationWorkerLayer } from "@expand/server/automation/worker"
 
@@ -164,5 +165,6 @@ const coreLayer = (dbPath: string) => {
 const makeAutomationRegistry = (): AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient> => {
   const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
   Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
+  Effect.runSync(registry.register(makeGmailServerExtension({}).extension))
   return registry
 }
