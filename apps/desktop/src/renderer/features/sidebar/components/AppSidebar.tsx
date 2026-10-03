@@ -9,7 +9,8 @@ import {
   MessageSquare,
   MonitorSmartphone,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Zap
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -53,6 +54,8 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   readonly groups?: ReadonlyArray<SidebarWorktreeGroup> | undefined
   readonly activeConversationId?: string | null | undefined
   readonly onSelectConversation?: ((conversationId: string) => void) | undefined
+  readonly automationsActive?: boolean | undefined
+  readonly onOpenAutomations?: ((projectId: string) => void) | undefined
 }
 
 export const AppSidebar = ({
@@ -64,6 +67,8 @@ export const AppSidebar = ({
   groups = defaultSidebarWorktrees,
   activeConversationId,
   onSelectConversation,
+  automationsActive = false,
+  onOpenAutomations,
   ...props
 }: AppSidebarProps) => {
   const { isMobile, setOpen, state, toggleSidebar } = useSidebar()
@@ -83,6 +88,12 @@ export const AppSidebar = ({
   const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
   const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
   const paneIsCollapsed = state === "collapsed" && !isMobile
+  const canOpenAutomations = activeProject !== null && onOpenAutomations !== undefined
+  const automationTooltip = activeProject === null
+    ? "Select a project to open automations"
+    : onOpenAutomations === undefined
+      ? "Automations unavailable"
+      : "Automations"
 
   useLayoutEffect(() => {
     if (paneIsCollapsed && paneRef.current?.contains(document.activeElement)) {
@@ -195,6 +206,22 @@ export const AppSidebar = ({
                 className="justify-center"
               >
                 {state === "expanded" ? <PanelLeftClose aria-hidden /> : <PanelLeftOpen aria-hidden />}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                aria-label="Automations"
+                aria-current={automationsActive && canOpenAutomations ? "page" : undefined}
+                aria-disabled={!canOpenAutomations || undefined}
+                isActive={automationsActive && canOpenAutomations}
+                tooltip={{ children: automationTooltip, hidden: false }}
+                onClick={() => {
+                  if (canOpenAutomations && activeProject) onOpenAutomations?.(activeProject.id)
+                }}
+                className="justify-center aria-disabled:pointer-events-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-sidebar-foreground data-[active=true]:[&>svg]:fill-current"
+              >
+                <Zap aria-hidden="true" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
