@@ -139,7 +139,7 @@ describe("credential redaction", () => {
       expect(encode(yield* inner.status(scope, "account-1"))).not.toContain(secretA)
       expect(encode(yield* inner.list(scope))).not.toContain(secretA)
       yield* Effect.logInfo("credential status read")
-    }).pipe(Effect.provide(Logger.layer([capture])), Effect.provide(Credentials))
+    }).pipe(Effect.provide(Layer.mergeAll(Logger.layer([capture]), Credentials)))
     yield* credentials.putCredential(scope, "account-1", secretA, 0)
     const statusValue = yield* credentials.status(scope, "account-1")
     const listed = yield* credentials.list(scope)
