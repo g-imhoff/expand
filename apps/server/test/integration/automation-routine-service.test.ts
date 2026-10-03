@@ -86,6 +86,7 @@ describe("routine lifecycle", () => {
     expect(yield* routines.enable(scope, "triage", 3)).toEqual({ revision: 2, status: "enabled", version: 4 })
     expect((yield* routines.due(scope)).map((routine) => routine.routineId)).toEqual(["triage"])
     expect((yield* routines.list(scope)).map((routine) => routine.routineId)).toEqual(["triage"])
+    expectFailure(yield* Effect.exit(routines.remove(scope, "triage", 3)), "conflict")
     expect(yield* routines.remove(scope, "triage", 4)).toEqual({ revision: 2, status: "deleted", version: 5 })
     expect((yield* routines.due(scope))).toEqual([])
     expectFailure(yield* Effect.exit(routines.edit(scope, "triage", yield* triageInput)), "invalid-reference")
