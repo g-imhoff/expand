@@ -17,6 +17,9 @@ import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-ca
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
@@ -33,7 +36,10 @@ const testCore = (dbPath: string) => {
     Layer.provide(NodeFileSystem.layer),
     Layer.provide(NodeServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
+  const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
+  const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions)
 }
 
 const probeWs = (url: string) =>
