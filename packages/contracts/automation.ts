@@ -11,6 +11,14 @@ export {
 } from "./automation/github.js"
 export type { GithubLabelHandler } from "./automation/github.js"
 export { OriginalInputReference, JevDecisionRequest, JevDecisionResult, ActionOutcome, ActionGrant, InvocationAuthority, RunState, AutomationRun } from "./automation/run.js"
+export {
+  CodingAgentKind, CodingAgentAction, CodingRepositoryConfiguration, CodingRunArguments, CodingRunResult,
+  CodingManualPayload, codingIntegrationReference, codingTriggerReference, codingActionReference,
+  codingIntegrationDefinition, codingTriggerDefinition, resolveCodingAgent, resolveCodingDeadlineMs,
+  isPermittedCodingRepository, makeCodingExtension, decodeCodingArguments, decodeCodingConfiguration,
+  decodeCodingIntegration, codingReferences, isCodingReference, codingFailure, invalidCodingReference
+} from "./automation/coding.js"
+export type { CodingActionHandler } from "./automation/coding.js"
 export { Delivery, Job, Attempt, RoutineStatus, CredentialStatus } from "./automation/execution.js"
 export { AutomationNotification, AutomationNotificationKind, AutomationNotificationStatus } from "./automation/notifications.js"
 export { defineIntegration, defineTrigger, defineRoutine, defineAction, defineExtension } from "./automation/extension.js"
