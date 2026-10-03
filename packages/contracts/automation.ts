@@ -2,6 +2,14 @@ export { DefinitionId, PositiveVersion, LocalId, DefinitionReference, PersonalSc
 export { AutomationError, JsonValue, EditorSchema, IntegrationConfiguration, IntegrationDescriptor, TriggerDescriptor, ActionDescriptor, RoutineDescriptor, DefinitionDescriptor, Catalog, AutomationFailure, InvocationContext, isJsonValue, decodeJson, editorSchema } from "./automation/descriptors.js"
 export { Binding, fieldBinding, literalBinding, ActionStep, JevDecision, ProcessDefinition, RoutineConfiguration, validateProcess, deriveSelectedActions, resolveBindings, resolveActionArguments } from "./automation/process.js"
 export type { BindingSources, FieldPath, ActionSelection } from "./automation/process.js"
+export {
+  GithubClassificationConfiguration, GithubIssuePayload, GithubIssueTriggerConfiguration, GithubLabelArguments,
+  GithubLabelResult, GithubNotifications, GithubRepositoryConfiguration, buildGithubClassificationProcess,
+  githubClassificationTemplate, githubIntegrationDefinition, githubIntegrationReference, githubLabelActionReference,
+  githubTemplateReference, githubTriggerDefinition, githubTriggerReference, makeGithubExtension,
+  validateClassificationInput
+} from "./automation/github.js"
+export type { GithubLabelHandler } from "./automation/github.js"
 export { OriginalInputReference, JevDecisionRequest, JevDecisionResult, ActionOutcome, ActionGrant, InvocationAuthority, RunState, AutomationRun } from "./automation/run.js"
 export { defineIntegration, defineTrigger, defineRoutine, defineAction, defineExtension } from "./automation/extension.js"
 export type { IntegrationDefinition, TriggerDefinition, ActionDefinition, RoutineDefinition, AutomationExtension, ContextFreeCodec, InstalledAction } from "./automation/extension.js"
