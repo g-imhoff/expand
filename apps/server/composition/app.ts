@@ -1,7 +1,8 @@
 import { Context, Effect, Exit, Fiber, FileSystem, Layer, Path, Scope } from "effect"
-import { HttpServer } from "effect/http"
+import { HttpClient, HttpServer } from "effect/http"
 import { NetAddress } from "effect/net"
 import { SqliteClient } from "@effect/sql-sqlite-node"
+import { NodeHttpClient } from "@effect/platform-node"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -16,9 +17,13 @@ import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
-import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
-import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { AutomationRegistry } from "@expand/server/automation/registry"
+import { makeGithubServerExtension } from "@expand/server/automation/github-client"
+import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
+import { AutomationWorker, AutomationWorkerLayer } from "@expand/server/automation/worker"
 
 export interface RunServerOptions {
   readonly dbPath: string
@@ -51,6 +56,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       httpServerLayer(portHint, token).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
     )
+    const worker = yield* AutomationWorker.pipe(Effect.provide(core))
+    yield* Effect.forkScoped(worker.runLoop())
 
     const lifecycle = Effect.gen(function*() {
       const tracker = yield* ConnectionTracker
@@ -139,5 +146,17 @@ const coreLayer = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions)
+  const httpOutbound = NodeHttpClient.layerFetch
+  const registry = makeAutomationRegistry()
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
+  const worker = AutomationWorkerLayer(registry, {}).pipe(
+    Layer.provide(Layer.mergeAll(executions, configurations, automationCredentials, routines, httpOutbound))
+  )
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, worker, httpOutbound)
+}
+
+const makeAutomationRegistry = (): AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient> => {
+  const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
+  Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
+  return registry
 }

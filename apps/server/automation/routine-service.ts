@@ -33,7 +33,7 @@ export class RoutineService extends Context.Service<RoutineService, {
   readonly assertDue: (scope: PersonalScope, routineId: string) => Effect.Effect<RoutineRead, AutomationError | StorageError>
 }>()("expand/RoutineService") {}
 export const isExecutableStatus = (status: RoutineStatus): boolean => status === "enabled"
-export const RoutineServiceLayer = (registry: AutomationRegistry): Layer.Layer<RoutineService, never, ConfigurationRepository | CredentialRepository> =>
+export const RoutineServiceLayer = <R>(registry: AutomationRegistry<R>): Layer.Layer<RoutineService, never, ConfigurationRepository | CredentialRepository> =>
   Layer.effect(RoutineService, Effect.gen(function* () {
     const configuration = yield* ConfigurationRepository
     const credentials = yield* CredentialRepository
