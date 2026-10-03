@@ -9,6 +9,7 @@ import {
 } from "@expand/client-ts"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { nodeAppContextLayer } from "@expand/desktop/main/runtime/node-app-context"
 
@@ -24,7 +25,7 @@ export interface DesktopBackendHost {
 }
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
-  ClientSession | ProjectClient | ServerClient,
+  ClientSession | ProjectClient | ServerClient | AutomationClient,
   BackendUnavailable | Layer.Error<typeof nodeAppContextLayer>
 >
 

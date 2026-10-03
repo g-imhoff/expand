@@ -17,6 +17,10 @@ import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "../../automation/configuration-repository.js"
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
 import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/execution-repository.js"
+import { AutomationEventStoreLayer } from "../../automation/event-store.js"
+import { makeGithubServerExtension } from "../../automation/github-client.js"
+import { AutomationRegistry, AutomationRegistryService } from "../../automation/registry.js"
+import { RoutineServiceLayer } from "../../automation/routine-service.js"
 import { signGithubDelivery } from "../../automation/github-webhook.js"
 import { httpServerLayer } from "../../transport/http-server.js"
 import { buildGithubClassificationProcess, githubTemplateReference } from "@expand/contracts/automation/github"
@@ -39,7 +43,13 @@ const stackFor = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provide(database))
   const automationCredentials = CredentialRepositoryLayer.pipe(Layer.provide(database))
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
-  const core = Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions)
+  const registry = new AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient>()
+  Effect.runSync(registry.register(makeGithubServerExtension({}).extension))
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const httpOutbound = NodeHttpClient.layerFetch
+  const core = Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, registryService, automationEvents, httpOutbound)
   const servers = Layer.mergeAll(httpServerLayer(0, "webhook-route-token", { allowedRepos: [{ owner: "octo", repo: "hello" }] }).pipe(Layer.provide(core)), NodeServices.layer)
   const seed = Layer.mergeAll(database, configurations, automationCredentials)
   const verify = Layer.mergeAll(database, configurations, automationCredentials, executions)

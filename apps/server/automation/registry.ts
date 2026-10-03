@@ -1,4 +1,5 @@
-import { Effect, Schema, Semaphore } from "effect"
+import { Context, Effect, Schema, Semaphore } from "effect"
+import type { HttpClient } from "effect/http"
 import {
   ActionDescriptor, AutomationError, Catalog, decodeJson, definitionKey, deriveSelectedActions, editorSchema,
   IntegrationDescriptor, InvocationAuthority, JevDecisionResult, resolveActionArguments, RoutineConfiguration,
@@ -8,6 +9,8 @@ import type {
   ActionSelection, AutomationExtension, DefinitionDescriptor, DefinitionReference, InstalledAction,
   IntegrationDefinition, RoutineDefinition, TriggerDefinition
 } from "@expand/contracts/automation"
+import type { ConfigurationRepository } from "@expand/server/automation/configuration-repository"
+import type { CredentialRepository } from "@expand/server/automation/credential-repository"
 
 export interface SingleActionInvocation {
   readonly configuration: unknown
@@ -128,6 +131,13 @@ export class AutomationRegistry<Requirements = never> {
     return result
   })
 }
+
+export class AutomationRegistryService extends Context.Service<
+  AutomationRegistryService,
+  AutomationRegistry<ServerAutomationRequirements>
+>()("expand/AutomationRegistry") {}
+
+export type ServerAutomationRequirements = ConfigurationRepository | CredentialRepository | HttpClient.HttpClient
 
 type InstalledDefinition<Requirements = never> = IntegrationDefinition | TriggerDefinition | InstalledAction<Requirements> | RoutineDefinition
 const InvocationRequest = Schema.Struct({

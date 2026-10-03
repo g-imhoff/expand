@@ -7,14 +7,15 @@ import type { RuntimeAdapter } from "./adapter"
 import { ClientSession, ClientSessionLayer } from "./client-session"
 import { ProjectClient, ProjectClientLive } from "./project/client"
 import { ServerClient, ServerClientLive } from "./server/client"
+import { AutomationClient, AutomationClientLive } from "./automation/client"
 
 export const ClientLayer = (
   adapter: RuntimeAdapter
 ): Layer.Layer<
-  ClientSession | ProjectClient | ServerClient,
+  ClientSession | ProjectClient | ServerClient | AutomationClient,
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
-  Layer.mergeAll(ProjectClientLive, ServerClientLive).pipe(
+  Layer.mergeAll(ProjectClientLive, ServerClientLive, AutomationClientLive).pipe(
     Layer.provideMerge(ClientSessionLayer(adapter))
   )

@@ -21,6 +21,8 @@ import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/s
 import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 import { AutomationRegistry } from "@expand/server/automation/registry"
+import { AutomationRegistryService } from "@expand/server/automation/registry"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
 import { makeGithubServerExtension } from "@expand/server/automation/github-client"
 import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { AutomationWorker, AutomationWorkerLayer } from "@expand/server/automation/worker"
@@ -148,11 +150,13 @@ const coreLayer = (dbPath: string) => {
   const executions = ExecutionRepositoryLayer.pipe(Layer.provide(Layer.mergeAll(database, configurations)))
   const httpOutbound = NodeHttpClient.layerFetch
   const registry = makeAutomationRegistry()
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
   const routines = RoutineServiceLayer(registry).pipe(Layer.provide(Layer.mergeAll(configurations, automationCredentials)))
   const worker = AutomationWorkerLayer(registry, {}).pipe(
     Layer.provide(Layer.mergeAll(executions, configurations, automationCredentials, routines, httpOutbound))
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, worker, httpOutbound)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, configurations, automationCredentials, executions, routines, worker, httpOutbound, registryService, automationEvents)
 }
 
 const makeAutomationRegistry = (): AutomationRegistry<CredentialRepository | ConfigurationRepository | HttpClient.HttpClient> => {
