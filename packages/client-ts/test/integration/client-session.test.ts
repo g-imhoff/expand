@@ -75,6 +75,8 @@ const makeHandlers = () =>
     AutomationRunMetrics: () => Effect.die("unused"),
     AutomationNotificationList: () => Effect.die("unused"),
     AutomationNotificationMarkRead: () => Effect.die("unused"),
+    AutomationManualPreview: () => Effect.die("unused"),
+    AutomationManualStart: () => Effect.die("unused"),
     AutomationCatalog: () => Effect.die("unused")
   })
 

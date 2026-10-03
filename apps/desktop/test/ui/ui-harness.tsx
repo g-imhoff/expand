@@ -81,6 +81,8 @@ const unusedAutomationRpc: AutomationRpcApi = {
   runMetrics: notStubbed("runMetrics"),
   notificationList: notStubbed("notificationList"),
   notificationMarkRead: notStubbed("notificationMarkRead"),
+  manualPreview: notStubbed("manualPreview"),
+  manualStart: notStubbed("manualStart"),
   catalog: notStubbed("catalog"),
   events: notStubbed("events")
 }

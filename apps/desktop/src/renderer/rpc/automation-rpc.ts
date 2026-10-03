@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Stream } from "effect"
 import type { RpcClientError } from "effect/rpc"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Catalog, CredentialStatus, JevDecisionResult, JsonValue } from "@expand/contracts/automation"
-import type { GithubStatus, IntegrationRecord, NotificationPage, NotificationRecord, PreviewOutcome, RoutineHead, RoutineRecord, RunHistory, RunMetrics, RunPage } from "@expand/contracts/rpc/automation-schemas"
+import type { GithubStatus, IntegrationRecord, ManualPreviewResult, ManualStartResult, NotificationPage, NotificationRecord, PreviewOutcome, RoutineHead, RoutineRecord, RunHistory, RunMetrics, RunPage } from "@expand/contracts/rpc/automation-schemas"
 import type { AutomationRpcError, RoutineWrite } from "@expand/client-ts/automation"
 import { RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 
@@ -97,6 +97,20 @@ export interface AutomationRpcApi {
     readonly scope: { readonly ownerId: string; readonly projectId: string }
     readonly runId: string
   }) => Effect.Effect<NotificationRecord, AutomationRpcError>
+  readonly manualPreview: (payload: {
+    readonly scope: { readonly ownerId: string; readonly projectId: string }
+    readonly routineId: string
+    readonly payload: JsonValue
+    readonly decision?: JevDecisionResult
+  }) => Effect.Effect<ManualPreviewResult, AutomationRpcError>
+  readonly manualStart: (payload: {
+    readonly scope: { readonly ownerId: string; readonly projectId: string }
+    readonly routineId: string
+    readonly deliveryId: string
+    readonly payload: JsonValue
+    readonly decision?: JevDecisionResult
+    readonly mode?: "preview" | "live"
+  }) => Effect.Effect<ManualStartResult, AutomationRpcError>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
   readonly events: (
     payload: { readonly fromSeq?: number }
@@ -129,6 +143,8 @@ export const AutomationRpcLayer: Layer.Layer<AutomationRpc, never, RendererRpcCl
     runMetrics: (p) => client.AutomationRunMetrics(p),
     notificationList: (p) => client.AutomationNotificationList(p),
     notificationMarkRead: (p) => client.AutomationNotificationMarkRead(p),
+    manualPreview: (p) => client.AutomationManualPreview(p),
+    manualStart: (p) => client.AutomationManualStart(p),
     catalog: () => client.AutomationCatalog({}),
     events: (payload) => client.Events(payload)
   }))

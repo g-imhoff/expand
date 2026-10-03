@@ -28,6 +28,7 @@ import { runIssueClassification } from "@expand/server/automation/issue-classifi
 import { StorageError } from "@expand/server/automation/persistence-models"
 import { AutomationRegistryService } from "@expand/server/automation/registry"
 import { RoutineService } from "@expand/server/automation/routine-service"
+import { previewManual, startManual } from "@expand/server/automation/manual-trigger"
 import { guard } from "@expand/server/rpc/guard"
 
 export const automationHandlers = {
@@ -300,6 +301,27 @@ export const automationHandlers = {
       const notifications = yield* NotificationRepository
       const record = yield* notifications.markRead(scope, runId).pipe(Effect.mapError(toRpcError))
       return { notification: record.value, version: record.version, sequence: record.sequence }
+    })),
+  AutomationManualPreview: ({ scope, routineId, payload, decision }) =>
+    guard(Effect.gen(function*() {
+      const routines = yield* RoutineService
+      const registry = yield* AutomationRegistryService
+      return yield* previewManual({ scope, routineId, payload, ...(decision === undefined ? {} : { decision }) }, { routines, registry }).pipe(
+        Effect.mapError(toRpcError)
+      )
+    })),
+  AutomationManualStart: ({ scope, routineId, deliveryId, payload, decision, mode }) =>
+    guard(Effect.gen(function*() {
+      const routines = yield* RoutineService
+      const executions = yield* ExecutionRepository
+      const registry = yield* AutomationRegistryService
+      return yield* startManual({
+        scope, routineId, deliveryId, payload,
+        ...(decision === undefined ? {} : { decision }),
+        ...(mode === undefined ? {} : { mode })
+      }, { routines, executions, registry }).pipe(
+        Effect.mapError(toRpcError)
+      )
     }))
 } satisfies Pick<
   Handlers,
@@ -310,6 +332,7 @@ export const automationHandlers = {
   | "AutomationPreviewClassification"
   | "AutomationRunList" | "AutomationRunGet" | "AutomationRunMetrics"
   | "AutomationCatalog" | "AutomationNotificationList" | "AutomationNotificationMarkRead"
+  | "AutomationManualPreview" | "AutomationManualStart"
 >
 
 type RpcError = AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed

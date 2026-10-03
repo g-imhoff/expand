@@ -9,6 +9,8 @@ import type {
 import type {
   GithubStatus,
   IntegrationRecord,
+  ManualPreviewResult,
+  ManualStartResult,
   NotificationPage,
   NotificationRecord,
   PreviewOutcome,
@@ -70,6 +72,20 @@ export interface AutomationClientApi {
     readonly status?: "pending" | "read"
   }) => Effect.Effect<NotificationPage, AutomationRpcError>
   readonly notificationMarkRead: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<NotificationRecord, AutomationRpcError>
+  readonly manualPreview: (payload: {
+    readonly scope: PersonalScope
+    readonly routineId: string
+    readonly payload: JsonValue
+    readonly decision?: JevDecisionResult
+  }) => Effect.Effect<ManualPreviewResult, AutomationRpcError>
+  readonly manualStart: (payload: {
+    readonly scope: PersonalScope
+    readonly routineId: string
+    readonly deliveryId: string
+    readonly payload: JsonValue
+    readonly decision?: JevDecisionResult
+    readonly mode?: "preview" | "live"
+  }) => Effect.Effect<ManualStartResult, AutomationRpcError>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
 }
 
@@ -126,6 +142,10 @@ export const AutomationClientLive: Layer.Layer<AutomationClient, never, ClientSe
       Effect.flatMap(session.current, (client) => client.AutomationNotificationList(payload)),
     notificationMarkRead: (payload) =>
       Effect.flatMap(session.current, (client) => client.AutomationNotificationMarkRead(payload)),
+    manualPreview: (payload) =>
+      Effect.flatMap(session.current, (client) => client.AutomationManualPreview(payload)),
+    manualStart: (payload) =>
+      Effect.flatMap(session.current, (client) => client.AutomationManualStart(payload)),
     catalog: () =>
       Effect.flatMap(session.current, (client) => client.AutomationCatalog({}))
   }))

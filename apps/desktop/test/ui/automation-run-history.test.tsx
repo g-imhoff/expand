@@ -208,6 +208,8 @@ const baseRpc: AutomationRpcApi = {
   runMetrics: () => Effect.die("unused"),
   notificationList: () => Effect.die("unused"),
   notificationMarkRead: () => Effect.die("unused"),
+  manualPreview: () => Effect.die("unused"),
+  manualStart: () => Effect.die("unused"),
   catalog: () => Effect.die("unused"),
   events: () => Effect.die("unused") as never
 }

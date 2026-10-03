@@ -16,6 +16,8 @@ import {
   AutomationErrorUnion,
   GithubStatus,
   IntegrationRecord,
+  ManualPreviewResult,
+  ManualStartResult,
   NotificationPage,
   NotificationRecord,
   NotificationStatusFilter,
@@ -178,6 +180,28 @@ export class AutomationRpcs extends RpcGroup.make(
   Rpc.make("AutomationNotificationMarkRead", {
     payload: { scope: PersonalScope, runId: LocalId },
     success: NotificationRecord,
+    error: AutomationErrorUnion
+  }),
+  Rpc.make("AutomationManualPreview", {
+    payload: {
+      scope: PersonalScope,
+      routineId: LocalId,
+      payload: JsonValue,
+      decision: Schema.optionalKey(JevDecisionResult)
+    },
+    success: ManualPreviewResult,
+    error: AutomationErrorUnion
+  }),
+  Rpc.make("AutomationManualStart", {
+    payload: {
+      scope: PersonalScope,
+      routineId: LocalId,
+      deliveryId: LocalId,
+      payload: JsonValue,
+      decision: Schema.optionalKey(JevDecisionResult),
+      mode: Schema.optionalKey(RunModeFilter)
+    },
+    success: ManualStartResult,
     error: AutomationErrorUnion
   })
 ) { }

@@ -8,6 +8,7 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
 import { GithubWebhook, GithubWebhookLayer, GithubWebhookRoutePath } from "@expand/server/automation/github-webhook"
 import type { GithubWebhookOptions } from "@expand/server/automation/github-webhook"
+import { CustomWebhook, CustomWebhookLayer, CustomWebhookRoutePath } from "@expand/server/automation/custom-webhook"
 
 export const httpServerLayer = (port: number, token: string, webhookOptions?: GithubWebhookOptions) => {
   const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
@@ -17,7 +18,8 @@ export const httpServerLayer = (port: number, token: string, webhookOptions?: Gi
     Layer.provide(RpcSerialization.layerNdjson)
   )
   const webhooks = githubWebhookRoutes().pipe(Layer.provide(GithubWebhookLayer(webhookOptions)))
-  const app = Layer.mergeAll(rpc, webhooks)
+  const customWebhooks = customWebhookRoutes().pipe(Layer.provide(CustomWebhookLayer))
+  const app = Layer.mergeAll(rpc, webhooks, customWebhooks)
   return HttpRouter.serve(app, { disableLogger: true, middleware: accessLogger }).pipe(
     Layer.provideMerge(node)
   )
@@ -96,6 +98,28 @@ const githubWebhookRoutes = () =>
           event: request.headers["x-github-event"],
           deliveryId: request.headers["x-github-delivery"],
           signature: request.headers["x-hub-signature-256"]
+        })
+        return yield* HttpServerResponse.json(handled.body, { status: handled.status })
+      }))
+    })
+  )
+
+const customWebhookRoutes = () =>
+  Layer.effectDiscard(
+    Effect.gen(function*() {
+      const router = yield* HttpRouter.HttpRouter
+      const webhooks = yield* CustomWebhook
+      yield* router.add("POST", CustomWebhookRoutePath, Effect.gen(function*() {
+        const request = yield* HttpServerRequest.HttpServerRequest
+        const raw = yield* request.arrayBuffer.pipe(Effect.map((buffer) => new Uint8Array(buffer)))
+        const handled = yield* webhooks.handle({
+          raw,
+          ownerId: request.headers["x-custom-owner"],
+          projectId: request.headers["x-custom-project"],
+          integrationId: request.headers["x-custom-integration"],
+          deliveryId: request.headers["x-custom-delivery"],
+          signature: request.headers["x-custom-signature"],
+          routineId: request.headers["x-custom-routine"]
         })
         return yield* HttpServerResponse.json(handled.body, { status: handled.status })
       }))

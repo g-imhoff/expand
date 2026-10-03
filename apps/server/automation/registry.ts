@@ -60,6 +60,12 @@ export class AutomationRegistry<Requirements = never> {
 
   readonly catalog = (): Catalog => ({ schemaVersion: 1, kind: "catalog", definitions: structuredClone(this.descriptors) })
 
+  readonly findTrigger = (reference: DefinitionReference): TriggerDefinition | null => {
+    const definition = this.definitions.get(definitionKey(reference))
+    if (definition === undefined || definition.kind !== "trigger") return null
+    return definition
+  }
+
   readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry<Requirements>, input: unknown) {
     const configuration = yield* decodeJson(RoutineConfiguration, input)
     if (configuration.template !== undefined) {
