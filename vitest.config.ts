@@ -15,6 +15,7 @@ export const testInclude = [
 
 export const processHeavyTestInclude = [
   "apps/server/test/integration/state-root-lock.test.ts",
+  "apps/server/test/integration/keep-running.test.ts",
   "packages/client-ts/test/integration/spawn-lock.test.ts",
   "examples/client-ts/test/archive-stale.smoke.test.ts"
 ]

@@ -20,6 +20,7 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 export interface RunServerOptions {
   readonly dbPath: string
   readonly port?: number
+  readonly keepRunning?: boolean
 }
 
 export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.Layer<never> }>("expand/ServerComposition", {
@@ -72,12 +73,16 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       })
       yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
-      yield* tracker.awaitShutdown
-      yield* Effect.logInfo("last connection closed — shutting down")
+      if (options.keepRunning === true) {
+        return yield* Effect.never
+      } else {
+        yield* tracker.awaitShutdown
+        yield* Effect.logInfo("last connection closed — shutting down")
 
-      yield* removeEndpointFile(fs, endpointFile)
+        yield* removeEndpointFile(fs, endpointFile)
 
-      yield* closeHttpScope(httpScope, Exit.void)
+        yield* closeHttpScope(httpScope, Exit.void)
+      }
     })
 
     return yield* lifecycle.pipe(Effect.provide(core))

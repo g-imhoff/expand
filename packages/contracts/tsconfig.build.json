@@ -21,6 +21,6 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["*.ts", "globals.d.ts", "events/*.ts", "rpc/*.ts"],
+  "include": ["*.ts", "globals.d.ts", "events/*.ts", "rpc/*.ts", "automation/*.ts"],
   "exclude": ["test", "dist", "node_modules", "**/*.test.ts", "tsconfig.build.json"]
 }

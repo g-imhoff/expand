@@ -2,7 +2,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { it } from "@effect/vitest"
 import { Effect } from "effect"
-import { describe, expect, vi } from "vitest"
+import { afterEach, describe, expect, vi } from "vitest"
 import type { Project } from "@expand/contracts/project"
 import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
@@ -16,15 +16,17 @@ vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }))
 
 const runner: RendererRunner = { start: startRendererRoot }
 
-const renderPalette = (projects: ReadonlyArray<Project>) => {
+const renderPalette = (projects: ReadonlyArray<Project>, onProjectOpened?: () => void) => {
   useCommandPalette.setState({ open: true })
   return renderWithProjectContextScoped(
     <RendererRunnerProvider value={runner}>
-      <CommandPalette />
+      <CommandPalette onProjectOpened={onProjectOpened} />
     </RendererRunnerProvider>,
     makeFakeProjectContext(projects)
   )
 }
+
+afterEach(() => navigate.mockReset())
 
 describe("CommandPalette — archived projects stay reachable", () => {
   it.effect("surfaces a Restore command for an archived project", () =>
@@ -45,13 +47,30 @@ describe("CommandPalette — archived projects stay reachable", () => {
 
   it.effect("observes a rejected navigation Promise through the owned runner", () =>
     Effect.scoped(Effect.gen(function* () {
+      const onProjectOpened = vi.fn()
       navigate.mockRejectedValueOnce(new Error("route unavailable"))
-      yield* renderPalette([fakeProject({ id: uid(3), name: "gamma", archived: false })])
+      yield* renderPalette([fakeProject({ id: uid(3), name: "gamma", archived: false })], onProjectOpened)
 
       fireEvent.click(screen.getByText("gamma"))
 
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain("route unavailable")
+      }))
+      expect(onProjectOpened).not.toHaveBeenCalled()
+    })))
+
+  it.effect("notifies the shell after project navigation succeeds", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const onProjectOpened = vi.fn()
+      navigate.mockResolvedValueOnce(undefined)
+      yield* renderPalette([fakeProject({ id: uid(4), name: "delta", archived: false })], onProjectOpened)
+
+      fireEvent.click(screen.getByText("delta"))
+
+      yield* Effect.tryPromise(() => waitFor(() => {
+        expect(navigate).toHaveBeenCalledWith({ to: "/p/$projectId", params: { projectId: uid(4) } })
+        expect(onProjectOpened).toHaveBeenCalledOnce()
+        expect(screen.queryByRole("dialog", { name: "Command Palette" })).toBeNull()
       }))
     })))
 })
