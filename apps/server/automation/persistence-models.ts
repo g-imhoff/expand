@@ -22,6 +22,15 @@ export const Attempt = Schema.Union([
 export type Attempt = typeof Attempt.Type
 export const RoutineStatus = Schema.Literals(["enabled", "paused", "deleted"])
 export type RoutineStatus = typeof RoutineStatus.Type
+export const StoredCredential = Schema.Struct({
+  schemaVersion: Schema.Literal(1), kind: Schema.Literal("credential"),
+  credentialId: LocalId, secret: JsonValue
+})
+export type StoredCredential = typeof StoredCredential.Type
+export const CredentialStatus = Schema.Struct({
+  credentialId: LocalId, version: PositiveVersion, configured: Schema.Literal(true)
+})
+export type CredentialStatus = typeof CredentialStatus.Type
 export const decode = <S extends Schema.ConstraintCodec<unknown, unknown, never, never>>(schema: S, input: unknown): Effect.Effect<S["Type"], StorageError> =>
   decodeJson(schema, input).pipe(Effect.mapError(() => new StorageError({ code: "invalid", message: "Invalid persistence value" })))
 export const readJson = <S extends Schema.ConstraintCodec<unknown, unknown, never, never>>(schema: S, json: string) => Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(json).pipe(Effect.mapError(() => new StorageError({ code: "invalid", message: "Invalid stored JSON" })), Effect.flatMap((value) => decode(schema, value)))
