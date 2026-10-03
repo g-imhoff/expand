@@ -7,6 +7,7 @@ import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import type { ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
+import { AutomationRpc, AutomationRpcLayer } from "@expand/desktop/renderer/rpc/automation-rpc"
 import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
 import { buildRendererClient, RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
@@ -50,9 +51,13 @@ export const boot = Effect.fn("DesktopRenderer.boot")(
           Effect.provide(ProjectRpcLayer),
           Effect.provideService(RendererRpcClient, client)
         )
+        const automation = yield* AutomationRpc.pipe(
+          Effect.provide(AutomationRpcLayer),
+          Effect.provideService(RendererRpcClient, client)
+        )
         const store = makeProjectsStore()
         return {
-          value: { store, rpc },
+          value: { store, rpc, automation },
           sink: makeProjectSyncSink(store)
         }
       }),
