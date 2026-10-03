@@ -270,7 +270,7 @@ describe("version policy", () => {
       expect(ENVELOPE_VERSION).toBe("expand/v1")
       expect(PROTOCOL_VERSION).toBe(2)
       expect(EVENT_REVISIONS.ProjectCreated).toBe(2)
-      expect(CURRENT_DATABASE_MIGRATION).toBe(1)
+      expect(CURRENT_DATABASE_MIGRATION).toBe(2)
 
       const definitions = {
         ENVELOPE_VERSION: [] as Array<string>,
