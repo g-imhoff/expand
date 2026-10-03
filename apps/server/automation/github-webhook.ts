@@ -205,7 +205,14 @@ export const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
           }
           return { jobId, run }
         })
-        const accepted = yield* services.executions.ingest({ delivery, raw: input.raw, targets }).pipe(
+        const ingestOnce = () => services.executions.ingest({ delivery, raw: input.raw, targets })
+        const accepted = yield* ingestOnce().pipe(
+          Effect.catch((error) => {
+            if (error instanceof StorageError && error.code === "storage") {
+              return ingestOnce()
+            }
+            return Effect.fail(error)
+          }),
           Effect.mapError((error) => {
             if (error instanceof StorageError && error.code !== "storage") {
               return new StorageError({ code: "invalid", message: "Webhook delivery is not usable" })
