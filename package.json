@@ -10,7 +10,9 @@
   },
   "overrides": {
     "@effect/platform-node-shared": "4.0.0",
-    "esbuild": "^0.28.2"
+    "tsup": {
+      "esbuild": "^0.28.2"
+    }
   },
   "workspaces": [
     "apps/desktop",
