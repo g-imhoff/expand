@@ -106,4 +106,14 @@ describe("github redacted status", () => {
     expect(encode(denied)).not.toContain(fakeToken)
     expect(stub.calls[0]?.authorization).toBe(`Bearer ${fakeToken}`)
   }).pipe(Effect.provide(Live)))
+  it.live("reports missing credentials without exposing the token", () => Effect.gen(function* () {
+    const stub = yield* withStub
+    stub.setLabels(["bug"])
+    const options = { baseUrl: stub.baseUrl, timeoutMs: 5000, maxRetries: 0 }
+    const missing = yield* checkGithubConnection(scope, integration, options)
+    expect(missing.ok).toBe(false)
+    expect(missing.configured).toBe(false)
+    expect(missing.code).toBe("missing-credential")
+    expect(encode(missing)).not.toContain(fakeToken)
+  }).pipe(Effect.provide(Live)))
 })

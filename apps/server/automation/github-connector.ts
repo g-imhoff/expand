@@ -51,7 +51,7 @@ export function unionLabels(
     seen.add(label)
     result.push(label)
   }
-  return result.filter((label) => existing.includes(label) || configured.includes(label))
+  return result
 }
 
 export const resolveGithubToken = Effect.fn("GithubConnector.resolveToken")(function*(
@@ -211,7 +211,8 @@ export const makeGithubConnectorExtension = (options?: GithubConnectorOptions) =
       const credentials = yield* CredentialRepository.pipe(
         Effect.mapError(() => ({ code: "connection", message: "Credential resolution failed" }) as AutomationFailure)
       )
-      const slot = (stored.configuration.credentials as Record<string, unknown>)[GithubCredentialSlot]
+      const storedCredentials: unknown = stored.configuration.credentials
+      const slot = typeof storedCredentials === "object" && storedCredentials !== null ? (storedCredentials as Record<string, unknown>)[GithubCredentialSlot] : undefined
       const reference = yield* Schema.decodeUnknownEffect(CredentialReference, { onExcessProperty: "error" })(slot).pipe(
         Effect.mapError(() => ({ code: "missing-credential", message: "GitHub credential is not configured" }) as AutomationFailure)
       )

@@ -239,7 +239,9 @@ function fetchWithRetry(input: FetchInput, attempt: number): Effect.Effect<unkno
 }
 
 function isRetryable(error: GithubTransportError): boolean {
-  return error.code === "rate-limited" || error.code === "connection" || error.code === "api"
+  if (error.code === "rate-limited" || error.code === "connection") return true
+  if (error.code !== "api" || error.status === undefined) return false
+  return error.status === 529 || error.status >= 500
 }
 
 function backoffDelay(attempt: number): Duration.Duration {

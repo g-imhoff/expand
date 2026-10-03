@@ -7,7 +7,7 @@ import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "../../automation/configuration-repository.js"
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
 import { AutomationRegistry } from "../../automation/registry.js"
-import { applyGithubLabel, listGithubLabels, makeGithubConnectorExtension, readGithubIssue } from "../../automation/github-connector.js"
+import { applyGithubLabel, checkGithubConnection, listGithubLabels, makeGithubConnectorExtension, readGithubIssue } from "../../automation/github-connector.js"
 import { startGithubStub } from "../fixtures/automation-github-stub.js"
 
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
@@ -109,5 +109,57 @@ describe("github connector integration", () => {
     expect(result).toEqual({ applied: true })
     expect(stub.getIssueLabels(7)).toEqual(["old", "type: bug", "type: question"])
     expect(encode(result)).not.toContain(fakeToken)
+  }).pipe(Effect.provide(Live)))
+  it.live("denies invocations when the repository does not match the permitted configuration", () => Effect.gen(function* () {
+    const stub = yield* withStub
+    yield* seed
+    stub.setIssue(7, { title: "Boom", labels: ["old"] })
+    const options = { baseUrl: stub.baseUrl, timeoutMs: 5000, maxRetries: 0 }
+    const scoped = makeGithubConnectorExtension(options)
+    const scopedRegistry = new AutomationRegistry()
+    yield* scopedRegistry.register(scoped.extension)
+    const foreign = { ...integration, configuration: { owner: "octo", repo: "other" } }
+    const routineConfiguration = {
+      schemaVersion: 1, kind: "routine-configuration",
+      reference: { routineId: "triage", revision: 1 },
+      scope, configuration: {},
+      integrations: [foreign],
+      process: {
+        schemaVersion: 1, kind: "process",
+        trigger: {
+          definition: { id: "github:issue-opened", version: 1 },
+          integration: { id: "github", definition: { id: "github:integration", version: 1 } },
+          configuration: {}
+        },
+        actions: {
+          triggered: [{
+            id: "label-1",
+            action: { id: "github:label-issue", version: 1 },
+            integration: { id: "github", definition: { id: "github:integration", version: 1 } },
+            bindings: {
+              issueNumber: { kind: "field", source: "trigger", path: ["issueNumber"] },
+              label: { kind: "literal", value: "type: bug" }
+            }
+          }]
+        }
+      }
+    }
+    const authority = {
+      schemaVersion: 1, kind: "invocation-authority", scope,
+      configuration: { routineId: "triage", revision: 1 },
+      integrationIds: ["github"],
+      actionGrants: [{ action: { id: "github:label-issue", version: 1 }, integrationId: "github", capabilities: ["label"] }]
+    }
+    const error = yield* Effect.flip(scopedRegistry.invokeAction(
+      { configuration: routineConfiguration, stepId: "label-1", triggerPayload: { issueNumber: 7, title: "Boom" }, mode: "live" },
+      authority
+    ))
+    expect(error.code).toBe("handler-failed")
+    expect(error.failure?.code).toBe("invalid-contract")
+    expect(stub.calls.filter((call) => call.method === "POST")).toHaveLength(0)
+    expect(stub.getIssueLabels(7)).toEqual(["old"])
+    expect(encode(error)).not.toContain(fakeToken)
+    const status = yield* checkGithubConnection(scope, integration, options)
+    expect(status.ok).toBe(true)
   }).pipe(Effect.provide(Live)))
 })

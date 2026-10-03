@@ -53,6 +53,11 @@ export const startGithubStub = Effect.fn("GithubStub.start")(function* () {
         body: parseBody(text.join(""))
       }
       calls.push(call)
+      if (call.authorization === undefined) {
+        response.writeHead(401, { "content-type": "application/json" })
+        response.end(Schema.encodeSync(GithubStubBodyJson)({ message: "Requires authentication" } as unknown as Schema.Json))
+        return
+      }
       if (reply !== null) {
         const next = reply(call)
         response.writeHead(next.status, { "content-type": "application/json" })
