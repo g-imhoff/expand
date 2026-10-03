@@ -43,23 +43,28 @@ const githubIntegration = {
 const issue = { issueNumber: 7, title: "Boom", body: "Details" }
 const withJev = Effect.acquireRelease(startJevStub(), (stub) => Effect.sync(() => stub.close()))
 const withGithub = Effect.acquireRelease(startGithubStub(), (stub) => Effect.sync(() => stub.close()))
-const mutations: Array<{ readonly args: unknown }> = []
-const registry = new AutomationRegistry()
-Effect.runSync(Effect.gen(function*() {
-  const { extension } = makeGithubExtension((args) =>
-    Effect.sync(() => {
-      mutations.push({ args })
-      return { applied: true }
-    })
+const makeStubSetup = () => {
+  const mutations: Array<{ readonly args: unknown }> = []
+  const registry = new AutomationRegistry()
+  Effect.runSync(Effect.gen(function*() {
+    const { extension } = makeGithubExtension((args) =>
+      Effect.sync(() => {
+        mutations.push({ args })
+        return { applied: true }
+      })
+    )
+    yield* registry.register(extension)
+  }))
+  const services = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+    Layer.provideMerge(Creds)
   )
-  yield* registry.register(extension)
-}))
+  return { registry, mutations, services }
+}
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
 const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
 const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
-const Services = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
-  Layer.provideMerge(Creds)
-)
+const firstSetup = makeStubSetup()
+const secondSetup = makeStubSetup()
 const LiveBase = Layer.mergeAll(Creds, NodeHttpClient.layerFetch)
 const servicesFor = Effect.gen(function*() {
   const context = yield* Layer.build(LiveBase)
@@ -81,7 +86,6 @@ const withServices = <A, E, R>(body: (services: GithubConnectorServices) => Effe
 describe("issue classification routine end to end", () => {
   it.live("matches through stubbed Jev transport to a validated label action with real history", () =>
     Effect.gen(function*() {
-      mutations.length = 0
       const stub = yield* withJev
       const routines = yield* RoutineService
       const repository = yield* ExecutionRepository
@@ -105,7 +109,7 @@ describe("issue classification routine end to end", () => {
         issue,
         mode: "live",
         decide: (input) => classifyJev(input.request, input.descriptions, fakeKey, { endpoint: stub.url, timeoutMs: 5000, maxRetries: 0 }),
-        registry
+        registry: firstSetup.registry
       })
       expect(outcome.kind).toBe("classified")
       if (outcome.kind !== "classified") return
@@ -124,8 +128,8 @@ describe("issue classification routine end to end", () => {
         }
       })
       expect(typeof outcome.latencyMs).toBe("number")
-      expect(mutations).toHaveLength(1)
-      expect(mutations[0]?.args).toEqual({ issueNumber: 7, label: "type: bug" })
+      expect(firstSetup.mutations).toHaveLength(1)
+      expect(firstSetup.mutations[0]?.args).toEqual({ issueNumber: 7, label: "type: bug" })
       const delivery = {
         schemaVersion: 1 as const,
         id: "issue-7",
@@ -187,11 +191,10 @@ describe("issue classification routine end to end", () => {
       expect(history.attempts).toHaveLength(1)
       expect(history.attempts[0]).toMatchObject({ kind: "decision", status: "completed", result: outcome.decision })
       expect(history.run.value.actions).toEqual([planned])
-    }).pipe(Effect.provide(Services))
+    }).pipe(Effect.provide(firstSetup.services))
   )
   it.live("leaves unmatched issues unresolved with zero mutations and real abstention history", () =>
     Effect.gen(function*() {
-      mutations.length = 0
       const stub = yield* withJev
       const routines = yield* RoutineService
       const repository = yield* ExecutionRepository
@@ -215,14 +218,14 @@ describe("issue classification routine end to end", () => {
         issue,
         mode: "live",
         decide: (input) => classifyJev(input.request, input.descriptions, fakeKey, { endpoint: stub.url, timeoutMs: 5000, maxRetries: 0 }),
-        registry
+        registry: secondSetup.registry
       })
       expect(outcome.kind).toBe("unresolved")
       if (outcome.kind !== "unresolved") return
       expect(outcome.executed).toBe(false)
       expect(outcome.decision.kind).toBe("abstained")
       expect(typeof outcome.latencyMs).toBe("number")
-      expect(mutations).toHaveLength(0)
+      expect(secondSetup.mutations).toHaveLength(0)
       const delivery = {
         schemaVersion: 1 as const,
         id: "issue-7",
@@ -281,8 +284,8 @@ describe("issue classification routine end to end", () => {
       expect(history.run.value.state).toEqual({ kind: "unresolved", reason: outcome.reason })
       expect(history.run.value.decision).toEqual(outcome.decision)
       expect(history.attempts[0]).toMatchObject({ kind: "decision", result: outcome.decision })
-      expect(mutations).toHaveLength(0)
-    }).pipe(Effect.provide(Services))
+      expect(secondSetup.mutations).toHaveLength(0)
+    }).pipe(Effect.provide(secondSetup.services))
   )
 })
 
