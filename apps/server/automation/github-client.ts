@@ -25,7 +25,7 @@ export interface GithubAllowedRepository {
 
 export interface GithubConnectorOptions {
   readonly baseUrl?: string
-  readonly allowedRepos: ReadonlyArray<GithubAllowedRepository>
+  readonly allowedRepos?: ReadonlyArray<GithubAllowedRepository>
   readonly timeoutMs?: number
   readonly maxRetries?: number
 }
@@ -232,7 +232,7 @@ export const makeGithubServerExtension = (options: GithubConnectorOptions) => {
 
 interface ConnectorSettings {
   readonly baseUrl: string
-  readonly allowedRepos: ReadonlyArray<GithubAllowedRepository>
+  readonly allowedRepos: ReadonlyArray<GithubAllowedRepository> | undefined
   readonly timeoutMs: number
   readonly maxRetries: number
 }
@@ -261,15 +261,17 @@ function resolveConnectorSettings(options: GithubConnectorOptions): Effect.Effec
       },
       catch: () => new GithubConnectorError({ code: "invalid-contract", message: "GitHub endpoint is not a usable URL" })
     })
-    if (!Array.isArray(options.allowedRepos)) {
+    if (options.allowedRepos !== undefined && !Array.isArray(options.allowedRepos)) {
       return yield* new GithubConnectorError({ code: "invalid-contract", message: "GitHub repository allow-list is not usable" })
     }
-    const allowedRepos: Array<GithubAllowedRepository> = []
-    for (const entry of options.allowedRepos) {
-      const proved = yield* Schema.decodeUnknownEffect(GithubRepositorySchema)(entry).pipe(
-        Effect.mapError(() => new GithubConnectorError({ code: "invalid-contract", message: "GitHub repository allow-list is not usable" }))
-      )
-      allowedRepos.push({ owner: proved.owner, repo: proved.repo })
+    const allowedRepos: Array<GithubAllowedRepository> | undefined = options.allowedRepos === undefined ? undefined : []
+    if (allowedRepos !== undefined) {
+      for (const entry of options.allowedRepos!) {
+        const proved = yield* Schema.decodeUnknownEffect(GithubRepositorySchema)(entry).pipe(
+          Effect.mapError(() => new GithubConnectorError({ code: "invalid-contract", message: "GitHub repository allow-list is not usable" }))
+        )
+        allowedRepos.push({ owner: proved.owner, repo: proved.repo })
+      }
     }
     const timeoutMs = options.timeoutMs ?? GithubDefaultTimeoutMs
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) {
@@ -302,12 +304,13 @@ function resolveStatusSettings(input: { readonly baseUrl?: string; readonly time
 }
 
 function selectPermittedRepository(
-  configuration: unknown, allowedRepos: ReadonlyArray<GithubAllowedRepository>
+  configuration: unknown, allowedRepos: ReadonlyArray<GithubAllowedRepository> | undefined
 ): Effect.Effect<typeof GithubRepositoryConfiguration.Type, GithubConnectorError> {
   return Effect.gen(function*() {
     const proved = yield* Schema.decodeUnknownEffect(GithubRepositoryConfiguration, { onExcessProperty: "error" })(configuration).pipe(
       Effect.mapError(() => new GithubConnectorError({ code: "invalid-contract", message: "GitHub repository does not match the automation contract" }))
     )
+    if (allowedRepos === undefined) return proved
     const permitted = allowedRepos.some((entry) => entry.owner === proved.owner && entry.repo === proved.repo)
     if (!permitted) {
       return yield* new GithubConnectorError({ code: "not-allowed", message: "GitHub repository is not permitted" })
