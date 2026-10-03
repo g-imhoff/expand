@@ -6,18 +6,47 @@ import { timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
+import { makeGithubWebhookHandler } from "@expand/server/automation/github-webhook"
+import type { GithubWebhookServices } from "@expand/server/automation/github-webhook"
+import { encodeJson } from "@expand/server/automation/persistence-models"
 
-export const httpServerLayer = (port: number, token: string) => {
+export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices) => {
   const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
   const rpc = RpcServer.layer(ExpandRpcs).pipe(
     Layer.provide(ExpandHandlers),
-    Layer.provide(guardedRpcWebsocket(token)),
+    Layer.provide(guardedRouter(token, webhookServices)),
     Layer.provide(RpcSerialization.layerNdjson)
   )
   return HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }).pipe(
     Layer.provideMerge(node)
   )
 }
+
+export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices) =>
+  Effect.gen(function* () {
+    const webhook = makeGithubWebhookHandler(webhookServices)
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const headers = request.headers as Record<string, string | undefined>
+    const deliveryId = headers["x-github-delivery"] ?? ""
+    const event = headers["x-github-event"] ?? ""
+    const signature = headers["x-hub-signature-256"]
+    const buffer = yield* request.arrayBuffer
+    const raw = new Uint8Array(buffer)
+    const outcome = yield* webhook.handle({ deliveryId, event, signature, raw })
+    if (outcome.status === 401) {
+      return HttpServerResponse.empty({ status: 401 })
+    }
+    if (!outcome.accepted) {
+      return HttpServerResponse.text(encodeJson({ accepted: false }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    }
+    return HttpServerResponse.text(
+      encodeJson({ accepted: true, deliveryId: outcome.deliveryId, jobIds: [...outcome.jobIds], runIds: [...outcome.runIds] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )
+  })
 
 const accessLogger = HttpMiddleware.make((httpApp) =>
   Effect.flatMap(HttpServerRequest.HttpServerRequest, (request) => {
@@ -58,7 +87,7 @@ const timingSafeEqualStrings = (a: string, b: string): boolean => {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-const guardedRpcWebsocket = (token: string) =>
+const guardedRouter = (token: string, webhookServices?: GithubWebhookServices) =>
   Layer.effect(RpcServer.Protocol)(
     Effect.gen(function*() {
       const { httpEffect, protocol } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket
@@ -75,6 +104,9 @@ const guardedRpcWebsocket = (token: string) =>
           return yield* httpEffect
         })
       )
+      if (webhookServices !== undefined) {
+        yield* router.add("POST", "/webhooks/github", githubWebhookRouteHandler(webhookServices))
+      }
       return protocol
     })
   )

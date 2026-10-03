@@ -2,6 +2,7 @@ import { Context, Effect, Exit, Fiber, FileSystem, Layer, Path, Scope } from "ef
 import { HttpServer } from "effect/http"
 import { NetAddress } from "effect/net"
 import { SqliteClient } from "@effect/sql-sqlite-node"
+import { SqlClient } from "effect/sql/SqlClient"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -11,6 +12,9 @@ import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-ca
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { httpServerLayer } from "@expand/server/transport/http-server"
+import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepository, ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
@@ -42,10 +46,16 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     const coreScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => Scope.close(coreScope, exit))
     const core = yield* Layer.buildWithScope(coreLayerDefinition, coreScope)
+    const webhookServices = {
+      configurations: Context.get(core, ConfigurationRepository),
+      credentials: Context.get(core, CredentialRepository),
+      executions: Context.get(core, ExecutionRepository),
+      sql: Context.get(core, SqlClient),
+    }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
     const transport = yield* Layer.buildWithScope(
-      httpServerLayer(portHint, token).pipe(Layer.provide(Layer.succeedContext(core))),
+      httpServerLayer(portHint, token, webhookServices).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
     )
 
@@ -133,5 +143,8 @@ const coreLayer = (dbPath: string) => {
     Layer.provide(EventBusLayer),
     Layer.provide(projection)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
+  const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
+  const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation)
 }
