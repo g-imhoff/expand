@@ -247,7 +247,9 @@ const validateDevelopmentUrl = Effect.fn("DesktopMain.validateDevelopmentUrl")((
 const isRendererIdentityAllowed = (value: string, identity: RendererIdentity): boolean => {
   try {
     const parsed = new URL(value)
-    return identity._tag === "url" ? parsed.href === identity.value : parsed.origin === identity.value
+    if (identity._tag === "origin") return parsed.origin === identity.value
+    if (parsed.protocol === "file:") parsed.hash = ""
+    return parsed.href === identity.value
   } catch {
     return false
   }

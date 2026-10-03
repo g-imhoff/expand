@@ -1,3 +1,9 @@
+export interface SidebarProject {
+  readonly id: string
+  readonly name: string
+  readonly archived: boolean
+}
+
 export interface SidebarDevice {
   readonly id: string
   readonly name: string

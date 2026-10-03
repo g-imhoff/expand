@@ -357,6 +357,90 @@ describe("mainProgram startup and shutdown", () => {
       })
     ))
 
+  it.effect("allows trusted packaged document navigation with automation fragments", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ packaged: true })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        const documentUrl = "file:///repo/apps/desktop/out/renderer/index.html"
+        for (const fragment of [
+          "",
+          "#/p/project-1/automations",
+          "#/p/project-1/automations/integrations",
+          "#/p/project-1/automations/routines/new",
+          "#/p/project-1/automations/history"
+        ]) {
+          expect(harness.fireWillNavigate(`${documentUrl}${fragment}`), fragment).toBe(false)
+        }
+        expect(harness.boundIdentity()).toEqual({ _tag: "url", value: documentUrl })
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("rejects packaged navigation outside the complete trusted document URL", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ packaged: true })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        const documentUrl = "file:///repo/apps/desktop/out/renderer/index.html"
+        const fragment = "#/p/project-1/automations/history"
+        for (const url of [
+          "file:///repo/apps/desktop/out/renderer/hostile.html" + fragment,
+          "file:///other/index.html" + fragment,
+          "file://attacker/repo/apps/desktop/out/renderer/index.html" + fragment,
+          "file:///repo/apps/desktop/out/renderer/%69ndex.html" + fragment,
+          "file:///repo/apps/desktop/out/renderer/index.html%2fhostile.html" + fragment,
+          "file:///repo/apps/desktop/out/renderer/index.html%5chostile.html" + fragment,
+          `${documentUrl}?query${fragment}`,
+          `${documentUrl}?${fragment}`,
+          `${documentUrl}?`,
+          "https://attacker.example/index.html" + fragment,
+          "https://app.example/index.html" + fragment,
+          "data:text/html,hostile" + fragment,
+          "not a url",
+          "file://[invalid/index.html"
+        ]) {
+          expect(harness.fireWillNavigate(url), url).toBe(true)
+        }
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
+  it.effect("preserves development origin navigation across paths, queries, and fragments", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeHarness({ environment: { ELECTRON_RENDERER_URL: "http://localhost:5173" } })
+        const fiber = yield* start(harness)
+        yield* waitFor(harness.readyStarted)
+        yield* harness.succeedReady
+        yield* waitFor(harness.loadStarted)
+        expect(harness.fireWillNavigate("http://localhost:5173/other?query#/p/project-1/automations/history")).toBe(false)
+        for (const url of [
+          "http://localhost:5174/",
+          "https://localhost:5173/",
+          "http://attacker.example:5173/",
+          "file:///repo/apps/desktop/out/renderer/index.html#/p/project-1/automations/history",
+          "not a url"
+        ]) expect(harness.fireWillNavigate(url), url).toBe(true)
+        yield* harness.succeedLoad
+        yield* waitFor(harness.windowLoaded)
+        expect(harness.fireBeforeQuit()).toBe(true)
+        expect(Exit.isSuccess(yield* fiberExit(fiber))).toBe(true)
+      })
+    ))
+
   it.effect("rejects an invalid development renderer URL with DesktopMainError", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({ environment: { ELECTRON_RENDERER_URL: "not a url" } })
