@@ -45,24 +45,9 @@ export const GmailPollState = Schema.Struct({
 })
 export type GmailPollState = typeof GmailPollState.Type
 
-export const ensureGmailPollTables = Effect.fn("GmailPoll.ensureTables")(function*() {
-  const sql = yield* SqlClient
-  yield* sql`CREATE TABLE IF NOT EXISTS automation_gmail_poll_state (
-    owner_id TEXT NOT NULL, project_id TEXT NOT NULL, integration_id TEXT NOT NULL,
-    history_id TEXT, seen_json TEXT NOT NULL,
-    UNIQUE(owner_id, project_id, integration_id)
-  ) STRICT`
-  yield* sql`CREATE TABLE IF NOT EXISTS automation_gmail_sent (
-    owner_id TEXT NOT NULL, project_id TEXT NOT NULL, integration_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    UNIQUE(owner_id, project_id, integration_id, message_id)
-  ) STRICT`
-})
-
 export const loadGmailPollState = Effect.fn("GmailPoll.loadState")(function*(scope: PersonalScope, integrationId: string) {
   yield* DatabaseReady
   const sql = yield* SqlClient
-  yield* ensureGmailPollTables()
   const rows = yield* sql<PollRow>`SELECT history_id, seen_json FROM automation_gmail_poll_state WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND integration_id=${integrationId}`
   const row = rows[0]
   if (row === undefined) return { seenIds: [] } as GmailPollState
@@ -76,7 +61,6 @@ export const loadGmailPollState = Effect.fn("GmailPoll.loadState")(function*(sco
 export const saveGmailPollState = Effect.fn("GmailPoll.saveState")(function*(scope: PersonalScope, integrationId: string, state: GmailPollState) {
   yield* DatabaseReady
   const sql = yield* SqlClient
-  yield* ensureGmailPollTables()
   yield* decode(PersonalScope, scope)
   const proved = yield* decode(GmailPollState, state)
   const seenJson = encodeJson([...proved.seenIds])
@@ -89,7 +73,6 @@ export const saveGmailPollState = Effect.fn("GmailPoll.saveState")(function*(sco
 export const markGmailSent = Effect.fn("GmailPoll.markSent")(function*(scope: PersonalScope, integrationId: string, messageId: string) {
   yield* DatabaseReady
   const sql = yield* SqlClient
-  yield* ensureGmailPollTables()
   yield* decode(PersonalScope, scope)
   if (typeof messageId !== "string" || messageId.length === 0) {
     return yield* new StorageError({ code: "invalid", message: "Invalid sent message id" })
@@ -101,7 +84,6 @@ export const markGmailSent = Effect.fn("GmailPoll.markSent")(function*(scope: Pe
 export const listGmailSentIds = Effect.fn("GmailPoll.listSent")(function*(scope: PersonalScope, integrationId: string) {
   yield* DatabaseReady
   const sql = yield* SqlClient
-  yield* ensureGmailPollTables()
   yield* decode(PersonalScope, scope)
   const rows = yield* sql<SentRow>`SELECT message_id FROM automation_gmail_sent WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND integration_id=${integrationId} ORDER BY message_id`
   return rows.map((row) => row.message_id) as ReadonlyArray<string>
@@ -133,7 +115,6 @@ export const pollGmailInbox = Effect.fn("GmailPoll.poll")(function*(
   options: GmailPollOptions = {}
 ) {
   yield* DatabaseReady
-  yield* ensureGmailPollTables()
   const configurations = yield* ConfigurationRepository
   const executions = yield* ExecutionRepository
   const stored = yield* configurations.getIntegration(scope, integrationId)
