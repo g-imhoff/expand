@@ -155,12 +155,22 @@ export const checkGithubConnection = (
     }
     const repoValue = repository.value
     const base: GithubConnectionStatus = { ok: false, configured: false, owner: repoValue.owner, repo: repoValue.repo }
-    const token = yield* resolveGithubToken(scopeValue, integrationValue).pipe(Effect.option)
-    if (token._tag === "None") {
-      return { ...base, reason: "GitHub credential is not configured", code: "missing-credential" }
+    const tokenResult = yield* resolveGithubToken(scopeValue, integrationValue).pipe(
+      Effect.map((value) => ({ value }) as const),
+      Effect.catch((error) => Effect.succeed({ error } as const))
+    )
+    if ("error" in tokenResult) {
+      const failure = tokenResult.error
+      return {
+        ...base,
+        reason: failure.message,
+        code: failure.code,
+        ...(failure.status === undefined ? {} : { status: failure.status })
+      }
     }
+    const token = tokenResult.value
     const configuredBase: GithubConnectionStatus = { ...base, configured: true }
-    const labels = yield* listRepositoryLabels(repoValue.owner, repoValue.repo, token.value, options).pipe(
+    const labels = yield* listRepositoryLabels(repoValue.owner, repoValue.repo, token, options).pipe(
       Effect.map((value) => ({ value }) as const),
       Effect.catch((error) => Effect.succeed({ error } as const))
     )

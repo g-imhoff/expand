@@ -115,5 +115,12 @@ describe("github redacted status", () => {
     expect(missing.configured).toBe(false)
     expect(missing.code).toBe("missing-credential")
     expect(encode(missing)).not.toContain(fakeToken)
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "github-token", new Uint8Array([0xff]), 0)
+    const invalid = yield* checkGithubConnection(scope, integration, options)
+    expect(invalid.ok).toBe(false)
+    expect(invalid.configured).toBe(false)
+    expect(invalid.code).toBe("invalid-credential")
+    expect(encode(invalid)).not.toContain(fakeToken)
   }).pipe(Effect.provide(Live)))
 })
