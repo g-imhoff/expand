@@ -1,9 +1,14 @@
-import { createHashHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router"
+import { createHashHistory, createRootRoute, createRoute, createRouter, type RouterHistory } from "@tanstack/react-router"
 import { ProjectsView } from "@expand/desktop/renderer/features/projects/pages/ProjectsView"
 import { Workspace } from "@expand/desktop/renderer/features/projects/pages/Workspace"
 import { RootLayout } from "@expand/desktop/renderer/app/shell/root-layout"
+import { AutomationLayout } from "@expand/desktop/renderer/features/automations/components/AutomationLayout"
+import { AutomationOverview } from "@expand/desktop/renderer/features/automations/pages/AutomationOverview"
+import { AutomationIntegrations } from "@expand/desktop/renderer/features/automations/pages/AutomationIntegrations"
+import { AutomationRoutineSetup } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineSetup"
+import { AutomationHistory } from "@expand/desktop/renderer/features/automations/pages/AutomationHistory"
 
-export const router = (() => {
+export const createAppRouter = (history: RouterHistory = createHashHistory()) => {
   const rootRoute = createRootRoute({ component: RootLayout })
   const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: ProjectsView })
   const projectRoute = createRoute({
@@ -12,9 +17,25 @@ export const router = (() => {
     component: Workspace
   })
 
-  const routeTree = rootRoute.addChildren([indexRoute, projectRoute])
-  return createRouter({ routeTree, history: createHashHistory() })
-})()
+  const automationRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/p/$projectId/automations",
+    component: AutomationLayout
+  })
+  const overviewRoute = createRoute({ getParentRoute: () => automationRoute, path: "/", component: AutomationOverview })
+  const integrationsRoute = createRoute({ getParentRoute: () => automationRoute, path: "integrations", component: AutomationIntegrations })
+  const routineSetupRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/new", component: AutomationRoutineSetup })
+  const historyRoute = createRoute({ getParentRoute: () => automationRoute, path: "history", component: AutomationHistory })
+
+  const routeTree = rootRoute.addChildren([
+    indexRoute,
+    projectRoute,
+    automationRoute.addChildren([overviewRoute, integrationsRoute, routineSetupRoute, historyRoute])
+  ])
+  return createRouter({ routeTree, history })
+}
+
+export const router = createAppRouter()
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -6,7 +6,7 @@ export const utf8Bytes = (value: unknown): number => {
 export const exactUrl = (input: string, kind: "origin" | "url"): string => {
   const parsed = new URL(input)
   if (kind === "url" && parsed.protocol !== "file:") throw new Error("rendererUrl must be file URL")
-  if (parsed.username || parsed.password || parsed.pathname !== (kind === "url" ? parsed.pathname : "/") || parsed.search || parsed.hash) throw new Error("invalid renderer location")
+  if (parsed.username || parsed.password || parsed.pathname !== (kind === "url" ? parsed.pathname : "/") || parsed.search || parsed.hash || input.includes("?") || input.includes("#")) throw new Error("invalid renderer location")
   if (kind === "origin" && parsed.origin === "null") throw new Error("invalid renderer origin")
   if (kind === "url" && parsed.protocol !== "file:" && parsed.origin === "null") throw new Error("invalid renderer url")
   const canonical = kind === "origin" ? parsed.origin : parsed.href

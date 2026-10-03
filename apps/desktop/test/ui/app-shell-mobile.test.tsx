@@ -2,29 +2,17 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { it } from "@effect/vitest"
 import { Effect } from "effect"
-import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router"
+import { createMemoryHistory, RouterProvider } from "@tanstack/react-router"
 import { afterEach, beforeEach, describe, expect, vi } from "vitest"
-import { RootLayout } from "@expand/desktop/renderer/app/shell/root-layout"
+import { createAppRouter } from "@expand/desktop/renderer/app/router"
 import { startRendererRoot, type RendererRunner } from "@expand/desktop/renderer/app/runner"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
-import { ProjectsView } from "@expand/desktop/renderer/features/projects/pages/ProjectsView"
-import { Workspace } from "@expand/desktop/renderer/features/projects/pages/Workspace"
 import { fakeProject, makeFakeProjectContext, renderWithProjectContextScoped, uid } from "./ui-harness"
 
 const runner: RendererRunner = { start: startRendererRoot }
 
 const renderMobileShell = () => {
-  const rootRoute = createRootRoute({ component: RootLayout })
-  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: ProjectsView })
-  const projectRoute = createRoute({
-    getParentRoute: () => rootRoute,
-    path: "/p/$projectId",
-    component: Workspace
-  })
-  const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, projectRoute]),
-    history: createMemoryHistory({ initialEntries: [`/p/${uid(1)}`] })
-  })
+  const router = createAppRouter(createMemoryHistory({ initialEntries: [`/p/${uid(1)}`] }))
 
   return renderWithProjectContextScoped(
     <RendererRunnerProvider value={runner}>
@@ -96,6 +84,32 @@ describe("mobile app shell", () => {
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(trigger.getAttribute("aria-expanded")).toBe("false")
         expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(document.activeElement).toBe(trigger)
+      }))
+    })))
+
+  it.effect("opens automations from the mobile rail, closes the Sheet and returns focus", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderMobileShell()
+      const trigger = yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Open sidebar" }))
+      fireEvent.click(trigger)
+      const sheet = yield* Effect.tryPromise(() => screen.findByRole("dialog", { name: "Sidebar" }))
+      fireEvent.click(within(sheet).getByRole("button", { name: "Automations" }))
+      yield* Effect.tryPromise(() => waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(screen.getByRole("heading", { name: "Overview" })).toBeDefined()
+        expect(document.activeElement).toBe(trigger)
+      }))
+      fireEvent.click(trigger)
+      const reopened = yield* Effect.tryPromise(() => screen.findByRole("dialog", { name: "Sidebar" }))
+      fireEvent.click(within(reopened).getByRole("button", { name: "Sidebar three-zone shape, unread" }))
+      yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Back to automations" }))
+      fireEvent.click(trigger)
+      const previewSheet = yield* Effect.tryPromise(() => screen.findByRole("dialog", { name: "Sidebar" }))
+      fireEvent.click(within(previewSheet).getByRole("button", { name: "Automations" }))
+      yield* Effect.tryPromise(() => waitFor(() => {
+        expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()
+        expect(screen.getByRole("heading", { name: "Overview" })).toBeDefined()
         expect(document.activeElement).toBe(trigger)
       }))
     })))
