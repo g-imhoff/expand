@@ -1,6 +1,5 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { basename, join } from "node:path"
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { join, sep } from "node:path"
 import { spawnSync } from "node:child_process"
 import { Clock, Data, Effect, Schema } from "effect"
 import { runAcpPrompt } from "./acp-transport.js"
@@ -112,7 +111,7 @@ export const executeCodingSession = (
   input: CodingExecutionInput
 ): Effect.Effect<CodingExecutionResult, CodingAgentError> =>
   Effect.gen(function*() {
-    if (input.timeoutMs <= 0 || input.timeoutMs > 300000) {
+    if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > 300000) {
       return yield* new CodingAgentError({ code: "invalid", message: "Timeout is out of range" })
     }
     const adapter = yield* resolveCodingAdapter(input.agentKind, input.requestedCapabilities)
@@ -131,12 +130,15 @@ export const executeCodingSession = (
         Effect.mapError((cause) => toCodingError(cause)),
         Effect.timeout(`${input.timeoutMs} millis`),
         Effect.catchTag("TimeoutError", () =>
-          Effect.fail(
-            new CodingAgentError({
-              code: "timeout",
-              message: `Coding session exceeded ${input.timeoutMs}ms`,
-              durationMs: 0
-            })
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((now) =>
+              Effect.fail(
+                new CodingAgentError({
+                  code: "timeout",
+                  message: `Coding session exceeded ${input.timeoutMs}ms`,
+                  durationMs: now - startedAt
+                })
+              ))
           ))
       )
       const diffSummary = runGitSync(worktree, ["status", "--porcelain"]).slice(0, 2000) +
@@ -149,7 +151,7 @@ export const executeCodingSession = (
       Effect.ensuring(
         Effect.sync(() => {
           try {
-            rmSync(worktree, { recursive: true, force: true })
+            if (isManagedWorktree(worktreeRoot, worktree)) rmSync(worktree, { recursive: true, force: true })
           } catch {
             return
           }
@@ -184,25 +186,63 @@ const toCodingError = (cause: AcpTransportError): CodingAgentError => {
   return new CodingAgentError({ code: "failed", message: cause.message })
 }
 
+const canonicalBase = (root: string): string => {
+  mkdirSync(root, { recursive: true })
+  try {
+    return realpathSync(root)
+  } catch {
+    return root
+  }
+}
+const isManagedWorktree = (root: string, worktree: string): boolean => {
+  if (root.length === 0 || worktree.length === 0) return false
+  let base = root
+  let target = worktree
+  try {
+    base = realpathSync(root)
+  } catch {
+    return false
+  }
+  try {
+    target = realpathSync(worktree)
+  } catch {
+    target = worktree
+  }
+  return target === base || target.startsWith(base + sep)
+}
 const createWorktreeSync = (root: string, repository: string, runId: string): string => {
-  const base = root.length > 0 ? root : tmpdir()
-  mkdirSync(base, { recursive: true })
+  if (root.length === 0) throw new Error("Worktree root is not configured")
+  const base = canonicalBase(root)
   const safeRun = runId.replace(/[^a-zA-Z0-9-_]/g, "-").slice(0, 60)
   const prefix = join(base, `coding-${safeRun}-`)
   const worktree = mkdtempSync(prefix)
-  const run = (args: Array<string>): void => {
-    const result = spawnSync("git", args, { cwd: worktree, stdio: "ignore" })
-    if (result.status !== 0) throw new Error(`git ${args[0] ?? ""} failed`)
+  if (!isManagedWorktree(base, worktree)) {
+    try {
+      rmSync(worktree, { recursive: true, force: true })
+    } catch {}
+    throw new Error("Worktree escaped the managed directory")
   }
-  run(["init"])
-  run(["config", "user.email", "automation@example.invalid"])
-  run(["config", "user.name", "automation"])
-  writeFileSync(join(worktree, "REPOSITORY"), `${repository}\n`, "utf-8")
-  run(["add", "REPOSITORY"])
-  const commit = spawnSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: worktree, stdio: "ignore" })
-  if (commit.status !== 0) throw new Error("git commit failed")
-  void basename(worktree)
-  return worktree
+  try {
+    const run = (args: Array<string>): void => {
+      const result = spawnSync("git", args, { cwd: worktree, stdio: "ignore" })
+      if (result.status !== 0) throw new Error(`git ${args[0] ?? ""} failed`)
+    }
+    run(["init"])
+    run(["config", "user.email", "automation@example.invalid"])
+    run(["config", "user.name", "automation"])
+    writeFileSync(join(worktree, "REPOSITORY"), `${repository}\n`, "utf-8")
+    run(["add", "REPOSITORY"])
+    const commit = spawnSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: worktree, stdio: "ignore" })
+    if (commit.status !== 0) throw new Error("git commit failed")
+    return worktree
+  } catch (error) {
+    try {
+      rmSync(worktree, { recursive: true, force: true })
+    } catch {
+      throw error
+    }
+    throw error
+  }
 }
 
 const runGitSync = (worktree: string, args: Array<string>): string => {
