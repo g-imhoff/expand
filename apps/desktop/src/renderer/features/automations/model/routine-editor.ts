@@ -165,7 +165,7 @@ export const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog):
   if (trigger === undefined) problems.push("Choose exactly one trigger from the catalog.")
   const integration = trigger === undefined ? undefined : integrationForTrigger(catalog, trigger)
   if (trigger !== undefined && integration === undefined) {
-    problems.push("The selected trigger has no registered integration.")
+    problems.push(`The selected trigger "${form.triggerKey}" has no registered integration.`)
   }
   const githubTrigger = trigger?.definition.id === "github:issue-opened"
   const githubIntegration = integration?.definition.id === "github:integration"
@@ -175,8 +175,8 @@ export const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog):
   }
   if (form.useDecision && names.length === 0) problems.push("Add at least one category for the Jev decision step.")
   const seen = new Set<string>()
-  for (const name of names) {
-    if (name.length === 0) problems.push("Every category needs a name.")
+  for (const [position, name] of names.entries()) {
+    if (name.length === 0) problems.push(`Category ${position + 1} needs a name.`)
     else if (seen.has(name)) problems.push(`Duplicate category "${name}".`)
     else seen.add(name)
   }
@@ -195,9 +195,9 @@ export const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog):
     if (githubTrigger && category.steps.length === 0) {
       problems.push(`${display} needs at least one action.`)
     }
-    for (const step of category.steps) {
+    for (const [stepIndex, step] of category.steps.entries()) {
       if (step.actionKey === "" || (trigger !== undefined && actionForKey(catalog, step.actionKey) === undefined)) {
-        problems.push(`${display} has an action without a registered action.`)
+        problems.push(`${display} action ${stepIndex + 1} needs a registered action.`)
       }
     }
   }

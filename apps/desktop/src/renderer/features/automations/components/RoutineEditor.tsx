@@ -135,7 +135,7 @@ export const RoutineEditor = ({ projectId, routineId }: RoutineEditorProps) => {
     const template = catalogTemplates(catalog).find((entry) => definitionKeyOf(entry.definition) === key)
     if (template === undefined) return
     const loaded = formFromTemplate(template)
-    updateForm({ ...loaded, routineId: form.routineId, owner: form.owner, repo: form.repo })
+    updateForm({ ...loaded, routineId: form.routineId, integrationId: form.integrationId, owner: form.owner, repo: form.repo })
   }
 
   const chooseTrigger = (key: string) => {
@@ -166,6 +166,7 @@ export const RoutineEditor = ({ projectId, routineId }: RoutineEditorProps) => {
 
   const toggleStatus = () => {
     if (editingId === undefined || head === undefined) return
+    if (saveMutation.isPending || recordQuery.isLoading) return
     if (head.status !== "enabled" && head.status !== "paused") return
     const next = head.status === "enabled" ? "paused" : "enabled"
     statusMutation.mutate({ routineId: editingId, expectedVersion: head.version, next }, {
@@ -354,7 +355,7 @@ export const RoutineEditor = ({ projectId, routineId }: RoutineEditorProps) => {
             <button
               type="button"
               onClick={toggleStatus}
-              disabled={statusMutation.isPending}
+              disabled={statusMutation.isPending || saveMutation.isPending || recordQuery.isLoading}
               className="mt-2 min-h-9 rounded border px-3 text-sm disabled:opacity-50"
             >
               {statusMutation.isPending ? "Updating…" : head.status === "enabled" ? "Pause" : "Enable"}
@@ -413,6 +414,7 @@ const IntegrationSection = ({
 }) => {
   const trigger = form.triggerKey === "" ? undefined : triggerForKey(catalog, form.triggerKey)
   const integration = trigger === undefined ? undefined : integrationForTrigger(catalog, trigger)
+  const showRepository = trigger?.definition.id === "github:issue-opened" || integration?.definition.id === "github:integration"
   return (
     <section aria-label="Integration" className="mt-8">
       <h2 className="text-lg font-semibold">Integration</h2>
@@ -431,24 +433,28 @@ const IntegrationSection = ({
             autoComplete="off"
           />
         </div>
-        <div>
-          <Label htmlFor="routine-editor-owner">Repository owner</Label>
-          <Input
-            id="routine-editor-owner"
-            value={form.owner}
-            onChange={(event) => onChange({ ...form, owner: event.target.value })}
-            autoComplete="off"
-          />
-        </div>
-        <div>
-          <Label htmlFor="routine-editor-repo">Repository name</Label>
-          <Input
-            id="routine-editor-repo"
-            value={form.repo}
-            onChange={(event) => onChange({ ...form, repo: event.target.value })}
-            autoComplete="off"
-          />
-        </div>
+        {showRepository && (
+          <div>
+            <Label htmlFor="routine-editor-owner">Repository owner</Label>
+            <Input
+              id="routine-editor-owner"
+              value={form.owner}
+              onChange={(event) => onChange({ ...form, owner: event.target.value })}
+              autoComplete="off"
+            />
+          </div>
+        )}
+        {showRepository && (
+          <div>
+            <Label htmlFor="routine-editor-repo">Repository name</Label>
+            <Input
+              id="routine-editor-repo"
+              value={form.repo}
+              onChange={(event) => onChange({ ...form, repo: event.target.value })}
+              autoComplete="off"
+            />
+          </div>
+        )}
       </div>
     </section>
   )
