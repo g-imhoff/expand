@@ -30,9 +30,13 @@ export const normalizeRemoteUrl = (input: string): string => {
   if (trimmed.length === 0) return trimmed
   const withScheme = /^wss?:\/\//i.test(trimmed)
     ? trimmed
-    : trimmed.startsWith("127.") || trimmed.startsWith("localhost")
-      ? `ws://${trimmed}`
-      : `wss://${trimmed}`
+    : /^https:\/\//i.test(trimmed)
+      ? `wss://${trimmed.slice("https://".length)}`
+      : /^http:\/\//i.test(trimmed)
+        ? `ws://${trimmed.slice("http://".length)}`
+        : trimmed.startsWith("127.") || trimmed.startsWith("localhost")
+          ? `ws://${trimmed}`
+          : `wss://${trimmed}`
   const parsed = new URL(withScheme)
   parsed.search = ""
   parsed.hash = ""
