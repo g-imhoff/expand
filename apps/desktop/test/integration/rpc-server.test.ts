@@ -14,7 +14,9 @@ import {
   ProjectClient,
   type ProjectClientApi
 } from "@expand/client-ts/project"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ServerClient } from "@expand/client-ts/server"
+import { unusedAutomationClient } from "../support/automation-stub"
 import { buildRendererClient } from "@expand/desktop/renderer/rpc/transport"
 import type { RendererPortLike } from "@expand/desktop/renderer/rpc/renderer-port"
 import { type MainPortLike, runRpcServer } from "@expand/desktop/main/rpc/server"
@@ -70,7 +72,8 @@ const fakeClientLayer = (
   return Layer.mergeAll(
     Layer.succeed(ClientSession, session),
     Layer.succeed(ProjectClient, project),
-    Layer.succeed(ServerClient, { health: () => Effect.succeed("ok") })
+    Layer.succeed(ServerClient, { health: () => Effect.succeed("ok") }),
+    Layer.succeed(AutomationClient, unusedAutomationClient)
   )
 }
 

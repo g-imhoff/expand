@@ -8,7 +8,9 @@ import { runProjectSync } from "@expand/contracts/project-sync"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { ClientSession, type ClientSessionApi, type ConnectionStatus } from "@expand/client-ts"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ServerClient } from "@expand/client-ts/server"
+import { unusedAutomationClient } from "../support/automation-stub"
 import { runRpcServer, type MainPortLike } from "@expand/desktop/main/rpc/server"
 import { makeProjectSyncSink, makeProjectsStore, type ProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
@@ -116,7 +118,8 @@ const mainLayer = (
   return Layer.mergeAll(
     Layer.succeed(ClientSession, session),
     Layer.succeed(ProjectClient, projects),
-    Layer.succeed(ServerClient, { health: () => Effect.succeed("ok") })
+    Layer.succeed(ServerClient, { health: () => Effect.succeed("ok") }),
+    Layer.succeed(AutomationClient, unusedAutomationClient)
   )
 }
 
