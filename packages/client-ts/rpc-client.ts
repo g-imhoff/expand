@@ -6,20 +6,26 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import type { Endpoint } from "@expand/contracts/endpoint"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl, ProcessProbeError } from "@expand/contracts/process-control"
+import type { BackendConnection, RemoteConnection } from "@expand/contracts/backend-connection"
 import { BackendUnavailable } from "./errors"
 import { findOrSpawnBackend } from "./spawn"
+import { resolveRemoteEndpoint, remoteSpawnGuard, validateConnection } from "./backend-connection"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
 
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
-export const acquireClient = Effect.fn("Client.acquireClient")((
-  adapter: RuntimeAdapter
+export const acquireClient = (
+  adapter: RuntimeAdapter,
+  connection?: BackendConnection
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > => {
+  if (connection !== undefined && connection._tag === "remote") {
+    return acquireRemote(adapter, connection)
+  }
   const acquireOnce = (rejectedEndpoints: ReadonlyArray<Endpoint>) => findOrSpawnBackend(
     adapter,
     rejectedEndpoints
@@ -28,34 +34,7 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
       (e): e is "pending" => e === "pending",
       (e) => Effect.die(e)
     ),
-    Effect.flatMap((endpoint) =>
-      Effect.gen(function* () {
-        const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint)))
-        const client = yield* RpcClient.make(ExpandRpcs).pipe(Effect.provideContext(protocol))
-        const ready = yield* Deferred.make<void>()
-        yield* Effect.forkScoped(
-          supervised(
-            "rpc-client connect drain",
-            Stream.runDrain(
-              Stream.tap(client.Connect(), () => Deferred.succeed(ready, undefined))
-            )
-          )
-        )
-        yield* Deferred.await(ready).pipe(
-          Effect.timeoutOrElse({
-            duration: CONNECT_TIMEOUT,
-            orElse: () =>
-              Effect.fail(
-                new StaleEndpoint({
-                  endpoint,
-                  reason: `no presence from ${endpoint.url} within ${CONNECT_TIMEOUT}`
-                })
-              )
-          })
-        )
-        return { client, endpoint }
-      })
-    )
+    Effect.flatMap((endpoint) => connectEndpoint(adapter, endpoint))
   )
 
   type Acquisition = ReturnType<typeof acquireOnce>
@@ -80,7 +59,73 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
   return attempt(MAX_ATTEMPTS - 1, []).pipe(
     Effect.catchCause((cause) => Effect.failCause(Cause.map(cause, mapAcquisitionFailure)))
   )
-})
+}
+
+const acquireRemote = (
+  adapter: RuntimeAdapter,
+  connection: RemoteConnection
+): Effect.Effect<
+  { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
+  BackendUnavailable,
+  FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
+> => {
+  return Effect.gen(function*() {
+    const validated = yield* validateConnection(connection).pipe(
+      Effect.mapError(
+        (invalid) =>
+          new BackendUnavailable({
+            reason: `invalid remote connection: ${invalid.field} ${invalid.reason}`
+          })
+      )
+    )
+    void validated
+    const endpoint = resolveRemoteEndpoint(connection)
+    return yield* connectEndpoint(adapter, endpoint).pipe(
+      Effect.catchTag("StaleEndpoint", () => Effect.fail(remoteSpawnGuard())),
+      Effect.catchTag("BackendUnavailable", () => Effect.fail(remoteSpawnGuard()))
+    )
+  })
+}
+
+const connectEndpoint = (
+  adapter: RuntimeAdapter,
+  endpoint: Endpoint
+): Effect.Effect<
+  { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
+  BackendUnavailable | StaleEndpoint,
+  Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint))).pipe(
+      Effect.mapError(() => new BackendUnavailable({ reason: "remote backend unavailable" }))
+    )
+    const client = yield* RpcClient.make(ExpandRpcs).pipe(
+      Effect.provideContext(protocol),
+      Effect.mapError(() => new BackendUnavailable({ reason: "remote backend unavailable" }))
+    )
+    const ready = yield* Deferred.make<void>()
+    yield* Effect.forkScoped(
+      supervised(
+        "rpc-client connect drain",
+        Stream.runDrain(
+          Stream.tap(client.Connect(), () => Deferred.succeed(ready, undefined))
+        )
+      )
+    )
+    yield* Deferred.await(ready).pipe(
+      Effect.timeoutOrElse({
+        duration: CONNECT_TIMEOUT,
+        orElse: () =>
+          Effect.fail(
+            new StaleEndpoint({
+              endpoint,
+              reason: `no presence from ${endpoint.url} within ${CONNECT_TIMEOUT}`
+            })
+          )
+      })
+    )
+    return { client, endpoint }
+  })
 
 const endpointWsUrl = (endpoint: Endpoint): string =>
   `${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`

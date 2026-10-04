@@ -1,12 +1,20 @@
 import { NodePath } from "@effect/platform-node"
-import { Effect, Layer, ManagedRuntime, Path } from "effect"
+import { existsSync, readFileSync } from "node:fs"
+import { homedir } from "node:os"
+import { dirname as dirnameNode, join as joinNode, resolve as resolveNode } from "node:path"
+import { Effect, Layer, ManagedRuntime, Path, Schema } from "effect"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
 import {
   ClientLayer,
   ClientSession,
   resolveBackendCommand,
-  type BackendUnavailable
+  remoteSpawnGuard,
+  type BackendUnavailable,
+  type RuntimeAdapter
 } from "@expand/client-ts"
+import type { BackendConnection } from "@expand/contracts/backend-connection"
+import { BackendConnectionFromJson } from "@expand/contracts/backend-connection"
+import { dataDirFromArgs, makeAppContext } from "@expand/contracts/app-context"
 import { AutomationClient } from "@expand/client-ts/automation"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
@@ -38,7 +46,10 @@ export const defaultBackendEntry = Effect.fn("DesktopMain.defaultBackendEntry")(
   return path.join(modulePath, "..", "..", "..", "..", sourceOffset, "server", "main.ts")
 })
 
-export const defaultBackendAdapter = (host: DesktopBackendHost) => {
+export const defaultBackendAdapter = (
+  host: DesktopBackendHost,
+  connection?: BackendConnection
+): RuntimeAdapter => {
   const nodeAdapter = makeNodeAdapter({
     backendCommand: defaultBackendEntry(host.moduleUrl).pipe(
       Effect.orDie,
@@ -50,6 +61,12 @@ export const defaultBackendAdapter = (host: DesktopBackendHost) => {
       }))
     )
   })
+  if (connection !== undefined && connection._tag === "remote") {
+    return {
+      protocolLayer: nodeAdapter.protocolLayer,
+      spawnBackend: () => Effect.fail(remoteSpawnGuard())
+    }
+  }
   return host.isPackaged
     ? {
       protocolLayer: nodeAdapter.protocolLayer,
@@ -58,9 +75,10 @@ export const defaultBackendAdapter = (host: DesktopBackendHost) => {
     : nodeAdapter
 }
 
-export const makeRuntime = (host: DesktopBackendHost): ExpandRuntime => {
+export const makeRuntime = (host: DesktopBackendHost, connection?: BackendConnection): ExpandRuntime => {
+  const effective = connection ?? loadPersistedConnectionSync()
   const runtime = ManagedRuntime.make(
-    clientLayer(defaultBackendAdapter(host)).pipe(Layer.provide(ProcessServices.layer))
+    clientLayer(defaultBackendAdapter(host, effective), effective).pipe(Layer.provide(ProcessServices.layer))
   )
   if (!host.isPackaged) return runtime
   const disposeEffect = runtime.disposeEffect
@@ -69,5 +87,26 @@ export const makeRuntime = (host: DesktopBackendHost): ExpandRuntime => {
   })
 }
 
-const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
-  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))
+const loadPersistedConnectionSync = (): BackendConnection => {
+  try {
+    const homeDir = homedir()
+    const cwd = process.cwd()
+    const dataDir = dataDirFromArgs(process.argv)
+    const context = makeAppContext(
+      { join: joinNode, resolve: resolveNode },
+      { homeDir, cwd, ...(dataDir === undefined ? {} : { dataDir }) }
+    )
+    const file = joinNode(dirnameNode(context.paths.endpointFile), "remote-backend.json")
+    if (!existsSync(file)) return { _tag: "local" }
+    const text = readFileSync(file, "utf8")
+    return Schema.decodeUnknownSync(BackendConnectionFromJson)(text)
+  } catch {
+    return { _tag: "local" }
+  }
+}
+
+const clientLayer = (
+  runtimeAdapter: Parameters<typeof ClientLayer>[0],
+  connection?: BackendConnection
+) =>
+  ClientLayer(runtimeAdapter, connection).pipe(Layer.provide(nodeAppContextLayer))

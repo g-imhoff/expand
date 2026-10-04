@@ -76,7 +76,10 @@ const makeHandlers = () =>
     AutomationRunMetrics: () => Effect.die("unused"),
     AutomationNotificationList: () => Effect.die("unused"),
     AutomationNotificationMarkRead: () => Effect.die("unused"),
-    AutomationCatalog: () => Effect.die("unused")
+    AutomationCatalog: () => Effect.die("unused"),
+    BackendConnectionGet: () => Effect.die("unused"),
+    BackendConnectionSet: () => Effect.die("unused"),
+    BackendConnectionTest: () => Effect.die("unused")
   })
 
 const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(function*() {

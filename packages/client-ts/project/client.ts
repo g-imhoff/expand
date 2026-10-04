@@ -6,6 +6,7 @@ import type { Project, ProjectCreateResult, ProjectDeleteResult } from "@expand/
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
 import type { ProjectAlreadyExists, ProjectDirectoryConflict, ProjectDirectoryInvalid, ProjectInvalidInput, ProjectNameConflict, ProjectNotFound } from "@expand/contracts/rpc"
+import type { BackendConnection } from "@expand/contracts/backend-connection"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
 import { ClientSession, ClientSessionLayer } from "../client-session"
@@ -67,10 +68,11 @@ export const ProjectClientLive: Layer.Layer<ProjectClient, never, ClientSession>
 )
 
 export const ProjectClientLayer = (
-  adapter: RuntimeAdapter
+  adapter: RuntimeAdapter,
+  connection?: BackendConnection
 ): Layer.Layer<
   ProjectClient,
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
-  ProjectClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))
+  ProjectClientLive.pipe(Layer.provide(ClientSessionLayer(adapter, connection)))
