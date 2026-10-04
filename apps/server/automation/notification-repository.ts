@@ -46,8 +46,9 @@ export class NotificationRepository extends Context.Service<NotificationReposito
         yield* sql`INSERT INTO automation_notifications ${sql.insert({ owner_id: scope.ownerId, project_id: scope.projectId, run_id: value.runId, routine_id: value.routineId, kind: value.notificationKind, status: value.status, version: 1, json: encodeJson(value) })}`
         return 1
       }
-      if (same(existing.value, value)) return existing.version
-      const preserved = yield* decode(AutomationNotification, { ...value, status: existing.value.status })
+      if (same({ ...existing.value, occurredAt: undefined }, { ...value, occurredAt: undefined })) return existing.version
+      const preserved = yield* decode(AutomationNotification, { ...value, status: existing.value.status, occurredAt: existing.value.occurredAt })
+      if (same(existing.value, preserved)) return existing.version
       yield* sql`UPDATE automation_notifications SET routine_id=${preserved.routineId}, kind=${preserved.notificationKind}, status=${preserved.status}, version=version+1, json=${encodeJson(preserved)} WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND run_id=${value.runId}`
       return existing.version + 1
     })))

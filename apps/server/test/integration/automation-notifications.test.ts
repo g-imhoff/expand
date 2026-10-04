@@ -156,6 +156,9 @@ describe("notification emit policy", () => {
       expect(failed.value.notificationKind).toBe("failure")
       expect(failed.value.status).toBe("pending")
       yield* emitFor("run-bad")
+      const repeated = (yield* notes.get(scope, "run-bad"))!
+      expect(repeated.version).toBe(failed.version)
+      expect(repeated.value.occurredAt).toBe(failed.value.occurredAt)
       const repeats = yield* notes.list(scope, { limit: 50 })
       expect(repeats.filter((record) => record.value.runId === "run-bad")).toHaveLength(1)
       yield* notes.markRead(scope, "run-bad")
