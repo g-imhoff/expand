@@ -65,11 +65,6 @@ export const RunDetails = ({ projectId, runId, onBack }: RunDetailsProps) => {
       <BackButton onBack={onBack} />
       <h2 className="mt-3 text-lg font-semibold">Run {run.id}</h2>
       <p className="mt-1 text-sm text-muted-foreground">{describeRunState(run)} in {run.mode} mode</p>
-      {run.state.kind === "unresolved" && (
-        <p className="mt-3 rounded border px-3 py-2 text-sm">
-          {nothingChangedText}: {run.state.reason}
-        </p>
-      )}
       <section aria-label="Original input" className="mt-6">
         <h3 className="text-sm font-semibold">Original input</h3>
         <p className="mt-1 text-sm text-muted-foreground">Input {run.input.id}</p>
