@@ -117,9 +117,10 @@ export const selectCodingProvider = (
       .sort((left, right) => left.priority - right.priority || left.index - right.index)
       .map((entry) => entry.kind)
     const primarySet = new Set(primaries)
+    const disabled = new Set(config.providers.filter((provider) => provider.enabled === false).map((provider) => provider.kind))
     const fallbacks: Array<string> = []
     for (const kind of config.fallbackKinds ?? []) {
-      if (!primarySet.has(kind) && !fallbacks.includes(kind)) fallbacks.push(kind)
+      if (!primarySet.has(kind) && !disabled.has(kind) && !fallbacks.includes(kind)) fallbacks.push(kind)
     }
     const fallbackSet = new Set(fallbacks)
     const candidates = [...primaries, ...fallbacks]
