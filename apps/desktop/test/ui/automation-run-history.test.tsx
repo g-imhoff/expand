@@ -299,6 +299,64 @@ describe("automation run history", () => {
       expect(seen[seen.length - 1]).toMatchObject({ state: "succeeded" })
     })))
 
+  it.effect("maps failed and cancelled filters to server states", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const seen: Array<RunListPayload> = []
+      const rpc: AutomationRpcApi = {
+        ...baseRpc,
+        listRuns: (payload) => {
+          seen.push(payload)
+          return Effect.succeed({ runs: filteredRecords(payload), cursor: null })
+        },
+        getRun: () => Effect.succeed(unresolvedHistory),
+        getRoutine: () => Effect.succeed(routine)
+      }
+      const rendered = yield* renderScoped(<Harness rpc={rpc} />)
+      yield* Effect.tryPromise(() => rendered.findByText("run-d"))
+      fireEvent.click(rendered.getByRole("button", { name: "Failed" }))
+      yield* Effect.tryPromise(() =>
+        waitFor(() => {
+          expect(rendered.getByText("run-c")).toBeDefined()
+          expect(rendered.queryByText("run-a")).toBeNull()
+        })
+      )
+      expect(seen[seen.length - 1]).toMatchObject({ state: "failed" })
+      fireEvent.click(rendered.getByRole("button", { name: "Cancelled" }))
+      yield* Effect.tryPromise(() =>
+        waitFor(() => {
+          expect(rendered.getByText("run-d")).toBeDefined()
+          expect(rendered.queryByText("run-c")).toBeNull()
+        })
+      )
+      expect(seen[seen.length - 1]).toMatchObject({ state: "cancelled" })
+    })))
+
+  it.effect("shows the filter-empty state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rpc: AutomationRpcApi = {
+        ...baseRpc,
+        listRuns: () => Effect.succeed({ runs: [], cursor: null })
+      }
+      const rendered = yield* renderScoped(<Harness rpc={rpc} />)
+      yield* Effect.tryPromise(() => rendered.findByText("No runs yet."))
+      fireEvent.click(rendered.getByRole("button", { name: "Failed" }))
+      yield* Effect.tryPromise(() => rendered.findByText("No runs match the current filter."))
+    })))
+
+  it.effect("shows the search-empty state", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rpc: AutomationRpcApi = {
+        ...baseRpc,
+        listRuns: () => Effect.succeed({ runs: allRecords, cursor: null }),
+        getRun: () => Effect.succeed(unresolvedHistory),
+        getRoutine: () => Effect.succeed(routine)
+      }
+      const rendered = yield* renderScoped(<Harness rpc={rpc} />)
+      yield* Effect.tryPromise(() => rendered.findByText("run-d"))
+      fireEvent.change(rendered.getByLabelText("Search runs"), { target: { value: "zzz-no-such-run" } })
+      yield* Effect.tryPromise(() => rendered.findByText("No runs match the current search."))
+    })))
+
   it.effect("narrows the visible runs through text search", () =>
     Effect.scoped(Effect.gen(function* () {
       const rpc: AutomationRpcApi = {
