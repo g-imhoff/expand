@@ -9,7 +9,7 @@ import type { ProcessControl, ProcessProbeError } from "@expand/contracts/proces
 import type { BackendConnection, RemoteConnection } from "@expand/contracts/backend-connection"
 import { BackendUnavailable } from "./errors"
 import { findOrSpawnBackend } from "./spawn"
-import { resolveRemoteEndpoint, remoteSpawnGuard } from "./backend-connection"
+import { resolveRemoteEndpoint, remoteSpawnGuard, validateConnection } from "./backend-connection"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
 
@@ -69,11 +69,22 @@ const acquireRemote = (
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > => {
-  const endpoint = resolveRemoteEndpoint(connection)
-  return connectEndpoint(adapter, endpoint).pipe(
-    Effect.catchTag("StaleEndpoint", () => Effect.fail(remoteSpawnGuard())),
-    Effect.catchTag("BackendUnavailable", () => Effect.fail(remoteSpawnGuard()))
-  )
+  return Effect.gen(function*() {
+    const validated = yield* validateConnection(connection).pipe(
+      Effect.mapError(
+        (invalid) =>
+          new BackendUnavailable({
+            reason: `invalid remote connection: ${invalid.field} ${invalid.reason}`
+          })
+      )
+    )
+    void validated
+    const endpoint = resolveRemoteEndpoint(connection)
+    return yield* connectEndpoint(adapter, endpoint).pipe(
+      Effect.catchTag("StaleEndpoint", () => Effect.fail(remoteSpawnGuard())),
+      Effect.catchTag("BackendUnavailable", () => Effect.fail(remoteSpawnGuard()))
+    )
+  })
 }
 
 const connectEndpoint = (

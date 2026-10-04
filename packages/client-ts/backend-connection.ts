@@ -94,7 +94,7 @@ export const validateConnection = (
   if (connection.url.trim().length === 0) {
     return Effect.fail(new BackendConnectionInvalid({ field: "url", reason: "url is required" }))
   }
-  if (connection.token.length === 0) {
+  if (connection.token.trim().length === 0) {
     return Effect.fail(new BackendConnectionInvalid({ field: "token", reason: "token is required" }))
   }
   return Effect.try({
