@@ -41,17 +41,39 @@ describe("backend connection (T17)", () => {
       }
     }))
 
-  it("guards the local-spawn path in remote mode", () => {
-    const host = {
-      backendEntry: "/none",
-      isPackaged: false,
-      moduleUrl: new URL("file:///tmp/x.mjs"),
-      awaitPackagedBackendShutdown: Effect.void,
-      spawnPackagedBackend: () => Effect.void
-    }
-    const remoteAdapter = defaultBackendAdapter(host, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "t" })
-    expect(typeof remoteAdapter.spawnBackend).toBe("function")
-  })
+  it.effect("guards the local-spawn path in remote mode", () =>
+    Effect.gen(function*() {
+      const host = {
+        backendEntry: "/none",
+        isPackaged: false,
+        moduleUrl: new URL("file:///tmp/x.mjs"),
+        awaitPackagedBackendShutdown: Effect.void,
+        spawnPackagedBackend: () => Effect.void
+      }
+      const remoteAdapter = defaultBackendAdapter(host, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "t" })
+      const spawn = remoteAdapter.spawnBackend as unknown as (dataDir: string) => Effect.Effect<void, { readonly _tag: string; readonly reason: string }>
+      const error = yield* spawn("/tmp/expand-remote-guard").pipe(Effect.flip)
+      expect(error._tag).toBe("BackendUnavailable")
+      expect(error.reason.includes("refusing to spawn")).toBe(true)
+    }))
+
+  it.effect("refuses packaged spawns while switched to remote", () =>
+    Effect.gen(function*() {
+      let packagedSpawns = 0
+      const host = {
+        backendEntry: "/packaged/backend.mjs",
+        isPackaged: true,
+        moduleUrl: new URL("file:///tmp/x.mjs"),
+        awaitPackagedBackendShutdown: Effect.void,
+        spawnPackagedBackend: () => Effect.sync(() => { packagedSpawns += 1 }).pipe(Effect.asVoid)
+      }
+      const remoteAdapter = defaultBackendAdapter(host, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "t" })
+      const spawn = remoteAdapter.spawnBackend as unknown as (dataDir: string) => Effect.Effect<void, { readonly _tag: string; readonly reason: string }>
+      const error = yield* spawn("/tmp/expand-remote-packaged").pipe(Effect.flip)
+      expect(error._tag).toBe("BackendUnavailable")
+      expect(error.reason.includes("refusing to spawn")).toBe(true)
+      expect(packagedSpawns).toBe(0)
+    }))
 
   it.effect("reports unreachable for a closed loopback port", () =>
     Effect.gen(function*() {

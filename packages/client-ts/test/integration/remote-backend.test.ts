@@ -5,6 +5,7 @@ import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { ProcessServices } from "../process-services"
 import { acquireClient } from "../../rpc-client"
+import { ClientSession, ClientSessionLayer } from "../../client-session"
 import {
   readRemoteConnection,
   testRemoteConnection,
@@ -12,7 +13,6 @@ import {
 } from "../../backend-connection"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
-import { BackendUnavailable } from "../../errors"
 
 const nodeAdapter = makeNodeAdapter({
   backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
@@ -104,12 +104,39 @@ describe("remote backend (T17)", () => {
       expect(missing).toEqual({ _tag: "local" })
     })).pipe(Effect.provide(NodeServices.layer)))
 
+  it.live("reuses the session epoch machinery in remote mode with zero spawns", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTempDirectoryScoped("expand-remote-session-")
+      const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
+      const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
+      const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
+      let spawns = 0
+      const counting = {
+        protocolLayer: nodeAdapter.protocolLayer,
+        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+      }
+      const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
+      const invalid = yield* acquireClient(counting, { _tag: "remote", url: "", token: "t" } as const).pipe(
+        Effect.provide(base),
+        Effect.exit
+      )
+      expect(invalid._tag).toBe("Failure")
+      expect(spawns).toBe(0)
+      const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
+      const session = yield* ClientSession.pipe(Effect.provide(sessionContext))
+      const api = yield* session.current
+      expect(yield* api.Health()).toBe("ok")
+      expect(spawns).toBe(0)
+    })).pipe(Effect.provide(NodeServices.layer)))
+
   it.live("rejects invalid remote connection input", () =>
     Effect.gen(function*() {
-      const emptyUrl = yield* Effect.exit(testRemoteConnection(nodeAdapter, { _tag: "remote", url: "", token: "t" } as const))
-      expect(emptyUrl._tag).toBe("Failure")
-      const emptyToken = yield* Effect.exit(testRemoteConnection(nodeAdapter, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "" } as const))
-      expect(emptyToken._tag).toBe("Failure")
-      expect(yield* Effect.exit(Effect.fail(new BackendUnavailable({ reason: "x" })))).not.toBe(undefined)
+      const emptyUrl = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "", token: "t" } as const).pipe(Effect.flip)
+      expect(emptyUrl.field).toBe("url")
+      const emptyToken = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "" } as const).pipe(Effect.flip)
+      expect(emptyToken.field).toBe("token")
+      const whitespaceToken = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "   " } as const).pipe(Effect.flip)
+      expect(whitespaceToken.field).toBe("token")
     }))
 })
