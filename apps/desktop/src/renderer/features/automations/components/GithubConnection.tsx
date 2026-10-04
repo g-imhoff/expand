@@ -101,6 +101,9 @@ export const GithubConnection = ({ scope }: { readonly scope: PersonalScope }) =
           {credentials.error !== undefined && (
             <p role="alert" className="mt-2 text-sm text-destructive">{describeAutomationError(credentials.error)}</p>
           )}
+          {credentials.error !== undefined && (
+            <button type="button" onClick={credentials.retry} className="mt-2 text-sm underline">Retry</button>
+          )}
           {connect.connectError !== undefined && (
             <p role="alert" className="mt-2 text-sm text-destructive">{describeAutomationError(connect.connectError)}</p>
           )}
