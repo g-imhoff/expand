@@ -4,7 +4,7 @@ import { RoutineEditor } from "@expand/desktop/renderer/features/automations/com
 export const AutomationRoutineEdit = () => {
   const { projectId } = useParams({ from: "/p/$projectId/automations" })
   const pathname = useRouterState({ select: (state) => state.location.pathname })
-  const isTest = /\/test\/?$/.test(pathname)
+  const isTest = /\/routines\/[^/]+\/test\/?$/.test(pathname)
   const routineId = routineIdFromPath(pathname)
   if (routineId === undefined) {
     return (
