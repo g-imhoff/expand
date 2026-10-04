@@ -97,11 +97,11 @@ const connectEndpoint = (
 > =>
   Effect.gen(function* () {
     const protocol = yield* Layer.build(adapter.protocolLayer(endpointWsUrl(endpoint))).pipe(
-      Effect.mapError((cause) => new BackendUnavailable({ reason: "remote backend unavailable", cause }))
+      Effect.mapError(() => new BackendUnavailable({ reason: "remote backend unavailable" }))
     )
     const client = yield* RpcClient.make(ExpandRpcs).pipe(
       Effect.provideContext(protocol),
-      Effect.mapError((cause) => new BackendUnavailable({ reason: "remote backend unavailable", cause }))
+      Effect.mapError(() => new BackendUnavailable({ reason: "remote backend unavailable" }))
     )
     const ready = yield* Deferred.make<void>()
     yield* Effect.forkScoped(
