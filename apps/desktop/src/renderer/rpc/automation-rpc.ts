@@ -1,5 +1,6 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import type { RpcClientError } from "effect/rpc"
+import type { SequencedEvent } from "@expand/contracts/events/domain"
 import type { Catalog, PersonalScope } from "@expand/contracts/automation"
 import { PreviewIssue } from "@expand/contracts/rpc/automation-schemas"
 import type {
@@ -73,6 +74,7 @@ export interface AutomationRpcApi {
   readonly getRun: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<RunHistory, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly metrics: (payload: { readonly scope: PersonalScope; readonly routineId?: string; readonly mode?: "preview" | "live" }) => Effect.Effect<RunMetrics, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
+  readonly events: (payload: { readonly fromSeq?: number }) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
 
 export class AutomationRpc extends Context.Service<AutomationRpc, AutomationRpcApi>()(
@@ -99,6 +101,7 @@ export const AutomationRpcLayer: Layer.Layer<AutomationRpc, never, RendererRpcCl
     listRuns: (p) => client.AutomationRunList(p),
     getRun: (p) => client.AutomationRunGet(p),
     metrics: (p) => client.AutomationRunMetrics(p),
-    catalog: () => client.AutomationCatalog({})
+    catalog: () => client.AutomationCatalog({}),
+    events: (payload) => client.Events(payload)
   }))
 )
