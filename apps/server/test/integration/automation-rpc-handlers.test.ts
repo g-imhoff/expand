@@ -182,4 +182,18 @@ describe("automation RPC handlers", () => {
     expect(kinds).toEqual(expect.arrayContaining(["integration", "trigger", "action", "routine-template"]))
     expect(catalog.definitions.find((d) => d.kind === "trigger")).toBeDefined()
   }).pipe(Effect.provide(makeLayers())))
+
+  it.live("emits sequenced config events to the event log", () => Effect.gen(function*() {
+    const sql = yield* SqlClient
+    yield* automationHandlers.AutomationCredentialPut({ scope, credentialId: "github-token", secret })
+    yield* automationHandlers.AutomationRoutineCreate(yield* triagePayload)
+    yield* automationHandlers.AutomationIntegrationPut({ scope, integration: githubIntegration })
+    const rows = yield* sql<{ readonly seq: number; readonly event_type: string }>`SELECT seq, event_type FROM events ORDER BY seq ASC`
+    expect(rows.length).toBeGreaterThanOrEqual(3)
+    expect(rows.map((row) => row.event_type)).toEqual(expect.arrayContaining(["AutomationCredentialChanged", "AutomationRoutineChanged", "AutomationIntegrationChanged"]))
+    const seqs = rows.map((row) => row.seq)
+    for (let index = 1; index < seqs.length; index++) {
+      expect(seqs[index]).toBeGreaterThan(seqs[index - 1]!)
+    }
+  }).pipe(Effect.provide(makeLayers())))
 })

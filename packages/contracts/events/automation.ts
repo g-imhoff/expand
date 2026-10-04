@@ -21,11 +21,6 @@ export const AutomationEvent = (() => {
       AutomationCredentialChanged: {
         credentialId: Schema.String,
         version: Schema.Int
-      },
-      AutomationRunChanged: {
-        runId: Schema.String,
-        routineId: Schema.String,
-        state: Schema.Literals(["queued", "running", "succeeded", "unresolved", "failed", "cancelled"])
       }
     })
   )
@@ -36,6 +31,5 @@ export type AutomationEvent = typeof AutomationEvent.Type
 export const {
   AutomationRoutineChanged,
   AutomationIntegrationChanged,
-  AutomationCredentialChanged,
-  AutomationRunChanged
+  AutomationCredentialChanged
 } = AutomationEvent.cases
