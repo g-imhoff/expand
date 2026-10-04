@@ -122,6 +122,12 @@ describe("automation RPC handlers", () => {
     yield* automationHandlers.AutomationRoutineCreate(yield* triagePayload)
     const beforeRevisions = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_routine_revisions`
     const beforeRuns = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_runs`
+    const beforeJobs = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_jobs`
+    const beforeDeliveries = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_deliveries`
+    const beforeJobAttempts = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_job_attempts`
+    const beforeDecisionAttempts = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_decision_attempts`
+    const beforeActionAttempts = yield* sql<{ n: number }>`SELECT count(*) n FROM automation_action_attempts`
+    const beforeEvents = yield* sql<{ n: number }>`SELECT count(*) n FROM events`
     const outcome = yield* automationHandlers.AutomationPreviewClassification({
       scope,
       routineId: "triage",
@@ -135,6 +141,12 @@ describe("automation RPC handlers", () => {
     }
     expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_routine_revisions`).toEqual(beforeRevisions)
     expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_runs`).toEqual(beforeRuns)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_jobs`).toEqual(beforeJobs)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_deliveries`).toEqual(beforeDeliveries)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_job_attempts`).toEqual(beforeJobAttempts)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_decision_attempts`).toEqual(beforeDecisionAttempts)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_action_attempts`).toEqual(beforeActionAttempts)
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM events`).toEqual(beforeEvents)
     expect(containsSecret(outcome)).toBe(false)
   }).pipe(Effect.provide(makeLayers())))
 
