@@ -34,6 +34,8 @@ export const normalizeRemoteUrl = (input: string): string => {
       ? `ws://${trimmed}`
       : `wss://${trimmed}`
   const parsed = new URL(withScheme)
+  parsed.search = ""
+  parsed.hash = ""
   if (!parsed.pathname.endsWith("/rpc")) {
     parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/rpc`
   }
