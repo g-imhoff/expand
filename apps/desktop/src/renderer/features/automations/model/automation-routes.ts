@@ -4,16 +4,17 @@ export const automationRoutes = {
   overview: "/p/$projectId/automations",
   integrations: "/p/$projectId/automations/integrations",
   "routine-setup": "/p/$projectId/automations/routines/new",
+  "routine-edit": "/p/$projectId/automations/routines/$routineId",
+  "routine-test": "/p/$projectId/automations/routines/$routineId/test",
   history: "/p/$projectId/automations/history"
-} as const satisfies Record<AutomationPage, string>
+} as const satisfies Record<AutomationPage | "routine-edit" | "routine-test", string>
 
 export const automationPageForPath = (pathname: string): AutomationPage | null => {
-  const match = /^\/p\/[^/]+\/automations(?:\/(integrations|routines\/new|history))?\/?$/.exec(pathname)
+  const match = /^\/p\/[^/]+\/automations(?:\/(integrations|routines\/[^/]+(?:\/test)?|history))?\/?$/.exec(pathname)
   if (!match) return null
-  switch (match[1]) {
-    case "integrations": return "integrations"
-    case "routines/new": return "routine-setup"
-    case "history": return "history"
-    default: return "overview"
-  }
+  const section = match[1]
+  if (section === undefined) return "overview"
+  if (section === "integrations") return "integrations"
+  if (section === "history") return "history"
+  return "routine-setup"
 }
