@@ -18,6 +18,7 @@ const automationStub = Layer.succeed(AutomationClient, {
   removeCredential: () => Effect.die("unused"),
   listCredentials: () => Effect.succeed({ credentials: [] }),
   previewClassification: () => Effect.die("unused"),
+  startRoutine: () => Effect.die("unused"),
   listRuns: () => Effect.succeed({ runs: [], cursor: null }),
   getRun: () => Effect.die("unused"),
   runMetrics: () => Effect.succeed({ total: 0, queued: 0, running: 0, succeeded: 0, unresolved: 0, failed: 0, cancelled: 0 }),

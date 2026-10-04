@@ -8,13 +8,26 @@ import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
 import { makeGithubWebhookHandler } from "@expand/server/automation/github-webhook"
 import type { GithubWebhookServices } from "@expand/server/automation/github-webhook"
+import { makeCustomWebhookHandler } from "@expand/server/automation/custom-webhook"
+import type { CustomWebhookInput, CustomWebhookOutcome, CustomWebhookServices } from "@expand/server/automation/custom-webhook"
+import type { AutomationRegistry } from "@expand/server/automation/registry"
 import { encodeJson } from "@expand/server/automation/persistence-models"
 
-export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices) => {
+export interface CustomWebhookRoute {
+  readonly services: CustomWebhookServices
+  readonly registry: AutomationRegistry
+}
+
+export interface CustomWebhookHttpResult {
+  readonly status: 200 | 400 | 401 | 404 | 409
+  readonly body: string | null
+}
+
+export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute) => {
   const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
   const rpc = RpcServer.layer(ExpandRpcs).pipe(
     Layer.provide(ExpandHandlers),
-    Layer.provide(guardedRouter(token, webhookServices)),
+    Layer.provide(guardedRouter(token, webhookServices, customWebhook)),
     Layer.provide(RpcSerialization.layerNdjson)
   )
   return HttpRouter.serve(rpc, { disableLogger: true, middleware: accessLogger }).pipe(
@@ -46,6 +59,47 @@ export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices
       encodeJson({ accepted: true, deliveryId: outcome.deliveryId, jobIds: [...outcome.jobIds], runIds: [...outcome.runIds] }),
       { status: 200, headers: { "content-type": "application/json" } },
     )
+  })
+
+export const customWebhookRequestInput = (
+  headers: Record<string, string | undefined>,
+  raw: Uint8Array,
+): CustomWebhookInput => ({
+  ownerId: headers["x-custom-owner"] ?? "",
+  projectId: headers["x-custom-project"] ?? "",
+  integrationId: headers["x-custom-integration"] ?? "",
+  deliveryId: headers["x-custom-delivery"] ?? "",
+  signature: headers["x-custom-signature"],
+  raw,
+})
+
+export const customWebhookResult = (outcome: CustomWebhookOutcome): CustomWebhookHttpResult => {
+  if (outcome.status === 401) return { status: 401, body: null }
+  if (outcome.status === 400) {
+    return { status: 400, body: encodeJson({ accepted: false, field: outcome.field, message: outcome.message }) }
+  }
+  if (outcome.status === 404) {
+    return { status: 404, body: encodeJson({ accepted: false, message: outcome.message }) }
+  }
+  if (outcome.status === 409) {
+    return { status: 409, body: encodeJson({ accepted: false, message: outcome.message }) }
+  }
+  if (!outcome.accepted) {
+    return { status: 200, body: encodeJson({ accepted: false }) }
+  }
+  return { status: 200, body: encodeJson({ accepted: true, deliveryId: outcome.deliveryId, jobIds: [...outcome.jobIds], runIds: [...outcome.runIds] }) }
+}
+
+export const customWebhookRouteHandler = (services: CustomWebhookServices, registry: AutomationRegistry) =>
+  Effect.gen(function* () {
+    const webhook = makeCustomWebhookHandler(services, registry)
+    const request = yield* HttpServerRequest.HttpServerRequest
+    const headers = request.headers as Record<string, string | undefined>
+    const buffer = yield* request.arrayBuffer
+    const outcome = yield* webhook.handle(customWebhookRequestInput(headers, new Uint8Array(buffer)))
+    const result = customWebhookResult(outcome)
+    if (result.body === null) return HttpServerResponse.empty({ status: result.status })
+    return HttpServerResponse.text(result.body, { status: result.status, headers: { "content-type": "application/json" } })
   })
 
 const accessLogger = HttpMiddleware.make((httpApp) =>
@@ -87,7 +141,7 @@ const timingSafeEqualStrings = (a: string, b: string): boolean => {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-const guardedRouter = (token: string, webhookServices?: GithubWebhookServices) =>
+const guardedRouter = (token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute) =>
   Layer.effect(RpcServer.Protocol)(
     Effect.gen(function*() {
       const { httpEffect, protocol } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket
@@ -106,6 +160,9 @@ const guardedRouter = (token: string, webhookServices?: GithubWebhookServices) =
       )
       if (webhookServices !== undefined) {
         yield* router.add("POST", "/webhooks/github", githubWebhookRouteHandler(webhookServices))
+      }
+      if (customWebhook !== undefined) {
+        yield* router.add("POST", "/webhooks/custom", customWebhookRouteHandler(customWebhook.services, customWebhook.registry))
       }
       return protocol
     })

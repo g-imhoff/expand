@@ -16,6 +16,7 @@ import {
   CredentialStatus,
   GithubConnectionStatus,
   IntegrationRecord,
+  RoutineStartResult,
   PreviewIssue,
   PreviewOutcome,
   RoutineHead,
@@ -162,6 +163,16 @@ export class AutomationRpcs extends RpcGroup.make(
       mode: Schema.optionalKey(RunModeFilter)
     },
     success: RunMetrics,
+    error: AutomationErrorUnion
+  }),
+  Rpc.make("AutomationRoutineStart", {
+    payload: {
+      scope: PersonalScope,
+      routineId: LocalId,
+      payload: JsonValue,
+      idempotencyKey: LocalId
+    },
+    success: RoutineStartResult,
     error: AutomationErrorUnion
   }),
   Rpc.make("AutomationCatalog", {

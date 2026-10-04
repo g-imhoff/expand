@@ -57,6 +57,11 @@ export class AutomationRegistry {
 
   readonly catalog = (): Catalog => ({ schemaVersion: 1, kind: "catalog", definitions: structuredClone(this.descriptors) })
 
+  readonly triggerPayloadSchema = Effect.fn("AutomationRegistry.triggerPayloadSchema")(function*(this: AutomationRegistry, reference: DefinitionReference) {
+    const definition = yield* requireDefinition(this.definitions, reference, "trigger")
+    return definition.payloadSchema
+  })
+
   readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry, input: unknown) {
     const configuration = yield* decodeJson(RoutineConfiguration, input)
     if (configuration.template !== undefined) {

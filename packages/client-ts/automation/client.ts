@@ -16,6 +16,7 @@ import type {
   AutomationNotFound,
   AutomationStorageFailed,
   CredentialStatus,
+  RoutineStartResult,
   GithubConnectionStatus,
   IntegrationRecord,
   PreviewOutcome,
@@ -63,6 +64,12 @@ export interface AutomationClientApi {
     readonly issue: typeof PreviewIssue.Type
     readonly decision: JevDecisionResult
   }) => Effect.Effect<PreviewOutcome, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly startRoutine: (payload: {
+    readonly scope: PersonalScope
+    readonly routineId: string
+    readonly payload: JsonValue
+    readonly idempotencyKey: string
+  }) => Effect.Effect<RoutineStartResult, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly listRuns: (payload: {
     readonly scope: PersonalScope
     readonly limit: number
@@ -111,6 +118,8 @@ export const AutomationClientLive: Layer.Layer<AutomationClient, never, ClientSe
       Effect.flatMap(session.current, (client) => client.AutomationCredentialList(payload)),
     previewClassification: (payload) =>
       Effect.flatMap(session.current, (client) => client.AutomationPreviewClassification(payload)),
+    startRoutine: (payload) =>
+      Effect.flatMap(session.current, (client) => client.AutomationRoutineStart(payload)),
     listRuns: (payload) =>
       Effect.flatMap(session.current, (client) => client.AutomationRunList(payload)),
     getRun: (payload) =>

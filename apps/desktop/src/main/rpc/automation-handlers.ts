@@ -20,6 +20,7 @@ export const automationHandlers: Pick<
   | "AutomationCredentialRemove"
   | "AutomationCredentialList"
   | "AutomationPreviewClassification"
+  | "AutomationRoutineStart"
   | "AutomationRunList"
   | "AutomationRunGet"
   | "AutomationRunMetrics"
@@ -53,6 +54,8 @@ export const automationHandlers: Pick<
     dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.listCredentials(payload))),
   AutomationPreviewClassification: (payload) =>
     dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.previewClassification(payload))),
+  AutomationRoutineStart: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.startRoutine(payload))),
   AutomationRunList: (payload) =>
     dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.listRuns(payload))),
   AutomationRunGet: (payload) =>
