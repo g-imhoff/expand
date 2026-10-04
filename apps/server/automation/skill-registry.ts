@@ -162,16 +162,22 @@ const extractChangedPaths = (diffSummary: string): Array<ChangedPath> => {
     if (line.trim().length === 0) {
       continue
     }
-    const porcelain = parsePorcelainTarget(line)
+    const porcelain = parsePorcelainTargets(line)
     if (porcelain !== undefined) {
-      if (porcelain.length > 0) {
-        push(porcelain)
+      for (const target of porcelain) {
+        if (target.length > 0) {
+          push(target)
+        }
       }
       continue
     }
-    const stat = parseStatTarget(line)
-    if (stat !== undefined && stat.length > 0) {
-      push(stat)
+    const stat = parseStatTargets(line)
+    if (stat !== undefined) {
+      for (const target of stat) {
+        if (target.length > 0) {
+          push(target)
+        }
+      }
     }
   }
   return found
@@ -181,19 +187,47 @@ const isPorcelainCode = (value: string): boolean => {
   return value === " " || value === "?" || value === "!" || value === "U" || (value >= "A" && value <= "Z")
 }
 
-const stripRenameTarget = (value: string): string => {
-  const arrow = value.lastIndexOf(" -> ")
-  if (arrow >= 0) {
-    return value.slice(arrow + 4).trim()
-  }
-  const fat = value.lastIndexOf("=>")
-  if (fat >= 0) {
-    return value.slice(fat + 2).trim().replace(/^[{\s]+/, "").replace(/[\s}]+$/, "").trim()
-  }
-  return value
+const isRenameCopyStatus = (first: string, second: string): boolean => {
+  return first === "R" || second === "R" || first === "C" || second === "C"
 }
 
-const parsePorcelainTarget = (line: string): string | undefined => {
+const splitRenameArrow = (value: string): Array<string> => {
+  return value.split(" -> ").map((part) => part.trim()).filter((part) => part.length > 0)
+}
+
+const expandStatRename = (value: string): Array<string> => {
+  const open = value.indexOf("{")
+  const close = open >= 0 ? value.indexOf("}", open + 1) : -1
+  if (open >= 0 && close > open) {
+    const inside = value.slice(open + 1, close)
+    const sep = inside.indexOf("=>")
+    if (sep >= 0) {
+      const pre = value.slice(0, open)
+      const post = value.slice(close + 1)
+      const leftPart = inside.slice(0, sep).trim()
+      const rightPart = inside.slice(sep + 2).trim()
+      const source = `${pre}${leftPart}${post}`.trim()
+      const target = `${pre}${rightPart}${post}`.trim()
+      const out: Array<string> = []
+      for (const candidate of [source, target]) {
+        if (candidate.length === 0) {
+          continue
+        }
+        if (candidate.includes("=>")) {
+          out.push(...expandStatRename(candidate))
+        } else if (candidate.includes(" -> ")) {
+          out.push(...splitRenameArrow(candidate))
+        } else {
+          out.push(candidate)
+        }
+      }
+      return out
+    }
+  }
+  return value.split("=>").map((part) => part.trim()).filter((part) => part.length > 0)
+}
+
+const parsePorcelainTargets = (line: string): Array<string> | undefined => {
   if (line.length < 4) {
     return undefined
   }
@@ -206,29 +240,45 @@ const parsePorcelainTarget = (line: string): string | undefined => {
   if (!isPorcelainCode(first) || !isPorcelainCode(second)) {
     return undefined
   }
-  let raw = line.slice(3).trim()
+  const raw = line.slice(3).trim()
   if (raw.length === 0) {
     return undefined
   }
-  raw = stripRenameTarget(raw)
-  if (raw.length === 0) {
-    return undefined
+  if (isRenameCopyStatus(first, second)) {
+    if (raw.includes(" -> ")) {
+      const parts = splitRenameArrow(raw)
+      if (parts.length > 0) {
+        return parts
+      }
+      return []
+    }
+    return [raw]
   }
-  return raw
+  return [raw]
 }
 
-const parseStatTarget = (line: string): string | undefined => {
+const parseStatTargets = (line: string): Array<string> | undefined => {
   const bar = line.indexOf("|")
   if (bar < 0) {
     return undefined
   }
-  let left = line.slice(0, bar).trim()
+  const left = line.slice(0, bar).trim()
   if (left.length === 0) {
     return undefined
   }
-  left = stripRenameTarget(left).replace(/^[{\s]+/, "").replace(/[\s}]+$/, "").trim()
-  if (left.length === 0) {
-    return undefined
+  if (left.includes("=>")) {
+    const expanded = expandStatRename(left)
+    if (expanded.length > 0) {
+      return expanded
+    }
+    return []
   }
-  return left
+  if (left.includes(" -> ")) {
+    const parts = splitRenameArrow(left)
+    if (parts.length > 0) {
+      return parts
+    }
+    return []
+  }
+  return [left]
 }
