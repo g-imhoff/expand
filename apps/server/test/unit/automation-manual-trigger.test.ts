@@ -147,6 +147,18 @@ describe("manual routine start", () => {
     expect((yield* automationHandlers.AutomationRunList({ scope, limit: 10 })).runs).toEqual([])
   }).pipe(Effect.provide(makeLayers())))
 
+  it.live("rejects idempotency keys containing separators without creating runs", () => Effect.gen(function* () {
+    yield* seedRoutine
+    const rejected = yield* automationHandlers.AutomationRoutineStart({
+      scope,
+      routineId: "personal-mail",
+      payload: validPayload,
+      idempotencyKey: "key:with-separator",
+    }).pipe(Effect.flip)
+    expect(rejected._tag).toBe("AutomationInvalid")
+    expect((yield* automationHandlers.AutomationRunList({ scope, limit: 10 })).runs).toEqual([])
+  }).pipe(Effect.provide(makeLayers())))
+
   it.live("refuses to start paused routines", () => Effect.gen(function* () {
     yield* seedRoutine
     yield* automationHandlers.AutomationRoutinePause({ scope, routineId: "personal-mail", expectedVersion: 1 })

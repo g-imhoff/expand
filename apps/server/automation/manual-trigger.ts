@@ -40,6 +40,7 @@ export const makeManualStartHandler = (services: ManualTriggerServices, registry
       const key = yield* Schema.decodeUnknownEffect(LocalId, { onExcessProperty: "error" })(input.idempotencyKey).pipe(
         Effect.mapError(() => new AutomationError({ code: "invalid-reference", message: "idempotencyKey is not usable" })),
       )
+      if (key.includes(":")) return yield* new AutomationError({ code: "invalid-reference", message: "idempotencyKey is not usable" })
       const routine = yield* services.routines.assertDue(scope, routineId)
       const revision = routine.configuration
       const payloadSchema = yield* registry.triggerPayloadSchema(revision.process.trigger.definition).pipe(

@@ -180,6 +180,29 @@ describe("custom webhook validation", () => {
       Effect.provide(Live),
     ),
   )
+  it.live("rejects delivery keys containing separators with 400 and creates no jobs", () =>
+    servicesFor.pipe(
+      Effect.flatMap(({ services, routines }) =>
+        Effect.gen(function* () {
+          yield* seedRoutine(services, routines)
+          const handler = makeCustomWebhookHandler(services, registry)
+          const raw = rawOf(validBody)
+          const outcome = yield* handler.handle({
+            ownerId: scope.ownerId,
+            projectId: scope.projectId,
+            integrationId: "mail",
+            deliveryId: "key:with-separator",
+            signature: sign(webhookSecretText, raw),
+            raw,
+          })
+          expect(outcome).toEqual({ status: 400, accepted: false, field: "deliveryId", message: "deliveryId is not usable" })
+          const runs = yield* services.executions.listRuns(scope, { limit: 10 })
+          expect(runs.items).toEqual([])
+        }),
+      ),
+      Effect.provide(Live),
+    ),
+  )
   it.live("returns 404 for unknown integration and unknown routine", () =>
     servicesFor.pipe(
       Effect.flatMap(({ services, routines }) =>

@@ -65,6 +65,7 @@ export const makeCustomWebhookHandler = (services: CustomWebhookServices, regist
         const checked = yield* Schema.decodeUnknownEffect(LocalId, { onExcessProperty: "error" })(value).pipe(Effect.option)
         if (checked._tag === "None") return { status: 400, accepted: false, field, message: `${field} is not usable` } as const
       }
+      if (input.deliveryId.includes(":")) return { status: 400, accepted: false, field: "deliveryId", message: "deliveryId is not usable" } as const
       if (!(input.raw instanceof Uint8Array)) return { status: 400, accepted: false, field: "body", message: "body is not usable" } as const
       const scope = { ownerId: input.ownerId, projectId: input.projectId }
       const provedScope = yield* Schema.decodeUnknownEffect(PersonalScope, { onExcessProperty: "error" })(scope).pipe(Effect.option)
