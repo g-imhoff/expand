@@ -9,13 +9,18 @@ import { ExpandHandlers } from "@expand/server/rpc/handlers"
 import { makeGithubWebhookHandler } from "@expand/server/automation/github-webhook"
 import type { GithubWebhookServices } from "@expand/server/automation/github-webhook"
 import { makeCustomWebhookHandler } from "@expand/server/automation/custom-webhook"
-import type { CustomWebhookServices } from "@expand/server/automation/custom-webhook"
+import type { CustomWebhookInput, CustomWebhookOutcome, CustomWebhookServices } from "@expand/server/automation/custom-webhook"
 import type { AutomationRegistry } from "@expand/server/automation/registry"
 import { encodeJson } from "@expand/server/automation/persistence-models"
 
 export interface CustomWebhookRoute {
   readonly services: CustomWebhookServices
   readonly registry: AutomationRegistry
+}
+
+export interface CustomWebhookHttpResult {
+  readonly status: 200 | 400 | 401 | 404 | 409
+  readonly body: string | null
 }
 
 export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute) => {
@@ -56,33 +61,45 @@ export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices
     )
   })
 
+export const customWebhookRequestInput = (
+  headers: Record<string, string | undefined>,
+  raw: Uint8Array,
+): CustomWebhookInput => ({
+  ownerId: headers["x-custom-owner"] ?? "",
+  projectId: headers["x-custom-project"] ?? "",
+  integrationId: headers["x-custom-integration"] ?? "",
+  deliveryId: headers["x-custom-delivery"] ?? "",
+  signature: headers["x-custom-signature"],
+  raw,
+})
+
+export const customWebhookResult = (outcome: CustomWebhookOutcome): CustomWebhookHttpResult => {
+  if (outcome.status === 401) return { status: 401, body: null }
+  if (outcome.status === 400) {
+    return { status: 400, body: encodeJson({ accepted: false, field: outcome.field, message: outcome.message }) }
+  }
+  if (outcome.status === 404) {
+    return { status: 404, body: encodeJson({ accepted: false, message: outcome.message }) }
+  }
+  if (outcome.status === 409) {
+    return { status: 409, body: encodeJson({ accepted: false, message: outcome.message }) }
+  }
+  if (!outcome.accepted) {
+    return { status: 200, body: encodeJson({ accepted: false }) }
+  }
+  return { status: 200, body: encodeJson({ accepted: true, deliveryId: outcome.deliveryId, jobIds: [...outcome.jobIds], runIds: [...outcome.runIds] }) }
+}
+
 export const customWebhookRouteHandler = (services: CustomWebhookServices, registry: AutomationRegistry) =>
   Effect.gen(function* () {
     const webhook = makeCustomWebhookHandler(services, registry)
     const request = yield* HttpServerRequest.HttpServerRequest
     const headers = request.headers as Record<string, string | undefined>
-    const ownerId = headers["x-custom-owner"] ?? ""
-    const projectId = headers["x-custom-project"] ?? ""
-    const integrationId = headers["x-custom-integration"] ?? ""
-    const deliveryId = headers["x-custom-delivery"] ?? ""
-    const signature = headers["x-custom-signature"]
     const buffer = yield* request.arrayBuffer
-    const raw = new Uint8Array(buffer)
-    const outcome = yield* webhook.handle({ ownerId, projectId, integrationId, deliveryId, signature, raw })
-    if (outcome.status === 401) return HttpServerResponse.empty({ status: 401 })
-    if (outcome.status === 400) {
-      return HttpServerResponse.text(encodeJson({ accepted: false, field: outcome.field, message: outcome.message }), { status: 400, headers: { "content-type": "application/json" } })
-    }
-    if (outcome.status === 404) {
-      return HttpServerResponse.text(encodeJson({ accepted: false, message: outcome.message }), { status: 404, headers: { "content-type": "application/json" } })
-    }
-    if (outcome.status === 409) {
-      return HttpServerResponse.text(encodeJson({ accepted: false, message: outcome.message }), { status: 409, headers: { "content-type": "application/json" } })
-    }
-    if (!outcome.accepted) {
-      return HttpServerResponse.text(encodeJson({ accepted: false }), { status: 200, headers: { "content-type": "application/json" } })
-    }
-    return HttpServerResponse.text(encodeJson({ accepted: true, deliveryId: outcome.deliveryId, jobIds: [...outcome.jobIds], runIds: [...outcome.runIds] }), { status: 200, headers: { "content-type": "application/json" } })
+    const outcome = yield* webhook.handle(customWebhookRequestInput(headers, new Uint8Array(buffer)))
+    const result = customWebhookResult(outcome)
+    if (result.body === null) return HttpServerResponse.empty({ status: result.status })
+    return HttpServerResponse.text(result.body, { status: result.status, headers: { "content-type": "application/json" } })
   })
 
 const accessLogger = HttpMiddleware.make((httpApp) =>

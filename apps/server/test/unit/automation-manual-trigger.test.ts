@@ -71,7 +71,7 @@ describe("manual routine start", () => {
     })
     expect(first.jobIds).toHaveLength(1)
     expect(first.runIds).toHaveLength(1)
-    expect(first.deliveryId).toBe("manual-key-1:mail")
+    expect(first.deliveryId).toBe("manual:manual-key-1:mail")
     const listed = yield* automationHandlers.AutomationRunList({ scope, limit: 10 })
     expect(listed.runs).toHaveLength(1)
     expect(listed.runs[0]!.run.mode).toBe("live")
@@ -91,6 +91,37 @@ describe("manual routine start", () => {
     expect(second.jobIds).toEqual(first.jobIds)
     expect(second.runIds).toEqual(first.runIds)
     expect((yield* automationHandlers.AutomationRunList({ scope, limit: 10 })).runs).toHaveLength(1)
+  }).pipe(Effect.provide(makeLayers())))
+
+  it.live("deduplicates redelivery when payload keys arrive in a different order", () => Effect.gen(function* () {
+    yield* seedRoutine
+    const first = yield* automationHandlers.AutomationRoutineStart({
+      scope,
+      routineId: "personal-mail",
+      payload: validPayload,
+      idempotencyKey: "manual-key-order",
+    })
+    const second = yield* automationHandlers.AutomationRoutineStart({
+      scope,
+      routineId: "personal-mail",
+      payload: { count: "2", subject: "hello" },
+      idempotencyKey: "manual-key-order",
+    })
+    expect(second.jobIds).toEqual(first.jobIds)
+    expect(second.runIds).toEqual(first.runIds)
+    expect((yield* automationHandlers.AutomationRunList({ scope, limit: 10 })).runs).toHaveLength(1)
+  }).pipe(Effect.provide(makeLayers())))
+
+  it.live("refuses routines from another scope", () => Effect.gen(function* () {
+    yield* seedRoutine
+    const foreign = yield* automationHandlers.AutomationRoutineStart({
+      scope: { ownerId: "other-owner", projectId: "manual-project" },
+      routineId: "personal-mail",
+      payload: validPayload,
+      idempotencyKey: "manual-key-foreign",
+    }).pipe(Effect.flip)
+    expect(foreign._tag).toBe("AutomationNotFound")
+    expect((yield* automationHandlers.AutomationRunList({ scope, limit: 10 })).runs).toEqual([])
   }).pipe(Effect.provide(makeLayers())))
 
   it.live("rejects unknown routines and invalid payloads naming the failed field without leaking secrets", () => Effect.gen(function* () {

@@ -11,6 +11,7 @@ import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/
 import { RoutineService, RoutineServiceLayer } from "../../automation/routine-service.js"
 import { AutomationRegistry } from "../../automation/registry.js"
 import { makeCustomWebhookHandler, verifyCustomSignature } from "../../automation/custom-webhook.js"
+import { makeManualStartHandler } from "../../automation/manual-trigger.js"
 import type { CustomWebhookServices } from "../../automation/custom-webhook.js"
 import { CustomWebhookCredentialSlot } from "@expand/contracts/automation/custom"
 import { makeSampleExtension, sampleRoutine } from "../fixtures/automation-sample-extension.js"
@@ -116,9 +117,9 @@ describe("custom webhook validation", () => {
             expect(first.jobIds).toHaveLength(1)
             expect(first.runIds).toHaveLength(1)
           }
-          const stored = yield* services.executions.getDelivery(scope, "caller-key-1:mail")
+          const stored = yield* services.executions.getDelivery(scope, "custom:caller-key-1:mail")
           expect(stored !== null).toBe(true)
-          expect(stored?.value.externalId).toBe("caller-key-1")
+          expect(stored?.value.externalId).toBe("custom:caller-key-1")
           expect([...(stored?.raw ?? [])]).toEqual([...raw])
           const second = yield* handler.handle({
             ownerId: scope.ownerId,
@@ -250,6 +251,43 @@ describe("custom webhook validation", () => {
           if (missing.status === 400) expect(missing.field).toBe("routineId")
           const runs = yield* services.executions.listRuns(scope, { limit: 10 })
           expect(runs.items).toEqual([])
+        }),
+      ),
+      Effect.provide(Live),
+    ),
+  )
+  it.live("does not collide with manual starts using the same bare key", () =>
+    servicesFor.pipe(
+      Effect.flatMap(({ services, routines }) =>
+        Effect.gen(function* () {
+          yield* seedRoutine(services, routines)
+          const handler = makeCustomWebhookHandler(services, registry)
+          const starter = makeManualStartHandler(
+            { routines, executions: services.executions },
+            registry,
+          )
+          const raw = rawOf(validBody)
+          const webhook = yield* handler.handle({
+            ownerId: scope.ownerId,
+            projectId: scope.projectId,
+            integrationId: "mail",
+            deliveryId: "shared-key",
+            signature: sign(webhookSecretText, raw),
+            raw,
+          })
+          expect(webhook.accepted).toBe(true)
+          const manual = yield* starter.start({
+            scope,
+            routineId: "personal-mail",
+            payload: validBody.payload,
+            idempotencyKey: "shared-key",
+          })
+          expect(manual.jobIds).toHaveLength(1)
+          if (webhook.status === 200 && webhook.accepted) {
+            expect(manual.jobIds).not.toEqual([...webhook.jobIds])
+          }
+          const runs = yield* services.executions.listRuns(scope, { limit: 10 })
+          expect(runs.items).toHaveLength(2)
         }),
       ),
       Effect.provide(Live),

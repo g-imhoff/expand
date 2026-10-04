@@ -7,7 +7,7 @@ import {
 } from "@expand/contracts/automation"
 import { ExecutionRepository } from "./execution-repository.js"
 import { RoutineService } from "./routine-service.js"
-import { StorageError, encodeJson } from "./persistence-models.js"
+import { StorageError, canonical, encodeJson } from "./persistence-models.js"
 import type { AutomationRegistry } from "./registry.js"
 
 export interface ManualTriggerServices {
@@ -67,17 +67,18 @@ export const makeManualStartHandler = (services: ManualTriggerServices, registry
         }
       }
       const triggerIntegrationId = revision.process.trigger.integration.id
-      const storedDeliveryId = `${key}:${triggerIntegrationId}`
+      const externalId = `manual:${key}`
+      const storedDeliveryId = `${externalId}:${triggerIntegrationId}`
       const jobId = `${storedDeliveryId}:${routineId}:job`
       const runId = `${storedDeliveryId}:${routineId}:run`
-      const rawText = encodeJson({ routineId, payload: input.payload, idempotencyKey: key })
+      const rawText = canonical({ routineId, payload: input.payload, idempotencyKey: key })
       const raw = new TextEncoder().encode(rawText)
       const delivery = {
         schemaVersion: 1 as const,
         id: storedDeliveryId,
         scope,
         integration: { id: triggerIntegrationId, definition: revision.process.trigger.integration.definition },
-        externalId: key,
+        externalId,
         trigger: { ...revision.process.trigger.definition },
         payload: input.payload as never,
       }

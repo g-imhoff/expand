@@ -6,7 +6,7 @@ import {
   PersonalScope,
   sameDefinition,
 } from "@expand/contracts/automation"
-import { CustomWebhookCredentialSlot } from "@expand/contracts/automation/custom"
+import { CustomWebhookBody, CustomWebhookCredentialSlot } from "@expand/contracts/automation/custom"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { ExecutionRepository } from "./execution-repository.js"
@@ -85,7 +85,7 @@ export const makeCustomWebhookHandler = (services: CustomWebhookServices, regist
       const text = textOption.value
       const parsed = yield* Schema.decodeUnknownEffect(JsonUnknown, { onExcessProperty: "ignore" })(text).pipe(Effect.option)
       if (parsed._tag === "None") return { status: 400, accepted: false, field: "body", message: "body is not usable" } as const
-      const body = yield* Schema.decodeUnknownEffect(CustomBody, { onExcessProperty: "error" })(parsed.value).pipe(
+      const body = yield* Schema.decodeUnknownEffect(CustomWebhookBody, { onExcessProperty: "error" })(parsed.value).pipe(
         Effect.mapError((error) => fieldOf(error)),
         Effect.option,
       )
@@ -130,7 +130,8 @@ export const makeCustomWebhookHandler = (services: CustomWebhookServices, regist
           actionGrants.push({ action: { ...step.action }, integrationId: step.integration.id, capabilities: [...descriptor.capabilities] })
         }
       }
-      const storedDeliveryId = `${input.deliveryId}:${input.integrationId}`
+      const externalId = `custom:${input.deliveryId}`
+      const storedDeliveryId = `${externalId}:${input.integrationId}`
       const jobId = `${storedDeliveryId}:${body.value.routineId}:job`
       const runId = `${storedDeliveryId}:${body.value.routineId}:run`
       const delivery = {
@@ -138,7 +139,7 @@ export const makeCustomWebhookHandler = (services: CustomWebhookServices, regist
         id: storedDeliveryId,
         scope: provedScope.value,
         integration: { id: stored.configuration.id, definition: stored.configuration.definition },
-        externalId: input.deliveryId,
+        externalId,
         trigger: { ...revision.process.trigger.definition },
         payload: body.value.payload,
       }
@@ -183,11 +184,6 @@ export const makeCustomWebhookHandler = (services: CustomWebhookServices, regist
 }
 
 const JsonUnknown = Schema.fromJsonString(Schema.Unknown)
-
-const CustomBody = Schema.Struct({
-  routineId: LocalId,
-  payload: Schema.Json,
-})
 
 const fieldOf = (error: unknown): string => {
   const issues = (error as { readonly issues?: ReadonlyArray<{ readonly path?: ReadonlyArray<unknown> }> })?.issues
