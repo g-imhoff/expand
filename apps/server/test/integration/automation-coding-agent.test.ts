@@ -488,4 +488,47 @@ describe("automation coding agent", () => {
       expect(handle.durationMs).toBeDefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   )
+
+  it.live("fails fast with evidence when the agent cannot spawn", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-nosuch-" })
+      const exit = yield* Effect.exit(runAcpPrompt({ command: "expand-no-such-agent-binary", args: [], cwd: dir, env: {} }, { prompt: "hello", timeoutMs: 2000 }))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const failure = Cause.squash(exit.cause) as { code: string; durationMs?: number; transcript?: ReadonlyArray<string> }
+      expect(failure.code).toBe("spawn")
+      expect(failure.durationMs).toBeDefined()
+      expect(failure.transcript).toBeDefined()
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+
+  it.live("fails fast with evidence when the agent exits early", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-early-" })
+      const exit = yield* Effect.exit(runAcpPrompt({ command: "true", args: [], cwd: dir, env: {} }, { prompt: "hello", timeoutMs: 4000 }))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const failure = Cause.squash(exit.cause) as { code: string; durationMs?: number; transcript?: ReadonlyArray<string>; exitStatus?: number }
+      expect(failure.code).toBe("protocol")
+      expect(failure.durationMs).toBeDefined()
+      expect(failure.transcript).toBeDefined()
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+
+  it.live("reports a non-zero exit with evidence", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-nonzero-" })
+      const exit = yield* Effect.exit(runAcpPrompt({ command: "false", args: [], cwd: dir, env: {} }, { prompt: "hello", timeoutMs: 4000 }))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const failure = Cause.squash(exit.cause) as { code: string; durationMs?: number; transcript?: ReadonlyArray<string>; exitStatus?: number }
+      expect(failure.code).toBe("protocol")
+      expect(failure.durationMs).toBeDefined()
+      expect(failure.transcript).toBeDefined()
+      expect(failure.exitStatus).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
 })

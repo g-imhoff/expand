@@ -43,11 +43,23 @@ export const runAcpPrompt = (
       const nowNoStdout = yield* Clock.currentTimeMillis
       yield* Effect.sync(() => {
         try {
+          child.stdin?.destroy()
+        } catch {
+          return
+        }
+      })
+      yield* Effect.sync(() => {
+        try {
           killProcessGroup(child)
         } catch {
           return
         }
       })
+      let settledNoStdout = 0
+      while (child.exitCode === null && settledNoStdout < 1000) {
+        yield* Effect.sleep("50 millis")
+        settledNoStdout += 50
+      }
       return yield* new AcpTransportError({ code: "io", message: "ACP agent has no stdout", durationMs: nowNoStdout - startedAt, transcript: snapshotTranscript(), exitStatus: child.exitCode ?? undefined })
     }
     const stderr = child.stderr
@@ -68,6 +80,10 @@ export const runAcpPrompt = (
       }
     }
     stdout.on("data", onData as (chunk: unknown) => void)
+    let spawnError: unknown = null
+    child.on("error", (cause: unknown) => {
+      spawnError = cause
+    })
     let cancelSession: string | null = null
     const cleanup = Effect.gen(function*() {
       if (cancelSession !== null && child.exitCode === null && child.stdin !== null) {
@@ -105,6 +121,11 @@ export const runAcpPrompt = (
       }
     })
     const session = Effect.gen(function*() {
+      yield* Effect.sleep("25 millis")
+      if (spawnError !== null) {
+        const nowSpawn = yield* Clock.currentTimeMillis
+        return yield* new AcpTransportError({ code: "spawn", message: "ACP agent failed to spawn", durationMs: nowSpawn - startedAt, transcript: snapshotTranscript(), exitStatus: child.exitCode ?? undefined })
+      }
       yield* sendLine(child, { jsonrpc: "2.0", id: freshId(), method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } }, state, input.timeoutMs, "initialize", startedAt)
       const createdId = freshId()
       const created = yield* sendLine(child, { jsonrpc: "2.0", id: createdId, method: "session/new", params: { cwd: options.cwd, mcpServers: [] } }, state, input.timeoutMs, "session/new", startedAt)
