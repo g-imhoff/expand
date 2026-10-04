@@ -45,6 +45,7 @@ export const githubTriggerDefinition = defineTrigger({
 export const buildGithubClassificationProcess = Effect.fn("Automation.buildGithubClassificationProcess")(function*(integrationId: unknown, classification: unknown) {
   const id = yield* decodeJson(LocalId, integrationId)
   const config = yield* decodeJson(GithubClassificationConfiguration, classification)
+  if (!sameSet(Object.keys(config.labels), [...config.categories])) return yield* invalid("Label mappings must cover every category exactly once")
   const actions: Record<string, ReadonlyArray<ActionStep>> = {}
   for (const category of config.categories) {
     const label = config.labels[category]

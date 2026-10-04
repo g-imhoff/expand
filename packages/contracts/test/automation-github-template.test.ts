@@ -65,11 +65,12 @@ describe("github classification template", () => {
       for (const categories of [[], ["bug", "bug"], [""]] as const) yield* fail(build({ ...classification, categories: [...categories] }))
       yield* fail(build({ ...classification, labels: { bug: "type: bug" } }))
       yield* fail(build({ ...classification, labels: { bug: "", question: "type: question" } }))
-      const extraLabel = yield* build({ ...classification, labels: { bug: "type: bug", question: "type: question", extra: "type: extra" } })
+      const extraLabel = { ...classification, labels: { bug: "type: bug", question: "type: question", extra: "type: extra" } }
+      yield* fail(build(extraLabel))
       for (const labels of [{ bug: "type: bug" }, { bug: "type: bug", question: "type: question", extra: "type: extra" }, { bug: "", question: "type: question" }] as const) {
         yield* fail(validateClassificationInput({ configuration: { ...classification, labels }, integrations: [integration], process }))
       }
-      yield* fail(validateClassificationInput({ configuration: { ...classification, labels: { bug: "type: bug", question: "type: question", extra: "type: extra" } }, integrations: [integration], process: extraLabel }))
+      yield* fail(validateClassificationInput({ configuration: { ...classification, labels: { bug: "type: bug", question: "type: question", extra: "type: extra" } }, integrations: [integration], process }))
       for (const notifications of [{ onMatch: "yes" }, { onMatch: true }, { onMatch: true, onNoMatch: null }] as const) {
         yield* fail(build({ ...classification, notifications }))
       }
