@@ -6,7 +6,8 @@ import {
   ClientSession,
   resolveBackendCommand,
   remoteSpawnGuard,
-  type BackendUnavailable
+  type BackendUnavailable,
+  type RuntimeAdapter
 } from "@expand/client-ts"
 import type { BackendConnection } from "@expand/contracts/backend-connection"
 import { AutomationClient } from "@expand/client-ts/automation"
@@ -43,7 +44,7 @@ export const defaultBackendEntry = Effect.fn("DesktopMain.defaultBackendEntry")(
 export const defaultBackendAdapter = (
   host: DesktopBackendHost,
   connection?: BackendConnection
-) => {
+): RuntimeAdapter => {
   const nodeAdapter = makeNodeAdapter({
     backendCommand: defaultBackendEntry(host.moduleUrl).pipe(
       Effect.orDie,
