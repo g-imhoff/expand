@@ -58,7 +58,7 @@ export const RunHistoryList = ({ projectId, selectedRunId, onSelectRun }: RunHis
         <p className="mt-3 text-sm text-muted-foreground">Loading runs.</p>
       )}
       {!page.isPending && page.error === undefined && page.runs.length === 0 && (
-        <p className="mt-3 text-sm text-muted-foreground">No runs yet.</p>
+        <p className="mt-3 text-sm text-muted-foreground">{outcome === "all" ? "No runs yet." : "No runs match the current filter."}</p>
       )}
       {visible.length > 0 && (
         <ul aria-label="Automation runs" className="mt-3 divide-y rounded border">
@@ -81,7 +81,7 @@ export const RunHistoryList = ({ projectId, selectedRunId, onSelectRun }: RunHis
           ))}
         </ul>
       )}
-      {page.runs.length > 0 && visible.length === 0 && page.error === undefined && (
+      {!page.isPending && page.runs.length > 0 && visible.length === 0 && page.error === undefined && (
         <p className="mt-3 text-sm text-muted-foreground">No runs match the current search.</p>
       )}
       <div className="mt-3 flex items-center gap-2 text-sm">
