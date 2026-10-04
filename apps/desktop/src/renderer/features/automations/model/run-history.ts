@@ -122,8 +122,18 @@ export const plannedRunActions = (run: AutomationRun): ReadonlyArray<ActionOutco
 export const appliedRunActions = (run: AutomationRun): ReadonlyArray<ActionOutcomeType> =>
   run.actions.filter((action) => action.kind !== "planned")
 
-export const actionBadge = (action: ActionOutcomeType): "PLANNED" | "APPLIED" =>
-  action.kind === "planned" ? "PLANNED" : "APPLIED"
+export const actionBadge = (action: ActionOutcomeType): "PLANNED" | "APPLIED" | "FAILED" | "SKIPPED" => {
+  switch (action.kind) {
+    case "planned":
+      return "PLANNED"
+    case "succeeded":
+      return "APPLIED"
+    case "failed":
+      return "FAILED"
+    case "skipped":
+      return "SKIPPED"
+  }
+}
 
 export const AttemptBase = {
   id: LocalId,
