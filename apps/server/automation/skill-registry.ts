@@ -51,7 +51,22 @@ export const evaluateCompletionChecks = (
     ? { check: "diff-not-empty", passed: true }
     : { check: "diff-not-empty", passed: false, detail: "empty diff" }
   const allowed = allowedPathsCheck(skill.allowedPaths, outcome.diffSummary)
-  const writeCheck: SkillCheckOutcome = primary.length > 0 && transcript.includes(`wrote ${primary}`)
+  const allowedSet = new Set<string>()
+  for (const entry of skill.allowedPaths) {
+    const normalized = normalizeRepoPath(entry)
+    if (normalized !== null) {
+      allowedSet.add(normalized)
+    }
+  }
+  const changed = changedPaths(outcome.diffSummary)
+  let coupled = false
+  for (const entry of allowedSet) {
+    if (transcript.includes(`wrote ${entry}`) && changed.has(entry)) {
+      coupled = true
+      break
+    }
+  }
+  const writeCheck: SkillCheckOutcome = primary.length > 0 && coupled
     ? { check: "transcript-contains-write", passed: true }
     : { check: "transcript-contains-write", passed: false, detail: `missing wrote ${primary}` }
   return [exitCheck, diffCheck, allowed, writeCheck]
@@ -79,6 +94,16 @@ export const allowedPathsCheck = (allowedPaths: ReadonlyArray<string>, diffSumma
 interface ChangedPath {
   readonly raw: string
   readonly normalized: string | null
+}
+
+const changedPaths = (diffSummary: string): Set<string> => {
+  const paths = new Set<string>()
+  for (const entry of extractChangedPaths(diffSummary)) {
+    if (entry.normalized !== null) {
+      paths.add(entry.normalized)
+    }
+  }
+  return paths
 }
 
 const normalizeRepoPath = (raw: string): string | null => {
