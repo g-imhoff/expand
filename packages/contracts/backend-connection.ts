@@ -28,6 +28,13 @@ export type BackendConnectionTestResult = typeof BackendConnectionTestResult.Typ
 export const normalizeRemoteUrl = (input: string): string => {
   const trimmed = input.trim()
   if (trimmed.length === 0) return trimmed
+  const schemeMatch = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(trimmed)
+  if (schemeMatch !== null) {
+    const scheme = (schemeMatch[1] ?? "").toLowerCase()
+    if (scheme !== "ws" && scheme !== "wss" && scheme !== "http" && scheme !== "https") {
+      throw new BackendConnectionInvalid({ field: "url", reason: "url is invalid" })
+    }
+  }
   const withScheme = /^wss?:\/\//i.test(trimmed)
     ? trimmed
     : /^https:\/\//i.test(trimmed)
@@ -37,13 +44,17 @@ export const normalizeRemoteUrl = (input: string): string => {
         : trimmed.startsWith("127.") || trimmed.startsWith("localhost")
           ? `ws://${trimmed}`
           : `wss://${trimmed}`
-  const parsed = new URL(withScheme)
-  parsed.search = ""
-  parsed.hash = ""
-  if (!parsed.pathname.endsWith("/rpc")) {
-    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/rpc`
+  try {
+    const parsed = new URL(withScheme)
+    parsed.search = ""
+    parsed.hash = ""
+    if (!parsed.pathname.endsWith("/rpc")) {
+      parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/rpc`
+    }
+    return parsed.toString().replace(/\/$/, "").replace(/\/rpc$/, "/rpc")
+  } catch {
+    throw new BackendConnectionInvalid({ field: "url", reason: "url is invalid" })
   }
-  return parsed.toString().replace(/\/$/, "").replace(/\/rpc$/, "/rpc")
 }
 
 export const remoteUrlFromHostPort = (host: string, port: number): string =>

@@ -1,6 +1,7 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
+import { RpcClient } from "effect/rpc"
 import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { ProcessServices } from "../process-services"
@@ -156,6 +157,50 @@ describe("remote backend (T17)", () => {
       expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 
+  it.live("kills the connection and resubscribes events on the second epoch with zero spawns", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTempDirectoryScoped("expand-remote-kill-")
+      const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
+      const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
+      const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
+      let spawns = 0
+      let killHook: Effect.Effect<void> | undefined
+      const counting = {
+        protocolLayer: (url: string) =>
+          nodeAdapter.protocolLayer(url).pipe(
+            Layer.tap(() =>
+              RpcClient.ConnectionHooks.pipe(
+                Effect.tap((hooks) =>
+                  Effect.sync(() => {
+                    killHook = hooks.onDisconnect
+                  })
+                )
+              )
+            )
+          ) as ReturnType<typeof nodeAdapter.protocolLayer>,
+        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+      }
+      const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
+      const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
+      const session = yield* ClientSession.pipe(Effect.provide(sessionContext))
+      const firstEpoch = yield* session.current
+      const before = yield* firstEpoch.ProjectList({})
+      yield* firstEpoch.ProjectCreate({ name: "remote-kill-probe", ensure: true })
+      const firstHead = yield* firstEpoch.Events({ fromSeq: before.seq }).pipe(Stream.runHead)
+      const lastSeq = Option.getOrThrow(firstHead).seq
+      expect(lastSeq > before.seq).toBe(true)
+      if (killHook === undefined) return yield* Effect.die("disconnect hook not captured")
+      yield* killHook
+      const secondEpoch = yield* session.current
+      expect(yield* secondEpoch.Health()).toBe("ok")
+      yield* secondEpoch.ProjectCreate({ name: "remote-kill-probe-2", ensure: true })
+      const secondHead = yield* secondEpoch.Events({ fromSeq: lastSeq }).pipe(Stream.runHead)
+      const resumed = Option.getOrThrow(secondHead)
+      expect(resumed.seq > lastSeq).toBe(true)
+      expect(spawns).toBe(0)
+    })).pipe(Effect.provide(NodeServices.layer)))
+
   it.live("rejects invalid remote connection input", () =>
     Effect.gen(function*() {
       const emptyUrl = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "", token: "t" } as const).pipe(Effect.flip)
@@ -164,5 +209,7 @@ describe("remote backend (T17)", () => {
       expect(emptyToken.field).toBe("token")
       const whitespaceToken = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "   " } as const).pipe(Effect.flip)
       expect(whitespaceToken.field).toBe("token")
+      const unsupported = yield* testRemoteConnection(nodeAdapter, { _tag: "remote", url: "ftp://example.com/rpc", token: "t" } as const).pipe(Effect.flip)
+      expect(unsupported.field).toBe("url")
     }))
 })

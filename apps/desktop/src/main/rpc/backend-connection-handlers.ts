@@ -8,7 +8,8 @@ import {
 } from "@expand/contracts/backend-connection"
 import {
   testRemoteConnection,
-  validateConnection
+  validateConnection,
+  writeRemoteConnection
 } from "@expand/client-ts/backend-connection"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 
@@ -42,14 +43,19 @@ export const backendConnectionHandlers: Pick<
       } as const))),
   BackendConnectionSet: (payload) => {
     const connection = connectionFromPayload(payload)
-    return Effect.flatMap(BackendConnectionStore, (store) =>
-      Effect.flatMap(validateConnection(connection), () => store.set(connection)).pipe(
-        Effect.map((stored) => payloadFromConnection(stored) as {
-          readonly mode: "local" | "remote"
-          readonly url?: string | undefined
-          readonly token?: string | undefined
-        })
-      ))
+    return Effect.gen(function*() {
+      const store = yield* BackendConnectionStore
+      yield* validateConnection(connection)
+      yield* writeRemoteConnection(connection).pipe(
+        Effect.catchTag("BackendUnavailable", (cause) => Effect.die(cause))
+      )
+      const stored = yield* store.set(connection)
+      return payloadFromConnection(stored) as {
+        readonly mode: "local" | "remote"
+        readonly url?: string | undefined
+        readonly token?: string | undefined
+      }
+    })
   },
   BackendConnectionTest: (payload) => {
     const connection = connectionFromPayload(payload)
