@@ -1,6 +1,6 @@
 import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
-import { Effect, FileSystem, Layer, Path } from "effect"
+import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect"
 import { describe, expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { ProcessServices } from "../process-services"
@@ -127,6 +127,32 @@ describe("remote backend (T17)", () => {
       const session = yield* ClientSession.pipe(Effect.provide(sessionContext))
       const api = yield* session.current
       expect(yield* api.Health()).toBe("ok")
+      expect(spawns).toBe(0)
+    })).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("resubscribes to project events from sequence in remote mode", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const path = yield* Path.Path
+      const dir = yield* makeTempDirectoryScoped("expand-remote-events-")
+      const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
+      const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
+      const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
+      let spawns = 0
+      const counting = {
+        protocolLayer: nodeAdapter.protocolLayer,
+        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+      }
+      const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
+      const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
+      const session = yield* ClientSession.pipe(Effect.provide(sessionContext))
+      const api = yield* session.current
+      const before = yield* api.ProjectList({})
+      yield* api.ProjectCreate({ name: "remote-seq-probe", ensure: true })
+      const after = yield* api.ProjectList({})
+      expect(after.seq > before.seq).toBe(true)
+      const head = yield* api.Events({ fromSeq: before.seq }).pipe(Stream.runHead)
+      const first = Option.getOrThrow(head)
+      expect(first.seq > before.seq).toBe(true)
       expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 

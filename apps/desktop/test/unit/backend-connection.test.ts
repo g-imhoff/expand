@@ -27,15 +27,21 @@ describe("backend connection (T17)", () => {
 
   it.effect("rejects remote connections without url or token", () =>
     Effect.gen(function*() {
-      const set = backendConnectionHandlers.BackendConnectionSet as (p: unknown) => Effect.Effect<unknown>
+      const set = backendConnectionHandlers.BackendConnectionSet as unknown as (
+        p: unknown
+      ) => Effect.Effect<unknown, { readonly field: string }>
       const test = backendConnectionHandlers.BackendConnectionTest as (p: unknown) => Effect.Effect<unknown>
-      for (const bad of [
-        { mode: "remote", url: "", token: "t" },
-        { mode: "remote", url: "ws://127.0.0.1:1/rpc" },
-        { mode: "remote", token: "t" }
-      ]) {
-        const setExit = yield* Effect.exit((set(bad) as Effect.Effect<unknown>).pipe(Effect.provide(storeLayer)))
-        expect(setExit._tag).toBe("Failure")
+      const cases = [
+        [{ mode: "remote", url: "", token: "t" }, "url"],
+        [{ mode: "remote", url: "ws://127.0.0.1:1/rpc" }, "token"],
+        [{ mode: "remote", token: "t" }, "url"]
+      ] as const
+      for (const [bad, field] of cases) {
+        const error = yield* (set(bad) as Effect.Effect<unknown, { readonly field: string }>).pipe(
+          Effect.provide(storeLayer),
+          Effect.flip
+        )
+        expect(error.field).toBe(field)
         const testExit = yield* Effect.exit((test(bad) as Effect.Effect<unknown>).pipe(Effect.provide(storeLayer)))
         expect(testExit._tag).toBe("Failure")
       }
