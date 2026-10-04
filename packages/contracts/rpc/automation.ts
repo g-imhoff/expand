@@ -117,7 +117,7 @@ export class AutomationRpcs extends RpcGroup.make(
     error: AutomationErrorUnion
   }),
   Rpc.make("AutomationPreviewClassification", {
-    payload: {
+    payload: Schema.Struct({
       scope: PersonalScope,
       routineId: Schema.optionalKey(LocalId),
       inline: Schema.optionalKey(Schema.Struct({
@@ -129,7 +129,12 @@ export class AutomationRpcs extends RpcGroup.make(
       })),
       issue: PreviewIssue,
       decision: JevDecisionResult
-    },
+    }).check(
+      Schema.makeFilter(
+        (p) => (p.routineId === undefined) !== (p.inline === undefined),
+        { message: "exactly one of routineId or inline must be provided" }
+      )
+    ),
     success: PreviewOutcome,
     error: AutomationErrorUnion
   }),

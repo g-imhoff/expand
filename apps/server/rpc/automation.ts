@@ -167,6 +167,9 @@ export const automationHandlers = {
     guard(Effect.gen(function*() {
       const routines = yield* RoutineService
       const registry = yield* AutomationRegistryService
+      if (routineId !== undefined && inline !== undefined) {
+        return yield* new AutomationInvalid({ code: "invalid-reference", message: "Preview needs exactly one of routineId or inline" })
+      }
       const configuration = routineId !== undefined
         ? yield* routines.get(scope, routineId).pipe(
           Effect.mapError(toRpcError),

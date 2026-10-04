@@ -92,6 +92,25 @@ describe("contracts/rpc automation payloads", () => {
 
   it.effect("preview requires routine or inline and returns classified shape", () =>
     Effect.gen(function*() {
+      const scope = { ownerId: "person", projectId: "project" }
+      const issue = { issueNumber: 7, title: "crash on start" }
+      const decision = { schemaVersion: 1, kind: "selected", outcomeId: "bug", data: { label: "type: bug" } }
+      const payload = payloadOf("AutomationPreviewClassification")
+      const inline = {
+        routineId: "triage",
+        configuration: { categories: ["bug"] },
+        integrations: [],
+        process: {
+          schemaVersion: 1,
+          kind: "process",
+          trigger: { definition: { id: "github:issue-opened", version: 1 }, integration: { id: "github", definition: { id: "github:integration", version: 1 } }, configuration: {} },
+          actions: {}
+        }
+      }
+      expect(yield* Schema.decodeUnknownEffect(payload)({ scope, routineId: "triage", issue, decision })).toMatchObject({ routineId: "triage" })
+      expect(yield* Schema.decodeUnknownEffect(payload)({ scope, inline, issue, decision })).toMatchObject({ inline })
+      expect(Exit.isFailure(yield* Effect.exit(Schema.decodeUnknownEffect(payload)({ scope, issue, decision })))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(Schema.decodeUnknownEffect(payload)({ scope, routineId: "triage", inline, issue, decision })))).toBe(true)
       const success = ExpandRpcs.requests.get("AutomationPreviewClassification")!.successSchema
       const classified = {
         kind: "classified",
