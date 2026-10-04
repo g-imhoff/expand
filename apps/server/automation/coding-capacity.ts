@@ -201,7 +201,7 @@ const sanitizeProbe = (kind: string, probe: typeof CapacityProbe.Type): typeof C
     return { kind, state: "unavailable", detail: `Provider ${safeKind(kind)} reported an unusable capacity signal` }
   }
   if (probe.detail.includes("%")) {
-    return { kind, state: "unknown", detail: defaultDetail(kind, "unknown") }
+    return { kind, state: "unavailable", detail: toSafeDetail(kind, defaultDetail(kind, "unavailable")) }
   }
   return { kind: probe.kind, state: probe.state, detail: toSafeDetail(kind, probe.detail) }
 }
