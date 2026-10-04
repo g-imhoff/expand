@@ -29,6 +29,7 @@ import {
   sweepOnce
 } from "../../automation/worker.js"
 import type { AutomationWorkerEnvironment } from "../../automation/worker.js"
+import type { Attempt } from "../../automation/persistence-models.js"
 import { startJevStub, stubChoiceBody } from "../fixtures/automation-jev-stub.js"
 import { startGithubStub } from "../fixtures/automation-github-stub.js"
 import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
@@ -274,6 +275,83 @@ describe("automation worker integration", () => {
         const history = (yield* executions.history(scope, "run-9"))!
         expect(history.attempts.length).toBeGreaterThanOrEqual(2)
         expect(posts.length).toBeLessThanOrEqual(1)
+      })
+      yield* program.pipe(Effect.provide(Live))
+    }).pipe(Effect.scoped)
+  )
+
+  it.live("skips the duplicate write when reconciliation finds the label applied", () =>
+    Effect.gen(function*() {
+      const jev = yield* withJev
+      const github = yield* withGithub
+      github.setIssue(11, { title: "Boom", body: "Details", labels: ["type: bug"] })
+      const callsBefore = github.calls.length
+      const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+      const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+      const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+      const registry = new AutomationRegistry()
+      const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+        Layer.provideMerge(Creds)
+      )
+      const connectorOptions = { baseUrl: github.baseUrl, timeoutMs: 5000, maxRetries: 0 }
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const executions = yield* ExecutionRepository
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const sql = yield* SqlClient
+        const http = yield* HttpClient.HttpClient
+        const connectorServices: GithubConnectorServices = { configurations, credentials, http }
+        yield* registry.register(makeGithubConnectorExtension(connectorOptions, connectorServices).extension)
+        yield* credentials.putCredential(scope, "github-token", new TextEncoder().encode("stub-github-token"), 0)
+        const process = yield* buildGithubClassificationProcess("github", classification)
+        yield* routines.create(scope, {
+          routineId: "triage",
+          template: githubTemplateReference,
+          configuration: classification,
+          integrations: [githubIntegration],
+          process
+        })
+        yield* ingestGithubRun("run-11", "job-11", "issue-11", 11)
+        yield* executions.recordAttempt(scope, {
+          id: "action-interrupted-11",
+          scope,
+          runId: "run-11",
+          jobId: "job-11",
+          stepId: "label-bug",
+          attempt: 1,
+          startedAt: "t-crash-action",
+          kind: "action",
+          status: "started",
+          integration: { id: "github", definition: githubIntegrationReference },
+          action: { ...githubLabelActionReference },
+          arguments: { issueNumber: 11, label: "type: bug" }
+        })
+        jev.setReply(() => ({ status: 200, body: stubChoiceBody("bug", { bug: 0.9, question: 0.08, no_match: 0.02 }, 0.85) }))
+        const environment: AutomationWorkerEnvironment = {
+          services: { configurations, credentials, executions, sql, http },
+          registry,
+          routines,
+          decide: (input) => classifyJev(input.request, input.descriptions, fakeKey, { endpoint: jev.url, timeoutMs: 5000, maxRetries: 0 }),
+          githubOptions: connectorOptions
+        }
+        const outcome = yield* processRun(environment, { ...DefaultAutomationWorkerOptions, baseBackoffMs: 1 }, scope, "run-11")
+        expect(outcome).toBe("completed")
+        expect((yield* executions.getRun(scope, "run-11"))?.value.state.kind).toBe("succeeded")
+        const posts = github.calls.slice(callsBefore).filter((call) => call.method === "POST")
+        expect(posts).toEqual([])
+        const history = (yield* executions.history(scope, "run-11"))!
+        const completedActions = history.attempts.filter(
+          (entry): entry is Extract<Attempt, { kind: "action"; status: "completed" }> =>
+            entry.kind === "action" && entry.status === "completed"
+        )
+        expect(completedActions.length).toBeGreaterThanOrEqual(1)
+        const reconciled = completedActions.some((entry) => {
+          if (entry.outcome.kind !== "succeeded") return false
+          const result = entry.outcome.result as unknown
+          return typeof result === "object" && result !== null && (result as { reconciled?: unknown }).reconciled === true
+        })
+        expect(reconciled).toBe(true)
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped)

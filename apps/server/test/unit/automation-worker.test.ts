@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -432,6 +432,93 @@ describe("automation worker unit", () => {
         expect(outcome).toBe("failed")
         expect(calls).toBe(3)
         expect((yield* executions.getRun(scope, "run-exhausted"))?.value.state.kind).toBe("failed")
+      })
+      yield* program.pipe(Effect.provide(Live))
+    }).pipe(Effect.scoped)
+  )
+
+  it.live("stops retrying without further calls when the routine is paused mid-retry", () =>
+    Effect.gen(function*() {
+      let calls = 0
+      const gate = yield* Deferred.make<void>()
+      const registry = new AutomationRegistry()
+      yield* registry.register(
+        makeSampleExtension(() =>
+          Effect.gen(function*() {
+            calls += 1
+            yield* Deferred.await(gate)
+            return yield* Effect.fail({ code: "handler-failed", message: "first attempt fails after pause" })
+          })
+        ).extension
+      )
+      const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+      const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+      const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+      const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+        Layer.provideMerge(Creds)
+      )
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const executions = yield* ExecutionRepository
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const sql = yield* SqlClient
+        const http = yield* HttpClient.HttpClient
+        yield* credentials.putCredential(scope, "account-1", new TextEncoder().encode("secret"), 0)
+        yield* routines.create(scope, {
+          routineId: "mail",
+          configuration: { prefix: "Hello" },
+          integrations: [sampleIntegration],
+          process: sampleProcess
+        })
+        const delivery = {
+          schemaVersion: 1 as const,
+          id: "input-midpause",
+          scope,
+          integration: { id: "mail", definition: { id: "sample:mail", version: 1 } },
+          externalId: "input-midpause",
+          trigger: { id: "sample:received", version: 1 },
+          payload: { subject: "hello", count: "2" }
+        }
+        const run = {
+          schemaVersion: 1 as const,
+          kind: "run" as const,
+          id: "run-midpause",
+          scope,
+          configuration: { routineId: "mail", revision: 1 as const },
+          input: { kind: "input-reference" as const, id: "input-midpause" },
+          mode: "live" as const,
+          authority: {
+            schemaVersion: 1 as const,
+            kind: "invocation-authority" as const,
+            scope,
+            configuration: { routineId: "mail", revision: 1 as const },
+            integrationIds: ["mail"],
+            actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "mail", capabilities: ["send"] }]
+          },
+          state: { kind: "queued" as const },
+          actions: []
+        }
+        yield* executions.ingest({ delivery, raw: new Uint8Array([1]), targets: [{ jobId: "job-midpause", run }] })
+        const environment: AutomationWorkerEnvironment = {
+          services: { configurations, credentials, executions, sql, http },
+          registry,
+          routines,
+          decide: unusedDecide
+        }
+        const options = { ...DefaultAutomationWorkerOptions, maxAttempts: 3, baseBackoffMs: 1, attemptTimeoutMs: 5000 }
+        const fiber = yield* Effect.forkChild(processRun(environment, options, scope, "run-midpause"))
+        for (let i = 0; i < 100 && calls === 0; i++) {
+          yield* Effect.sleep("10 millis")
+        }
+        expect(calls).toBe(1)
+        const head = (yield* routines.get(scope, "mail"))!.head
+        yield* routines.pause(scope, "mail", head.version)
+        yield* Deferred.succeed(gate, undefined)
+        const outcome = yield* Fiber.join(fiber)
+        expect(outcome).toBe("cancelled")
+        expect(calls).toBe(1)
+        expect((yield* executions.getRun(scope, "run-midpause"))?.value.state.kind).toBe("cancelled")
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped)

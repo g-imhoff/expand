@@ -795,7 +795,10 @@ const invokeActionWithRetries = (
       let skipInvoke = false
       let reconciledResult: Schema.Json = null
       if (attempt > 1 || hasUnfinished) {
-        const reconciledLabel = yield* reconcileUncertainWrite(environment, scope, revision, step)
+        const reconciledLabel = yield* reconcileUncertainWrite(environment, scope, revision, step).pipe(
+          Effect.timeout(`${options.attemptTimeoutMs} millis`),
+          Effect.orElseSucceed(() => null)
+        )
         if (reconciledLabel !== null) {
           skipInvoke = true
           reconciledResult = { reconciled: true, label: reconciledLabel } as Schema.Json
