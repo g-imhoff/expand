@@ -65,4 +65,25 @@ describe("service config", () => {
   it("encodes the unauthenticated health payload with a Schema codec", () => {
     expect(decodeHealth(serviceHealthBody)).toEqual({ status: "ok" })
   })
+
+  it("accepts the port boundaries 0 and 65535", () => {
+    expect(resolveServicePort(0, undefined)).toBe(0)
+    expect(resolveServicePort(65535, undefined)).toBe(65535)
+    expect(resolveServicePort(undefined, "0")).toBe(0)
+    expect(resolveServicePort(undefined, "65535")).toBe(65535)
+  })
+
+  it("treats a missing flag value as absent", () => {
+    expect(hostFromArgs(["--host"])).toBeUndefined()
+    expect(portFromArgs(["--port"])).toBeUndefined()
+  })
+
+  it("uses the first host occurrence", () => {
+    expect(hostFromArgs(["--host", "0.0.0.0", "--host", "127.0.0.1"])).toBe("0.0.0.0")
+  })
+
+  it("rejects blank host and port environment values", () => {
+    expect(() => resolveServiceHost(undefined, "   ")).toThrow()
+    expect(() => resolveServicePort(undefined, "   ")).toThrow()
+  })
 })
