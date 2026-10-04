@@ -96,6 +96,23 @@ describe("automation RPC handlers", () => {
     expect((yield* automationHandlers.AutomationRoutineList({ scope: otherScope })).routines).toEqual([])
     expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationRoutineEnable({ scope: otherScope, routineId: "triage", expectedVersion: 1 })))).toBe(true)
     expect((yield* automationHandlers.AutomationCredentialList({ scope: otherScope })).credentials).toEqual([])
+    const base = yield* triagePayload
+    expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationRoutineEdit({ ...base, scope: otherScope })))).toBe(true)
+    expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationRoutinePause({ scope: otherScope, routineId: "triage", expectedVersion: 1 })))).toBe(true)
+    expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationRoutineDelete({ scope: otherScope, routineId: "triage", expectedVersion: 1 })))).toBe(true)
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope: otherScope, integrationId: "github" }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationNotFound" })
+    expect(yield* automationHandlers.AutomationIntegrationStatus({ scope: otherScope, integrationId: "github" }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationNotFound" })
+    yield* automationHandlers.AutomationIntegrationPut({ scope: otherScope, integration: { ...githubIntegration, id: "github-other" } })
+    expect((yield* automationHandlers.AutomationIntegrationGet({ scope: otherScope, integrationId: "github-other" })).configuration.id).toBe("github-other")
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "github-other" }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationNotFound" })
+    yield* automationHandlers.AutomationCredentialPut({ scope: otherScope, credentialId: "github-token", secret })
+    expect((yield* automationHandlers.AutomationCredentialList({ scope })).credentials).toEqual([{ credentialId: "github-token", version: 1, configured: true }])
+    expect((yield* automationHandlers.AutomationCredentialList({ scope: otherScope })).credentials).toEqual([{ credentialId: "github-token", version: 1, configured: true }])
+    expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationCredentialRemove({ scope: otherScope, credentialId: "github-token", expectedVersion: 999 })))).toBe(true)
+    expect(yield* automationHandlers.AutomationPreviewClassification({ scope: otherScope, routineId: "triage", issue: { issueNumber: 7, title: "crash on start" }, decision: { schemaVersion: 1, kind: "selected", outcomeId: "bug", data: { label: "type: bug" } } }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationNotFound" })
+    expect((yield* automationHandlers.AutomationRunList({ scope: otherScope, limit: 10 })).runs).toEqual([])
+    expect(yield* automationHandlers.AutomationRunMetrics({ scope: otherScope })).toEqual({ total: 0, queued: 0, running: 0, succeeded: 0, unresolved: 0, failed: 0, cancelled: 0 })
+    expect(Exit.isFailure(yield* Effect.exit(automationHandlers.AutomationRunGet({ scope: otherScope, runId: "missing" })))).toBe(true)
   }).pipe(Effect.provide(makeLayers())))
 
   it.live("keeps credential values write-only and redacts integration status", () => Effect.gen(function*() {
