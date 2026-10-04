@@ -166,6 +166,7 @@ describe("automation coding agent", () => {
         expect(result.exitStatus).toBe(0)
         expect(result.transcript.join("\n")).toContain("stub working")
         expect(result.diffSummary.length).toBeGreaterThan(0)
+        expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
       })
       const Full = Layer.mergeAll(Live, NodeServices.layer)
       yield* program.pipe(Effect.provide(Full))
@@ -295,8 +296,7 @@ describe("automation coding agent", () => {
       resetCodingAdaptersForTests()
       clearCodingAdapters()
       const fs = yield* FileSystem.FileSystem
-      void fs
-      const worktreeRoot = "/tmp/coding-grants-root"
+      const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "coding-worktrees-grants-" })
       const { registry, Live } = setupLayers()
       const program = Effect.gen(function*() {
         const routines = yield* RoutineService
@@ -359,6 +359,7 @@ describe("automation coding agent", () => {
         const outcome = yield* processRun(environment, { ...DefaultAutomationWorkerOptions, baseBackoffMs: 1, maxAttempts: 1 }, scope, "run-denied-1")
         expect(outcome).toBe("failed")
         expect((yield* executions.getRun(scope, "run-denied-1"))?.value.state.kind).toBe("failed")
+        expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
         const unknown = yield* Effect.exit(resolveCodingAdapter("unknown-kind", ["execute"]))
         expect(unknown._tag).toBe("Failure")
         const unsupported = yield* Effect.exit(resolveCodingAdapter("opencode", ["nonexistent-capability"]))
