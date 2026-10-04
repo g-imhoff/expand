@@ -122,7 +122,7 @@ export const organizeGmailMessage = Effect.fn("GmailConnector.organize")(functio
   const shouldRemoveInbox = provedMove !== "INBOX" && current.labelIds.includes("INBOX")
   const alreadyHasLabel = current.labelIds.includes(provedLabel)
   const alreadyMoved = provedMove === "INBOX" || current.labelIds.includes(provedMove) || !shouldRemoveInbox && alreadyHasLabel
-  if (alreadyHasLabel && alreadyMoved) {
+  if (alreadyHasLabel && alreadyMoved && !shouldRemoveInbox) {
     return yield* Schema.decodeUnknownEffect(GmailOrganizeResult, { onExcessProperty: "error" })({ applied: true, moved: false }).pipe(
       Effect.mapError(() => new GmailConnectorError({ code: "api", message: "Gmail organize result is not usable" }))
     )
@@ -367,7 +367,7 @@ export const makeGmailConnectorExtension = (options: GmailConnectorOptions | und
       )
       const desired = unionLabelIds(current.labelIds, [args.label, args.moveTo])
       const shouldRemoveInbox = args.moveTo !== "INBOX" && current.labelIds.includes("INBOX")
-      if (current.labelIds.includes(args.label) && (args.moveTo === "INBOX" || current.labelIds.includes(args.moveTo) || !shouldRemoveInbox)) {
+      if (current.labelIds.includes(args.label) && (args.moveTo === "INBOX" || current.labelIds.includes(args.moveTo) || !shouldRemoveInbox) && !shouldRemoveInbox) {
         return { applied: true, moved: false }
       }
       const addLabelIds = desired.filter((entry) => !current.labelIds.includes(entry))
