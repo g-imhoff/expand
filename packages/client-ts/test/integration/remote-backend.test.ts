@@ -30,7 +30,7 @@ describe("remote backend (T17)", () => {
       let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
-        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
       }
       const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
       const { client } = yield* acquireClient(counting, remote).pipe(Effect.provide(base))
@@ -49,7 +49,7 @@ describe("remote backend (T17)", () => {
       let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
-        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
       }
       const remote = { _tag: "remote", url: "ws://127.0.0.1:1/rpc", token: "dead-token" } as const
       const error = yield* acquireClient(counting, remote).pipe(
@@ -115,7 +115,7 @@ describe("remote backend (T17)", () => {
       let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
-        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
       }
       const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
       const invalid = yield* acquireClient(counting, { _tag: "remote", url: "", token: "t" } as const).pipe(
@@ -141,7 +141,7 @@ describe("remote backend (T17)", () => {
       let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
-        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
       }
       const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
       const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
@@ -179,7 +179,7 @@ describe("remote backend (T17)", () => {
               )
             )
           ) as ReturnType<typeof nodeAdapter.protocolLayer>,
-        spawnBackend: () => Effect.sync(() => { spawns += 1 }).pipe(Effect.asVoid)
+        spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
       }
       const remote = { _tag: "remote", url: endpoint.url, token: endpoint.token } as const
       const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
