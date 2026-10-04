@@ -1,7 +1,18 @@
-export const AutomationOverview = () => (
-  <>
-    <h1 className="text-2xl font-semibold">Overview</h1>
-    <p className="mt-3 text-sm text-muted-foreground">Bring your project tasks together with automations.</p>
-    <p className="mt-2 text-sm text-muted-foreground">Automation summaries are not available yet.</p>
-  </>
-)
+import { useParams } from "@tanstack/react-router"
+import { AutomationOverviewView } from "@expand/desktop/renderer/features/automations/components/AutomationOverviewView"
+import { useAutomationOverview } from "@expand/desktop/renderer/features/automations/data/use-automation-overview"
+
+export const AutomationOverview = () => {
+  const { projectId } = useParams({ from: "/p/$projectId/automations" })
+  const model = useAutomationOverview(projectId)
+  return (
+    <AutomationOverviewView
+      projectId={projectId}
+      status={model.status}
+      data={model.data}
+      error={model.error}
+      live={model.live}
+      onRefresh={model.refresh}
+    />
+  )
+}
