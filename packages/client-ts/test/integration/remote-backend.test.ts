@@ -27,7 +27,6 @@ describe("remote backend (T17)", () => {
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
       const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
-      let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
         spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
@@ -37,7 +36,6 @@ describe("remote backend (T17)", () => {
       expect(yield* client.Health()).toBe("ok")
       const list = yield* client.ProjectList({})
       expect(Array.isArray(list.projects)).toBe(true)
-      expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("never spawns a local replacement when the remote is unavailable", () =>
@@ -46,7 +44,6 @@ describe("remote backend (T17)", () => {
       const dir = yield* makeTempDirectoryScoped("expand-remote-guard-")
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
-      let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
         spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
@@ -57,7 +54,6 @@ describe("remote backend (T17)", () => {
         Effect.flip
       )
       expect(error._tag).toBe("BackendUnavailable")
-      expect(spawns).toBe(0)
       if (error._tag === "BackendUnavailable") {
         expect(error.reason.includes("refusing to spawn")).toBe(true)
       }
@@ -112,7 +108,6 @@ describe("remote backend (T17)", () => {
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
       const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
-      let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
         spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
@@ -123,12 +118,10 @@ describe("remote backend (T17)", () => {
         Effect.exit
       )
       expect(invalid._tag).toBe("Failure")
-      expect(spawns).toBe(0)
       const sessionContext = yield* Layer.build(ClientSessionLayer(counting, remote).pipe(Layer.provide(base)))
       const session = yield* ClientSession.pipe(Effect.provide(sessionContext))
       const api = yield* session.current
       expect(yield* api.Health()).toBe("ok")
-      expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("resubscribes to project events from sequence in remote mode", () =>
@@ -138,7 +131,6 @@ describe("remote backend (T17)", () => {
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
       const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
-      let spawns = 0
       const counting = {
         protocolLayer: nodeAdapter.protocolLayer,
         spawnBackend: () => Effect.die("remote spawnBackend must not be called") as unknown as Effect.Effect<void>
@@ -154,7 +146,6 @@ describe("remote backend (T17)", () => {
       const head = yield* api.Events({ fromSeq: before.seq }).pipe(Stream.runHead)
       const first = Option.getOrThrow(head)
       expect(first.seq > before.seq).toBe(true)
-      expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("kills the connection and resubscribes events on the second epoch with zero spawns", () =>
@@ -164,7 +155,6 @@ describe("remote backend (T17)", () => {
       const context = makeAppContext(path, { homeDir: dir, cwd: dir, dataDir: dir })
       const base = Layer.mergeAll(ProcessServices.layer, Layer.succeed(AppContext, context))
       const { endpoint } = yield* acquireClient(nodeAdapter).pipe(Effect.provide(base))
-      let spawns = 0
       let killHook: Effect.Effect<void> | undefined
       const counting = {
         protocolLayer: (url: string) =>
@@ -193,12 +183,12 @@ describe("remote backend (T17)", () => {
       if (killHook === undefined) return yield* Effect.die("disconnect hook not captured")
       yield* killHook
       const secondEpoch = yield* session.current
+      expect(secondEpoch !== firstEpoch).toBe(true)
       expect(yield* secondEpoch.Health()).toBe("ok")
       yield* secondEpoch.ProjectCreate({ name: "remote-kill-probe-2", ensure: true })
       const secondHead = yield* secondEpoch.Events({ fromSeq: lastSeq }).pipe(Stream.runHead)
       const resumed = Option.getOrThrow(secondHead)
       expect(resumed.seq > lastSeq).toBe(true)
-      expect(spawns).toBe(0)
     })).pipe(Effect.provide(NodeServices.layer)))
 
   it.live("rejects invalid remote connection input", () =>
