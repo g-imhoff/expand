@@ -178,7 +178,7 @@ const adapters = new Map<string, CodingAgentAdapter>()
 
 const toCodingError = (cause: AcpTransportError): CodingAgentError => {
   if (cause.code === "timeout") {
-    return new CodingAgentError({ code: "timeout", message: cause.message, transcript: [] })
+    return cause.durationMs === undefined ? new CodingAgentError({ code: "timeout", message: cause.message, transcript: [] }) : new CodingAgentError({ code: "timeout", message: cause.message, transcript: [], durationMs: cause.durationMs })
   }
   if (cause.code === "cancelled") {
     return new CodingAgentError({ code: "cancelled", message: cause.message })
@@ -218,7 +218,7 @@ const createWorktreeSync = (root: string, repository: string, runId: string): st
   const worktree = mkdtempSync(prefix)
   if (!isManagedWorktree(base, worktree)) {
     try {
-      rmSync(worktree, { recursive: true, force: true })
+      if (isManagedWorktree(base, worktree)) rmSync(worktree, { recursive: true, force: true })
     } catch {}
     throw new Error("Worktree escaped the managed directory")
   }
@@ -237,7 +237,7 @@ const createWorktreeSync = (root: string, repository: string, runId: string): st
     return worktree
   } catch (error) {
     try {
-      rmSync(worktree, { recursive: true, force: true })
+      if (isManagedWorktree(base, worktree)) rmSync(worktree, { recursive: true, force: true })
     } catch {
       throw error
     }

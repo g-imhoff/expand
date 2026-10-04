@@ -143,6 +143,10 @@ export const resetCodingAdaptersForTests = (): void => {
   clearCodingAdapters()
 }
 
-function toFailure(error: { code: string; message: string }): AutomationFailure {
-  return { code: error.code, message: error.message }
+function toFailure(error: { code: string; message: string; transcript?: ReadonlyArray<string>; exitStatus?: number; durationMs?: number }): AutomationFailure {
+  const details: Record<string, string | number | Array<string>> = {}
+  if (error.durationMs !== undefined) details['durationMs'] = error.durationMs
+  if (error.exitStatus !== undefined) details['exitStatus'] = error.exitStatus
+  if (error.transcript !== undefined) details['transcript'] = error.transcript.slice(0, 10)
+  return Object.keys(details).length > 0 ? { code: error.code, message: error.message, details } : { code: error.code, message: error.message }
 }

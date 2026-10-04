@@ -5,6 +5,7 @@ import { Clock, Data, Effect, Schema } from "effect"
 export class AcpTransportError extends Data.TaggedError("AcpTransportError")<{
   readonly code: "spawn" | "protocol" | "timeout" | "cancelled" | "io"
   readonly message: string
+  readonly durationMs?: number
 }> {}
 
 export interface AcpSpawnOptions {
@@ -65,8 +66,14 @@ export const runAcpPrompt = (
       }
     }
     stdout.on("data", onData as (chunk: unknown) => void)
+    let cancelSession: string | null = null
     const cleanup = Effect.gen(function*() {
       yield* Effect.sync(() => {
+        try {
+          if (cancelSession !== null && child.exitCode === null) {
+            child.stdin?.write(encodeLine({ jsonrpc: "2.0", id: freshId(), method: "session/cancel", params: { sessionId: cancelSession } }) + "\n")
+          }
+        } catch {}
         stdout.removeListener("data", onData as (chunk: unknown) => void)
         try {
           if (stderr !== null) {
@@ -84,13 +91,18 @@ export const runAcpPrompt = (
           if (child.exitCode === null) child.kill("SIGKILL")
         } catch {}
       })
-      yield* Effect.sleep("200 millis")
+      let waited = 0
+      while (child.exitCode === null && waited < 1000) {
+        yield* Effect.sleep("50 millis")
+        waited += 50
+      }
     })
     const session = Effect.gen(function*() {
       yield* sendLine(child, { jsonrpc: "2.0", id: freshId(), method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } }, state, input.timeoutMs, "initialize")
       const createdId = freshId()
       const created = yield* sendLine(child, { jsonrpc: "2.0", id: createdId, method: "session/new", params: { cwd: options.cwd, mcpServers: [] } }, state, input.timeoutMs, "session/new")
       const sessionId = extractSessionId(created)
+      cancelSession = sessionId
       if (sessionId === null) {
         return yield* new AcpTransportError({ code: "protocol", message: "ACP session/new returned no sessionId" })
       }
@@ -170,7 +182,8 @@ const sendLine = (
       catch: () => new AcpTransportError({ code: "io", message: `ACP ${label} send failed` })
     })
     void written
-    const deadline = (yield* Clock.currentTimeMillis) + timeoutMs
+    const sendStartedAt = yield* Clock.currentTimeMillis
+    const deadline = sendStartedAt + timeoutMs
     while (true) {
       const index = state.lines.findIndex((entry) => entry.id === message.id)
       if (index >= 0) {
@@ -178,7 +191,8 @@ const sendLine = (
         state.lines.splice(index, 1)
         if (entry.error !== null) {
           if (entry.error.includes("timed out") || entry.error.includes("timeout")) {
-            return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out` })
+            const elapsedTimeout = yield* Clock.currentTimeMillis
+            return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${elapsedTimeout - sendStartedAt}ms`, durationMs: elapsedTimeout - sendStartedAt })
           }
           return yield* new AcpTransportError({ code: "protocol", message: entry.error.slice(0, 500) })
         }
@@ -186,7 +200,7 @@ const sendLine = (
       }
       const now = yield* Clock.currentTimeMillis
       if (now >= deadline) {
-        return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out with ${state.updates.length} updates` })
+        return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${now - sendStartedAt}ms with ${state.updates.length} updates`, durationMs: now - sendStartedAt })
       }
       if (child.exitCode !== null) {
         return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited during ${label}` })
