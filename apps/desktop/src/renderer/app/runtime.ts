@@ -1,4 +1,4 @@
-import { Deferred, Effect, Fiber, Ref } from "effect"
+import { Deferred, Effect, Fiber, Layer, Ref } from "effect"
 import type { Cause, Scope } from "effect"
 import type { RpcClientError } from "effect/rpc"
 import { runProjectSync, type ProjectSyncSink } from "@expand/contracts/project-sync"
@@ -7,6 +7,7 @@ import { ExpandIpc } from "@expand/desktop/shared/ipc/channels"
 import type { ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectSyncSink, makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
 import { makeRendererPort } from "@expand/desktop/renderer/rpc/renderer-port"
+import { AutomationRpc, AutomationRpcLayer } from "@expand/desktop/renderer/rpc/automation-rpc"
 import { ProjectRpc, ProjectRpcLayer } from "@expand/desktop/renderer/rpc/project-rpc"
 import { buildRendererClient, RendererRpcClient } from "@expand/desktop/renderer/rpc/transport"
 import { makeRendererRunner, type RendererRunner } from "@expand/desktop/renderer/app/runner"
@@ -46,13 +47,18 @@ export const boot = Effect.fn("DesktopRenderer.boot")(
       ): Effect.fn.Return<RendererBootResources, IpcTransportError, Scope.Scope> {
         const messagePort = yield* acquireRpcPort()
         const client = yield* buildRendererClient(makeRendererPort(messagePort))
-        const rpc = yield* ProjectRpc.pipe(
-          Effect.provide(ProjectRpcLayer),
+        const combined = Layer.mergeAll(ProjectRpcLayer, AutomationRpcLayer)
+        const services = yield* Effect.gen(function*() {
+          const rpc = yield* ProjectRpc
+          const automation = yield* AutomationRpc
+          return { rpc, automation }
+        }).pipe(
+          Effect.provide(combined),
           Effect.provideService(RendererRpcClient, client)
         )
         const store = makeProjectsStore()
         return {
-          value: { store, rpc },
+          value: { store, rpc: services.rpc, automation: services.automation },
           sink: makeProjectSyncSink(store)
         }
       }),
