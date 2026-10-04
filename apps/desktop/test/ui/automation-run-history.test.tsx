@@ -3,7 +3,7 @@ import { useState } from "react"
 import { it } from "@effect/vitest"
 import { describe, expect, vi } from "vitest"
 import { fireEvent, waitFor, within } from "@testing-library/react"
-import { Effect, Schema } from "effect"
+import { Effect, Schema, Stream } from "effect"
 import { AutomationNotFound } from "@expand/contracts/rpc/automation-schemas"
 import type { AutomationRun } from "@expand/contracts/automation"
 import type { RoutineRecord, RunHistory, RunRecord } from "@expand/contracts/rpc/automation-schemas"
@@ -207,7 +207,9 @@ const baseRpc: AutomationRpcApi = {
   listRuns: () => Effect.die("unused"),
   getRun: () => Effect.die("unused"),
   metrics: () => Effect.die("unused"),
-  catalog: () => Effect.die("unused")
+  catalog: () => Effect.die("unused"),
+  startRoutine: () => Effect.die("unused"),
+  events: () => Stream.never
 }
 
 const Harness = ({ rpc }: { readonly rpc: AutomationRpcApi }) => {
