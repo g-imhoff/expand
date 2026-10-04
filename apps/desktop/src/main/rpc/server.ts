@@ -2,6 +2,7 @@ import { Deferred, Effect, Exit, Queue, Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/rpc"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ClientSession } from "@expand/client-ts"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { DesktopRpcHandlers } from "@expand/desktop/main/rpc/handlers"
@@ -23,7 +24,7 @@ export interface MainPortLike {
 
 export const runRpcServer = Effect.fn("DesktopMain.runRpcServer")((
   port: MainPortLike
-): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | Scope.Scope> =>
+): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | AutomationClient | Scope.Scope> =>
   RpcServer.make(ExpandRpcs).pipe(
     Effect.provide(DesktopRpcHandlers),
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),

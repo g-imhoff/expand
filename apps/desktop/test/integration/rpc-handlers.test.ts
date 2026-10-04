@@ -11,7 +11,9 @@ import {
   ProjectClient,
   type ProjectClientApi
 } from "@expand/client-ts/project"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ServerClient } from "@expand/client-ts/server"
+import { unusedAutomationClient } from "../support/automation-stub"
 import { projectHandlers } from "@expand/desktop/main/rpc/project-handlers"
 
 const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
@@ -58,7 +60,8 @@ const makeClientLayer = (
   return Layer.mergeAll(
     Layer.succeed(ClientSession, session),
     Layer.succeed(ProjectClient, client),
-    Layer.succeed(ServerClient, { health: () => Effect.die("unused") })
+    Layer.succeed(ServerClient, { health: () => Effect.die("unused") }),
+    Layer.succeed(AutomationClient, unusedAutomationClient)
   )
 }
 

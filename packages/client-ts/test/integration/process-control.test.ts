@@ -31,6 +31,7 @@ import { readEndpoint } from "../../discovery"
 import { BackendUnavailable, type SpawnLockError } from "../../errors"
 import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { acquireClient, type ExpandRpcClientApi } from "../../rpc-client"
+import { AutomationClient } from "../../automation/client"
 import { ServerClient, ServerClientLayer } from "../../server/client"
 import { findOrSpawnBackend } from "../../spawn"
 import { acquireSpawnLock, type SpawnLockLease } from "../../spawn-lock"
@@ -234,7 +235,7 @@ describe("process control integration", () => {
     >()
     expectTypeOf(ClientLayer(nodeAdapter)).toEqualTypeOf<
       Layer.Layer<
-        ClientSession | ProjectClient | ServerClient,
+        ClientSession | ProjectClient | ServerClient | AutomationClient,
         BackendUnavailable,
         FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
       >

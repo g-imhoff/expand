@@ -7,6 +7,7 @@ import {
   resolveBackendCommand,
   type BackendUnavailable
 } from "@expand/client-ts"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
@@ -24,7 +25,7 @@ export interface DesktopBackendHost {
 }
 
 export type ExpandRuntime = ManagedRuntime.ManagedRuntime<
-  ClientSession | ProjectClient | ServerClient,
+  ClientSession | ProjectClient | ServerClient | AutomationClient,
   BackendUnavailable | Layer.Error<typeof nodeAppContextLayer>
 >
 

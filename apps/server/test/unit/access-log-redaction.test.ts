@@ -17,6 +17,14 @@ import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-ca
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
+import { AutomationRegistry } from "@expand/server/automation/registry"
+import { AutomationRegistryService } from "@expand/server/automation/registry-service"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
+import { NodeHttpClient } from "@effect/platform-node"
 
 // mirrors coreLayer in composition/app.ts (not exported)
 const testCore = (dbPath: string) => {
@@ -33,7 +41,15 @@ const testCore = (dbPath: string) => {
     Layer.provide(NodeFileSystem.layer),
     Layer.provide(NodeServices.layer)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
+  const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
+  const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
+  const registry = new AutomationRegistry()
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  const http = NodeHttpClient.layerFetch
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, automationEvents, registryService, http)
 }
 
 const probeWs = (url: string) =>

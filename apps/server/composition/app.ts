@@ -17,6 +17,8 @@ import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/
 import { ExecutionRepository, ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
 import { RoutineService, RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { AutomationRegistry } from "@expand/server/automation/registry"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
+import { AutomationRegistryService } from "@expand/server/automation/registry-service"
 import { makeGithubConnectorExtension } from "@expand/server/automation/github-connector"
 import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
 import type { ClassificationDecideInput } from "@expand/server/automation/issue-classification"
@@ -191,5 +193,7 @@ const coreLayer = (dbPath: string, registry: AutomationRegistry) => {
   const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
   const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
   const http = NodeHttpClient.layerFetch
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, http)
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, http, automationEvents, registryService)
 }
