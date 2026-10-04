@@ -182,14 +182,24 @@ const selectAutoAgent = (
     return Effect.fail({ code: "invalid-contract", message: "Coding provider selection is not configured" } as AutomationFailure)
   }
   return selectCodingProvider(selection, requested).pipe(
-    Effect.mapError((error) => ({
-      code: "connection",
-      message: error.code === "invalid" ? "Coding provider selection is not configured" : "No coding provider has usable capacity",
-      details: {
-        evidence: (error.evidence ?? []).map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`),
-        outcome: "failed"
-      }
-    }) as AutomationFailure)
+    Effect.mapError((error) =>
+      error.code === "invalid"
+        ? ({
+          code: "invalid-contract",
+          message: "Coding provider selection is not configured",
+          details: {
+            evidence: (error.evidence ?? []).map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`),
+            outcome: "failed"
+          }
+        } as AutomationFailure)
+        : ({
+          code: "connection",
+          message: "No coding provider has usable capacity",
+          details: {
+            evidence: (error.evidence ?? []).map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`),
+            outcome: "failed"
+          }
+        } as AutomationFailure))
   )
 }
 
