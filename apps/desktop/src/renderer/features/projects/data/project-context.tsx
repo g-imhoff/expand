@@ -25,6 +25,8 @@ export const useProjectSelector = <A,>(selector: (state: ProjectState) => A): A 
 
 export const useProjectRpc = (): ProjectRpcApi => useProjectContext().rpc
 
+export const useAutomationRpc = (): AutomationRpcApi | undefined => useProjectContext().automation
+
 const useProjectContext = (): ProjectContextValue => {
   const value = useContext(ProjectContext)
   if (value === null) {

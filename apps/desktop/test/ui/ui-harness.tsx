@@ -5,6 +5,7 @@ import type { Project } from "@expand/contracts/project"
 import { Project as ProjectClass } from "@expand/contracts/project"
 import { ProjectContextProvider, type ProjectContextValue } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { makeProjectsStore } from "@expand/desktop/renderer/features/projects/data/project-store"
+import type { AutomationRpcApi } from "@expand/desktop/renderer/rpc/automation-rpc"
 import type { ProjectRpcApi } from "@expand/desktop/renderer/rpc/project-rpc"
 
 export const uid = (n: number): string => "00000000-0000-4000-8000-" + String(n).padStart(12, "0")
@@ -23,7 +24,8 @@ export const fakeProject = (over: FakeProjectOver = {}): Project =>
 
 export const makeFakeProjectContext = (
   projects: ReadonlyArray<Project>,
-  over: Partial<ProjectRpcApi> = {}
+  over: Partial<ProjectRpcApi> = {},
+  automation: Partial<AutomationRpcApi> | undefined = undefined
 ): ProjectContextValue => {
   const unused = (label: string) => () => Effect.die(new Error(`${label} not stubbed`))
   const store = makeProjectsStore()
@@ -42,7 +44,8 @@ export const makeFakeProjectContext = (
       status: Stream.never,
       events: () => Stream.never,
       ...over
-    }
+    },
+    ...(automation === undefined ? {} : { automation: { ...unusedAutomationRpc, ...automation } })
   }
 }
 
@@ -55,6 +58,31 @@ export const renderWithProjectContextScoped = Effect.fn("DesktopUiTest.renderWit
 ) => ownRender(() => render(
   <ProjectContextProvider value={value}>{ui}</ProjectContextProvider> as ReactNode
 )))
+
+const notStubbed = (label: string): never => (() => Effect.die(new Error(`${label} not stubbed`))) as never
+
+const unusedAutomationRpc: AutomationRpcApi = {
+  createRoutine: notStubbed("createRoutine"),
+  editRoutine: notStubbed("editRoutine"),
+  enableRoutine: notStubbed("enableRoutine"),
+  pauseRoutine: notStubbed("pauseRoutine"),
+  deleteRoutine: notStubbed("deleteRoutine"),
+  getRoutine: notStubbed("getRoutine"),
+  listRoutines: notStubbed("listRoutines"),
+  putIntegration: notStubbed("putIntegration"),
+  getIntegration: notStubbed("getIntegration"),
+  integrationStatus: notStubbed("integrationStatus"),
+  putCredential: notStubbed("putCredential"),
+  removeCredential: notStubbed("removeCredential"),
+  listCredentials: notStubbed("listCredentials"),
+  preview: notStubbed("preview"),
+  listRuns: notStubbed("listRuns"),
+  getRun: notStubbed("getRun"),
+  metrics: notStubbed("metrics"),
+  catalog: notStubbed("catalog"),
+  startRoutine: notStubbed("startRoutine"),
+  events: () => Stream.never
+}
 
 interface FakeProjectOver {
   readonly id?: string
