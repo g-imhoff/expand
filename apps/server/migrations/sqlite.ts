@@ -1,4 +1,5 @@
 import { automationMigration } from "./automation.js"
+import { automationGmailMigration } from "./automation-gmail.js"
 import { automationCredentialsMigration } from "./automation-credentials.js"
 import { Context, Data, Effect, Layer } from "effect"
 import { Migrator, SqlClient } from "effect/sql"
@@ -14,12 +15,13 @@ export class DatabaseReady extends Context.Service<DatabaseReady, {
   readonly ready: true
 }>()("expand/DatabaseReady") {}
 
-export const CURRENT_DATABASE_MIGRATION = 3
+export const CURRENT_DATABASE_MIGRATION = 4
 
 export const DATABASE_MIGRATIONS = {
   "1_initial": Effect.gen(initialMigration),
   "2_automation": automationMigration,
-  "3_automation_credentials": automationCredentialsMigration
+  "3_automation_credentials": automationCredentialsMigration,
+  "4_automation_gmail": automationGmailMigration
 } as const
 
 export const migrateDatabase: Effect.Effect<

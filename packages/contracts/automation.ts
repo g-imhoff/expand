@@ -10,6 +10,14 @@ export {
   validateClassificationInput
 } from "./automation/github.js"
 export type { GithubLabelHandler } from "./automation/github.js"
+export {
+  GmailClassificationConfiguration, EmailMessagePayload, EmailTriggerConfiguration, GmailMailboxConfiguration,
+  GmailOrganizeArguments, GmailOrganizeResult, GmailNotifications, buildGmailClassificationProcess,
+  emailOrganizeActionReference, emailTriggerDefinition, emailTriggerReference, gmailClassificationTemplate,
+  gmailIntegrationDefinition, gmailIntegrationReference, gmailTemplateReference, makeGmailExtension,
+  validateGmailClassificationInput
+} from "./automation/gmail.js"
+export type { GmailOrganizeHandler } from "./automation/gmail.js"
 export { OriginalInputReference, JevDecisionRequest, JevDecisionResult, ActionOutcome, ActionGrant, InvocationAuthority, RunState, AutomationRun } from "./automation/run.js"
 export { defineIntegration, defineTrigger, defineRoutine, defineAction, defineExtension } from "./automation/extension.js"
 export type { IntegrationDefinition, TriggerDefinition, ActionDefinition, RoutineDefinition, AutomationExtension, ContextFreeCodec, InstalledAction } from "./automation/extension.js"

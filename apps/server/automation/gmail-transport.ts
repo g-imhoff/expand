@@ -1,0 +1,287 @@
+import { Data, Duration, Effect, Option, Schema } from "effect"
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
+export class GmailTransportError extends Data.TaggedError("GmailTransportError")<{
+  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "invalid-contract"
+  readonly message: string
+  readonly status?: number
+}> {}
+export interface GmailTransportOptions {
+  readonly baseUrl?: string
+  readonly timeoutMs?: number
+  readonly maxRetries?: number
+}
+export interface GmailMessageId {
+  readonly id: string
+  readonly threadId: string
+}
+export interface GmailMessage {
+  readonly id: string
+  readonly threadId: string
+  readonly historyId: string
+  readonly labelIds: ReadonlyArray<string>
+  readonly from: string
+  readonly subject: string
+  readonly snippet: string
+  readonly body: string
+}
+export interface GmailModifyResult {
+  readonly id: string
+  readonly threadId: string
+  readonly labelIds: ReadonlyArray<string>
+}
+export const GmailApiBaseUrl = "https://gmail.googleapis.com"
+export const GmailDefaultTimeoutMs = 10000
+export const GmailDefaultMaxRetries = 2
+export const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
+  userId: string,
+  token: string,
+  options?: GmailTransportOptions
+) {
+  const transport = yield* resolveTransport(options)
+  const user = yield* encodeUser(userId)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages`, token, transport }, 0)
+  return yield* decodeMessageIds(raw)
+})
+export const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
+  userId: string,
+  startHistoryId: string,
+  token: string,
+  options?: GmailTransportOptions
+) {
+  if (typeof startHistoryId !== "string" || startHistoryId.length === 0) {
+    return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail history marker is not usable" })
+  }
+  const transport = yield* resolveTransport(options)
+  const user = yield* encodeUser(userId)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/history?startHistoryId=${encodeURIComponent(startHistoryId)}`, token, transport }, 0)
+  return yield* decodeHistory(raw)
+})
+export const getMessage = Effect.fn("GmailTransport.getMessage")(function*(
+  userId: string,
+  messageId: string,
+  token: string,
+  options?: GmailTransportOptions
+) {
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail message reference is not usable" })
+  }
+  const transport = yield* resolveTransport(options)
+  const user = yield* encodeUser(userId)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages/${encodeURIComponent(messageId)}?format=full`, token, transport }, 0)
+  return yield* decodeMessage(raw)
+})
+export const modifyMessage = Effect.fn("GmailTransport.modifyMessage")(function*(
+  userId: string,
+  messageId: string,
+  changes: { readonly addLabelIds: ReadonlyArray<string>; readonly removeLabelIds: ReadonlyArray<string> },
+  token: string,
+  options?: GmailTransportOptions
+) {
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail message reference is not usable" })
+  }
+  const validated = yield* Schema.decodeUnknownEffect(GmailModifyRequest, { onExcessProperty: "error" })({ addLabelIds: [...changes.addLabelIds], removeLabelIds: [...changes.removeLabelIds] }).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "invalid-contract", message: "Gmail label change is not usable" }))
+  )
+  const transport = yield* resolveTransport(options)
+  const user = yield* encodeUser(userId)
+  const raw = yield* fetchWithRetry({ method: "POST", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages/${encodeURIComponent(messageId)}/modify`, token, body: validated, transport }, 0)
+  return yield* decodeModify(raw)
+})
+interface ResolvedTransport {
+  readonly baseUrl: string
+  readonly timeoutMs: number
+  readonly maxRetries: number
+}
+interface FetchInput {
+  readonly method: "GET" | "POST"
+  readonly url: string
+  readonly token: string
+  readonly body?: typeof GmailModifyRequest.Type
+  readonly transport: ResolvedTransport
+}
+const GmailLabelId = Schema.String.check(Schema.isMinLength(1))
+const GmailListResponse = Schema.Struct({
+  messages: Schema.optional(Schema.Array(Schema.Struct({ id: GmailLabelId, threadId: GmailLabelId }))),
+  nextPageToken: Schema.optional(Schema.String),
+  resultSizeEstimate: Schema.optional(Schema.Number)
+})
+const GmailHistoryResponse = Schema.Struct({
+  history: Schema.optional(Schema.Array(Schema.Struct({
+    messagesAdded: Schema.optional(Schema.Array(Schema.Struct({ message: Schema.Struct({ id: GmailLabelId, threadId: GmailLabelId }) })))
+  }))),
+  historyId: Schema.String
+})
+const GmailHeader = Schema.Struct({ name: Schema.String, value: Schema.String })
+const GmailPayload = Schema.Struct({
+  headers: Schema.optional(Schema.Array(GmailHeader)),
+  body: Schema.optional(Schema.Struct({ data: Schema.optional(Schema.String) })),
+  parts: Schema.optional(Schema.Array(Schema.Unknown))
+})
+const GmailGetResponse = Schema.Struct({
+  id: GmailLabelId,
+  threadId: GmailLabelId,
+  historyId: Schema.optional(Schema.String),
+  labelIds: Schema.optional(Schema.Array(Schema.String)),
+  snippet: Schema.optional(Schema.String),
+  payload: Schema.optional(GmailPayload)
+})
+const GmailModifyRequest = Schema.Struct({
+  addLabelIds: Schema.Array(Schema.String),
+  removeLabelIds: Schema.Array(Schema.String)
+})
+const GmailModifyResponse = Schema.Struct({
+  id: GmailLabelId,
+  threadId: GmailLabelId,
+  labelIds: Schema.optional(Schema.Array(Schema.String))
+})
+function decodeMessageIds(input: unknown): Effect.Effect<ReadonlyArray<GmailMessageId>, GmailTransportError> {
+  return Schema.decodeUnknownEffect(GmailListResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected list payload" })),
+    Effect.map((response) => (response.messages ?? []).map((entry) => ({ id: entry.id, threadId: entry.threadId })))
+  )
+}
+function decodeHistory(input: unknown): Effect.Effect<{ readonly historyId: string; readonly added: ReadonlyArray<GmailMessageId> }, GmailTransportError> {
+  return Schema.decodeUnknownEffect(GmailHistoryResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected history payload" })),
+    Effect.flatMap((response) => {
+      if (response.historyId.length === 0) return Effect.fail(new GmailTransportError({ code: "api", message: "Gmail returned an unexpected history payload" }))
+      const added: Array<GmailMessageId> = []
+      for (const entry of response.history ?? []) {
+        for (const item of entry.messagesAdded ?? []) {
+          added.push({ id: item.message.id, threadId: item.message.threadId })
+        }
+      }
+      return Effect.succeed({ historyId: response.historyId, added })
+    })
+  )
+}
+function decodeMessage(input: unknown): Effect.Effect<GmailMessage, GmailTransportError> {
+  return Schema.decodeUnknownEffect(GmailGetResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected message payload" })),
+    Effect.flatMap((response) => {
+      if (response.id.length === 0 || response.threadId.length === 0) {
+        return Effect.fail(new GmailTransportError({ code: "api", message: "Gmail returned an unexpected message payload" }))
+      }
+      const headers = response.payload?.headers ?? []
+      let from = ""
+      let subject = ""
+      for (const header of headers) {
+        const name = header.name.toLowerCase()
+        if (name === "from" && from.length === 0) from = header.value
+        if (name === "subject" && subject.length === 0) subject = header.value
+      }
+      const body = response.payload?.body?.data ?? ""
+      return Effect.succeed({
+        id: response.id,
+        threadId: response.threadId,
+        historyId: response.historyId ?? "",
+        labelIds: response.labelIds ?? [],
+        from,
+        subject,
+        snippet: response.snippet ?? "",
+        body
+      })
+    })
+  )
+}
+function decodeModify(input: unknown): Effect.Effect<GmailModifyResult, GmailTransportError> {
+  return Schema.decodeUnknownEffect(GmailModifyResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected modify payload" })),
+    Effect.map((response) => ({ id: response.id, threadId: response.threadId, labelIds: response.labelIds ?? [] }))
+  )
+}
+function encodeUser(userId: string): Effect.Effect<string, GmailTransportError> {
+  if (typeof userId !== "string" || userId.length === 0) {
+    return Effect.fail(new GmailTransportError({ code: "invalid-contract", message: "Gmail mailbox reference is not configured" }))
+  }
+  return Effect.succeed(encodeURIComponent(userId))
+}
+function resolveTransport(options?: GmailTransportOptions): Effect.Effect<ResolvedTransport, GmailTransportError> {
+  return Effect.gen(function* () {
+    const baseUrl = options?.baseUrl ?? GmailApiBaseUrl
+    if (typeof baseUrl !== "string" || baseUrl.length === 0) {
+      return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail base URL is not configured" })
+    }
+    yield* Effect.try({
+      try: () => {
+        const url = new URL(baseUrl)
+        if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("unsupported protocol")
+        return url
+      },
+      catch: () => new GmailTransportError({ code: "invalid-contract", message: "Gmail base URL is not a usable URL" })
+    })
+    const timeoutMs = options?.timeoutMs ?? GmailDefaultTimeoutMs
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) {
+      return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail timeout is out of range" })
+    }
+    const maxRetries = options?.maxRetries ?? GmailDefaultMaxRetries
+    if (!Number.isSafeInteger(maxRetries) || maxRetries < 0 || maxRetries > 5) {
+      return yield* new GmailTransportError({ code: "invalid-contract", message: "Gmail retry budget is out of range" })
+    }
+    return { baseUrl: baseUrl.replace(/\/+$/, ""), timeoutMs, maxRetries }
+  })
+}
+function singleFetch(input: FetchInput): Effect.Effect<unknown, GmailTransportError, HttpClient.HttpClient> {
+  return Effect.gen(function* () {
+    if (typeof input.token !== "string" || input.token.length === 0) {
+      return yield* new GmailTransportError({ code: "auth", message: "Gmail credential is missing" })
+    }
+    const base = input.method === "GET" ? HttpClientRequest.get(input.url) : HttpClientRequest.post(input.url)
+    const withHeaders = base.pipe(
+      HttpClientRequest.setHeader("Accept", "application/json"),
+      HttpClientRequest.setHeader("User-Agent", "expand-automation"),
+      HttpClientRequest.bearerToken(input.token)
+    )
+    const outgoing = input.body === undefined
+      ? withHeaders
+      : yield* HttpClientRequest.schemaBodyJson(GmailModifyRequest)(withHeaders, input.body).pipe(
+        Effect.mapError(() => new GmailTransportError({ code: "invalid-contract", message: "Gmail label change is not usable" }))
+      )
+    const maybe = yield* HttpClient.execute(outgoing).pipe(
+      Effect.mapError(() => new GmailTransportError({ code: "connection", message: "Gmail transport failed" })),
+      Effect.timeoutOption(Duration.millis(input.transport.timeoutMs))
+    )
+    if (Option.isNone(maybe)) {
+      return yield* new GmailTransportError({ code: "connection", message: "Gmail request exceeded its deadline" })
+    }
+    const response = maybe.value
+    if (response.status === 401) {
+      return yield* new GmailTransportError({ code: "auth", message: "Gmail rejected the credential", status: 401 })
+    }
+    if (response.status === 403) {
+      return yield* new GmailTransportError({ code: "forbidden", message: "Gmail denied the request", status: 403 })
+    }
+    if (response.status === 404) {
+      return yield* new GmailTransportError({ code: "not-found", message: "Gmail mailbox or message was not found", status: 404 })
+    }
+    if (response.status === 429) {
+      return yield* new GmailTransportError({ code: "rate-limited", message: "Gmail rate limit exceeded", status: 429 })
+    }
+    if (response.status === 529 || response.status >= 500) {
+      return yield* new GmailTransportError({ code: "api", message: "Gmail responded with a retryable failure", status: response.status })
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return yield* new GmailTransportError({ code: "api", message: "Gmail responded with an unexpected status", status: response.status })
+    }
+    return yield* HttpClientResponse.schemaBodyJson(Schema.Unknown, { onExcessProperty: "ignore" })(response).pipe(
+      Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail response was not usable JSON", status: response.status }))
+    )
+  })
+}
+function fetchWithRetry(input: FetchInput, attempt: number): Effect.Effect<unknown, GmailTransportError, HttpClient.HttpClient> {
+  return singleFetch(input).pipe(
+    Effect.catch((error) =>
+      isRetryable(error) && attempt < input.transport.maxRetries
+        ? Effect.sleep(backoffDelay(attempt)).pipe(Effect.andThen(() => fetchWithRetry(input, attempt + 1)))
+        : Effect.fail(error))
+  )
+}
+function isRetryable(error: GmailTransportError): boolean {
+  if (error.code === "rate-limited" || error.code === "connection") return true
+  if (error.code !== "api" || error.status === undefined) return false
+  return error.status === 529 || error.status >= 500
+}
+function backoffDelay(attempt: number): Duration.Duration {
+  return Duration.millis(Math.min(250 * 2 ** attempt, 4000))
+}
