@@ -12,6 +12,7 @@ import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-cont
 import { AutomationRunContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-run-context"
 import { RunDetails } from "@expand/desktop/renderer/features/automations/components/RunDetails"
 import { RunHistoryList } from "@expand/desktop/renderer/features/automations/components/RunHistoryList"
+import { toJsonText } from "@expand/desktop/renderer/features/automations/model/run-history"
 import type { AutomationRpcApi } from "@expand/desktop/renderer/rpc/automation-rpc"
 import { renderScoped } from "./ui-harness"
 
@@ -360,7 +361,7 @@ describe("automation run history", () => {
       const list = rendered.getByRole("list", { name: "Automation runs" })
       expect(within(list).getByText("Unresolved")).toBeDefined()
       fireEvent.click(within(list).getByText("run-b"))
-      yield* Effect.tryPromise(() => rendered.findByText("Nothing changed: No candidate matched the input"))
+      yield* Effect.tryPromise(() => rendered.findByText("Run: Nothing changed: No candidate matched the input"))
     })))
 
   it.effect("shows the empty state", () =>
@@ -397,7 +398,18 @@ describe("automation run history", () => {
         getRun: () =>
           Effect.succeed({
             ...succeededHistory,
-            job: { ...succeededHistory.job, job: makeJob(succeededRun, { note: canary }) }
+            job: { ...succeededHistory.job, job: makeJob(succeededRun, { note: canary }) },
+            attempts: succeededHistory.attempts.map((attempt) =>
+              typeof attempt === "object" && attempt !== null && "request" in attempt
+                ? {
+                  ...attempt,
+                  request: {
+                    ...(attempt.request as Record<string, unknown>),
+                    data: { ...decisionRequest.data, apiToken: canary }
+                  }
+                }
+                : attempt
+            )
           }),
         getRoutine: () =>
           Effect.succeed({
@@ -412,7 +424,9 @@ describe("automation run history", () => {
       const text = document.body.textContent ?? ""
       expect(text).not.toContain(canary)
       expect(text).not.toContain("super-secret")
-      expect(encodeText(succeededHistory)).not.toContain(canary)
+      expect(toJsonText({ apiToken: canary })).toContain("[redacted]")
+      expect(toJsonText({ apiToken: canary })).not.toContain(canary)
+      expect(document.body.textContent ?? "").toContain("[redacted]")
       expect(credentialSpy).not.toHaveBeenCalled()
     })))
 })
