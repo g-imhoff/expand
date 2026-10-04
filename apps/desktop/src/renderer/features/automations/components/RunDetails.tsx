@@ -118,8 +118,8 @@ export const RunDetails = ({ projectId, runId, onBack }: RunDetailsProps) => {
         {run.actions.length === 0 && <p className="mt-1 text-sm text-muted-foreground">No actions recorded.</p>}
         {run.actions.length > 0 && (
           <ul className="mt-1 divide-y rounded border text-sm">
-            {run.actions.map((action) => (
-              <li key={`${action.stepId}:${action.kind}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+            {run.actions.map((action, index) => (
+              <li key={`${action.stepId}:${action.kind}:${index}`} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
                 <span className="font-medium">{actionBadge(action)}</span>
                 <span>{action.stepId}</span>
                 <span className="text-muted-foreground">{describeActionOutcome(action)}</span>
