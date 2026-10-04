@@ -3,6 +3,7 @@ import type { RpcClientError } from "effect/rpc"
 import type { Crypto, FileSystem, Path } from "effect"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
+import type { BackendConnection } from "@expand/contracts/backend-connection"
 import type { BackendUnavailable } from "../errors"
 import type { RuntimeAdapter } from "../adapter"
 import { ClientSession, ClientSessionLayer } from "../client-session"
@@ -24,10 +25,11 @@ export const ServerClientLive: Layer.Layer<ServerClient, never, ClientSession> =
 )
 
 export const ServerClientLayer = (
-  adapter: RuntimeAdapter
+  adapter: RuntimeAdapter,
+  connection?: BackendConnection
 ): Layer.Layer<
   ServerClient,
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
-  ServerClientLive.pipe(Layer.provide(ClientSessionLayer(adapter)))
+  ServerClientLive.pipe(Layer.provide(ClientSessionLayer(adapter, connection)))
