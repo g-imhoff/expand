@@ -20,6 +20,7 @@ import { AutomationRegistry } from "@expand/server/automation/registry"
 import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
 import { AutomationRegistryService } from "@expand/server/automation/registry-service"
 import { makeGithubConnectorExtension } from "@expand/server/automation/github-connector"
+import { makeGmailConnectorExtension } from "@expand/server/automation/gmail-connector"
 import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
 import type { ClassificationDecideInput } from "@expand/server/automation/issue-classification"
 import { classifyJev } from "@expand/server/automation/jev-client"
@@ -76,6 +77,19 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       Effect.catchIf(
         (error) => error instanceof AutomationError && error.code === "duplicate-definition",
         () => Effect.logWarning("automation worker github connector already registered")
+      )
+    )
+    const gmailServices = {
+      configurations: webhookServices.configurations,
+      credentials: webhookServices.credentials,
+      http: httpClient,
+      sql: webhookServices.sql
+    }
+    const gmailConnector = makeGmailConnectorExtension(connectorOptions, gmailServices)
+    yield* registry.register(gmailConnector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker gmail connector already registered")
       )
     )
     const routines = Context.get(core, RoutineService)
