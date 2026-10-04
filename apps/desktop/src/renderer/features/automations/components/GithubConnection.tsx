@@ -126,6 +126,9 @@ export const GithubConnection = ({ scope }: { readonly scope: PersonalScope }) =
               <p className="text-muted-foreground">Labels: {formatLabelsCount(check.status.labels)}</p>
             </div>
           )}
+          {!credentials.isLoading && credentials.error === undefined && !tokenConfigured && check.status === undefined && (
+            <p className="mt-2 text-sm text-muted-foreground">No GitHub connection saved yet. Enter the repository and token below and choose Save to store it.</p>
+          )}
         </>
       )}
     </section>

@@ -236,6 +236,14 @@ describe("GithubConnection", () => {
       yield* renderWithAutomation(<GithubConnection scope={scope} />)
       yield* Effect.tryPromise(() => screen.findByText("Automation services are unavailable in this session."))
     })))
+
+  it.effect("renders the initial empty state without testing", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderWithAutomation(<GithubConnection scope={scope} />, {
+        listCredentials: () => Effect.succeed({ credentials: [] })
+      })
+      yield* Effect.tryPromise(() => screen.findByText("No GitHub connection saved yet. Enter the repository and token below and choose Save to store it."))
+    })))
 })
 
 describe("ZenConnection", () => {
@@ -318,5 +326,23 @@ describe("AutomationIntegrations", () => {
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Registered integrations" }))
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "GitHub" }))
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Zen" }))
+    })))
+
+  it.effect("threads the projectId-derived scope to backend RPCs", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const seenScopes: Array<unknown> = []
+      const projectId = uid(2)
+      yield* renderWithAutomation(<AutomationIntegrations projectId={projectId} />, {
+        catalog: () => fakeCatalog([githubIntegrationDescriptor]),
+        listCredentials: ((payload: { readonly scope: unknown }) => {
+          seenScopes.push(payload.scope)
+          return Effect.succeed({ credentials: [] })
+        }) as unknown as AutomationRpcApi["listCredentials"]
+      })
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "GitHub" }))
+      expect(seenScopes.length).toBeGreaterThan(0)
+      for (const scope of seenScopes) {
+        expect(scope).toEqual(automationScopeForProject(projectId))
+      }
     })))
 })
