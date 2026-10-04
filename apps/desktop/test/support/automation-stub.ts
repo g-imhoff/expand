@@ -19,5 +19,7 @@ export const unusedAutomationClient: AutomationClientApi = {
   listRuns: () => Effect.die("unused"),
   getRun: () => Effect.die("unused"),
   runMetrics: () => Effect.die("unused"),
+  notificationList: () => Effect.die("unused"),
+  notificationMarkRead: () => Effect.die("unused"),
   catalog: () => Effect.die("unused")
 }

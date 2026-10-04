@@ -20,6 +20,7 @@ import { ConfigurationRepository } from "@expand/server/automation/configuration
 import { CredentialRepository } from "@expand/server/automation/credential-repository"
 import { emitAutomationEvent } from "@expand/server/automation/event-store"
 import { ExecutionRepository } from "@expand/server/automation/execution-repository"
+import { NotificationRepository } from "@expand/server/automation/notification-repository"
 
 import { checkGithubConnection } from "@expand/server/automation/github-connector"
 import { runIssueClassification } from "@expand/server/automation/issue-classification"
@@ -282,6 +283,23 @@ export const automationHandlers = {
         cursor = page.cursor
       }
     })),
+  AutomationNotificationList: ({ scope, limit, status }) =>
+    guard(Effect.gen(function*() {
+      const notifications = yield* NotificationRepository
+      const items = yield* notifications.list(scope, {
+        limit,
+        ...(status === undefined ? {} : { status })
+      }).pipe(Effect.mapError(toRpcError))
+      return {
+        notifications: items.map((item) => ({ notification: item.value, version: item.version, sequence: item.sequence }))
+      }
+    })),
+  AutomationNotificationMarkRead: ({ scope, runId }) =>
+    guard(Effect.gen(function*() {
+      const notifications = yield* NotificationRepository
+      const record = yield* notifications.markRead(scope, runId).pipe(Effect.mapError(toRpcError))
+      return { notification: record.value, version: record.version, sequence: record.sequence }
+    })),
   AutomationCatalog: () =>
     Effect.map(AutomationRegistryService, (registry) => registry.catalog())
 } satisfies Pick<
@@ -292,7 +310,7 @@ export const automationHandlers = {
   | "AutomationCredentialPut" | "AutomationCredentialRemove" | "AutomationCredentialList"
   | "AutomationPreviewClassification"
   | "AutomationRunList" | "AutomationRunGet" | "AutomationRunMetrics"
-  | "AutomationCatalog"
+  | "AutomationCatalog" | "AutomationNotificationList" | "AutomationNotificationMarkRead"
 >
 
 type RpcError = AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed

@@ -27,6 +27,8 @@ import { RoutineService } from "./routine-service.js"
 import { AutomationRegistry } from "./registry.js"
 import { buildClassificationRequest } from "./issue-classification.js"
 import type { ClassificationDecideInput } from "./issue-classification.js"
+import { emitNotificationForRun } from "./notification-emit.js"
+import type { NotificationRepository } from "./notification-repository.js"
 import { readGithubIssue } from "./github-connector.js"
 import type { GithubConnectorOptions } from "./github-connector.js"
 import { StorageError } from "./persistence-models.js"
@@ -54,6 +56,7 @@ export interface AutomationWorkerEnvironment {
   readonly routines: RoutineService["Service"]
   readonly decide: WorkerDecide
   readonly githubOptions?: GithubConnectorOptions
+  readonly notifications?: NotificationRepository["Service"]
 }
 
 export type WorkerDecide = (
@@ -177,6 +180,26 @@ export const startAutomationWorker = (
   })
 
 export const processRun = (
+  environment: AutomationWorkerEnvironment,
+  options: AutomationWorkerOptions,
+  scope: PersonalScope,
+  runId: string
+): Effect.Effect<WorkerOutcomeKind, StorageError | AutomationError, HttpClient.HttpClient> =>
+  Effect.gen(function*() {
+    const exit = yield* Effect.exit(processRunInner(environment, options, scope, runId))
+    yield* emitNotificationForRun(
+      {
+        executions: environment.services.executions,
+        configurations: environment.services.configurations,
+        ...(environment.notifications === undefined ? {} : { notifications: environment.notifications })
+      },
+      scope,
+      runId
+    ).pipe(Effect.ignore)
+    return yield* exit
+  })
+
+const processRunInner = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions,
   scope: PersonalScope,

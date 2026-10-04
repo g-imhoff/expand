@@ -16,6 +16,9 @@ import {
   CredentialStatus,
   GithubConnectionStatus,
   IntegrationRecord,
+  NotificationPage,
+  NotificationRecord,
+  NotificationStatusFilter,
   PreviewIssue,
   PreviewOutcome,
   RoutineHead,
@@ -167,5 +170,19 @@ export class AutomationRpcs extends RpcGroup.make(
   Rpc.make("AutomationCatalog", {
     payload: {},
     success: Catalog
+  }),
+  Rpc.make("AutomationNotificationList", {
+    payload: {
+      scope: PersonalScope,
+      limit: Schema.Int,
+      status: Schema.optionalKey(NotificationStatusFilter)
+    },
+    success: NotificationPage,
+    error: AutomationErrorUnion
+  }),
+  Rpc.make("AutomationNotificationMarkRead", {
+    payload: { scope: PersonalScope, runId: LocalId },
+    success: NotificationRecord,
+    error: AutomationErrorUnion
   })
 ) { }

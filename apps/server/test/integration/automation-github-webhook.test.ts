@@ -12,6 +12,7 @@ import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "../../automation/configuration-repository.js"
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
 import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/execution-repository.js"
+import { NotificationRepositoryLayer } from "../../automation/notification-repository.js"
 import { RoutineService, RoutineServiceLayer } from "../../automation/routine-service.js"
 import { AutomationRegistry } from "../../automation/registry.js"
 import { GithubWebhookCredentialSlot } from "../../automation/github-webhook.js"
@@ -32,7 +33,8 @@ const WithCreds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Config))
 const WithRoutines = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer).pipe(
   Layer.provideMerge(WithCreds),
 )
-const Live = Layer.mergeAll(WithRoutines, NodeHttpClient.layerFetch)
+const Notes = NotificationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+const Live = Layer.mergeAll(WithRoutines, Notes, NodeHttpClient.layerFetch)
 
 const scope = { ownerId: "webhook-http-owner", projectId: "webhook-http-project" }
 const webhookSecretText = "http-webhook-secret"

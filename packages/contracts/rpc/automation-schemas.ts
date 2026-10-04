@@ -1,12 +1,16 @@
 import { Schema } from "effect"
 import {
   AutomationFailure,
+  AutomationNotification,
+  AutomationNotificationKind,
+  AutomationNotificationStatus,
   AutomationRun,
   IntegrationConfiguration,
   JevDecisionRequest,
   JevDecisionResult,
   JsonValue,
   LocalId,
+  PersonalScope,
   PositiveVersion,
   RoutineConfiguration
 } from "@expand/contracts/automation"
@@ -169,3 +173,17 @@ export const RunMetrics = Schema.Struct({
   cancelled: Schema.Int
 })
 export type RunMetrics = typeof RunMetrics.Type
+
+export const NotificationKindFilter = AutomationNotificationKind
+export const NotificationStatusFilter = AutomationNotificationStatus
+export const NotificationRecord = Schema.Struct({
+  notification: AutomationNotification,
+  version: PositiveVersion,
+  sequence: PositiveVersion
+})
+export type NotificationRecord = typeof NotificationRecord.Type
+export const NotificationPage = Schema.Struct({
+  notifications: Schema.Array(NotificationRecord)
+})
+export type NotificationPage = typeof NotificationPage.Type
+export const NotificationScope = PersonalScope

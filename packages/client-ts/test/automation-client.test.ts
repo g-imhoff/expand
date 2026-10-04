@@ -21,6 +21,8 @@ const automationStub = Layer.succeed(AutomationClient, {
   listRuns: () => Effect.succeed({ runs: [], cursor: null }),
   getRun: () => Effect.die("unused"),
   runMetrics: () => Effect.succeed({ total: 0, queued: 0, running: 0, succeeded: 0, unresolved: 0, failed: 0, cancelled: 0 }),
+  notificationList: () => Effect.die("unused"),
+  notificationMarkRead: () => Effect.die("unused"),
   catalog: () => Effect.succeed({ schemaVersion: 1, kind: "catalog", definitions: [] })
 })
 
