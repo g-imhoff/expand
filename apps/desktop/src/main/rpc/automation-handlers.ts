@@ -25,6 +25,8 @@ export const automationHandlers: Pick<
   | "AutomationRunGet"
   | "AutomationRunMetrics"
   | "AutomationCatalog"
+  | "AutomationNotificationList"
+  | "AutomationNotificationMarkRead"
 > = {
   AutomationRoutineCreate: (payload) =>
     dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.createRoutine(payload))),
@@ -63,7 +65,11 @@ export const automationHandlers: Pick<
   AutomationRunMetrics: (payload) =>
     dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.runMetrics(payload))),
   AutomationCatalog: () =>
-    dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.catalog()))
+    dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.catalog())),
+  AutomationNotificationList: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.notificationList(payload))),
+  AutomationNotificationMarkRead: (payload) =>
+    dieOnRpcClientError(Effect.flatMap(AutomationClient, (client) => client.notificationMarkRead(payload)))
 }
 
 type Handlers = RpcGroup.HandlersFrom<RpcGroup.Rpcs<typeof ExpandRpcs>>

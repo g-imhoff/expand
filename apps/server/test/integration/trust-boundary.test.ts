@@ -30,6 +30,7 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 import { ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
 import { CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { NotificationRepositoryLayer } from "@expand/server/automation/notification-repository"
 import { RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { AutomationRegistry } from "@expand/server/automation/registry"
 import { AutomationRegistryService } from "@expand/server/automation/registry-service"
@@ -74,12 +75,13 @@ const testCore = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
   const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
   const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
+  const notifications = NotificationRepositoryLayer.pipe(Layer.provideMerge(database))
   const registry = new AutomationRegistry()
   const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
   const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
   const registryService = Layer.succeed(AutomationRegistryService, registry)
   const http = NodeHttpClient.layerFetch
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, automationEvents, registryService, http)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, notifications, routines, automationEvents, registryService, http)
 }
 
 const probeTcp = (host: string, port: number) =>

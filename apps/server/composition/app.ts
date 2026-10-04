@@ -15,6 +15,7 @@ import { httpServerLayer } from "@expand/server/transport/http-server"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
 import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepository, ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { NotificationRepository, NotificationRepositoryLayer } from "@expand/server/automation/notification-repository"
 import { RoutineService, RoutineServiceLayer } from "@expand/server/automation/routine-service"
 import { AutomationRegistry } from "@expand/server/automation/registry"
 import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
@@ -65,6 +66,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       executions: Context.get(core, ExecutionRepository),
       sql: Context.get(core, SqlClient),
     }
+    const notificationService = Context.get(core, NotificationRepository)
     const httpClient = Context.get(core, HttpClient.HttpClient)
     const connectorServices = {
       configurations: webhookServices.configurations,
@@ -101,6 +103,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
         sql: webhookServices.sql,
         http: httpClient
       },
+      notifications: notificationService,
       registry,
       routines,
       decide: (input: ClassificationDecideInput) => {
@@ -206,9 +209,10 @@ const coreLayer = (dbPath: string, registry: AutomationRegistry) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
   const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
   const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
+  const notifications = NotificationRepositoryLayer.pipe(Layer.provideMerge(database))
   const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
   const http = NodeHttpClient.layerFetch
   const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
   const registryService = Layer.succeed(AutomationRegistryService, registry)
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, http, automationEvents, registryService)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, notifications, routines, http, automationEvents, registryService)
 }

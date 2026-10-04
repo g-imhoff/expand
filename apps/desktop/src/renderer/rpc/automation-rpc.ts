@@ -12,6 +12,8 @@ import type {
   RoutineStartResult,
   GithubConnectionStatus,
   IntegrationRecord,
+  NotificationPage,
+  NotificationRecord,
   PreviewOutcome,
   RoutineHead,
   RoutineRecord,
@@ -80,6 +82,12 @@ export interface AutomationRpcApi {
   }) => Effect.Effect<RunPage, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly getRun: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<RunHistory, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly metrics: (payload: { readonly scope: PersonalScope; readonly routineId?: string; readonly mode?: "preview" | "live" }) => Effect.Effect<RunMetrics, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly notificationList: (payload: {
+    readonly scope: PersonalScope
+    readonly limit: number
+    readonly status?: "pending" | "read"
+  }) => Effect.Effect<NotificationPage, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly notificationMarkRead: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<NotificationRecord, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
   readonly events: (payload: { readonly fromSeq?: number }) => Stream.Stream<SequencedEvent, RpcClientError.RpcClientError>
 }
@@ -110,6 +118,8 @@ export const AutomationRpcLayer: Layer.Layer<AutomationRpc, never, RendererRpcCl
     getRun: (p) => client.AutomationRunGet(p),
     metrics: (p) => client.AutomationRunMetrics(p),
     catalog: () => client.AutomationCatalog({}),
-    events: (payload) => client.Events(payload)
+    events: (payload) => client.Events(payload),
+    notificationList: (p) => client.AutomationNotificationList(p),
+    notificationMarkRead: (p) => client.AutomationNotificationMarkRead(p),
   }))
 )

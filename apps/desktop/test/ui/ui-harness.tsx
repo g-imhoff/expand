@@ -81,7 +81,9 @@ const unusedAutomationRpc: AutomationRpcApi = {
   metrics: notStubbed("metrics"),
   catalog: notStubbed("catalog"),
   startRoutine: notStubbed("startRoutine"),
-  events: () => Stream.never
+  events: () => Stream.never,
+  notificationList: () => Effect.die("unused"),
+  notificationMarkRead: () => Effect.die("unused")
 }
 
 interface FakeProjectOver {

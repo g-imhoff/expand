@@ -19,6 +19,8 @@ import type {
   RoutineStartResult,
   GithubConnectionStatus,
   IntegrationRecord,
+  NotificationPage,
+  NotificationRecord,
   PreviewOutcome,
   RoutineHead,
   RoutineRecord,
@@ -80,6 +82,12 @@ export interface AutomationClientApi {
   }) => Effect.Effect<RunPage, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly getRun: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<RunHistory, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly runMetrics: (payload: { readonly scope: PersonalScope; readonly routineId?: string; readonly mode?: "preview" | "live" }) => Effect.Effect<RunMetrics, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly notificationList: (payload: {
+    readonly scope: PersonalScope
+    readonly limit: number
+    readonly status?: "pending" | "read"
+  }) => Effect.Effect<NotificationPage, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly notificationMarkRead: (payload: { readonly scope: PersonalScope; readonly runId: string }) => Effect.Effect<NotificationRecord, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly catalog: () => Effect.Effect<Catalog, RpcClientError.RpcClientError>
 }
 
@@ -126,6 +134,10 @@ export const AutomationClientLive: Layer.Layer<AutomationClient, never, ClientSe
       Effect.flatMap(session.current, (client) => client.AutomationRunGet(payload)),
     runMetrics: (payload) =>
       Effect.flatMap(session.current, (client) => client.AutomationRunMetrics(payload)),
+    notificationList: (payload) =>
+      Effect.flatMap(session.current, (client) => client.AutomationNotificationList(payload)),
+    notificationMarkRead: (payload) =>
+      Effect.flatMap(session.current, (client) => client.AutomationNotificationMarkRead(payload)),
     catalog: () =>
       Effect.flatMap(session.current, (client) => client.AutomationCatalog({}))
   }))

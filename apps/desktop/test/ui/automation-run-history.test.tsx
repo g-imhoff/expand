@@ -209,7 +209,9 @@ const baseRpc: AutomationRpcApi = {
   metrics: () => Effect.die("unused"),
   catalog: () => Effect.die("unused"),
   startRoutine: () => Effect.die("unused"),
-  events: () => Stream.never
+  events: () => Stream.never,
+  notificationList: () => Effect.die("unused"),
+  notificationMarkRead: () => Effect.die("unused")
 }
 
 const Harness = ({ rpc }: { readonly rpc: AutomationRpcApi }) => {

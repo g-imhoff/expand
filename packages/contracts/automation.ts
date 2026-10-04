@@ -23,3 +23,4 @@ export { defineIntegration, defineTrigger, defineRoutine, defineAction, defineEx
 export type { IntegrationDefinition, TriggerDefinition, ActionDefinition, RoutineDefinition, AutomationExtension, ContextFreeCodec, InstalledAction } from "./automation/extension.js"
 export { CustomWebhookBody, CustomWebhookCredentialSlot, defineCustomTrigger } from "./automation/custom.js"
 export type { CustomTriggerDefinition } from "./automation/custom.js"
+export { AutomationNotification, AutomationNotificationKind, AutomationNotificationStatus } from "./automation/notifications.js"
