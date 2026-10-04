@@ -83,6 +83,11 @@ export const makeCodingConnectorExtension = (options: CodingConnectorOptions, se
         return yield* Effect.fail({ code: "invalid-contract", message: "Timeout is out of range" } as AutomationFailure)
       }
       const requested = args.requestedCapabilities ?? ["execute"]
+      for (const capability of requested) {
+        if (capability !== "execute") {
+          return yield* Effect.fail({ code: "invalid-contract", message: `Capability ${capability} is not granted to this action` } as AutomationFailure)
+        }
+      }
       const outcome = yield* executeCodingSession(options.worktreeRoot, {
         runId: `${context.routineId}-${context.configurationRevision}-${context.integrationId}`,
         repository: configuration.repository,
