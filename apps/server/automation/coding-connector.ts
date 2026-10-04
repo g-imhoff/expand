@@ -8,7 +8,9 @@ import {
   codingIntegrationReference,
   CodingAgentArguments,
   CodingAgentResult,
+  CodingCapacitySelectionConfig,
   CodingRepositoryConfiguration,
+  CodingSelectionResult,
   defineAction,
   defineExtension
 } from "@expand/contracts/automation"
@@ -17,12 +19,20 @@ import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { clearCodingAdapters, executeCodingSession, registerCodingAdapter } from "./coding-agent.js"
 import { makeOpencodeAdapter } from "./coding-agent.js"
+import {
+  isCapacityAdapterRegistered,
+  makeUnknownCapacityAdapter,
+  registerCapacityAdapter,
+  selectCodingProvider,
+  selectionEvidenceLines
+} from "./coding-capacity.js"
 
 export interface CodingConnectorOptions {
   readonly worktreeRoot: string
   readonly agentCommand: string
   readonly agentArgs: ReadonlyArray<string>
   readonly defaultTimeoutMs: number
+  readonly selection?: typeof CodingCapacitySelectionConfig.Type
 }
 
 export interface CodingConnectorServices {
@@ -34,6 +44,9 @@ export const CodingCredentialSlot = "token"
 
 export const makeCodingConnectorExtension = (options: CodingConnectorOptions, services: CodingConnectorServices) => {
   registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
+  if (!isCapacityAdapterRegistered("opencode")) {
+    registerCapacityAdapter(makeUnknownCapacityAdapter("opencode", ["execute", "worktree", "transcript", "diff"]))
+  }
   const action = defineAction({
     definition: { ...codingActionReference },
     title: "Coding agent execute",
@@ -88,11 +101,16 @@ export const makeCodingConnectorExtension = (options: CodingConnectorOptions, se
           return yield* Effect.fail({ code: "invalid-contract", message: `Capability ${capability} is not granted to this action` } as AutomationFailure)
         }
       }
+      const selection = args.agentKind === "auto" ? yield* selectAutoAgent(options.selection, [...requested]) : undefined
+      const agentKind = selection === undefined ? args.agentKind : selection.selectedKind
+      if (selection !== undefined) {
+        yield* Effect.logInfo(selectionEvidenceLines(selection).join(" | "))
+      }
       const outcome = yield* executeCodingSession(options.worktreeRoot, {
         runId: `${context.routineId}-${context.configurationRevision}-${context.integrationId}`,
         repository: configuration.repository,
         prompt: args.prompt,
-        agentKind: args.agentKind,
+        agentKind,
         requestedCapabilities: [...requested],
         timeoutMs,
         tokenEnv: { CODING_AGENT_TOKEN_LENGTH: String(secret.length) }
@@ -107,7 +125,20 @@ export const makeCodingConnectorExtension = (options: CodingConnectorOptions, se
         exitStatus: outcome.exitStatus,
         durationMs: outcome.durationMs,
         worktree: outcome.worktree,
-        repository: outcome.repository
+        repository: outcome.repository,
+        ...(selection === undefined
+          ? {}
+          : {
+              selection: {
+                selectedKind: selection.selectedKind,
+                outcome: selection.outcome,
+                evidence: selection.evidence.map((probe) => ({
+                  kind: probe.kind,
+                  state: probe.state,
+                  detail: probe.detail
+                }))
+              }
+            })
       }
     })
   })
@@ -141,6 +172,25 @@ export const makeCodingConnectorExtension = (options: CodingConnectorOptions, se
 
 export const resetCodingAdaptersForTests = (): void => {
   clearCodingAdapters()
+}
+
+const selectAutoAgent = (
+  selection: typeof CodingCapacitySelectionConfig.Type | undefined,
+  requested: ReadonlyArray<string>
+): Effect.Effect<typeof CodingSelectionResult.Type, AutomationFailure> => {
+  if (selection === undefined) {
+    return Effect.fail({ code: "invalid-contract", message: "Coding provider selection is not configured" } as AutomationFailure)
+  }
+  return selectCodingProvider(selection, requested).pipe(
+    Effect.mapError((error) => ({
+      code: "connection",
+      message: error.code === "invalid" ? "Coding provider selection is not configured" : "No coding provider has usable capacity",
+      details: {
+        evidence: (error.evidence ?? []).map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`),
+        outcome: "failed"
+      }
+    }) as AutomationFailure)
+  )
 }
 
 const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
