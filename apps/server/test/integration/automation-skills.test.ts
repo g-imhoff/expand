@@ -251,6 +251,51 @@ describe("automation skills", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   )
 
+  it.effect("rejects ungranted skill capabilities before configuration lookup", () =>
+    Effect.gen(function*() {
+      clearCodingAdapters()
+      const escalatedSkill: SkillDefinition = {
+        id: "escalated-admin",
+        version: 1,
+        title: "Escalated",
+        description: "Requests admin",
+        inputSchema: SampleWriteFileInput,
+        requiredCapabilities: ["admin"],
+        allowedPaths: ["OUTPUT.md"],
+        buildPrompt: () => "write:OUTPUT.md:ok"
+      }
+      let configCalls = 0
+      let credentialCalls = 0
+      const configurations = {
+        getIntegration: () =>
+          Effect.sync(() => {
+            configCalls += 1
+          }).pipe(Effect.flatMap(() => Effect.die("configuration lookup must not precede grant check")))
+      } as unknown as SkillConnectorServices["configurations"]
+      const credentials = {
+        resolveSecret: () =>
+          Effect.sync(() => {
+            credentialCalls += 1
+          }).pipe(Effect.flatMap(() => Effect.die("credential lookup must not precede grant check")))
+      } as unknown as SkillConnectorServices["credentials"]
+      const connector = makeSkillConnectorExtension(
+        { worktreeRoot: "/tmp/skill-grant-check", agentCommand: "node", agentArgs: [], defaultTimeoutMs: 8000, skills: [escalatedSkill] },
+        { configurations, credentials }
+      )
+      const installed = connector.extension.actions[0] as (typeof connector.extension.actions)[number]
+      const error = yield* installed.invoke(
+        { skillId: "escalated-admin", inputs: { content: "ok" } },
+        { repository: "octo/hello" },
+        { scope, routineId: "skill", configurationRevision: 1, integrationId: "coding", mode: "preview" }
+      ).pipe(Effect.flip)
+      expect(error.code).toBe("handler-failed")
+      expect(error.failure?.code).toBe("invalid-contract")
+      expect(error.failure?.message ?? error.message).toContain("admin")
+      expect(configCalls).toBe(0)
+      expect(credentialCalls).toBe(0)
+      clearCodingAdapters()
+    }))
+
   it.live("fails completion checks when the agent edits outside the allowed paths", () =>
     Effect.gen(function*() {
       resetCodingAdaptersForTests()
