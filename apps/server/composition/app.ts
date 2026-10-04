@@ -15,6 +15,14 @@ import { httpServerLayer } from "@expand/server/transport/http-server"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
 import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
 import { ExecutionRepository, ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { RoutineService, RoutineServiceLayer } from "@expand/server/automation/routine-service"
+import { AutomationRegistry } from "@expand/server/automation/registry"
+import { makeGithubConnectorExtension } from "@expand/server/automation/github-connector"
+import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
+import type { ClassificationDecideInput } from "@expand/server/automation/issue-classification"
+import { classifyJev } from "@expand/server/automation/jev-client"
+import { NodeHttpClient } from "@effect/platform-node"
+import { HttpClient } from "effect/http"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
@@ -39,7 +47,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
   const pid = processControl.currentPid
   const path = yield* Path.Path
   const composition = yield* ServerComposition
-  const coreLayerDefinition = Layer.merge(coreLayer(dbPath), composition.coreLayer)
+  const registry = new AutomationRegistry()
+  const coreLayerDefinition = Layer.merge(coreLayer(dbPath, registry), composition.coreLayer)
 
   const program = Effect.gen(function*() {
     const parentScope = yield* Scope.Scope
@@ -51,6 +60,32 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       credentials: Context.get(core, CredentialRepository),
       executions: Context.get(core, ExecutionRepository),
       sql: Context.get(core, SqlClient),
+    }
+    const httpClient = Context.get(core, HttpClient.HttpClient)
+    const connectorServices = {
+      configurations: webhookServices.configurations,
+      credentials: webhookServices.credentials,
+      http: httpClient
+    }
+    const connector = makeGithubConnectorExtension(undefined, connectorServices)
+    yield* registry.register(connector.extension).pipe(
+      Effect.catch(() => Effect.logWarning("automation worker github connector already registered"))
+    )
+    const routines = Context.get(core, RoutineService)
+    const workerEnvironment = {
+      services: {
+        configurations: webhookServices.configurations,
+        credentials: webhookServices.credentials,
+        executions: webhookServices.executions,
+        sql: webhookServices.sql,
+        http: httpClient
+      },
+      registry,
+      routines,
+      decide: (input: ClassificationDecideInput) => {
+        const apiKey = globalThis.process?.env?.["OPENCODE_ZEN_API_KEY"] ?? globalThis.process?.env?.["OPENCODE_API_KEY"] ?? ""
+        return classifyJev(input.request, input.descriptions, apiKey, { timeoutMs: 10000, maxRetries: 0 })
+      }
     }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
@@ -82,6 +117,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
         protocolVersion: PROTOCOL_VERSION
       })
       yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
+
+      yield* Effect.forkScoped(startAutomationWorker(workerEnvironment, DefaultAutomationWorkerOptions).pipe(Effect.provideService(HttpClient.HttpClient, httpClient)))
 
       if (options.keepRunning === true) {
         return yield* Effect.never
@@ -131,7 +168,7 @@ const secureIfPresent = Effect.fn("Server.secureIfPresent")((fs: FileSystem.File
   Effect.flatMap(fs.exists(path), (present) => (present ? fs.chmod(path, 0o600) : Effect.void))
 )
 
-const coreLayer = (dbPath: string) => {
+const coreLayer = (dbPath: string, registry: AutomationRegistry) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
   const replay = ReplayFeedLayer.pipe(Layer.provide(database))
@@ -146,5 +183,7 @@ const coreLayer = (dbPath: string) => {
   const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
   const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
   const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation)
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
+  const http = NodeHttpClient.layerFetch
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, routines, http)
 }
