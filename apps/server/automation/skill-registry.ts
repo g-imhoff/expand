@@ -58,34 +58,152 @@ export const evaluateCompletionChecks = (
 }
 
 export const allowedPathsCheck = (allowedPaths: ReadonlyArray<string>, diffSummary: string): SkillCheckOutcome => {
-  const allowed = new Set(allowedPaths.map((path) => baseName(path)))
-  const mentioned = mentionedFileNames(diffSummary)
-  if (mentioned.length === 0) {
+  const allowed = new Set<string>()
+  for (const entry of allowedPaths) {
+    const normalized = normalizeRepoPath(entry)
+    if (normalized !== null) {
+      allowed.add(normalized)
+    }
+  }
+  const changed = extractChangedPaths(diffSummary)
+  if (changed.length === 0) {
     return { check: "diff-only-allowed-paths", passed: false, detail: "no changed file detected" }
   }
-  const outside = mentioned.filter((name) => !allowed.has(name))
+  const outside = changed.filter((entry) => entry.normalized === null || !allowed.has(entry.normalized))
   if (outside.length > 0) {
-    return { check: "diff-only-allowed-paths", passed: false, detail: `outside allowed paths: ${outside.join(",")}` }
+    return { check: "diff-only-allowed-paths", passed: false, detail: `outside allowed paths: ${outside.map((entry) => entry.normalized ?? entry.raw).join(",")}` }
   }
   return { check: "diff-only-allowed-paths", passed: true }
 }
 
-const baseName = (path: string): string => {
-  const parts = path.split("/")
-  return parts[parts.length - 1] ?? path
+interface ChangedPath {
+  readonly raw: string
+  readonly normalized: string | null
 }
 
-const mentionedFileNames = (diffSummary: string): Array<string> => {
-  const found: Array<string> = []
+const normalizeRepoPath = (raw: string): string | null => {
+  let value = raw.trim()
+  if (value.length === 0) {
+    return null
+  }
+  if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+    value = value.slice(1, -1).trim()
+  }
+  while (value.startsWith("./")) {
+    value = value.slice(2)
+  }
+  value = value.trim()
+  if (value.length === 0) {
+    return null
+  }
+  if (value.startsWith("/")) {
+    return null
+  }
+  const parts = value.split("/")
+  const cleaned: Array<string> = []
+  for (const part of parts) {
+    if (part.length === 0 || part === ".") {
+      continue
+    }
+    if (part === "..") {
+      return null
+    }
+    cleaned.push(part)
+  }
+  if (cleaned.length === 0) {
+    return null
+  }
+  return cleaned.join("/")
+}
+
+const extractChangedPaths = (diffSummary: string): Array<ChangedPath> => {
+  const found: Array<ChangedPath> = []
   const seen = new Set<string>()
-  const pattern = /[A-Za-z0-9_.-]+\.[A-Za-z0-9]+/g
-  let match: RegExpExecArray | null
-  while ((match = pattern.exec(diffSummary)) !== null) {
-    const token = match[0] ?? ""
-    const name = baseName(token)
-    if (name.length === 0 || seen.has(name)) continue
-    seen.add(name)
-    found.push(name)
+  const push = (raw: string): void => {
+    const trimmed = raw.trim()
+    if (trimmed.length === 0) {
+      return
+    }
+    const normalized = normalizeRepoPath(trimmed)
+    const key = normalized ?? `!${trimmed}`
+    if (seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    found.push({ raw: trimmed, normalized })
+  }
+  const lines = diffSummary.split("\n")
+  for (const line of lines) {
+    if (line.trim().length === 0) {
+      continue
+    }
+    const porcelain = parsePorcelainTarget(line)
+    if (porcelain !== undefined) {
+      if (porcelain.length > 0) {
+        push(porcelain)
+      }
+      continue
+    }
+    const stat = parseStatTarget(line)
+    if (stat !== undefined && stat.length > 0) {
+      push(stat)
+    }
   }
   return found
+}
+
+const isPorcelainCode = (value: string): boolean => {
+  return value === " " || value === "?" || value === "!" || value === "U" || (value >= "A" && value <= "Z")
+}
+
+const stripRenameTarget = (value: string): string => {
+  const arrow = value.lastIndexOf(" -> ")
+  if (arrow >= 0) {
+    return value.slice(arrow + 4).trim()
+  }
+  const fat = value.lastIndexOf("=>")
+  if (fat >= 0) {
+    return value.slice(fat + 2).trim().replace(/^[{\s]+/, "").replace(/[\s}]+$/, "").trim()
+  }
+  return value
+}
+
+const parsePorcelainTarget = (line: string): string | undefined => {
+  if (line.length < 4) {
+    return undefined
+  }
+  const first = line[0] ?? ""
+  const second = line[1] ?? ""
+  const third = line[2] ?? ""
+  if (third !== " ") {
+    return undefined
+  }
+  if (!isPorcelainCode(first) || !isPorcelainCode(second)) {
+    return undefined
+  }
+  let raw = line.slice(3).trim()
+  if (raw.length === 0) {
+    return undefined
+  }
+  raw = stripRenameTarget(raw)
+  if (raw.length === 0) {
+    return undefined
+  }
+  return raw
+}
+
+const parseStatTarget = (line: string): string | undefined => {
+  const bar = line.indexOf("|")
+  if (bar < 0) {
+    return undefined
+  }
+  let left = line.slice(0, bar).trim()
+  if (left.length === 0) {
+    return undefined
+  }
+  left = stripRenameTarget(left).replace(/^[{\s]+/, "").replace(/[\s}]+$/, "").trim()
+  if (left.length === 0) {
+    return undefined
+  }
+  return left
 }
