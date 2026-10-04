@@ -16,6 +16,7 @@ export const unusedAutomationClient: AutomationClientApi = {
   removeCredential: () => Effect.die("unused"),
   listCredentials: () => Effect.die("unused"),
   previewClassification: () => Effect.die("unused"),
+  startRoutine: () => Effect.die("unused"),
   listRuns: () => Effect.die("unused"),
   getRun: () => Effect.die("unused"),
   runMetrics: () => Effect.die("unused"),

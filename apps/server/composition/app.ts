@@ -97,8 +97,9 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
+    const customWebhook = { services: { configurations: webhookServices.configurations, credentials: webhookServices.credentials, executions: webhookServices.executions }, registry }
     const transport = yield* Layer.buildWithScope(
-      httpServerLayer(portHint, token, webhookServices).pipe(Layer.provide(Layer.succeedContext(core))),
+      httpServerLayer(portHint, token, webhookServices, customWebhook).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
     )
 

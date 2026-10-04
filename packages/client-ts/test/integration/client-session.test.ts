@@ -70,6 +70,7 @@ const makeHandlers = () =>
     AutomationCredentialRemove: () => Effect.die("unused"),
     AutomationCredentialList: () => Effect.die("unused"),
     AutomationPreviewClassification: () => Effect.die("unused"),
+    AutomationRoutineStart: () => Effect.die("unused"),
     AutomationRunList: () => Effect.die("unused"),
     AutomationRunGet: () => Effect.die("unused"),
     AutomationRunMetrics: () => Effect.die("unused"),

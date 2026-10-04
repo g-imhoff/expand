@@ -169,3 +169,10 @@ export const RunMetrics = Schema.Struct({
   cancelled: Schema.Int
 })
 export type RunMetrics = typeof RunMetrics.Type
+
+export const RoutineStartResult = Schema.Struct({
+  deliveryId: LocalId,
+  jobIds: Schema.Array(LocalId),
+  runIds: Schema.Array(LocalId)
+})
+export type RoutineStartResult = typeof RoutineStartResult.Type

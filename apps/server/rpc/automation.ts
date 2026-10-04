@@ -26,6 +26,7 @@ import { runIssueClassification } from "@expand/server/automation/issue-classifi
 import { StorageError } from "@expand/server/automation/persistence-models"
 import { AutomationRegistryService } from "@expand/server/automation/registry-service"
 import { RoutineService } from "@expand/server/automation/routine-service"
+import { makeManualStartHandler } from "@expand/server/automation/manual-trigger"
 import { guard } from "@expand/server/rpc/guard"
 
 export const automationHandlers = {
@@ -282,6 +283,15 @@ export const automationHandlers = {
         cursor = page.cursor
       }
     })),
+  AutomationRoutineStart: ({ scope, routineId, payload, idempotencyKey }) =>
+    guard(Effect.gen(function*() {
+      const routines = yield* RoutineService
+      const executions = yield* ExecutionRepository
+      const registry = yield* AutomationRegistryService
+      const starter = makeManualStartHandler({ routines, executions }, registry)
+      const result = yield* starter.start({ scope, routineId, payload, idempotencyKey }).pipe(Effect.mapError(toRpcError))
+      return { deliveryId: result.deliveryId, jobIds: [...result.jobIds], runIds: [...result.runIds] }
+    })),
   AutomationCatalog: () =>
     Effect.map(AutomationRegistryService, (registry) => registry.catalog())
 } satisfies Pick<
@@ -291,6 +301,7 @@ export const automationHandlers = {
   | "AutomationIntegrationPut" | "AutomationIntegrationGet" | "AutomationIntegrationStatus"
   | "AutomationCredentialPut" | "AutomationCredentialRemove" | "AutomationCredentialList"
   | "AutomationPreviewClassification"
+  | "AutomationRoutineStart"
   | "AutomationRunList" | "AutomationRunGet" | "AutomationRunMetrics"
   | "AutomationCatalog"
 >

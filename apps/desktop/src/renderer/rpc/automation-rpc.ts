@@ -8,6 +8,7 @@ import type {
   AutomationNotFound,
   AutomationStorageFailed,
   CredentialStatus,
+  RoutineStartResult,
   GithubConnectionStatus,
   IntegrationRecord,
   PreviewOutcome,
@@ -62,6 +63,12 @@ export interface AutomationRpcApi {
     readonly issue: typeof PreviewIssue.Type
     readonly decision: JevDecisionResult
   }) => Effect.Effect<PreviewOutcome, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
+  readonly startRoutine: (payload: {
+    readonly scope: PersonalScope
+    readonly routineId: string
+    readonly payload: JsonValue
+    readonly idempotencyKey: string
+  }) => Effect.Effect<RoutineStartResult, RpcClientError.RpcClientError | AutomationInvalid | AutomationConflict | AutomationNotFound | AutomationStorageFailed>
   readonly listRuns: (payload: {
     readonly scope: PersonalScope
     readonly limit: number
@@ -96,6 +103,7 @@ export const AutomationRpcLayer: Layer.Layer<AutomationRpc, never, RendererRpcCl
     getIntegration: (p) => client.AutomationIntegrationGet(p),
     integrationStatus: (p) => client.AutomationIntegrationStatus(p),
     preview: (p) => client.AutomationPreviewClassification(p),
+    startRoutine: (p) => client.AutomationRoutineStart(p),
     listRuns: (p) => client.AutomationRunList(p),
     getRun: (p) => client.AutomationRunGet(p),
     metrics: (p) => client.AutomationRunMetrics(p),
