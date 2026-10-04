@@ -7,6 +7,7 @@ import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-cont
 import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { AutomationContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-context"
 import type { AutomationRpcApi } from "@expand/desktop/renderer/rpc/automation-rpc"
+import { AutomationStorageFailed } from "@expand/contracts/rpc/automation-schemas"
 import type { RunMetrics, RunRecord, RoutineRecord } from "@expand/contracts/rpc/automation-schemas"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
 import { useCommandPalette } from "@expand/desktop/renderer/features/command/model/command-store"
@@ -151,7 +152,7 @@ describe("automation overview", () => {
       events: (payload: { readonly fromSeq?: number }) => {
         seenFromSeq.push(payload.fromSeq)
         return seenFromSeq.length === 1
-          ? Stream.concat(Stream.make(routineChangedEvent(5, "triage")), Stream.fail("connection lost"))
+          ? Stream.concat(Stream.make(routineChangedEvent(5, "triage")), Stream.die(new Error("connection lost")))
           : Stream.never
       }
     })
@@ -178,7 +179,7 @@ describe("automation overview", () => {
       listRoutines: () => {
         listRoutinesCalls += 1
         return listRoutinesCalls === 1
-          ? Effect.fail("backend down")
+          ? Effect.fail(new AutomationStorageFailed({ code: "backend_down", message: "backend down" }))
           : Effect.succeed({ routines: [routineFixture("triage", "enabled")] })
       },
       listRuns: () => Effect.succeed({ runs: [], cursor: null }),
@@ -275,7 +276,7 @@ const routineChangedEvent = (seq: number, routineId: string): SequencedEvent => 
 
 const unusedAutomationEffect = (label: string) => () => Effect.die(new Error(`${label} not stubbed`))
 
-const automationRpc = (over: Record<string, unknown>): AutomationRpcApi => ({
+const automationRpc = (over: Partial<AutomationRpcApi>): AutomationRpcApi => ({
   createRoutine: unusedAutomationEffect("createRoutine"),
   editRoutine: unusedAutomationEffect("editRoutine"),
   enableRoutine: unusedAutomationEffect("enableRoutine"),
@@ -296,4 +297,4 @@ const automationRpc = (over: Record<string, unknown>): AutomationRpcApi => ({
   catalog: unusedAutomationEffect("catalog"),
   events: () => Stream.never,
   ...over
-}) as unknown as AutomationRpcApi
+}) as AutomationRpcApi
