@@ -136,6 +136,8 @@ export const executeCodingSession = (
                 new CodingAgentError({
                   code: "timeout",
                   message: `Coding session exceeded ${input.timeoutMs}ms`,
+                  transcript: [],
+                  exitStatus: undefined,
                   durationMs: now - startedAt
                 })
               ))
@@ -160,7 +162,7 @@ export const executeCodingSession = (
     )
     const finishedAt = yield* Clock.currentTimeMillis
     void finishedAt
-    const safeTranscript = outcome.session.transcript.slice(0, 50)
+    const safeTranscript = boundTranscript(outcome.session.transcript)
     const safeDiff = Schema.decodeUnknownSync(Schema.String)(outcome.diffSummary.slice(0, 4000))
     return {
       sessionId: outcome.session.sessionId,
@@ -176,6 +178,23 @@ export const executeCodingSession = (
 
 const adapters = new Map<string, CodingAgentAdapter>()
 
+const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
+  const sliced = lines.slice(0, 50)
+  const out: Array<string> = []
+  let total = 0
+  for (const line of sliced) {
+    if (total >= 4000) break
+    const remaining = 4000 - total
+    if (line.length <= remaining) {
+      out.push(line)
+      total += line.length
+    } else {
+      out.push(line.slice(0, remaining))
+      total += remaining
+    }
+  }
+  return out
+}
 const toCodingError = (cause: AcpTransportError): CodingAgentError => {
   const transcript = cause.transcript === undefined ? undefined : [...cause.transcript]
   const exitStatus = cause.exitStatus

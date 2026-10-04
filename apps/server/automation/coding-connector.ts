@@ -143,10 +143,27 @@ export const resetCodingAdaptersForTests = (): void => {
   clearCodingAdapters()
 }
 
+const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
+  const sliced = lines.slice(0, 50)
+  const out: Array<string> = []
+  let total = 0
+  for (const line of sliced) {
+    if (total >= 4000) break
+    const remaining = 4000 - total
+    if (line.length <= remaining) {
+      out.push(line)
+      total += line.length
+    } else {
+      out.push(line.slice(0, remaining))
+      total += remaining
+    }
+  }
+  return out
+}
 function toFailure(error: { code: string; message: string; transcript?: ReadonlyArray<string> | undefined; exitStatus?: number | undefined; durationMs?: number | undefined }): AutomationFailure {
   const details: Record<string, string | number | Array<string>> = {}
   if (error.durationMs !== undefined) details['durationMs'] = error.durationMs
   if (error.exitStatus !== undefined) details['exitStatus'] = error.exitStatus
-  if (error.transcript !== undefined) details['transcript'] = error.transcript.slice(0, 10)
+  if (error.transcript !== undefined) details['transcript'] = boundTranscript(error.transcript)
   return Object.keys(details).length > 0 ? { code: error.code, message: error.message, details } : { code: error.code, message: error.message }
 }

@@ -37,7 +37,7 @@ export const runAcpPrompt = (
       catch: () => new AcpTransportError({ code: "spawn", message: "ACP agent failed to spawn", durationMs: 0, transcript: [], exitStatus: undefined })
     })
     const state: TransportState = { lines: [], updates: [], buffer: "" }
-    const snapshotTranscript = (): ReadonlyArray<string> => [...state.updates.slice(0, 50)]
+    const snapshotTranscript = (): ReadonlyArray<string> => boundTranscript(state.updates)
     const stdout = child.stdout
     if (stdout === null) {
       const nowNoStdout = yield* Clock.currentTimeMillis
@@ -123,7 +123,7 @@ export const runAcpPrompt = (
         startedAt
       )
       const endedAt = yield* Clock.currentTimeMillis
-      const transcript = [...state.updates.slice(0, 50), `result: ${encodeLine(promptResult).slice(0, 1000)}`]
+      const transcript = boundTranscript([...state.updates.slice(0, 49), `result: ${encodeLine(promptResult).slice(0, 1000)}`])
       if (child.exitCode !== null && child.exitCode !== 0) {
         return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited with status ${child.exitCode}`, durationMs: endedAt - startedAt, transcript, exitStatus: child.exitCode })
       }
@@ -143,6 +143,23 @@ interface TransportState {
   readonly lines: Array<{ readonly id: number; readonly result: unknown; readonly error: string | null }>
   readonly updates: Array<string>
   buffer: string
+}
+const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
+  const sliced = lines.slice(0, 50)
+  const out: Array<string> = []
+  let total = 0
+  for (const line of sliced) {
+    if (total >= 4000) break
+    const remaining = 4000 - total
+    if (line.length <= remaining) {
+      out.push(line)
+      total += line.length
+    } else {
+      out.push(line.slice(0, remaining))
+      total += remaining
+    }
+  }
+  return out
 }
 const recordLine = (state: TransportState, line: string): void => {
   let value: unknown
@@ -208,12 +225,13 @@ const sendLine = (
     const stdin = child.stdin
     if (stdin === null) {
       const nowNoStdin = yield* Clock.currentTimeMillis
-      return yield* new AcpTransportError({ code: "io", message: `ACP ${label} has no stdin`, durationMs: nowNoStdin - sessionStartedAt, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode ?? undefined })
+      return yield* new AcpTransportError({ code: "io", message: `ACP ${label} has no stdin`, durationMs: nowNoStdin - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
     }
     const line = encodeLine(message)
+    const nowBeforeWrite = yield* Clock.currentTimeMillis
     const written = yield* Effect.try({
       try: () => stdin.write(`${line}\n`),
-      catch: () => new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: undefined, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode ?? undefined })
+      catch: () => new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: nowBeforeWrite - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
     })
     void written
     const sendStartedAt = yield* Clock.currentTimeMillis
@@ -226,18 +244,18 @@ const sendLine = (
         if (entry.error !== null) {
           const nowEntry = yield* Clock.currentTimeMillis
           if (entry.error.includes("timed out") || entry.error.includes("timeout")) {
-            return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${nowEntry - sendStartedAt}ms`, durationMs: nowEntry - sendStartedAt, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode ?? undefined })
+            return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${nowEntry - sendStartedAt}ms`, durationMs: nowEntry - sendStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
           }
-          return yield* new AcpTransportError({ code: "protocol", message: entry.error.slice(0, 500), durationMs: nowEntry - sessionStartedAt, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode ?? undefined })
+          return yield* new AcpTransportError({ code: "protocol", message: entry.error.slice(0, 500), durationMs: nowEntry - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
         }
         return entry.result
       }
       const now = yield* Clock.currentTimeMillis
       if (now >= deadline) {
-        return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${now - sendStartedAt}ms with ${state.updates.length} updates`, durationMs: now - sendStartedAt, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode ?? undefined })
+        return yield* new AcpTransportError({ code: "timeout", message: `ACP ${label} timed out after ${now - sendStartedAt}ms with ${state.updates.length} updates`, durationMs: now - sendStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
       }
       if (child.exitCode !== null) {
-        return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited during ${label}`, durationMs: now - sessionStartedAt, transcript: [...state.updates.slice(0, 50)], exitStatus: child.exitCode })
+        return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited during ${label}`, durationMs: now - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode })
       }
       yield* Effect.sleep("10 millis")
     }
