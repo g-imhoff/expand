@@ -10,7 +10,8 @@
     "./server": "./server/index.ts",
     "./adapters/node": "./adapters/node.ts",
     "./package.json": "./package.json",
-    "./automation": "./automation/index.ts"
+    "./automation": "./automation/index.ts",
+    "./backend-connection": "./backend-connection.ts"
   },
   "scripts": {
     "build": "tsx scripts/prepare-publish.ts build",

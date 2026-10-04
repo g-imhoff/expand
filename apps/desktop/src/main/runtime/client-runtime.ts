@@ -5,8 +5,10 @@ import {
   ClientLayer,
   ClientSession,
   resolveBackendCommand,
+  remoteSpawnGuard,
   type BackendUnavailable
 } from "@expand/client-ts"
+import type { BackendConnection } from "@expand/contracts/backend-connection"
 import { AutomationClient } from "@expand/client-ts/automation"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ServerClient } from "@expand/client-ts/server"
@@ -38,7 +40,10 @@ export const defaultBackendEntry = Effect.fn("DesktopMain.defaultBackendEntry")(
   return path.join(modulePath, "..", "..", "..", "..", sourceOffset, "server", "main.ts")
 })
 
-export const defaultBackendAdapter = (host: DesktopBackendHost) => {
+export const defaultBackendAdapter = (
+  host: DesktopBackendHost,
+  connection?: BackendConnection
+) => {
   const nodeAdapter = makeNodeAdapter({
     backendCommand: defaultBackendEntry(host.moduleUrl).pipe(
       Effect.orDie,
@@ -50,6 +55,12 @@ export const defaultBackendAdapter = (host: DesktopBackendHost) => {
       }))
     )
   })
+  if (connection !== undefined && connection._tag === "remote") {
+    return {
+      protocolLayer: nodeAdapter.protocolLayer,
+      spawnBackend: () => Effect.fail(remoteSpawnGuard())
+    }
+  }
   return host.isPackaged
     ? {
       protocolLayer: nodeAdapter.protocolLayer,
@@ -58,9 +69,9 @@ export const defaultBackendAdapter = (host: DesktopBackendHost) => {
     : nodeAdapter
 }
 
-export const makeRuntime = (host: DesktopBackendHost): ExpandRuntime => {
+export const makeRuntime = (host: DesktopBackendHost, connection?: BackendConnection): ExpandRuntime => {
   const runtime = ManagedRuntime.make(
-    clientLayer(defaultBackendAdapter(host)).pipe(Layer.provide(ProcessServices.layer))
+    clientLayer(defaultBackendAdapter(host, connection), connection).pipe(Layer.provide(ProcessServices.layer))
   )
   if (!host.isPackaged) return runtime
   const disposeEffect = runtime.disposeEffect
@@ -69,5 +80,8 @@ export const makeRuntime = (host: DesktopBackendHost): ExpandRuntime => {
   })
 }
 
-const clientLayer = (runtimeAdapter: Parameters<typeof ClientLayer>[0]) =>
-  ClientLayer(runtimeAdapter).pipe(Layer.provide(nodeAppContextLayer))
+const clientLayer = (
+  runtimeAdapter: Parameters<typeof ClientLayer>[0],
+  connection?: BackendConnection
+) =>
+  ClientLayer(runtimeAdapter, connection).pipe(Layer.provide(nodeAppContextLayer))

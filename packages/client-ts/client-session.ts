@@ -16,6 +16,7 @@ import { RpcClient } from "effect/rpc"
 import type { AppContext } from "@expand/contracts/app-context"
 import type { ProcessControl } from "@expand/contracts/process-control"
 import type { RuntimeAdapter } from "./adapter"
+import type { BackendConnection } from "@expand/contracts/backend-connection"
 import { BackendUnavailable } from "./errors"
 import { acquireClient, type ExpandRpcClientApi } from "./rpc-client"
 import { supervised } from "./supervise"
@@ -33,13 +34,14 @@ export class ClientSession extends Context.Service<ClientSession, ClientSessionA
 export type ConnectionStatus = "connected" | "reconnecting" | "disconnected"
 
 export const ClientSessionLayer = (
-  adapter: RuntimeAdapter
+  adapter: RuntimeAdapter,
+  connection?: BackendConnection
 ): Layer.Layer<
   ClientSession,
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | AppContext | ProcessControl
 > =>
-  Layer.effect(ClientSession, makeSession(adapter))
+  Layer.effect(ClientSession, makeSession(adapter, connection))
 
 const reconnectPolicy = Schedule.min([
   Schedule.exponential("500 millis", 1.5),
@@ -118,7 +120,8 @@ const currentClient = Effect.fn("ClientSession.currentClient")(<A>(
 )
 
 const makeSession = Effect.fn("ClientSession.make")(function*(
-  adapter: RuntimeAdapter
+  adapter: RuntimeAdapter,
+  connection?: BackendConnection
 ): Effect.fn.Return<
   ClientSessionApi,
   BackendUnavailable,
@@ -131,7 +134,7 @@ const makeSession = Effect.fn("ClientSession.make")(function*(
   const acquireEpoch = Effect.scoped(
     Effect.gen(function* () {
       const hooked = withConnectionHooks(adapter, clients, status)
-      const { client } = yield* acquireClient(hooked.adapter)
+      const { client } = yield* acquireClient(hooked.adapter, connection)
       const attempt = hooked.currentAttempt()
       if (attempt === undefined) {
         return yield* new BackendUnavailable({ reason: "connection attempt missing" })
