@@ -12,6 +12,7 @@ import { makeCustomWebhookHandler } from "@expand/server/automation/custom-webho
 import type { CustomWebhookInput, CustomWebhookOutcome, CustomWebhookServices } from "@expand/server/automation/custom-webhook"
 import type { AutomationRegistry } from "@expand/server/automation/registry"
 import { encodeJson } from "@expand/server/automation/persistence-models"
+import { SERVICE_HEALTH_PATH } from "@expand/server/runtime/service-config"
 
 export interface CustomWebhookRoute {
   readonly services: CustomWebhookServices
@@ -23,8 +24,10 @@ export interface CustomWebhookHttpResult {
   readonly body: string | null
 }
 
-export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute) => {
-  const node = NodeHttpServer.layer(createServer, { port, host: "127.0.0.1" })
+export const serviceHealthBody = encodeJson({ status: "ok" })
+
+export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute, host = "127.0.0.1") => {
+  const node = NodeHttpServer.layer(createServer, { port, host })
   const rpc = RpcServer.layer(ExpandRpcs).pipe(
     Layer.provide(ExpandHandlers),
     Layer.provide(guardedRouter(token, webhookServices, customWebhook)),
@@ -146,6 +149,11 @@ const guardedRouter = (token: string, webhookServices?: GithubWebhookServices, c
     Effect.gen(function*() {
       const { httpEffect, protocol } = yield* RpcServer.makeProtocolWithHttpEffectWebsocket
       const router = yield* HttpRouter.HttpRouter
+      yield* router.add(
+        "GET",
+        SERVICE_HEALTH_PATH,
+        Effect.succeed(HttpServerResponse.text(serviceHealthBody, { status: 200, headers: { "content-type": "application/json" } }))
+      )
       yield* router.add(
         "GET",
         "/rpc",

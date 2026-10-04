@@ -33,10 +33,12 @@ import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { advertisedHostFor } from "@expand/server/runtime/service-config"
 
 export interface RunServerOptions {
   readonly dbPath: string
   readonly port?: number
+  readonly host?: string
   readonly keepRunning?: boolean
 }
 
@@ -47,6 +49,7 @@ export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.L
 export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
   const dbPath = options.dbPath
   const portHint = options.port ?? 0
+  const host = options.host ?? "127.0.0.1"
   const token = yield* newId()
   const processControl = yield* ProcessControl
   const pid = processControl.currentPid
@@ -116,7 +119,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
     const customWebhook = { services: { configurations: webhookServices.configurations, credentials: webhookServices.credentials, executions: webhookServices.executions }, registry }
     const transport = yield* Layer.buildWithScope(
-      httpServerLayer(portHint, token, webhookServices, customWebhook).pipe(Layer.provide(Layer.succeedContext(core))),
+      httpServerLayer(portHint, token, webhookServices, customWebhook, host).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
     )
 
@@ -129,7 +132,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       )
       const addr = yield* address
       const boundPort = NetAddress.isInetAddress(addr) ? addr.port : portHint
-      const url = `ws://127.0.0.1:${boundPort}/rpc`
+      const advertised = advertisedHostFor(host === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1")
+      const url = `ws://${advertised}:${boundPort}/rpc`
 
       yield* fs.chmod(path.dirname(dbPath), 0o700)
       yield* fs.chmod(dbPath, 0o600)
