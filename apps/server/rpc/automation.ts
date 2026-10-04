@@ -116,7 +116,7 @@ export const automationHandlers = {
       const configurations = yield* ConfigurationRepository
       const stored = yield* configurations.getIntegration(scope, integrationId).pipe(Effect.mapError(toRpcError))
       if (stored === null) return yield* new AutomationNotFound({ code: "missing", message: "Integration is not configured" })
-      const status = yield* checkGithubConnection(scope, stored.configuration, {})
+      const status = yield* checkGithubConnection(scope, stored.configuration, { timeoutMs: 10000, maxRetries: 0 })
       return {
         ok: status.ok,
         configured: status.configured,
