@@ -296,6 +296,7 @@ export const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
     }
     const full = yield* getMessage(mailbox.mailbox, entry.id, token, options).pipe(Effect.mapError(transportError))
     if (full.labelIds.includes("SENT")) {
+      if (full.historyId.length > 0) historyId = full.historyId
       skippedSent += 1
       yield* markSentMessage(provedScope, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
       yield* markSeenMessage(provedScope, provedIntegration.id, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
