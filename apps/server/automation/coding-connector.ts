@@ -179,7 +179,7 @@ const selectAutoAgent = (
   requested: ReadonlyArray<string>
 ): Effect.Effect<typeof CodingSelectionResult.Type, AutomationFailure> => {
   if (selection === undefined) {
-    return Effect.fail({ code: "invalid-contract", message: "Coding provider selection is not configured" } as AutomationFailure)
+    return Effect.fail({ code: "invalid-contract", message: "Coding provider selection is not configured", details: { evidence: [], outcome: "failed" } } as AutomationFailure)
   }
   return selectCodingProvider(selection, requested).pipe(
     Effect.mapError((error) =>
