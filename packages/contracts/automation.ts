@@ -25,3 +25,4 @@ export { CustomWebhookBody, CustomWebhookCredentialSlot, defineCustomTrigger } f
 export type { CustomTriggerDefinition } from "./automation/custom.js"
 export { AutomationNotification, AutomationNotificationKind, AutomationNotificationStatus } from "./automation/notifications.js"
 export { codingIntegrationReference, codingActionReference, CodingRepositoryConfiguration, CodingAgentArguments, CodingAgentResult, codingIntegrationDefinition } from "./automation/coding.js"
+export { skillActionReference, SkillCheckResult, SkillExecuteArguments, SkillExecuteResult, SampleWriteFileInput } from "./automation/skills.js"
