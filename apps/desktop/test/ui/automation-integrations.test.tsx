@@ -12,6 +12,7 @@ import { ProjectContextProvider } from "@expand/desktop/renderer/features/projec
 import { GithubConnection } from "@expand/desktop/renderer/features/automations/components/GithubConnection"
 import { RegisteredIntegrations } from "@expand/desktop/renderer/features/automations/components/RegisteredIntegrations"
 import { ZenConnection } from "@expand/desktop/renderer/features/automations/components/ZenConnection"
+import { AutomationIntegrations } from "@expand/desktop/renderer/features/automations/pages/AutomationIntegrations"
 import { automationScopeForProject } from "@expand/desktop/renderer/features/automations/model/integration-messages"
 import type { AutomationRpcApi } from "@expand/desktop/renderer/rpc/automation-rpc"
 import { makeFakeProjectContext, renderScoped, uid } from "./ui-harness"
@@ -211,6 +212,30 @@ describe("GithubConnection", () => {
       expect(statuses).toEqual([{ credentialId: "github-token", version: 1, configured: true }])
       expect((screen.getByLabelText("Personal access token") as HTMLInputElement).getAttribute("type")).toBe("password")
     })))
+
+  it.effect("renders credential errors with a retry that recovers", () =>
+    Effect.scoped(Effect.gen(function* () {
+      let calls = 0
+      yield* renderWithAutomation(<GithubConnection scope={scope} />, {
+        listCredentials: (() => {
+          calls += 1
+          return calls === 1
+            ? Effect.fail(new CatalogFailed({ message: "credentials are down" }))
+            : Effect.succeed({ credentials: [{ credentialId: "github-token", version: 1, configured: true as const }] })
+        }) as unknown as AutomationRpcApi["listCredentials"]
+      })
+      yield* Effect.tryPromise(() => screen.findByRole("alert"))
+      expect(screen.getByRole("alert").textContent).toContain("credentials are down")
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+      yield* Effect.tryPromise(() => screen.findByText("A GitHub token is saved for this project."))
+      expect(calls).toBe(2)
+    })))
+
+  it.effect("renders an unavailable state without an automation backend", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderWithAutomation(<GithubConnection scope={scope} />)
+      yield* Effect.tryPromise(() => screen.findByText("Automation services are unavailable in this session."))
+    })))
 })
 
 describe("ZenConnection", () => {
@@ -248,5 +273,50 @@ describe("ZenConnection", () => {
       yield* Effect.tryPromise(() => screen.findByRole("status"))
       expect(screen.getByRole("status").textContent).toContain("saved for this project")
       expect((screen.getByLabelText("API key") as HTMLInputElement).getAttribute("type")).toBe("password")
+    })))
+
+  it.effect("renders the initial empty state without testing", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderWithAutomation(<ZenConnection scope={scope} />, {
+        listCredentials: () => Effect.succeed({ credentials: [] })
+      })
+      yield* Effect.tryPromise(() => screen.findByText("No Zen API key is saved yet. Paste the key below and choose Save to store it."))
+    })))
+
+  it.effect("renders credential errors with a retry that recovers", () =>
+    Effect.scoped(Effect.gen(function* () {
+      let calls = 0
+      yield* renderWithAutomation(<ZenConnection scope={scope} />, {
+        listCredentials: (() => {
+          calls += 1
+          return calls === 1
+            ? Effect.fail(new CatalogFailed({ message: "credentials are down" }))
+            : Effect.succeed({ credentials: [] })
+        }) as unknown as AutomationRpcApi["listCredentials"]
+      })
+      yield* Effect.tryPromise(() => screen.findByRole("alert"))
+      expect(screen.getByRole("alert").textContent).toContain("credentials are down")
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+      yield* Effect.tryPromise(() => screen.findByText("No Zen API key is saved yet. Paste the key below and choose Save to store it."))
+      expect(calls).toBe(2)
+    })))
+
+  it.effect("renders an unavailable state without an automation backend", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderWithAutomation(<ZenConnection scope={scope} />)
+      yield* Effect.tryPromise(() => screen.findByText("Automation services are unavailable in this session."))
+    })))
+})
+
+describe("AutomationIntegrations", () => {
+  it.effect("composes registered integrations with github and zen sections", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderWithAutomation(<AutomationIntegrations projectId={uid(1)} />, {
+        catalog: () => fakeCatalog([githubIntegrationDescriptor]),
+        listCredentials: () => Effect.succeed({ credentials: [] })
+      })
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Registered integrations" }))
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "GitHub" }))
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Zen" }))
     })))
 })

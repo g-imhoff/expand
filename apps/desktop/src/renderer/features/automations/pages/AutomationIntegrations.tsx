@@ -4,8 +4,17 @@ import { RegisteredIntegrations } from "@expand/desktop/renderer/features/automa
 import { ZenConnection } from "@expand/desktop/renderer/features/automations/components/ZenConnection"
 import { automationScopeForProject } from "@expand/desktop/renderer/features/automations/model/integration-messages"
 
-export const AutomationIntegrations = () => {
+export const AutomationIntegrations = ({ projectId }: { readonly projectId?: string } = {}) => {
+  if (projectId !== undefined) return <AutomationIntegrationsContent projectId={projectId} />
+  return <RoutedAutomationIntegrations />
+}
+
+const RoutedAutomationIntegrations = () => {
   const { projectId } = useParams({ from: "/p/$projectId/automations" })
+  return <AutomationIntegrationsContent projectId={projectId} />
+}
+
+const AutomationIntegrationsContent = ({ projectId }: { readonly projectId: string }) => {
   const scope = automationScopeForProject(projectId)
   return (
     <>
