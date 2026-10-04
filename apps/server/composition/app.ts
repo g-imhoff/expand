@@ -23,6 +23,7 @@ import type { ClassificationDecideInput } from "@expand/server/automation/issue-
 import { classifyJev } from "@expand/server/automation/jev-client"
 import { NodeHttpClient } from "@effect/platform-node"
 import { HttpClient } from "effect/http"
+import { AutomationError } from "@expand/contracts/automation"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
@@ -67,9 +68,13 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       credentials: webhookServices.credentials,
       http: httpClient
     }
-    const connector = makeGithubConnectorExtension(undefined, connectorServices)
+    const connectorOptions = { timeoutMs: 10000, maxRetries: 0 }
+    const connector = makeGithubConnectorExtension(connectorOptions, connectorServices)
     yield* registry.register(connector.extension).pipe(
-      Effect.catch(() => Effect.logWarning("automation worker github connector already registered"))
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker github connector already registered")
+      )
     )
     const routines = Context.get(core, RoutineService)
     const workerEnvironment = {
@@ -85,7 +90,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       decide: (input: ClassificationDecideInput) => {
         const apiKey = globalThis.process?.env?.["OPENCODE_ZEN_API_KEY"] ?? globalThis.process?.env?.["OPENCODE_API_KEY"] ?? ""
         return classifyJev(input.request, input.descriptions, apiKey, { timeoutMs: 10000, maxRetries: 0 })
-      }
+      },
+      githubOptions: connectorOptions
     }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))

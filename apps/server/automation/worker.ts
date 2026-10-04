@@ -22,6 +22,7 @@ import {
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { ExecutionRepository } from "./execution-repository.js"
+import type { Page, Query, RecordVersion } from "./execution-repository.js"
 import { RoutineService } from "./routine-service.js"
 import { AutomationRegistry } from "./registry.js"
 import { buildClassificationRequest } from "./issue-classification.js"
@@ -69,6 +70,7 @@ export const DefaultAutomationWorkerOptions: AutomationWorkerOptions = {
   baseBackoffMs: 100
 }
 
+
 export const listPendingScopes = (
   sql: SqlClient
 ): Effect.Effect<ReadonlyArray<PersonalScope>, StorageError> =>
@@ -97,28 +99,38 @@ export const reclaimInterruptedRuns = (
     const scopes = yield* listPendingScopes(environment.services.sql)
     let reclaimed = 0
     for (const scope of scopes) {
-      const page = yield* environment.services.executions.listRuns(scope, { limit: 100, state: "running" })
-      for (const record of page.items) {
-        const current = yield* environment.services.executions.getRun(scope, record.value.id)
-        if (current === null) continue
-        if (current.value.state.kind !== "running") continue
-        const job = yield* jobForRun(environment, scope, current.value)
-        const jobRecord = yield* environment.services.executions.getJob(scope, job.id)
-        if (jobRecord === null) continue
-        const nextRun: AutomationRun = { ...current.value, state: { kind: "queued" } }
-        const nextJob: Job = { ...job, state: nextRun.state }
-        const updated = yield* Effect.exit(
-          environment.services.executions.update(scope, {
-            expectedRunVersion: current.version,
-            expectedJobVersion: jobRecord.version,
-            run: nextRun,
-            job: nextJob
-          })
-        )
-        if (updated._tag === "Success") {
-          reclaimed += 1
-          yield* Effect.logInfo("automation worker reclaimed interrupted run", { runId: current.value.id })
+      let cursor: string | undefined = undefined
+      while (true) {
+        const query: Query = cursor === undefined
+          ? { limit: 100, state: "running" }
+          : { limit: 100, state: "running", cursor }
+        const page: Page<RecordVersion<AutomationRun>> = yield* environment.services.executions.listRuns(scope, query)
+        for (const record of page.items) {
+          const current = yield* environment.services.executions.getRun(scope, record.value.id)
+          if (current === null) continue
+          if (current.value.state.kind !== "running") continue
+          const jobExit = yield* Effect.exit(jobForRun(environment, scope, current.value))
+          if (jobExit._tag === "Failure") continue
+          const job = jobExit.value
+          const jobRecord = yield* environment.services.executions.getJob(scope, job.id)
+          if (jobRecord === null) continue
+          const nextRun: AutomationRun = { ...current.value, state: { kind: "queued" } }
+          const nextJob: Job = { ...job, state: nextRun.state }
+          const updated = yield* Effect.exit(
+            environment.services.executions.update(scope, {
+              expectedRunVersion: current.version,
+              expectedJobVersion: jobRecord.version,
+              run: nextRun,
+              job: nextJob
+            })
+          )
+          if (updated._tag === "Success") {
+            reclaimed += 1
+            yield* Effect.logInfo("automation worker reclaimed interrupted run", { runId: current.value.id })
+          }
         }
+        if (page.cursor === null) break
+        cursor = page.cursor
       }
     }
     return reclaimed
@@ -190,7 +202,7 @@ export const processRun = (
       yield* failRun(environment, scope, run, runRecord.version, { code: "missing", message: "Routine revision is missing" })
       return "failed" as WorkerOutcomeKind
     }
-    const authorityCheck = yield* Effect.exit(checkAuthorityGrants(run, revision))
+    const authorityCheck = yield* Effect.exit(checkAuthorityGrants(run, revision, environment.registry))
     if (authorityCheck._tag === "Failure") {
       yield* failRun(environment, scope, run, runRecord.version, { code: "denied", message: "Authority does not grant this exact action version, integration and capabilities" })
       return "failed" as WorkerOutcomeKind
@@ -212,6 +224,13 @@ export const processRun = (
     }
     return yield* processGenericRun(environment, options, scope, run, runRecord.version, revision, deliveryRecord.value)
   })
+
+let attemptSequence = 0
+
+const uniqueAttemptId = (base: string): string => {
+  attemptSequence += 1
+  return `${base}:${attemptSequence}`
+}
 
 const jobForRun = (
   environment: AutomationWorkerEnvironment,
@@ -236,9 +255,36 @@ const mapState = (kind: string): WorkerOutcomeKind => {
   return "skipped"
 }
 
+const requiredCapabilities = (
+  registry: AutomationRegistry,
+  action: { readonly id: string; readonly version: number }
+): ReadonlyArray<string> => {
+  for (const definition of registry.catalog().definitions) {
+    if (definition.kind === "action" && sameDefinition(definition.definition, action)) {
+      return definition.capabilities
+    }
+  }
+  return []
+}
+
+const isGranted = (
+  authority: InvocationAuthority,
+  registry: AutomationRegistry,
+  action: { readonly id: string; readonly version: number },
+  integrationId: string
+): boolean => {
+  if (!authority.integrationIds.includes(integrationId)) return false
+  const grant = authority.actionGrants.find(
+    (candidate) => sameDefinition(candidate.action, action) && candidate.integrationId === integrationId
+  )
+  if (grant === undefined) return false
+  return requiredCapabilities(registry, action).every((capability) => grant.capabilities.includes(capability))
+}
+
 const checkAuthorityGrants = (
   run: AutomationRun,
-  revision: RoutineConfiguration
+  revision: RoutineConfiguration,
+  registry: AutomationRegistry
 ): Effect.Effect<void, AutomationError> =>
   Effect.gen(function*() {
     const authority: InvocationAuthority = run.authority
@@ -250,15 +296,7 @@ const checkAuthorityGrants = (
     }
     const steps = Object.values(revision.process.actions).flat()
     for (const step of steps) {
-      if (!authority.integrationIds.includes(step.integration.id)) {
-        return yield* new AutomationError({ code: "denied", message: "Authority does not grant this exact action version, integration and capabilities" })
-      }
-    }
-    for (const step of steps) {
-      const grant = authority.actionGrants.find(
-        (candidate) => sameDefinition(candidate.action, step.action) && candidate.integrationId === step.integration.id
-      )
-      if (grant === undefined) {
+      if (!isGranted(authority, registry, step.action, step.integration.id)) {
         return yield* new AutomationError({ code: "denied", message: "Authority does not grant this exact action version, integration and capabilities" })
       }
     }
@@ -306,7 +344,7 @@ const failRun = (
     const startedAt = String(yield* Clock.currentTimeMillis)
     const finishedAt = String(yield* Clock.currentTimeMillis)
     const started: Attempt = {
-      id: `${run.id}:job:fail:${attemptNumber}:${startedAt}`,
+      id: uniqueAttemptId(`${run.id}:job:fail:${attemptNumber}:${startedAt}`),
       scope,
       runId: run.id,
       jobId: job.id,
@@ -373,6 +411,7 @@ const processClassificationRun = (
     )
     const decision = yield* runDecisionWithRetries(environment, options, scope, run, runVersion, built.request, built.descriptions)
     if (decision.outcome === "failed") return "failed" as WorkerOutcomeKind
+    if (decision.outcome === "cancelled") return "cancelled" as WorkerOutcomeKind
     if (decision.decision.kind === "abstained") {
       yield* recordUnresolved(environment, scope, decision.run, decision.runVersion, decision.decision)
       return "unresolved" as WorkerOutcomeKind
@@ -456,6 +495,7 @@ const processGenericRun = (
         descriptions
       )
       if (decided.outcome === "failed") return "failed" as WorkerOutcomeKind
+      if (decided.outcome === "cancelled") return "cancelled" as WorkerOutcomeKind
       currentRun = decided.run
       currentVersion = decided.runVersion
       decision = decided.decision
@@ -493,6 +533,10 @@ interface DecisionFailed {
   readonly outcome: "failed"
 }
 
+interface DecisionCancelled {
+  readonly outcome: "cancelled"
+}
+
 const runDecisionWithRetries = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions,
@@ -501,16 +545,21 @@ const runDecisionWithRetries = (
   runVersion: number,
   request: ClassificationDecideInput["request"],
   descriptions: Record<string, string>
-): Effect.Effect<Decided | DecisionFailed, StorageError | AutomationError, HttpClient.HttpClient> =>
+): Effect.Effect<Decided | DecisionFailed | DecisionCancelled, StorageError | AutomationError, HttpClient.HttpClient> =>
   Effect.gen(function*() {
     const job = yield* jobForRun(environment, scope, run)
     let currentRun = run
     let currentVersion = runVersion
     for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
+      const paused = yield* Effect.exit(environment.routines.assertDue(scope, currentRun.configuration.routineId))
+      if (paused._tag === "Failure") {
+        yield* cancelRun(environment, scope, currentRun, currentVersion, "Routine is not enabled for execution")
+        return { outcome: "cancelled" } as DecisionCancelled
+      }
       const history = yield* environment.services.executions.history(scope, currentRun.id)
       const attemptNumber = history === null ? attempt : history.attempts.filter((entry) => entry.kind === "decision").length + 1
       const startedAt = String(yield* Clock.currentTimeMillis)
-      const attemptId = `${currentRun.id}:decision:${attemptNumber}:${startedAt}`
+      const attemptId = uniqueAttemptId(`${currentRun.id}:decision:${attemptNumber}:${startedAt}`)
       const started: Attempt = {
         id: attemptId,
         scope,
@@ -650,17 +699,13 @@ const runActionsToCompletion = (
     let currentRun = run
     let currentVersion = runVersion
     for (const step of steps) {
-      if (currentRun.actions.some((outcome) => outcome.stepId === step.stepId && outcome.kind !== "planned")) continue
+      if (currentRun.actions.some((outcome) => outcome.stepId === step.stepId && outcome.kind === "succeeded")) continue
       const dueAgain = yield* Effect.exit(environment.routines.assertDue(scope, currentRun.configuration.routineId))
       if (dueAgain._tag === "Failure") {
         yield* cancelRun(environment, scope, currentRun, currentVersion, "Routine is not enabled for execution")
         return "cancelled" as WorkerOutcomeKind
       }
-      const grantOk = currentRun.authority.actionGrants.some(
-        (grant) => sameDefinition(grant.action, step.action) && grant.integrationId === step.integrationId
-      )
-      const integrationOk = currentRun.authority.integrationIds.includes(step.integrationId)
-      if (!grantOk || !integrationOk) {
+      if (!isGranted(currentRun.authority, environment.registry, step.action, step.integrationId)) {
         yield* failRun(environment, scope, currentRun, currentVersion, {
           code: "denied",
           message: "Authority does not grant this exact action version, integration and capabilities"
@@ -712,12 +757,24 @@ const invokeActionWithRetries = (
     let currentRun = run
     let currentVersion = runVersion
     for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
+      const paused = yield* Effect.exit(environment.routines.assertDue(scope, currentRun.configuration.routineId))
+      if (paused._tag === "Failure") {
+        yield* cancelRun(environment, scope, currentRun, currentVersion, "Routine is not enabled for execution")
+        return { outcome: "cancelled" } as ActionStopped
+      }
+      if (!isGranted(currentRun.authority, environment.registry, step.action, step.integrationId)) {
+        yield* failRun(environment, scope, currentRun, currentVersion, {
+          code: "denied",
+          message: "Authority does not grant this exact action version, integration and capabilities"
+        })
+        return { outcome: "failed" } as ActionStopped
+      }
       const history = yield* environment.services.executions.history(scope, currentRun.id)
       const attemptNumber = history === null
         ? attempt
         : history.attempts.filter((entry) => entry.kind === "action" && entry.stepId === step.stepId).length + 1
       const startedAt = String(yield* Clock.currentTimeMillis)
-      const attemptId = `${currentRun.id}:${step.stepId}:${attemptNumber}:${startedAt}`
+      const attemptId = uniqueAttemptId(`${currentRun.id}:${step.stepId}:${attemptNumber}:${startedAt}`)
       const started: Attempt = {
         id: attemptId,
         scope,
@@ -735,22 +792,30 @@ const invokeActionWithRetries = (
       yield* Effect.exit(environment.services.executions.recordAttempt(scope, started))
       const hasUnfinished = history !== null &&
         history.attempts.some((entry) => entry.kind === "action" && entry.stepId === step.stepId && entry.status === "started")
+      let skipInvoke = false
+      let reconciledResult: Schema.Json = null
       if (attempt > 1 || hasUnfinished) {
-        yield* Effect.ignore(reconcileUncertainWrite(environment, scope, revision, step))
+        const reconciledLabel = yield* reconcileUncertainWrite(environment, scope, revision, step)
+        if (reconciledLabel !== null) {
+          skipInvoke = true
+          reconciledResult = { reconciled: true, label: reconciledLabel } as Schema.Json
+        }
       }
       const finishedAt = String(yield* Clock.currentTimeMillis)
-      const invoked = yield* Effect.exit(
-        environment.registry.invokeAction(
-          {
-            configuration: revision,
-            stepId: step.stepId,
-            triggerPayload,
-            ...(decision === undefined ? {} : { decision }),
-            mode: "live"
-          },
-          currentRun.authority
-        ).pipe(Effect.timeout(`${options.attemptTimeoutMs} millis`))
-      )
+      const invoked = skipInvoke
+        ? yield* Effect.exit(Effect.succeed(reconciledResult))
+        : yield* Effect.exit(
+          environment.registry.invokeAction(
+            {
+              configuration: revision,
+              stepId: step.stepId,
+              triggerPayload,
+              ...(decision === undefined ? {} : { decision }),
+              mode: "live"
+            },
+            currentRun.authority
+          ).pipe(Effect.timeout(`${options.attemptTimeoutMs} millis`))
+        )
       if (invoked._tag === "Success") {
         const outcome = {
           kind: "succeeded" as const,
@@ -838,13 +903,13 @@ const reconcileUncertainWrite = (
     readonly integrationId: string
     readonly arguments: Schema.Json
   }
-): Effect.Effect<void, never, HttpClient.HttpClient> =>
+): Effect.Effect<string | null, never, HttpClient.HttpClient> =>
   Effect.gen(function*() {
-    if (!sameDefinition(step.action, githubLabelActionReference)) return
+    if (!sameDefinition(step.action, githubLabelActionReference)) return null
     const integration = revision.integrations.find((candidate) => candidate.id === step.integrationId)
-    if (integration === undefined) return
+    if (integration === undefined) return null
     const args = yield* decodeJson(Schema.Struct({ issueNumber: Schema.Int, label: Schema.String }), step.arguments).pipe(Effect.option)
-    if (args._tag === "None") return
+    if (args._tag === "None") return null
     const servicesLayer = Layer.mergeAll(
       Layer.succeed(CredentialRepository, environment.services.credentials),
       Layer.succeed(HttpClient.HttpClient, environment.services.http)
@@ -859,7 +924,9 @@ const reconcileUncertainWrite = (
         label: args.value.label,
         labels: issue.labels.join(",")
       })
+      return issue.labels.includes(args.value.label) ? args.value.label : null
     }
+    return null
   })
 
 const recordSucceeded = (
@@ -875,7 +942,7 @@ const recordSucceeded = (
     const history = yield* environment.services.executions.history(scope, run.id)
     const attemptNumber = history === null ? 1 : history.attempts.filter((entry) => entry.kind === "job").length + 1
     const started: Attempt = {
-      id: `${run.id}:job:${attemptNumber}:${startedAt}`,
+      id: uniqueAttemptId(`${run.id}:job:${attemptNumber}:${startedAt}`),
       scope,
       runId: run.id,
       jobId: job.id,

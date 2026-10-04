@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Fiber, Layer } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -11,7 +11,7 @@ import { CredentialRepository, CredentialRepositoryLayer } from "../../automatio
 import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/execution-repository.js"
 import { RoutineService, RoutineServiceLayer } from "../../automation/routine-service.js"
 import { AutomationRegistry } from "../../automation/registry.js"
-import { DefaultAutomationWorkerOptions, processRun } from "../../automation/worker.js"
+import { DefaultAutomationWorkerOptions, processRun, startAutomationWorker } from "../../automation/worker.js"
 import type { AutomationWorkerEnvironment } from "../../automation/worker.js"
 import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
 
@@ -355,6 +355,158 @@ describe("automation worker unit", () => {
         const cancelled = yield* processRun(environment, DefaultAutomationWorkerOptions, scope, "run-cancelled")
         expect(cancelled).toBe("cancelled")
         expect((yield* executions.getRun(scope, "run-cancelled"))?.value.state.kind).toBe("cancelled")
+      })
+      yield* program.pipe(Effect.provide(Live))
+    }).pipe(Effect.scoped)
+  )
+
+  it.live("stops invoking after the retry budget is exhausted", () =>
+    Effect.gen(function*() {
+      let calls = 0
+      const registry = new AutomationRegistry()
+      yield* registry.register(
+        makeSampleExtension(() =>
+          Effect.gen(function*() {
+            calls += 1
+            return yield* Effect.fail({ code: "handler-failed", message: "always fails" })
+          })
+        ).extension
+      )
+      const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+      const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+      const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+      const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+        Layer.provideMerge(Creds)
+      )
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const executions = yield* ExecutionRepository
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const sql = yield* SqlClient
+        const http = yield* HttpClient.HttpClient
+        yield* credentials.putCredential(scope, "account-1", new TextEncoder().encode("secret"), 0)
+        yield* routines.create(scope, {
+          routineId: "mail",
+          configuration: { prefix: "Hello" },
+          integrations: [sampleIntegration],
+          process: sampleProcess
+        })
+        const delivery = {
+          schemaVersion: 1 as const,
+          id: "input-exhausted",
+          scope,
+          integration: { id: "mail", definition: { id: "sample:mail", version: 1 } },
+          externalId: "input-exhausted",
+          trigger: { id: "sample:received", version: 1 },
+          payload: { subject: "hello", count: "2" }
+        }
+        const run = {
+          schemaVersion: 1 as const,
+          kind: "run" as const,
+          id: "run-exhausted",
+          scope,
+          configuration: { routineId: "mail", revision: 1 as const },
+          input: { kind: "input-reference" as const, id: "input-exhausted" },
+          mode: "live" as const,
+          authority: {
+            schemaVersion: 1 as const,
+            kind: "invocation-authority" as const,
+            scope,
+            configuration: { routineId: "mail", revision: 1 as const },
+            integrationIds: ["mail"],
+            actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "mail", capabilities: ["send"] }]
+          },
+          state: { kind: "queued" as const },
+          actions: []
+        }
+        yield* executions.ingest({ delivery, raw: new Uint8Array([1]), targets: [{ jobId: "job-exhausted", run }] })
+        const environment: AutomationWorkerEnvironment = {
+          services: { configurations, credentials, executions, sql, http },
+          registry,
+          routines,
+          decide: unusedDecide
+        }
+        const options = { ...DefaultAutomationWorkerOptions, maxAttempts: 3, baseBackoffMs: 1, attemptTimeoutMs: 5000 }
+        const outcome = yield* processRun(environment, options, scope, "run-exhausted")
+        expect(outcome).toBe("failed")
+        expect(calls).toBe(3)
+        expect((yield* executions.getRun(scope, "run-exhausted"))?.value.state.kind).toBe("failed")
+      })
+      yield* program.pipe(Effect.provide(Live))
+    }).pipe(Effect.scoped)
+  )
+
+  it.live("starts with the backend loop and stops on interrupt", () =>
+    Effect.gen(function*() {
+      const registry = new AutomationRegistry()
+      yield* registry.register(makeSampleExtension().extension)
+      const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+      const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+      const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+      const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+        Layer.provideMerge(Creds)
+      )
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const executions = yield* ExecutionRepository
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const sql = yield* SqlClient
+        const http = yield* HttpClient.HttpClient
+        yield* credentials.putCredential(scope, "account-1", new TextEncoder().encode("secret"), 0)
+        yield* routines.create(scope, {
+          routineId: "mail",
+          configuration: { prefix: "Hello" },
+          integrations: [sampleIntegration],
+          process: sampleProcess
+        })
+        const delivery = {
+          schemaVersion: 1 as const,
+          id: "input-lifecycle",
+          scope,
+          integration: { id: "mail", definition: { id: "sample:mail", version: 1 } },
+          externalId: "input-lifecycle",
+          trigger: { id: "sample:received", version: 1 },
+          payload: { subject: "hello", count: "2" }
+        }
+        const run = {
+          schemaVersion: 1 as const,
+          kind: "run" as const,
+          id: "run-lifecycle",
+          scope,
+          configuration: { routineId: "mail", revision: 1 as const },
+          input: { kind: "input-reference" as const, id: "input-lifecycle" },
+          mode: "live" as const,
+          authority: {
+            schemaVersion: 1 as const,
+            kind: "invocation-authority" as const,
+            scope,
+            configuration: { routineId: "mail", revision: 1 as const },
+            integrationIds: ["mail"],
+            actionGrants: [{ action: { id: "sample:send", version: 1 }, integrationId: "mail", capabilities: ["send"] }]
+          },
+          state: { kind: "queued" as const },
+          actions: []
+        }
+        yield* executions.ingest({ delivery, raw: new Uint8Array([1]), targets: [{ jobId: "job-lifecycle", run }] })
+        const environment: AutomationWorkerEnvironment = {
+          services: { configurations, credentials, executions, sql, http },
+          registry,
+          routines,
+          decide: unusedDecide
+        }
+        const fiber = yield* Effect.forkChild(
+          startAutomationWorker(environment, { ...DefaultAutomationWorkerOptions, pollIntervalMs: 10, baseBackoffMs: 1 })
+        )
+        let state = ""
+        for (let i = 0; i < 100; i++) {
+          state = (yield* executions.getRun(scope, "run-lifecycle"))?.value.state.kind ?? ""
+          if (state === "succeeded") break
+          yield* Effect.sleep("50 millis")
+        }
+        expect(state).toBe("succeeded")
+        yield* Fiber.interrupt(fiber)
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped)
