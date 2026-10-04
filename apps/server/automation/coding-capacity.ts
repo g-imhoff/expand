@@ -66,7 +66,7 @@ export const makeFixedCapacityAdapter = (
       if (text.includes("%")) {
         return yield* new CodingCapacityError({
           code: "invalid",
-          message: `Provider ${kind} reported an unusable capacity signal`
+          message: `Provider ${safeKind(kind)} reported an unusable capacity signal`
         })
       }
       return yield* Schema.decodeUnknownEffect(CapacityProbe, { onExcessProperty: "error" })({
@@ -76,7 +76,7 @@ export const makeFixedCapacityAdapter = (
       }).pipe(
         Effect.mapError(() => new CodingCapacityError({
           code: "invalid",
-          message: `Provider ${kind} reported an unusable capacity signal`
+          message: `Provider ${safeKind(kind)} reported an unusable capacity signal`
         }))
       )
     })
@@ -183,23 +183,26 @@ export const selectionEvidenceLines = (result: typeof CodingSelectionResult.Type
   ...result.evidence.map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`)
 ]
 
+const safeKind = (kind: string): string => kind.replaceAll("%", "")
+const toSafeDetail = (kind: string, detail: string): string => detail.includes("%") ? `Provider ${safeKind(kind)} reported an unusable capacity signal` : detail
+
 const adapters = new Map<string, CapacityAdapter>()
 
 const defaultDetail = (kind: string, state: CapacityState): string => {
-  if (state === "available") return `Provider ${kind} reports usable capacity`
-  if (state === "exhausted") return `Provider ${kind} reports exhausted capacity`
-  if (state === "unavailable") return `Provider ${kind} is not registered`
-  return `No usable capacity signal is exposed for ${kind}`
+  if (state === "available") return `Provider ${safeKind(kind)} reports usable capacity`
+  if (state === "exhausted") return `Provider ${safeKind(kind)} reports exhausted capacity`
+  if (state === "unavailable") return `Provider ${safeKind(kind)} is not registered`
+  return `No usable capacity signal is exposed for ${safeKind(kind)}`
 }
 
 const sanitizeProbe = (kind: string, probe: typeof CapacityProbe.Type): typeof CapacityProbe.Type => {
   if (probe.kind !== kind) {
-    return { kind, state: "unavailable", detail: `Provider ${kind} reported an unusable capacity signal` }
+    return { kind, state: "unavailable", detail: `Provider ${safeKind(kind)} reported an unusable capacity signal` }
   }
   if (probe.detail.includes("%")) {
     return { kind, state: "unknown", detail: defaultDetail(kind, "unknown") }
   }
-  return { kind: probe.kind, state: probe.state, detail: probe.detail }
+  return { kind: probe.kind, state: probe.state, detail: toSafeDetail(kind, probe.detail) }
 }
 
 const probeCandidate = (
@@ -209,19 +212,19 @@ const probeCandidate = (
   Effect.gen(function*() {
     const adapter = adapters.get(kind)
     if (adapter === undefined) {
-      return { kind, state: "unavailable" as const, detail: `Provider ${kind} is not registered` }
+      return { kind, state: "unavailable" as const, detail: `Provider ${safeKind(kind)} is not registered` }
     }
     for (const capability of requested) {
       if (!adapter.capabilities.includes(capability)) {
-        return { kind, state: "unavailable" as const, detail: `Provider ${kind} does not support capability ${capability}` }
+        return { kind, state: "unavailable" as const, detail: `Provider ${safeKind(kind)} does not support capability ${capability.replaceAll("%", "")}` }
       }
     }
     const outcome = yield* Effect.result(adapter.probe())
     if (Result.isFailure(outcome)) {
-      const detail = outcome.failure instanceof CodingCapacityError
+      const rawDetail = outcome.failure instanceof CodingCapacityError
         ? outcome.failure.message
-        : `Provider ${kind} reported an unusable capacity signal`
-      return { kind, state: "unavailable" as const, detail }
+        : `Provider ${safeKind(kind)} reported an unusable capacity signal`
+      return { kind, state: "unavailable" as const, detail: toSafeDetail(kind, rawDetail) }
     }
     return sanitizeProbe(kind, outcome.success)
   })
