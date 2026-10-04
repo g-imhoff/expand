@@ -13,6 +13,9 @@ export const sampleWriteFileSkill: SkillDefinition = {
     const record = inputs as { readonly content?: unknown }
     const raw = typeof record.content === "string" ? record.content : ""
     const content = singleLine(raw)
+    if (content.length === 0) {
+      return ""
+    }
     return [
       "You are a file writing skill. Make exactly one change.",
       "write:OUTPUT.md:" + content,
@@ -26,7 +29,15 @@ export const sampleWriteFileSkill: SkillDefinition = {
 export const sampleSkills: ReadonlyArray<SkillDefinition> = [sampleWriteFileSkill]
 
 const singleLine = (value: string): string => {
-  const line = value.split("\n")[0] ?? ""
-  const clean = line.split("\r")[0] ?? line
-  return clean.slice(0, 200)
+  const rows = value.split("\n")
+  for (const row of rows) {
+    const parts = row.split("\r")
+    for (const part of parts) {
+      const trimmed = part.trim()
+      if (trimmed.length > 0) {
+        return trimmed.slice(0, 200)
+      }
+    }
+  }
+  return ""
 }
