@@ -1,0 +1,19 @@
+[Unit]
+Description=Expand backend (personal single-owner)
+After=network.target
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart=%h/expand/dist/expand-server --keep-running --data-dir %h/.expand/expand --host 127.0.0.1 --port 3210
+ExecStartPre=/bin/sh -c 'mkdir -p %h/.expand/expand && chmod 700 %h/.expand/expand'
+ExecCondition=/bin/sh -c 'test -x %h/expand/dist/expand-server'
+Restart=always
+RestartSec=2
+KillSignal=SIGTERM
+TimeoutStopSec=10
+EnvironmentFile=-%h/.config/expand/backend.env
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
