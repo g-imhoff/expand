@@ -275,7 +275,7 @@ export const automationTestPathForRoutine = (projectId: string, routineId: strin
 
 export const toJsonText = (value: unknown): string => {
   try {
-    return Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(value)
+    return Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(sanitizeJsonValue(value))
   } catch {
     return "unavailable"
   }
@@ -287,6 +287,20 @@ export const describeAutomationError = (error: unknown): string => {
     if (typeof message === "string" && message.length > 0) return message
   }
   return "Request failed"
+}
+
+const secretKeyPattern = /credential|secret|token|passwd|password|api[_-]?key|authorization|private[_-]?key/i
+
+const sanitizeJsonValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sanitizeJsonValue)
+  if (typeof value === "object" && value !== null) {
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = secretKeyPattern.test(key) ? "[redacted]" : sanitizeJsonValue(entry)
+    }
+    return out
+  }
+  return value
 }
 
 const latencyForAttempt = (startedAt: string, finishedAt: string): number | undefined => {
