@@ -174,7 +174,7 @@ export class AutomationRpcs extends RpcGroup.make(
   Rpc.make("AutomationNotificationList", {
     payload: {
       scope: PersonalScope,
-      limit: Schema.Int,
+      limit: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(100)),
       status: Schema.optionalKey(NotificationStatusFilter)
     },
     success: NotificationPage,
