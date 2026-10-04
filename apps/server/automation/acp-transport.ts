@@ -95,7 +95,7 @@ export const runAcpPrompt = (
       })
       yield* Effect.sync(() => {
         try {
-          if (child.exitCode === null) killProcessGroup(child)
+          killProcessGroup(child)
         } catch {}
       })
       let settled = 0
@@ -215,7 +215,7 @@ const killProcessGroup = (child: ChildProcess): void => {
     }
   } catch {}
   try {
-    if (child.exitCode === null) child.kill("SIGKILL")
+    child.kill("SIGKILL")
   } catch {}
 }
 const sendLine = (
