@@ -31,7 +31,7 @@ export const runAcpPrompt = (
       try: () =>
         spawn(options.command, [...options.args], {
           cwd: options.cwd,
-          env: { ...globalThis.process.env, ...options.env },
+          env: { PATH: globalThis.process.env["PATH"] ?? "", ...options.env },
           stdio: ["pipe", "pipe", "pipe"]
         }),
       catch: () => new AcpTransportError({ code: "spawn", message: "ACP agent failed to spawn" })
@@ -47,6 +47,11 @@ export const runAcpPrompt = (
         }
       })
       return yield* new AcpTransportError({ code: "io", message: "ACP agent has no stdout" })
+    }
+    const stderr = child.stderr
+    if (stderr !== null) {
+      stderr.setEncoding("utf-8")
+      stderr.on("data", discardStderr)
     }
     stdout.setEncoding("utf-8")
     const onData = (chunk: string): void => {
@@ -64,18 +69,31 @@ export const runAcpPrompt = (
       yield* Effect.sync(() => {
         stdout.removeListener("data", onData as (chunk: unknown) => void)
         try {
+          if (stderr !== null) {
+            stderr.removeListener("data", discardStderr)
+            stderr.destroy()
+          }
+        } catch {}
+        try {
+          child.stdin?.destroy()
+        } catch {}
+        try {
+          stdout.destroy()
+        } catch {}
+        try {
           if (child.exitCode === null) child.kill("SIGKILL")
-        } catch {
-          return
-        }
+        } catch {}
       })
-      yield* Effect.sleep("50 millis")
+      yield* Effect.sleep("200 millis")
     })
     const session = Effect.gen(function*() {
       yield* sendLine(child, { jsonrpc: "2.0", id: freshId(), method: "initialize", params: { protocolVersion: 1, clientCapabilities: {} } }, state, input.timeoutMs, "initialize")
       const createdId = freshId()
       const created = yield* sendLine(child, { jsonrpc: "2.0", id: createdId, method: "session/new", params: { cwd: options.cwd, mcpServers: [] } }, state, input.timeoutMs, "session/new")
       const sessionId = extractSessionId(created)
+      if (sessionId === null) {
+        return yield* new AcpTransportError({ code: "protocol", message: "ACP session/new returned no sessionId" })
+      }
       const promptId = freshId()
       const promptResult = yield* sendLine(
         child,
@@ -86,7 +104,10 @@ export const runAcpPrompt = (
       )
       const endedAt = yield* Clock.currentTimeMillis
       const transcript = [...state.updates.slice(0, 50), `result: ${encodeLine(promptResult).slice(0, 1000)}`]
-      return { sessionId, transcript, exitStatus: 0, durationMs: endedAt - startedAt }
+      if (child.exitCode !== null && child.exitCode !== 0) {
+        return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited with status ${child.exitCode}` })
+      }
+      return { sessionId, transcript, exitStatus: child.exitCode ?? 0, durationMs: endedAt - startedAt }
     })
     return yield* session.pipe(Effect.ensuring(cleanup))
   })
@@ -174,10 +195,11 @@ const sendLine = (
     }
   })
 
-const extractSessionId = (value: unknown): string => {
+const discardStderr = (): void => {}
+const extractSessionId = (value: unknown): string | null => {
   if (typeof value === "object" && value !== null && "sessionId" in value) {
     const candidate = (value as Record<string, unknown>)["sessionId"]
     if (typeof candidate === "string" && candidate.length > 0) return candidate
   }
-  return `ses-fallback-${requestCounter}`
+  return null
 }
