@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
+import { Effect, Exit, Schema } from "effect"
 import { describe, expect } from "vitest"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import {
@@ -82,6 +82,10 @@ describe("contracts/rpc automation payloads", () => {
       const scope = { ownerId: "person", projectId: "project" }
       const payload = { scope, limit: 1, routineId: "triage", mode: "live", state: "queued" }
       expect(yield* Schema.decodeUnknownEffect(payloadOf("AutomationRunList"))(payload)).toMatchObject({ limit: 1 })
+      expect(yield* Schema.decodeUnknownEffect(payloadOf("AutomationRunList"))({ scope, limit: 100 })).toMatchObject({ limit: 100 })
+      expect(Exit.isFailure(yield* Effect.exit(Schema.decodeUnknownEffect(payloadOf("AutomationRunList"))({ scope, limit: 0 })))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(Schema.decodeUnknownEffect(payloadOf("AutomationRunList"))({ scope, limit: -5 })))).toBe(true)
+      expect(Exit.isFailure(yield* Effect.exit(Schema.decodeUnknownEffect(payloadOf("AutomationRunList"))({ scope, limit: 101 })))).toBe(true)
       const page = ExpandRpcs.requests.get("AutomationRunList")!.successSchema
       expect(yield* Schema.decodeUnknownEffect(page)({ runs: [], cursor: null })).toEqual({ runs: [], cursor: null })
     }))

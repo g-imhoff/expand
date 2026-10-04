@@ -136,7 +136,7 @@ export class AutomationRpcs extends RpcGroup.make(
   Rpc.make("AutomationRunList", {
     payload: {
       scope: PersonalScope,
-      limit: Schema.Int,
+      limit: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(100)),
       cursor: Schema.optionalKey(Schema.String),
       routineId: Schema.optionalKey(LocalId),
       mode: Schema.optionalKey(RunModeFilter),
