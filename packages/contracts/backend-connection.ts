@@ -28,6 +28,9 @@ export type BackendConnectionTestResult = typeof BackendConnectionTestResult.Typ
 export const normalizeRemoteUrl = (input: string): string => {
   const trimmed = input.trim()
   if (trimmed.length === 0) return trimmed
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/(?!\/)/.test(trimmed)) {
+    throw new BackendConnectionInvalid({ field: "url", reason: "url is invalid" })
+  }
   const schemeMatch = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(trimmed)
   if (schemeMatch !== null) {
     const scheme = (schemeMatch[1] ?? "").toLowerCase()

@@ -12,14 +12,6 @@ import {
 import { readRemoteConnection } from "@expand/client-ts/backend-connection"
 import type { BackendConnection } from "@expand/contracts/backend-connection"
 
-const backendConnectionStoreLayer = Layer.effect(
-  BackendConnectionStore,
-  Effect.flatMap(
-    readRemoteConnection.pipe(Effect.orElseSucceed(() => ({ _tag: "local" } as BackendConnection))),
-    (initial) => makeBackendConnectionStore(initial)
-  )
-)
-
 export const DesktopRpcHandlers = ExpandRpcs.toLayer({
   ...healthHandlers,
   ...projectHandlers,
@@ -27,5 +19,11 @@ export const DesktopRpcHandlers = ExpandRpcs.toLayer({
   ...automationHandlers,
   ...backendConnectionHandlers
 }).pipe(
-  Layer.provide(backendConnectionStoreLayer)
+  Layer.provide(Layer.effect(
+    BackendConnectionStore,
+    Effect.flatMap(
+      readRemoteConnection.pipe(Effect.orElseSucceed(() => ({ _tag: "local" } as BackendConnection))),
+      (initial) => makeBackendConnectionStore(initial)
+    )
+  ))
 )
