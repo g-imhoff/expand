@@ -8,9 +8,9 @@ import type { AcpTransportError } from "./acp-transport.js"
 export class CodingAgentError extends Data.TaggedError("CodingAgentError")<{
   readonly code: "unknown-agent" | "capability" | "worktree" | "timeout" | "cancelled" | "failed" | "invalid"
   readonly message: string
-  readonly transcript?: ReadonlyArray<string>
-  readonly exitStatus?: number
-  readonly durationMs?: number
+  readonly transcript?: ReadonlyArray<string> | undefined
+  readonly exitStatus?: number | undefined
+  readonly durationMs?: number | undefined
 }> {}
 
 export interface CodingAgentSpawnInput {
@@ -128,7 +128,7 @@ export const executeCodingSession = (
         env: { ...input.tokenEnv }
       }).pipe(
         Effect.mapError((cause) => toCodingError(cause)),
-        Effect.timeout(`${input.timeoutMs} millis`),
+        Effect.timeout(`${input.timeoutMs + 3000} millis`),
         Effect.catchTag("TimeoutError", () =>
           Clock.currentTimeMillis.pipe(
             Effect.flatMap((now) =>
@@ -177,13 +177,16 @@ export const executeCodingSession = (
 const adapters = new Map<string, CodingAgentAdapter>()
 
 const toCodingError = (cause: AcpTransportError): CodingAgentError => {
+  const transcript = cause.transcript === undefined ? undefined : [...cause.transcript]
+  const exitStatus = cause.exitStatus
+  const durationMs = cause.durationMs
   if (cause.code === "timeout") {
-    return cause.durationMs === undefined ? new CodingAgentError({ code: "timeout", message: cause.message, transcript: [] }) : new CodingAgentError({ code: "timeout", message: cause.message, transcript: [], durationMs: cause.durationMs })
+    return new CodingAgentError({ code: "timeout", message: cause.message, transcript, exitStatus, durationMs })
   }
   if (cause.code === "cancelled") {
-    return new CodingAgentError({ code: "cancelled", message: cause.message })
+    return new CodingAgentError({ code: "cancelled", message: cause.message, transcript, exitStatus, durationMs })
   }
-  return new CodingAgentError({ code: "failed", message: cause.message })
+  return new CodingAgentError({ code: "failed", message: cause.message, transcript, exitStatus, durationMs })
 }
 
 const canonicalBase = (root: string): string => {

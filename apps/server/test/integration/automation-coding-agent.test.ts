@@ -1,11 +1,13 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Fiber, FileSystem, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, FileSystem, Layer } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeHttpClient, NodeServices } from "@effect/platform-node"
 import { fileURLToPath } from "node:url"
+import { spawnSync } from "node:child_process"
+import { runAcpPrompt } from "../../automation/acp-transport.js"
 import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 import { ConfigurationRepository, ConfigurationRepositoryLayer } from "../../automation/configuration-repository.js"
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
@@ -21,6 +23,8 @@ import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
 
 const scope = { ownerId: "coding-owner", projectId: "coding-project" }
 const stubPath = fileURLToPath(new URL("../fixtures/automation-acp-stub.mjs", import.meta.url))
+const grandchildStubPath = fileURLToPath(new URL("../fixtures/automation-acp-grandchild-stub.mjs", import.meta.url))
+const protocolStubPath = fileURLToPath(new URL("../fixtures/automation-acp-protocol-stub.mjs", import.meta.url))
 
 const sampleIntegration = {
   schemaVersion: 1 as const,
@@ -364,6 +368,106 @@ describe("automation coding agent", () => {
         expect(unknown._tag).toBe("Failure")
         const unsupported = yield* Effect.exit(resolveCodingAdapter("opencode", ["nonexistent-capability"]))
         expect(unsupported._tag).toBe("Failure")
+      })
+      const Full = Layer.mergeAll(Live, NodeServices.layer)
+      yield* program.pipe(Effect.provide(Full))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+  it.live("kills grandchildren with the process group on timeout", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-group-" })
+      const pidFile = `${dir}/grandchild.pid`
+      const exit = yield* Effect.exit(runAcpPrompt({ command: "node", args: [grandchildStubPath], cwd: dir, env: { GRANDCHILD_PID_FILE: pidFile } }, { prompt: "hello", timeoutMs: 400 }))
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (!Exit.isFailure(exit)) return
+      const failure = Cause.squash(exit.cause) as { code: string; transcript?: ReadonlyArray<string>; durationMs?: number }
+      expect(failure.code).toBe("timeout")
+      expect(failure.transcript?.length).toBeGreaterThan(0)
+      expect(failure.durationMs).toBeDefined()
+      const pidText = yield* fs.readFileString(pidFile)
+      const pid = Number(pidText.trim())
+      expect(Number.isSafeInteger(pid)).toBe(true)
+      expect(pid).toBeGreaterThan(0)
+      const check = spawnSync("kill", ["-0", `${pid}`])
+      expect(check.status).not.toBe(0)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+
+  it.live("preserves timeout evidence through coding error", () =>
+    Effect.gen(function*() {
+      resetCodingAdaptersForTests()
+      clearCodingAdapters()
+      const fs = yield* FileSystem.FileSystem
+      const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "coding-evidence-timeout-" })
+      registerCodingAdapter(makeStubAdapter("node", [stubPath], "opencode"))
+      const sessionExit = yield* Effect.exit(executeCodingSession(worktreeRoot, {
+        runId: "evidence-timeout-1",
+        repository: "octo/hello",
+        prompt: "sleep:5000",
+        agentKind: "opencode",
+        requestedCapabilities: ["execute"],
+        timeoutMs: 400,
+        tokenEnv: {}
+      }))
+      expect(Exit.isFailure(sessionExit)).toBe(true)
+      if (!Exit.isFailure(sessionExit)) return
+      const codingError = Cause.squash(sessionExit.cause) as { code: string; transcript?: ReadonlyArray<string>; durationMs?: number; exitStatus?: number }
+      expect(codingError.code).toBe("timeout")
+      expect(codingError.transcript).toBeDefined()
+      expect((codingError.transcript ?? []).length).toBeGreaterThan(0)
+      expect(codingError.durationMs).toBeDefined()
+      expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+
+  it.live("preserves protocol evidence into failure details", () =>
+    Effect.gen(function*() {
+      resetCodingAdaptersForTests()
+      clearCodingAdapters()
+      const fs = yield* FileSystem.FileSystem
+      const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "coding-evidence-protocol-" })
+      const { registry, Live } = setupLayers()
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const executions = yield* ExecutionRepository
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const sql = yield* SqlClient
+        const http = yield* HttpClient.HttpClient
+        const services: CodingConnectorServices = { configurations, credentials }
+        const codingExtension = makeCodingConnectorExtension(
+          { worktreeRoot, agentCommand: "node", agentArgs: [protocolStubPath], defaultTimeoutMs: 2000 },
+          services
+        )
+        yield* registry.register(makeSampleExtension().extension)
+        yield* registry.register(codingExtension.extension)
+        yield* credentials.putCredential(scope, "account-1", new TextEncoder().encode("secret-1"), 0)
+        yield* credentials.putCredential(scope, "coding-token", new TextEncoder().encode("stub-token"), 0)
+        yield* routines.create(scope, {
+          routineId: "code-protocol",
+          configuration: { prefix: "Hello" },
+          integrations: [sampleIntegration, codingIntegration],
+          process: codingProcess
+        })
+        const installed = codingExtension.extension.actions[0]!
+        const context = { scope, routineId: "code-protocol", configurationRevision: 1, integrationId: "coding", mode: "live" as const }
+        const args = { prompt: "hello", agentKind: "opencode", timeoutMs: 2000, requestedCapabilities: ["execute"] }
+        const configuration = { repository: "octo/hello" }
+        const invoked = yield* Effect.exit(installed.invoke(args, configuration, context))
+        expect(Exit.isFailure(invoked)).toBe(true)
+        if (!Exit.isFailure(invoked)) return
+        const automationError = Cause.squash(invoked.cause) as { code: string; failure?: { code: string; message: string; details?: unknown } }
+        expect(automationError.failure).toBeDefined()
+        const details = automationError.failure?.details as { transcript?: Array<string>; durationMs?: number; exitStatus?: number } | undefined
+        expect(details).toBeDefined()
+        expect(details?.transcript).toBeDefined()
+        expect((details?.transcript ?? []).length).toBeGreaterThan(0)
+        expect(details?.durationMs).toBeDefined()
+        expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
+        void executions
+        void sql
+        void http
       })
       const Full = Layer.mergeAll(Live, NodeServices.layer)
       yield* program.pipe(Effect.provide(Full))

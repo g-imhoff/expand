@@ -143,7 +143,7 @@ export const resetCodingAdaptersForTests = (): void => {
   clearCodingAdapters()
 }
 
-function toFailure(error: { code: string; message: string; transcript?: ReadonlyArray<string>; exitStatus?: number; durationMs?: number }): AutomationFailure {
+function toFailure(error: { code: string; message: string; transcript?: ReadonlyArray<string> | undefined; exitStatus?: number | undefined; durationMs?: number | undefined }): AutomationFailure {
   const details: Record<string, string | number | Array<string>> = {}
   if (error.durationMs !== undefined) details['durationMs'] = error.durationMs
   if (error.exitStatus !== undefined) details['exitStatus'] = error.exitStatus
