@@ -38,9 +38,11 @@ export const SkillCredentialSlot = "token"
 
 export const makeSkillConnectorExtension = (options: SkillConnectorOptions, services: SkillConnectorServices) => {
   const adapterKey = JSON.stringify({ command: options.agentCommand, args: options.agentArgs })
-  if (adapterKey !== registeredKey) {
+  if (registeredKey === undefined) {
     registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
     registeredKey = adapterKey
+  } else if (adapterKey === registeredKey) {
+    registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
   }
   void resolveCodingAdapter
   const action = defineAction({
@@ -66,6 +68,14 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
         if (capability !== "execute") {
           return yield* Effect.fail({ code: "invalid-contract", message: `Capability ${capability} is not granted to this action` } as AutomationFailure)
         }
+      }
+      const timeoutMs = args.timeoutMs ?? options.defaultTimeoutMs
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300000) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Timeout is out of range" } as AutomationFailure)
+      }
+      const agentKind = args.agentKind ?? "opencode"
+      if (agentKind.length === 0 || agentKind.trim().length === 0) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Agent kind is not usable" } as AutomationFailure)
       }
       const configurations = yield* ConfigurationRepository.pipe(
         Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
@@ -98,16 +108,8 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
       if (secret === null) {
         return yield* Effect.fail({ code: "missing-credential", message: "Coding credential is not configured" } as AutomationFailure)
       }
-      const timeoutMs = args.timeoutMs ?? options.defaultTimeoutMs
-      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300000) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Timeout is out of range" } as AutomationFailure)
-      }
-      const agentKind = args.agentKind ?? "opencode"
-      if (agentKind.length === 0) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Agent kind is not usable" } as AutomationFailure)
-      }
       const prompt = skill.buildPrompt(inputs)
-      if (prompt.length === 0) {
+      if (prompt.length === 0 || prompt.trim().length === 0) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Skill prompt is not usable" } as AutomationFailure)
       }
       const outcome = yield* executeCodingSession(options.worktreeRoot, {
