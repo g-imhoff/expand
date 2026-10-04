@@ -58,6 +58,7 @@ export const runAcpPrompt = (
     stdout.setEncoding("utf-8")
     const onData = (chunk: string): void => {
       state.buffer += chunk
+      if (state.buffer.length > MAX_BUFFER_BYTES) state.buffer = state.buffer.slice(-MAX_BUFFER_BYTES)
       let index = state.buffer.indexOf("\n")
       while (index >= 0) {
         const line = state.buffer.slice(0, index).trim()
@@ -135,6 +136,8 @@ const JsonFromString = Schema.fromJsonString(Schema.Unknown)
 const encodeLine = Schema.encodeSync(JsonFromString)
 const decodeLine = Schema.decodeUnknownSync(JsonFromString)
 let requestCounter = 0
+const MAX_BUFFER_BYTES = 1000000
+const MAX_PENDING_RESPONSES = 200
 const freshId = (): number => {
   requestCounter += 1
   return requestCounter
@@ -175,8 +178,10 @@ const recordLine = (state: TransportState, line: string): void => {
     if ("error" in record && record["error"] !== undefined && record["error"] !== null) {
       const detail = record["error"] as { message?: unknown }
       const message = typeof detail.message === "string" ? detail.message : "ACP request failed"
+      if (state.lines.length >= MAX_PENDING_RESPONSES) state.lines.shift()
       state.lines.push({ id, result: null, error: message })
     } else {
+      if (state.lines.length >= MAX_PENDING_RESPONSES) state.lines.shift()
       state.lines.push({ id, result: record["result"] ?? null, error: null })
     }
     return

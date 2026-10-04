@@ -25,6 +25,7 @@ const scope = { ownerId: "coding-owner", projectId: "coding-project" }
 const stubPath = fileURLToPath(new URL("../fixtures/automation-acp-stub.mjs", import.meta.url))
 const grandchildStubPath = fileURLToPath(new URL("../fixtures/automation-acp-grandchild-stub.mjs", import.meta.url))
 const protocolStubPath = fileURLToPath(new URL("../fixtures/automation-acp-protocol-stub.mjs", import.meta.url))
+const floodStubPath = fileURLToPath(new URL("../fixtures/automation-acp-flood-stub.mjs", import.meta.url))
 
 const sampleIntegration = {
   schemaVersion: 1 as const,
@@ -471,6 +472,20 @@ describe("automation coding agent", () => {
       })
       const Full = Layer.mergeAll(Live, NodeServices.layer)
       yield* program.pipe(Effect.provide(Full))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+  )
+
+  it.live("bounds stdout buffer and pending queue under stderr flood and malformed output", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-flood-" })
+      const handle = yield* runAcpPrompt({ command: "node", args: [floodStubPath], cwd: dir, env: {} }, { prompt: "hello", timeoutMs: 8000 })
+      expect(handle.sessionId.startsWith("ses-flood-")).toBe(true)
+      expect(handle.exitStatus).toBe(0)
+      expect(handle.transcript.join("\n")).toContain("flood working")
+      expect(handle.transcript.length).toBeLessThanOrEqual(50)
+      expect(handle.transcript.join("\n").length).toBeLessThanOrEqual(5000)
+      expect(handle.durationMs).toBeDefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   )
 })
