@@ -20,6 +20,21 @@ export interface GithubIssue {
   readonly labels: ReadonlyArray<string>
 }
 
+export interface GithubWorkflowRun {
+  readonly id: number
+  readonly headBranch: string
+  readonly headSha: string
+  readonly conclusion: string | null
+  readonly workflowName: string
+  readonly htmlUrl?: string
+}
+
+export interface GithubWorkflowJob {
+  readonly id: number
+  readonly name: string
+  readonly conclusion: string | null
+}
+
 export const GithubApiBaseUrl = "https://api.github.com"
 export const GithubDefaultTimeoutMs = 10000
 export const GithubDefaultMaxRetries = 2
@@ -89,6 +104,53 @@ export const addIssueLabels = Effect.fn("GithubTransport.addIssueLabels")(functi
   )
   const raw = yield* fetchWithRetry({ method: "POST", url: `${transport.baseUrl}${path}/issues/${issueNumber}/labels`, token, body: validated, transport }, 0)
   return yield* decodeLabelNames(raw)
+})
+
+export const getWorkflowRun = Effect.fn("GithubTransport.getWorkflowRun")(function*(
+  owner: string,
+  repo: string,
+  runId: number,
+  token: string,
+  options?: GithubTransportOptions
+) {
+  if (!Number.isSafeInteger(runId) || runId <= 0) {
+    return yield* new GithubTransportError({ code: "invalid-contract", message: "GitHub workflow run id is out of range" })
+  }
+  const transport = yield* resolveTransport(options)
+  const path = yield* repoPath(owner, repo)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}${path}/actions/runs/${runId}`, token, transport }, 0)
+  return yield* decodeWorkflowRun(raw)
+})
+
+export const listWorkflowJobs = Effect.fn("GithubTransport.listWorkflowJobs")(function*(
+  owner: string,
+  repo: string,
+  runId: number,
+  token: string,
+  options?: GithubTransportOptions
+) {
+  if (!Number.isSafeInteger(runId) || runId <= 0) {
+    return yield* new GithubTransportError({ code: "invalid-contract", message: "GitHub workflow run id is out of range" })
+  }
+  const transport = yield* resolveTransport(options)
+  const path = yield* repoPath(owner, repo)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}${path}/actions/runs/${runId}/jobs?per_page=100`, token, transport }, 0)
+  return yield* decodeWorkflowJobs(raw)
+})
+
+export const fetchWorkflowRunLogs = Effect.fn("GithubTransport.fetchWorkflowRunLogs")(function*(
+  owner: string,
+  repo: string,
+  runId: number,
+  token: string,
+  options?: GithubTransportOptions
+) {
+  if (!Number.isSafeInteger(runId) || runId <= 0) {
+    return yield* new GithubTransportError({ code: "invalid-contract", message: "GitHub workflow run id is out of range" })
+  }
+  const transport = yield* resolveTransport(options)
+  const path = yield* repoPath(owner, repo)
+  return yield* fetchTextWithRetry({ method: "GET", url: `${transport.baseUrl}${path}/actions/runs/${runId}/logs`, token, transport }, 0)
 })
 
 interface ResolvedTransport {
@@ -246,4 +308,102 @@ function isRetryable(error: GithubTransportError): boolean {
 
 function backoffDelay(attempt: number): Duration.Duration {
   return Duration.millis(Math.min(250 * 2 ** attempt, 4000))
+}
+
+const GithubWorkflowRunResponse = Schema.Struct({
+  id: Schema.Number,
+  head_branch: Schema.String,
+  head_sha: Schema.String,
+  conclusion: Schema.Union([Schema.String, Schema.Null]),
+  name: Schema.Union([Schema.String, Schema.Null]),
+  html_url: Schema.optional(Schema.Union([Schema.String, Schema.Null]))
+})
+
+const GithubWorkflowJobsResponse = Schema.Struct({
+  jobs: Schema.Array(Schema.Struct({
+    id: Schema.Number,
+    name: Schema.String,
+    conclusion: Schema.Union([Schema.String, Schema.Null])
+  }))
+})
+
+function decodeWorkflowRun(input: unknown): Effect.Effect<GithubWorkflowRun, GithubTransportError> {
+  return Schema.decodeUnknownEffect(GithubWorkflowRunResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GithubTransportError({ code: "api", message: "GitHub returned an unexpected workflow payload" })),
+    Effect.flatMap((run) =>
+      Number.isSafeInteger(run.id) && run.id > 0 && run.head_branch.length > 0 && run.head_sha.length > 0
+        ? Effect.succeed({
+          id: run.id,
+          headBranch: run.head_branch,
+          headSha: run.head_sha,
+          conclusion: run.conclusion,
+          workflowName: typeof run.name === "string" && run.name.length > 0 ? run.name : "workflow",
+          ...(typeof run.html_url === "string" && run.html_url.length > 0 ? { htmlUrl: run.html_url } : {})
+        })
+        : Effect.fail(new GithubTransportError({ code: "api", message: "GitHub returned an unexpected workflow payload" }))
+    )
+  )
+}
+
+function decodeWorkflowJobs(input: unknown): Effect.Effect<ReadonlyArray<GithubWorkflowJob>, GithubTransportError> {
+  return Schema.decodeUnknownEffect(GithubWorkflowJobsResponse, { onExcessProperty: "ignore" })(input).pipe(
+    Effect.mapError(() => new GithubTransportError({ code: "api", message: "GitHub returned an unexpected jobs payload" })),
+    Effect.map((decoded) => decoded.jobs.map((job) => ({ id: job.id, name: job.name, conclusion: job.conclusion })))
+  )
+}
+
+function singleFetchText(input: FetchInput): Effect.Effect<string, GithubTransportError, HttpClient.HttpClient> {
+  return Effect.gen(function*() {
+    if (typeof input.token !== "string" || input.token.length === 0) {
+      return yield* new GithubTransportError({ code: "auth", message: "GitHub credential is missing" })
+    }
+    const outgoing = HttpClientRequest.get(input.url).pipe(
+      HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
+      HttpClientRequest.setHeader("X-GitHub-Api-Version", "2022-11-28"),
+      HttpClientRequest.setHeader("User-Agent", "expand-automation"),
+      HttpClientRequest.bearerToken(input.token)
+    )
+    const maybe = yield* HttpClient.execute(outgoing).pipe(
+      Effect.mapError(() => new GithubTransportError({ code: "connection", message: "GitHub transport failed" })),
+      Effect.timeoutOption(Duration.millis(input.transport.timeoutMs))
+    )
+    if (Option.isNone(maybe)) {
+      return yield* new GithubTransportError({ code: "connection", message: "GitHub request exceeded its deadline" })
+    }
+    const response = maybe.value
+    if (response.status === 401) {
+      return yield* new GithubTransportError({ code: "auth", message: "GitHub rejected the credential", status: 401 })
+    }
+    if (response.status === 403) {
+      return yield* new GithubTransportError({ code: "forbidden", message: "GitHub denied the request", status: 403 })
+    }
+    if (response.status === 404) {
+      return yield* new GithubTransportError({ code: "not-found", message: "GitHub workflow run was not found", status: 404 })
+    }
+    if (response.status === 429) {
+      return yield* new GithubTransportError({ code: "rate-limited", message: "GitHub rate limit exceeded", status: 429 })
+    }
+    if (response.status === 529 || response.status >= 500) {
+      return yield* new GithubTransportError({ code: "api", message: "GitHub responded with a retryable failure", status: response.status })
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return yield* new GithubTransportError({ code: "api", message: "GitHub responded with an unexpected status", status: response.status })
+    }
+    const text: string = yield* response.text.pipe(
+      Effect.mapError(() => new GithubTransportError({ code: "api", message: "GitHub log response was not usable text", status: response.status }))
+    )
+    if (text.length === 0) {
+      return yield* new GithubTransportError({ code: "api", message: "GitHub returned empty logs" })
+    }
+    return text.slice(0, 4000)
+  })
+}
+
+function fetchTextWithRetry(input: FetchInput, attempt: number): Effect.Effect<string, GithubTransportError, HttpClient.HttpClient> {
+  return singleFetchText(input).pipe(
+    Effect.catch((error: GithubTransportError) =>
+      isRetryable(error) && attempt < input.transport.maxRetries
+        ? Effect.sleep(backoffDelay(attempt)).pipe(Effect.andThen(() => fetchTextWithRetry(input, attempt + 1)))
+        : Effect.fail(error))
+  )
 }

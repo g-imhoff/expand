@@ -41,3 +41,4 @@ export {
   sonarAutoFixTemplate, validateSonarAutoFixInput, makeSonarExtension
 } from "./automation/sonarqube.js"
 export type { SonarFetchHandler, SonarVerifyHandler } from "./automation/sonarqube.js"
+export { pipelineIntegrationReference, pipelineTriggerReference, pipelineRepairActionReference, pipelineTemplateReference, PipelineWorkflowPayload, PipelineRepairConfiguration, PipelineRepairArguments, PipelineRepairCheck, PipelineRepairResult, PipelineWebhookWorkflowRun, PipelineWebhookEvent, pipelineIntegrationDefinition, pipelineFailureTriggerDefinition } from "./automation/pipeline.js"
