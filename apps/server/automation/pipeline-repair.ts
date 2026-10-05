@@ -195,10 +195,7 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
         if (!shouldAttemptRepair(dedupRecord.attempts, storedRepair.maxAttempts)) {
           return yield* Effect.fail({ code: "retry-exhausted", message: "Repair retry budget is exhausted" } as AutomationFailure)
         }
-        repairAttempts.set(key, { attempts: dedupRecord.attempts + 1, succeeded: false })
       }
-      const record = repairAttempts.get(key) ?? { attempts: 1, succeeded: false }
-      const attemptNumber = record.attempts
       const skill = yield* resolveSkill(options.skills, configuration.repairSkillId).pipe(
         Effect.mapError((error) => ({ code: "invalid-contract", message: error.message }) as AutomationFailure)
       )
@@ -237,10 +234,42 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
           ? Effect.succeed(value)
           : Effect.fail({ code: "missing-credential", message: "GitHub credential is not usable" } as AutomationFailure))
       )
+      const codingStoredEarly = yield* configurations.getIntegration(context.scope, configuration.codingIntegrationId).pipe(
+        Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
+      )
+      if (codingStoredEarly === null) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Coding integration is not configured" } as AutomationFailure)
+      }
+      const codingRepositoryEarly = yield* Schema.decodeUnknownEffect(CodingRepositoryConfiguration, { onExcessProperty: "error" })(codingStoredEarly.configuration.configuration).pipe(
+        Effect.mapError(() => ({ code: "invalid-contract", message: "Coding repository is not usable" }) as AutomationFailure)
+      )
+      if (codingRepositoryEarly.repository !== `${args.owner}/${args.repo}`) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Coding repository does not match the failed pipeline" } as AutomationFailure)
+      }
+      const codingSlotEarly: unknown = typeof codingStoredEarly.configuration.credentials === "object" && codingStoredEarly.configuration.credentials !== null
+        ? (codingStoredEarly.configuration.credentials as Record<string, unknown>)["token"]
+        : undefined
+      const codingReferenceEarly = yield* Schema.decodeUnknownEffect(CredentialReference, { onExcessProperty: "error" })(codingSlotEarly).pipe(
+        Effect.mapError(() => ({ code: "missing-credential", message: "Coding credential is not configured" }) as AutomationFailure)
+      )
+      const codingSecretEarly = yield* credentials.resolveSecret(context.scope, codingReferenceEarly.credentialId).pipe(
+        Effect.mapError(() => ({ code: "connection", message: "Credential resolution failed" }) as AutomationFailure)
+      )
+      if (codingSecretEarly === null) {
+        return yield* Effect.fail({ code: "missing-credential", message: "Coding credential is not configured" } as AutomationFailure)
+      }
+      yield* Effect.try({
+        try: () => new TextDecoder("utf-8", { fatal: true }).decode(codingSecretEarly),
+        catch: () => ({ code: "missing-credential", message: "Coding credential is not usable" }) as AutomationFailure
+      }).pipe(
+        Effect.flatMap((value) => value.length > 0
+          ? Effect.succeed(value)
+          : Effect.fail({ code: "missing-credential", message: "Coding credential is not usable" } as AutomationFailure))
+      )
       const workflowRun = yield* getWorkflowRun(args.owner, args.repo, args.runId, githubToken, options.githubOptions).pipe(
         Effect.mapError(() => ({ code: "log-fetch", message: "Workflow run lookup failed" }) as AutomationFailure)
       )
-      if (workflowRun.conclusion !== null && workflowRun.conclusion !== "failure") {
+      if (workflowRun.conclusion !== "failure") {
         return yield* Effect.fail({ code: "invalid-contract", message: "Workflow run did not fail" } as AutomationFailure)
       }
       if (normalizeRepairBranch(workflowRun.headBranch) !== normalizeRepairBranch(args.branch)) {
@@ -253,30 +282,8 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
         Effect.mapError(() => ({ code: "log-fetch", message: "Workflow log fetch failed" }) as AutomationFailure)
       )
       const snippet = boundLogsSnippet(fetchedLogs)
-      const codingStored = yield* configurations.getIntegration(context.scope, configuration.codingIntegrationId).pipe(
-        Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
-      )
-      if (codingStored === null) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Coding integration is not configured" } as AutomationFailure)
-      }
-      const codingRepository = yield* Schema.decodeUnknownEffect(CodingRepositoryConfiguration, { onExcessProperty: "error" })(codingStored.configuration.configuration).pipe(
-        Effect.mapError(() => ({ code: "invalid-contract", message: "Coding repository is not usable" }) as AutomationFailure)
-      )
-      if (codingRepository.repository !== `${args.owner}/${args.repo}`) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Coding repository does not match the failed pipeline" } as AutomationFailure)
-      }
-      const codingSlot: unknown = typeof codingStored.configuration.credentials === "object" && codingStored.configuration.credentials !== null
-        ? (codingStored.configuration.credentials as Record<string, unknown>)["token"]
-        : undefined
-      const codingReference = yield* Schema.decodeUnknownEffect(CredentialReference, { onExcessProperty: "error" })(codingSlot).pipe(
-        Effect.mapError(() => ({ code: "missing-credential", message: "Coding credential is not configured" }) as AutomationFailure)
-      )
-      const codingSecret = yield* credentials.resolveSecret(context.scope, codingReference.credentialId).pipe(
-        Effect.mapError(() => ({ code: "connection", message: "Credential resolution failed" }) as AutomationFailure)
-      )
-      if (codingSecret === null) {
-        return yield* Effect.fail({ code: "missing-credential", message: "Coding credential is not configured" } as AutomationFailure)
-      }
+      const codingStored = codingStoredEarly
+      const codingRepository = codingRepositoryEarly
       const skillInputs = yield* decodeSkillInputs(skill, {
         runId: args.runId,
         owner: args.owner,
@@ -296,6 +303,17 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300000) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Timeout is out of range" } as AutomationFailure)
       }
+      {
+        const current = repairAttempts.get(key) ?? { attempts: 0, succeeded: false }
+        if (current.succeeded) {
+          return yield* Effect.fail({ code: "duplicate", message: "Repair already completed for this workflow run" } as AutomationFailure)
+        }
+        if (!shouldAttemptRepair(current.attempts, storedRepair.maxAttempts)) {
+          return yield* Effect.fail({ code: "retry-exhausted", message: "Repair retry budget is exhausted" } as AutomationFailure)
+        }
+        trackPipelineRepairAttempt(key)
+      }
+      const attemptNumber = repairAttempts.get(key)?.attempts ?? 1
       const outcome = yield* executeCodingSession(options.worktreeRoot, {
         runId: `${context.routineId}-${context.configurationRevision}-${key}-${attemptNumber}`,
         repository: codingRepository.repository,
@@ -305,7 +323,11 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
         timeoutMs,
         tokenEnv: { CODING_AGENT_TOKEN_LENGTH: "32" }
       }).pipe(
-        Effect.mapError((error) => ({ code: "skill", message: error.message }) as AutomationFailure)
+        Effect.mapError((error) => ({
+          code: "skill",
+          message: error.message,
+          details: { runId: args.runId, branch: args.branch, attempts: attemptNumber, skillId: skill.id } as unknown as Schema.Json
+        }) as AutomationFailure)
       )
       const checks = evaluateCompletionChecks(skill, outcome)
       const result = {
@@ -382,6 +404,19 @@ export const decodePipelineLocalId = (value: unknown): Effect.Effect<string, Pip
 
 const sameBranchList = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean =>
   left.length === right.length && left.every((entry, index) => entry === right[index])
+
+const MaxPipelineRepairKeys = 1000
+
+const trackPipelineRepairAttempt = (key: string): number => {
+  const current = repairAttempts.get(key) ?? { attempts: 0, succeeded: false }
+  if (!repairAttempts.has(key) && repairAttempts.size >= MaxPipelineRepairKeys) {
+    const oldest = repairAttempts.keys().next()
+    if (!oldest.done) repairAttempts.delete(oldest.value)
+  }
+  const next = current.attempts + 1
+  repairAttempts.set(key, { attempts: next, succeeded: false })
+  return next
+}
 
 const sameOptionalBranchList = (left: ReadonlyArray<string> | undefined, right: ReadonlyArray<string> | undefined): boolean => {
   if (left === undefined || right === undefined) return left === right

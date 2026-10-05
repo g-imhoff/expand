@@ -360,6 +360,8 @@ describe("pipeline repair", () => {
         const fetchedDecoded = yield* Schema.decodeUnknownEffect(PipelineRepairResult, { onExcessProperty: "error" })(fetchedOnly)
         expect(fetchedDecoded.repaired).toBe(true)
         expect(fetchedDecoded.runId).toBe(47)
+        const logCalls = stub.calls.filter((call) => call.path === "/repos/octo/hello/actions/runs/47/logs")
+        expect(logCalls.length).toBeGreaterThan(0)
         const delivery = {
           schemaVersion: 1 as const,
           id: "pipeline-delivery-42",
