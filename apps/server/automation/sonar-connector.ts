@@ -205,7 +205,7 @@ export const makeSonarConnectorExtension = (options: SonarConnectorOptions | und
       const token = yield* decodeSecret(secret).pipe(
         Effect.mapError((error) => connectorFailure(error))
       )
-      const issue = yield* getSonarIssue(configuration.baseUrl, args.issueKey, token, options).pipe(
+      const issue = yield* getSonarIssue(storedProject.baseUrl, args.issueKey, token, { ...options, baseUrl: storedProject.baseUrl }).pipe(
         Effect.mapError((error) => transportFailure(error))
       )
       return { issueKey: issue.key, status: issue.status, severity: issue.severity, rule: issue.rule, message: issue.message }
@@ -259,7 +259,7 @@ export const makeSonarConnectorExtension = (options: SonarConnectorOptions | und
       const token = yield* decodeSecret(secret).pipe(
         Effect.mapError((error) => connectorFailure(error))
       )
-      const verified = yield* verifySonarIssue(configuration.baseUrl, args.issueKey, token, options).pipe(
+      const verified = yield* verifySonarIssue(storedProject.baseUrl, args.issueKey, token, { ...options, baseUrl: storedProject.baseUrl }).pipe(
         Effect.mapError((error) => transportFailure(error))
       )
       if (!verified.resolved) {
