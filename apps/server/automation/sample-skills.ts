@@ -29,9 +29,9 @@ export const sampleWriteFileSkill: SkillDefinition = {
 export const sampleSkills: ReadonlyArray<SkillDefinition> = [sampleWriteFileSkill]
 
 const singleLine = (value: string): string => {
-  const parts = value.split(/[\n\r\u2028\u2029\v\f\0]/)
+  const parts = value.split(/[\n\r\u2028\u2029\v\f\0\u0085]/)
   for (const part of parts) {
-    const cleaned = part.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "").trim()
+    const cleaned = part.replace(/[\x00-\x08\x0B-\x1F\x7F\u0080-\u009F]/g, "").trim()
     if (cleaned.length > 0) {
       return cleaned.slice(0, 200)
     }
