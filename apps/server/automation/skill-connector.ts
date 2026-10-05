@@ -124,7 +124,7 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
         skillId: skill.id,
         agentKind: outcome.agentKind,
         sessionId: outcome.sessionId,
-        transcript: [...outcome.transcript],
+        transcript: boundTranscript(outcome.transcript),
         diffSummary: outcome.diffSummary,
         exitStatus: outcome.exitStatus,
         durationMs: outcome.durationMs,
