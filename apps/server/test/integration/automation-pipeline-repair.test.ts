@@ -195,6 +195,30 @@ describe("pipeline repair", () => {
         if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/43/logs") {
           return { status: 200, body: "rogue failure log" }
         }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/44") {
+          return { status: 200, body: { id: 44, head_branch: "feature/other", head_sha: "abc123", conclusion: "failure", name: "ci", html_url: null } }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/44/logs") {
+          return { status: 200, body: "mismatch log" }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/45") {
+          return { status: 200, body: { id: 45, head_branch: "feature/repair-sandbox", head_sha: "abc123", conclusion: "success", name: "ci", html_url: null } }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/45/logs") {
+          return { status: 200, body: "success log" }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/46") {
+          return { status: 200, body: { id: 46, head_branch: "feature/repair-sandbox", head_sha: "abc123", conclusion: "failure", name: "ci", html_url: null } }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/46/logs") {
+          return { status: 500, body: { message: "upstream" } }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/47") {
+          return { status: 200, body: { id: 47, head_branch: "feature/repair-sandbox", head_sha: "abc123", conclusion: "failure", name: "ci", html_url: null } }
+        }
+        if (call.method === "GET" && call.path === "/repos/octo/hello/actions/runs/47/logs") {
+          return { status: 200, body: "real fetched log" }
+        }
         return { status: 404, body: { message: "Not Found" } }
       })
       const fs = yield* FileSystem.FileSystem
@@ -303,6 +327,39 @@ describe("pipeline repair", () => {
         ).pipe(Effect.flip)
         expect(exhausted.code).toBe("handler-failed")
         expect(exhausted.failure?.code ?? exhausted.code).toBe("retry-exhausted")
+        yield* configurations.putIntegration(scope, pipelineIntegration, 2)
+        const liveConfiguration = { ...routineConfiguration, integrations: [pipelineIntegration, githubIntegration, codingIntegration] }
+        const mismatch = yield* registry.invokeAction(
+          { configuration: liveConfiguration, stepId: "repair-1", triggerPayload: { ...triggerPayload, runId: 44 }, mode: "live" },
+          repairAuthority
+        ).pipe(Effect.flip)
+        expect(mismatch.code).toBe("handler-failed")
+        expect(mismatch.failure?.code ?? mismatch.code).toBe("invalid-contract")
+        const succeededRun = yield* registry.invokeAction(
+          { configuration: liveConfiguration, stepId: "repair-1", triggerPayload: { ...triggerPayload, runId: 45 }, mode: "live" },
+          repairAuthority
+        ).pipe(Effect.flip)
+        expect(succeededRun.code).toBe("handler-failed")
+        expect(succeededRun.failure?.code ?? succeededRun.code).toBe("invalid-contract")
+        const logFailed = yield* registry.invokeAction(
+          { configuration: liveConfiguration, stepId: "repair-1", triggerPayload: { ...triggerPayload, runId: 46 }, mode: "live" },
+          repairAuthority
+        ).pipe(Effect.flip)
+        expect(logFailed.code).toBe("handler-failed")
+        expect(logFailed.failure?.code ?? logFailed.code).toBe("log-fetch")
+        const deniedBranch = yield* registry.invokeAction(
+          { configuration: liveConfiguration, stepId: "repair-1", triggerPayload: { ...triggerPayload, runId: 47, branch: "feature/not-allowed" }, mode: "live" },
+          repairAuthority
+        ).pipe(Effect.flip)
+        expect(deniedBranch.code).toBe("handler-failed")
+        expect(deniedBranch.failure?.code ?? deniedBranch.code).toBe("branch-not-allowed")
+        const fetchedOnly = yield* registry.invokeAction(
+          { configuration: liveConfiguration, stepId: "repair-1", triggerPayload: { ...triggerPayload, runId: 47 }, mode: "live" },
+          repairAuthority
+        )
+        const fetchedDecoded = yield* Schema.decodeUnknownEffect(PipelineRepairResult, { onExcessProperty: "error" })(fetchedOnly)
+        expect(fetchedDecoded.repaired).toBe(true)
+        expect(fetchedDecoded.runId).toBe(47)
         const delivery = {
           schemaVersion: 1 as const,
           id: "pipeline-delivery-42",

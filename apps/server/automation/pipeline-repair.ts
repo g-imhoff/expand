@@ -56,12 +56,21 @@ export const DefaultPipelineProtectedBranches: ReadonlyArray<string> = ["develop
 export const pipelineRepairKey = (owner: string, repo: string, runId: number): string =>
   `${owner}/${repo}#${runId}`
 
+export const pipelineRepairKeyForScope = (scope: { readonly ownerId: string; readonly projectId: string }, owner: string, repo: string, runId: number): string =>
+  `${scope.ownerId}/${scope.projectId}:${owner}/${repo}#${runId}`
+
+export const normalizeRepairBranch = (branch: string): string => {
+  const trimmed = branch.trim().toLowerCase()
+  return trimmed.startsWith("refs/heads/") ? trimmed.slice("refs/heads/".length) : trimmed
+}
+
 export const isProtectedBranch = (branch: string, protectedBranches: ReadonlyArray<string>): boolean =>
-  protectedBranches.includes(branch)
+  protectedBranches.map((entry) => normalizeRepairBranch(entry)).includes(normalizeRepairBranch(branch))
 
 export const isBranchAllowed = (branch: string, allowedBranches: ReadonlyArray<string> | undefined): boolean => {
   if (allowedBranches === undefined) return true
-  return allowedBranches.includes(branch)
+  const normalized = normalizeRepairBranch(branch)
+  return allowedBranches.map((entry) => normalizeRepairBranch(entry)).includes(normalized)
 }
 
 export const shouldAttemptRepair = (attempts: number, maxAttempts: number): boolean =>
@@ -135,6 +144,9 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
       configuration: typeof PipelineRepairConfiguration.Type,
       context: typeof InvocationContext.Type
     ) => Effect.gen(function*() {
+      if (context.mode !== "live") {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Repair runs in live mode only" } as AutomationFailure)
+      }
       const maxAttempts = configuration.maxAttempts
       if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 5) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Repair retry budget is out of range" } as AutomationFailure)
@@ -145,16 +157,13 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
       if (!isBranchAllowed(args.branch, configuration.allowedBranches)) {
         return yield* Effect.fail({ code: "branch-not-allowed", message: "Repair branch is not permitted" } as AutomationFailure)
       }
-      const key = pipelineRepairKey(args.owner, args.repo, args.runId)
-      const record = repairAttempts.get(key) ?? { attempts: 0, succeeded: false }
-      if (record.succeeded) {
-        return yield* Effect.fail({ code: "duplicate", message: "Repair already completed for this workflow run" } as AutomationFailure)
+      if (normalizeRepairBranch(args.branch).length === 0) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Repair branch is not usable" } as AutomationFailure)
       }
-      if (!shouldAttemptRepair(record.attempts, maxAttempts)) {
-        return yield* Effect.fail({ code: "retry-exhausted", message: "Repair retry budget is exhausted" } as AutomationFailure)
+      if (typeof args.logsSnippet === "string" && args.logsSnippet.length > 4000) {
+        return yield* Effect.fail({ code: "invalid-contract", message: "Repair logs are too large" } as AutomationFailure)
       }
-      repairAttempts.set(key, { attempts: record.attempts + 1, succeeded: false })
-      const attemptNumber = record.attempts + 1
+      const key = pipelineRepairKeyForScope(context.scope, args.owner, args.repo, args.runId)
       const configurations = yield* ConfigurationRepository.pipe(
         Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
       )
@@ -167,9 +176,29 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
       const storedRepair = yield* Schema.decodeUnknownEffect(PipelineRepairConfiguration, { onExcessProperty: "error" })(stored.configuration.configuration).pipe(
         Effect.mapError(() => ({ code: "invalid-contract", message: "Repair configuration is not usable" }) as AutomationFailure)
       )
-      if (storedRepair.repairSkillId !== configuration.repairSkillId) {
+      if (
+        storedRepair.repairSkillId !== configuration.repairSkillId ||
+        storedRepair.githubIntegrationId !== configuration.githubIntegrationId ||
+        storedRepair.codingIntegrationId !== configuration.codingIntegrationId ||
+        storedRepair.maxAttempts !== configuration.maxAttempts ||
+        storedRepair.requireDraft !== configuration.requireDraft ||
+        !sameBranchList(storedRepair.protectedBranches, configuration.protectedBranches) ||
+        !sameOptionalBranchList(storedRepair.allowedBranches, configuration.allowedBranches)
+      ) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Repair skill does not match the permitted configuration" } as AutomationFailure)
       }
+      {
+        const dedupRecord = repairAttempts.get(key) ?? { attempts: 0, succeeded: false }
+        if (dedupRecord.succeeded) {
+          return yield* Effect.fail({ code: "duplicate", message: "Repair already completed for this workflow run" } as AutomationFailure)
+        }
+        if (!shouldAttemptRepair(dedupRecord.attempts, storedRepair.maxAttempts)) {
+          return yield* Effect.fail({ code: "retry-exhausted", message: "Repair retry budget is exhausted" } as AutomationFailure)
+        }
+        repairAttempts.set(key, { attempts: dedupRecord.attempts + 1, succeeded: false })
+      }
+      const record = repairAttempts.get(key) ?? { attempts: 1, succeeded: false }
+      const attemptNumber = record.attempts
       const skill = yield* resolveSkill(options.skills, configuration.repairSkillId).pipe(
         Effect.mapError((error) => ({ code: "invalid-contract", message: error.message }) as AutomationFailure)
       )
@@ -214,13 +243,16 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
       if (workflowRun.conclusion !== null && workflowRun.conclusion !== "failure") {
         return yield* Effect.fail({ code: "invalid-contract", message: "Workflow run did not fail" } as AutomationFailure)
       }
-      if (workflowRun.headBranch !== args.branch) {
+      if (normalizeRepairBranch(workflowRun.headBranch) !== normalizeRepairBranch(args.branch)) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Workflow branch does not match the repair request" } as AutomationFailure)
+      }
+      if (isProtectedBranch(workflowRun.headBranch, storedRepair.protectedBranches)) {
+        return yield* Effect.fail({ code: "protected-branch", message: "Repair refuses protected branches" } as AutomationFailure)
       }
       const fetchedLogs = yield* fetchWorkflowRunLogs(args.owner, args.repo, args.runId, githubToken, options.githubOptions).pipe(
         Effect.mapError(() => ({ code: "log-fetch", message: "Workflow log fetch failed" }) as AutomationFailure)
       )
-      const snippet = boundLogsSnippet(typeof args.logsSnippet === "string" && args.logsSnippet.length > 0 ? args.logsSnippet : fetchedLogs)
+      const snippet = boundLogsSnippet(fetchedLogs)
       const codingStored = yield* configurations.getIntegration(context.scope, configuration.codingIntegrationId).pipe(
         Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
       )
@@ -271,7 +303,7 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
         agentKind: "opencode",
         requestedCapabilities: [...skill.requiredCapabilities],
         timeoutMs,
-        tokenEnv: { CODING_AGENT_TOKEN_LENGTH: String(Math.max(32, Math.ceil(codingSecret.length / 32) * 32)) }
+        tokenEnv: { CODING_AGENT_TOKEN_LENGTH: "32" }
       }).pipe(
         Effect.mapError((error) => ({ code: "skill", message: error.message }) as AutomationFailure)
       )
@@ -347,6 +379,14 @@ export const decodePipelineLocalId = (value: unknown): Effect.Effect<string, Pip
     Effect.mapError(() => new PipelineRepairError({ code: "invalid-contract", message: "Id is not usable" }))
   )
 
+
+const sameBranchList = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean =>
+  left.length === right.length && left.every((entry, index) => entry === right[index])
+
+const sameOptionalBranchList = (left: ReadonlyArray<string> | undefined, right: ReadonlyArray<string> | undefined): boolean => {
+  if (left === undefined || right === undefined) return left === right
+  return sameBranchList(left, right)
+}
 
 interface RepairRecord {
   attempts: number

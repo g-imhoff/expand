@@ -6,8 +6,10 @@ import {
   decodePipelineWebhookText,
   isBranchAllowed,
   isProtectedBranch,
+  normalizeRepairBranch,
   pipelineExternalId,
   pipelineRepairKey,
+  pipelineRepairKeyForScope,
   pipelineStoredDeliveryId,
   shouldAttemptRepair,
   toPipelinePayload
@@ -32,6 +34,11 @@ describe("pipeline repair policy", () => {
       expect(shouldAttemptRepair(2, 2)).toBe(false)
       expect(shouldAttemptRepair(0, 1)).toBe(true)
       expect(pipelineRepairKey("octo", "hello", 42)).toBe("octo/hello#42")
+      expect(pipelineRepairKeyForScope({ ownerId: "o", projectId: "p" }, "octo", "hello", 42)).toBe("o/p:octo/hello#42")
+      expect(normalizeRepairBranch("refs/heads/Main ")).toBe("main")
+      expect(isProtectedBranch("refs/heads/main", ["main"])).toBe(true)
+      expect(isProtectedBranch(" Main ", ["main"])).toBe(true)
+      expect(isBranchAllowed("REFS/HEADS/feature/repair-sandbox", ["feature/repair-sandbox"])).toBe(true)
       expect(boundLogsSnippet("abc")).toBe("abc")
       expect(boundLogsSnippet("x".repeat(5000)).length).toBe(4000)
     }))
