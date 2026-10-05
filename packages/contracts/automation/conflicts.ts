@@ -85,6 +85,19 @@ export const validateConflictInput = Effect.fn("Automation.validateConflictInput
   if (!sameDefinition(step.action, prResolveActionReference)) return yield* invalid("Only the PR resolve action is allowed")
   const keys = Object.keys(step.bindings).sort()
   if (keys.length !== 4 || keys[0] !== "baseBranch" || keys[1] !== "expectedHeadSha" || keys[2] !== "headBranch" || keys[3] !== "pullNumber") return yield* invalid("Resolve actions need pull, branches and expected head")
+  const expectedPaths = {
+    pullNumber: ["pullNumber"],
+    headBranch: ["headBranch"],
+    baseBranch: ["baseBranch"],
+    expectedHeadSha: ["headSha"]
+  } as const
+  for (const key of Object.keys(expectedPaths) as (keyof typeof expectedPaths)[]) {
+    const binding = step.bindings[key]
+    if (binding === undefined || binding.kind !== "field" || binding.source !== "trigger") return yield* invalid("Resolve actions need pull, branches and expected head")
+    const path = [...binding.path]
+    const expected = [...expectedPaths[key]]
+    if (path.length !== expected.length || path.some((segment, index) => segment !== expected[index])) return yield* invalid("Resolve actions need pull, branches and expected head")
+  }
   for (const integration of parsed.integrations) {
     if (!sameDefinition(integration.definition, conflictIntegrationReference)) return yield* invalid("Unknown conflict integration")
     yield* decodeJson(GithubPrConflictConfiguration, integration.configuration)

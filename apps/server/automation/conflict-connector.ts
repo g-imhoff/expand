@@ -20,7 +20,7 @@ import { CredentialRepository } from "./credential-repository.js"
 import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter } from "./coding-agent.js"
 import { getPullRequest } from "./github-pr-transport.js"
 import type { GithubPrTransportOptions } from "./github-pr-transport.js"
-import { classifyMergeability, isPermittedBranch, isProtectedBranch } from "./pr-conflict-policy.js"
+import { classifyMergeability, isPermittedBranch, isProtectedBranch, normalizeBranch } from "./pr-conflict-policy.js"
 
 export interface ConflictConnectorOptions {
   readonly worktreeRoot: string
@@ -42,6 +42,9 @@ export const buildConflictPrompt = (input: { readonly pullNumber: number; readon
   const head = input.headBranch.trim().slice(0, 120)
   const base = input.baseBranch.trim().slice(0, 120)
   if (head.length === 0 || base.length === 0) return ""
+  if (/[\r\n\0]/.test(head) || /[\r\n\0]/.test(base)) return ""
+  if (/[\x00-\x1F\x7F]/.test(head) || /[\x00-\x1F\x7F]/.test(base)) return ""
+  if (normalizeBranch(head) === null || normalizeBranch(base) === null) return ""
   return [
     `You are resolving a GitHub PR merge conflict in an isolated worktree.`,
     `Merge origin/${base} into ${head} and resolve only real merge conflicts.`,
