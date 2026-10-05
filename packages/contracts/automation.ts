@@ -26,3 +26,12 @@ export type { CustomTriggerDefinition } from "./automation/custom.js"
 export { AutomationNotification, AutomationNotificationKind, AutomationNotificationStatus } from "./automation/notifications.js"
 export { codingIntegrationReference, codingActionReference, CodingRepositoryConfiguration, CodingAgentArguments, CodingAgentResult, codingIntegrationDefinition, CapacityState, CapacityProbe, CodingProviderRule, CodingCapacitySelectionConfig, CodingSelectionOutcome, CodingSelectionResult } from "./automation/coding.js"
 export { skillActionReference, SkillCheckResult, SkillExecuteArguments, SkillExecuteResult, SampleWriteFileInput } from "./automation/skills.js"
+export {
+  SonarQubeProjectConfiguration, SonarQubeFindingTriggerConfiguration, SonarQubeFindingPayload,
+  SonarQubeFetchArguments, SonarQubeFindingResult, SonarQubeVerifyArguments, SonarQubeVerifyResult,
+  SonarQubeAutoFixConfiguration, sonarIntegrationReference, sonarFindingTriggerReference,
+  sonarFetchActionReference, sonarVerifyActionReference, sonarTemplateReference,
+  sonarIntegrationDefinition, sonarFindingTriggerDefinition, buildSonarAutoFixProcess,
+  sonarAutoFixTemplate, validateSonarAutoFixInput, makeSonarExtension
+} from "./automation/sonarqube.js"
+export type { SonarFetchHandler, SonarVerifyHandler } from "./automation/sonarqube.js"
