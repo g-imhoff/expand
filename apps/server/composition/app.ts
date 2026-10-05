@@ -22,6 +22,7 @@ import { AutomationEventStoreLayer } from "@expand/server/automation/event-store
 import { AutomationRegistryService } from "@expand/server/automation/registry-service"
 import { makeGithubConnectorExtension } from "@expand/server/automation/github-connector"
 import { makeConflictConnectorExtension } from "@expand/server/automation/conflict-connector"
+import { makeSonarConnectorExtension } from "@expand/server/automation/sonar-connector"
 import { makeGmailConnectorExtension } from "@expand/server/automation/gmail-connector"
 import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
 import type { ClassificationDecideInput } from "@expand/server/automation/issue-classification"
@@ -106,6 +107,13 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       Effect.catchIf(
         (error) => error instanceof AutomationError && error.code === "duplicate-definition",
         () => Effect.logWarning("automation worker conflict connector already registered")
+      )
+    )
+    const sonarConnector = makeSonarConnectorExtension(connectorOptions, connectorServices)
+    yield* registry.register(sonarConnector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker sonarqube connector already registered")
       )
     )
     const routines = Context.get(core, RoutineService)

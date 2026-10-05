@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect"
 import { AutomationError, decodeJson, LocalId, PersonalScope, RoutineConfiguration, sameDefinition } from "@expand/contracts/automation"
 import type { DefinitionReference, IntegrationConfiguration } from "@expand/contracts/automation"
 import { githubTemplateReference, githubTriggerReference, validateClassificationInput } from "@expand/contracts/automation/github"
+import { sonarFindingTriggerReference, sonarTemplateReference, validateSonarAutoFixInput } from "@expand/contracts/automation/sonarqube"
 import { AutomationRegistry } from "./registry.js"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import type { ListedRoutine, RoutineHead } from "./configuration-repository.js"
@@ -48,8 +49,14 @@ export const RoutineServiceLayer = (registry: AutomationRegistry): Layer.Layer<R
       if (value.template !== undefined && sameDefinition(value.template, githubTemplateReference) && !sameDefinition(value.process.trigger.definition, githubTriggerReference)) {
         return yield* new AutomationError({ code: "invalid-reference", message: "Template process must use the GitHub issue trigger" })
       }
+      if (value.template !== undefined && sameDefinition(value.template, sonarTemplateReference) && !sameDefinition(value.process.trigger.definition, sonarFindingTriggerReference)) {
+        return yield* new AutomationError({ code: "invalid-reference", message: "Template process must use the SonarQube finding trigger" })
+      }
       if (sameDefinition(value.process.trigger.definition, githubTriggerReference)) {
         yield* validateClassificationInput({ configuration: value.configuration, integrations: value.integrations, process: value.process })
+      }
+      if (sameDefinition(value.process.trigger.definition, sonarFindingTriggerReference)) {
+        yield* validateSonarAutoFixInput({ configuration: value.configuration, integrations: value.integrations, process: value.process })
       }
       for (const integration of value.integrations) {
         for (const reference of Object.values(integration.credentials)) {

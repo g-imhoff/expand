@@ -32,3 +32,12 @@ export {
   prConflictTriggerReference, prResolveActionReference, prConflictTemplateReference,
   prConflictTriggerDefinition, buildPrConflictProcess, prConflictTemplate, validateConflictInput, makeConflictExtension
 } from "./automation/conflicts.js"
+export {
+  SonarQubeProjectConfiguration, SonarQubeFindingTriggerConfiguration, SonarQubeFindingPayload,
+  SonarQubeFetchArguments, SonarQubeFindingResult, SonarQubeVerifyArguments, SonarQubeVerifyResult,
+  SonarQubeAutoFixConfiguration, sonarIntegrationReference, sonarFindingTriggerReference,
+  sonarFetchActionReference, sonarVerifyActionReference, sonarTemplateReference,
+  sonarIntegrationDefinition, sonarFindingTriggerDefinition, buildSonarAutoFixProcess,
+  sonarAutoFixTemplate, validateSonarAutoFixInput, makeSonarExtension
+} from "./automation/sonarqube.js"
+export type { SonarFetchHandler, SonarVerifyHandler } from "./automation/sonarqube.js"
