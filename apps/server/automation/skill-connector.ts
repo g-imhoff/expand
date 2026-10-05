@@ -117,7 +117,7 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
         agentKind,
         requestedCapabilities: [...skill.requiredCapabilities],
         timeoutMs,
-        tokenEnv: { CODING_AGENT_TOKEN_LENGTH: String(secret.length) }
+        tokenEnv: { CODING_AGENT_TOKEN_LENGTH: String(Math.max(32, Math.ceil(secret.length / 32) * 32)) }
       }).pipe(
         Effect.mapError((error) => toFailure(error))
       )
