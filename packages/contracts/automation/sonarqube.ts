@@ -195,7 +195,7 @@ export const makeSonarExtension = (fetchHandler: SonarFetchHandler = () => Effec
     capabilities: ["verify"], argumentsSchema: SonarQubeVerifyArguments, resultSchema: SonarQubeVerifyResult,
     integrationConfigurationSchema: SonarQubeProjectConfiguration, handler: verifyHandler
   })
-  return { fetchAction, verifyAction, extension: defineExtension({ integrations: [sonarIntegrationDefinition], triggers: [sonarFindingTriggerDefinition], actions: [fetchAction, verifyAction], routines: [] }) }
+  return { fetchAction, verifyAction, extension: defineExtension({ integrations: [sonarIntegrationDefinition], triggers: [sonarFindingTriggerDefinition], actions: [fetchAction, verifyAction], routines: [sonarAutoFixTemplate] }) }
 }
 const ClassificationInput = Schema.Struct({
   configuration: JsonValue,

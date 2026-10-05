@@ -6,7 +6,7 @@ import {
 import {
   SonarQubeProjectConfiguration, SonarQubeFetchArguments, SonarQubeFindingResult,
   SonarQubeVerifyArguments, SonarQubeVerifyResult,
-  sonarFetchActionReference, sonarVerifyActionReference,
+  sonarAutoFixTemplate, sonarFetchActionReference, sonarVerifyActionReference,
   sonarIntegrationDefinition, sonarIntegrationReference, sonarFindingTriggerDefinition
 } from "@expand/contracts/automation/sonarqube"
 import {
@@ -306,7 +306,7 @@ export const makeSonarConnectorExtension = (options: SonarConnectorOptions | und
       integrations: [sonarIntegrationDefinition],
       triggers: [sonarFindingTriggerDefinition],
       actions: [installedFetch, installedVerify],
-      routines: []
+      routines: [sonarAutoFixTemplate]
     })
   }
 }
