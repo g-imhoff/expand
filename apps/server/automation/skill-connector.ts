@@ -17,7 +17,7 @@ import {
 import type { InstalledAction } from "@expand/contracts/automation"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
-import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter } from "./coding-agent.js"
+import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter, resolveCodingAdapter } from "./coding-agent.js"
 import { decodeSkillInputs, evaluateCompletionChecks, resolveSkill } from "./skill-registry.js"
 import type { SkillDefinition } from "./skill-registry.js"
 
@@ -72,6 +72,9 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
       if (agentKind.length === 0 || agentKind.trim().length === 0) {
         return yield* Effect.fail({ code: "invalid-contract", message: "Agent kind is not usable" } as AutomationFailure)
       }
+      yield* resolveCodingAdapter(agentKind, [...skill.requiredCapabilities]).pipe(
+        Effect.mapError((error) => ({ code: "invalid-contract", message: error.message }) as AutomationFailure)
+      )
       const configurations = yield* ConfigurationRepository.pipe(
         Effect.mapError(() => ({ code: "connection", message: "Configuration lookup failed" }) as AutomationFailure)
       )
