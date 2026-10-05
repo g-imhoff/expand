@@ -42,6 +42,7 @@ export interface ClassificationRunInput {
   readonly registry: AutomationRegistry
   readonly authority?: InvocationAuthority
   readonly jevOptions?: JevClassifyOptions
+  readonly inputId?: string
 }
 
 export interface ClassifiedOutcome {
@@ -78,7 +79,7 @@ export type ClassificationDecide = (input: ClassificationDecideInput) => Effect.
 export type ClassificationOutcome = ClassifiedOutcome | UnresolvedOutcome | FailedOutcome
 
 export const buildClassificationRequest = Effect.fn("IssueClassification.build")(function*(
-  input: { readonly configuration: RoutineConfiguration; readonly issue: IssueInput }
+  input: { readonly configuration: RoutineConfiguration; readonly issue: IssueInput; readonly inputId: string }
 ) {
   const validated = yield* validateClassificationInput({
     configuration: input.configuration.configuration,
@@ -105,7 +106,7 @@ export const buildClassificationRequest = Effect.fn("IssueClassification.build")
     model: "jev",
     version: "1.13",
     configuration: input.configuration.reference,
-    input: { kind: "input-reference", id: `issue-${input.issue.issueNumber}` },
+    input: { kind: "input-reference", id: input.inputId },
     outcomes: [...validated.classification.categories],
     data: {
       issueNumber: input.issue.issueNumber,
@@ -158,7 +159,11 @@ export const buildClassificationAuthority = Effect.fn("IssueClassification.autho
 export const runIssueClassification = Effect.fn("IssueClassification.run")(function*(
   input: ClassificationRunInput
 ) {
-  const built = yield* buildClassificationRequest({ configuration: input.configuration, issue: input.issue })
+  const built = yield* buildClassificationRequest({
+    configuration: input.configuration,
+    issue: input.issue,
+    inputId: input.inputId ?? `issue-${input.issue.issueNumber}`
+  })
   const started = yield* Clock.currentTimeMillis
   const settled = yield* Effect.result(
     input.decide({

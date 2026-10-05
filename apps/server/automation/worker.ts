@@ -423,7 +423,8 @@ const processClassificationRun = (
         issueNumber: payload.issueNumber,
         title: payload.title,
         ...(payload.body === undefined ? {} : { body: payload.body })
-      }
+      },
+      inputId: delivery.id
     }).pipe(
       Effect.mapError(
         (error) =>
