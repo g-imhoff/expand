@@ -17,7 +17,7 @@ import {
 import type { InstalledAction } from "@expand/contracts/automation"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
-import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter, resolveCodingAdapter } from "./coding-agent.js"
+import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter } from "./coding-agent.js"
 import { decodeSkillInputs, evaluateCompletionChecks, resolveSkill } from "./skill-registry.js"
 import type { SkillDefinition } from "./skill-registry.js"
 
@@ -38,13 +38,8 @@ export const SkillCredentialSlot = "token"
 
 export const makeSkillConnectorExtension = (options: SkillConnectorOptions, services: SkillConnectorServices) => {
   const adapterKey = JSON.stringify({ command: options.agentCommand, args: options.agentArgs })
-  if (registeredKey === undefined) {
-    registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
-    registeredKey = adapterKey
-  } else if (adapterKey === registeredKey) {
-    registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
-  }
-  void resolveCodingAdapter
+  registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
+  registeredKey = adapterKey
   const action = defineAction({
     definition: { ...skillActionReference },
     title: "Coding skill execute",
