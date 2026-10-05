@@ -7,6 +7,7 @@ import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
 import { makeGithubWebhookHandler } from "@expand/server/automation/github-webhook"
+import { makePrConflictWebhookHandler } from "@expand/server/automation/pr-conflict-webhook"
 import type { GithubWebhookServices } from "@expand/server/automation/github-webhook"
 import { makeCustomWebhookHandler } from "@expand/server/automation/custom-webhook"
 import type { CustomWebhookInput, CustomWebhookOutcome, CustomWebhookServices } from "@expand/server/automation/custom-webhook"
@@ -41,6 +42,7 @@ export const httpServerLayer = (port: number, token: string, webhookServices?: G
 export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices) =>
   Effect.gen(function* () {
     const webhook = makeGithubWebhookHandler(webhookServices)
+    const conflictWebhook = makePrConflictWebhookHandler(webhookServices)
     const request = yield* HttpServerRequest.HttpServerRequest
     const headers = request.headers as Record<string, string | undefined>
     const deliveryId = headers["x-github-delivery"] ?? ""
@@ -48,6 +50,22 @@ export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices
     const signature = headers["x-hub-signature-256"]
     const buffer = yield* request.arrayBuffer
     const raw = new Uint8Array(buffer)
+    if (event === "pull_request") {
+      const conflictOutcome = yield* conflictWebhook.handle({ deliveryId, event, signature, raw })
+      if (conflictOutcome.status === 401) {
+        return HttpServerResponse.empty({ status: 401 })
+      }
+      if (!conflictOutcome.accepted) {
+        return HttpServerResponse.text(encodeJson({ accepted: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      }
+      return HttpServerResponse.text(
+        encodeJson({ accepted: true, deliveryId: conflictOutcome.deliveryId, jobIds: [...conflictOutcome.jobIds], runIds: [...conflictOutcome.runIds] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      )
+    }
     const outcome = yield* webhook.handle({ deliveryId, event, signature, raw })
     if (outcome.status === 401) {
       return HttpServerResponse.empty({ status: 401 })
