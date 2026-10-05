@@ -29,14 +29,11 @@ export const sampleWriteFileSkill: SkillDefinition = {
 export const sampleSkills: ReadonlyArray<SkillDefinition> = [sampleWriteFileSkill]
 
 const singleLine = (value: string): string => {
-  const rows = value.split("\n")
-  for (const row of rows) {
-    const parts = row.split("\r")
-    for (const part of parts) {
-      const trimmed = part.trim()
-      if (trimmed.length > 0) {
-        return trimmed.slice(0, 200)
-      }
+  const parts = value.split(/[\n\r\u2028\u2029\v\f\0]/)
+  for (const part of parts) {
+    const cleaned = part.replace(/[\x00-\x08\x0B-\x1F\x7F]/g, "").trim()
+    if (cleaned.length > 0) {
+      return cleaned.slice(0, 200)
     }
   }
   return ""
