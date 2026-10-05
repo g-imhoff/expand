@@ -37,9 +37,7 @@ export interface SkillConnectorServices {
 export const SkillCredentialSlot = "token"
 
 export const makeSkillConnectorExtension = (options: SkillConnectorOptions, services: SkillConnectorServices) => {
-  const adapterKey = JSON.stringify({ command: options.agentCommand, args: options.agentArgs })
   registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
-  registeredKey = adapterKey
   const action = defineAction({
     definition: { ...skillActionReference },
     title: "Coding skill execute",
@@ -173,8 +171,6 @@ export const makeSkillConnectorExtension = (options: SkillConnectorOptions, serv
     })
   }
 }
-
-let registeredKey: string | undefined
 
 const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
   const sliced = lines.slice(0, 50)
