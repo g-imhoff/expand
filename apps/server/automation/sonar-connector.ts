@@ -79,7 +79,7 @@ export const readSonarFinding = Effect.fn("SonarConnector.readFinding")(function
   const provedIntegration = yield* decodeIntegration(integration)
   const project = yield* decodeProject(provedIntegration.configuration)
   const token = yield* resolveSonarToken(scope, integration)
-  const issue = yield* getSonarIssue(project.baseUrl, issueKey, token, options).pipe(
+  const issue = yield* getSonarIssue(project.baseUrl, issueKey, token, { ...options, baseUrl: project.baseUrl }).pipe(
     Effect.mapError(transportError)
   )
   return yield* Schema.decodeUnknownEffect(SonarQubeFindingResult, { onExcessProperty: "error" })({
@@ -101,7 +101,7 @@ export const listOpenSonarFindings = Effect.fn("SonarConnector.listOpenFindings"
   const provedIntegration = yield* decodeIntegration(integration)
   const project = yield* decodeProject(provedIntegration.configuration)
   const token = yield* resolveSonarToken(scope, integration)
-  return yield* listSonarIssues(project.baseUrl, project.projectKey, token, options).pipe(
+  return yield* listSonarIssues(project.baseUrl, project.projectKey, token, { ...options, baseUrl: project.baseUrl }).pipe(
     Effect.mapError(transportError)
   )
 })
