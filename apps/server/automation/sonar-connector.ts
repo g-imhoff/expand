@@ -351,9 +351,11 @@ function transportError(error: SonarTransportError): SonarConnectorError {
 }
 
 function connectorFailure(error: SonarConnectorError): AutomationFailure {
-  return { code: error.code, message: error.message }
+  if (error.status === undefined) return { code: error.code, message: error.message }
+  return { code: error.code, message: error.message, details: { status: error.status } }
 }
 
 function transportFailure(error: SonarTransportError): AutomationFailure {
-  return { code: error.code, message: error.message }
+  if (error.status === undefined) return { code: error.code, message: error.message }
+  return { code: error.code, message: error.message, details: { status: error.status } }
 }
