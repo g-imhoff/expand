@@ -139,6 +139,9 @@ describe("desktop PoC verification", () => {
         expect(history.run.value.state.kind).toBe("succeeded")
         expect(history.attempts.length).toBeGreaterThanOrEqual(2)
         expect(jev.calls.length).toBeGreaterThanOrEqual(1)
+        const decision = history.attempts.find((attempt) => attempt.kind === "decision")
+        expect(decision?.kind).toBe("decision")
+        if (decision?.kind === "decision") expect(decision.request.input.id).toBe("t20-delivery-1:github")
         const reopened = yield* Layer.build(buildLayers(filename, new AutomationRegistry()))
         const reopenedExecutions = Context.get(reopened, ExecutionRepository)
         expect((yield* reopenedExecutions.getRun(scope, runId))?.value.state.kind).toBe("succeeded")
@@ -309,7 +312,11 @@ describe("desktop PoC verification", () => {
         const outcome = yield* processRun(environment, { ...DefaultAutomationWorkerOptions, baseBackoffMs: 1 }, scope, runId)
         expect(outcome).toBe("completed")
         expect(github.getIssueLabels(425)).toContain("type: question")
-        expect((yield* executions.history(scope, runId))?.run.value.state.kind).toBe("succeeded")
+        const crashHistory = (yield* executions.history(scope, runId))!
+        expect(crashHistory.run.value.state.kind).toBe("succeeded")
+        const crashDecision = crashHistory.attempts.find((attempt) => attempt.kind === "decision")
+        expect(crashDecision?.kind).toBe("decision")
+        if (crashDecision?.kind === "decision") expect(crashDecision.request.input.id).toBe("t20-delivery-crash:github")
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped),
