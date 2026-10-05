@@ -26,3 +26,9 @@ export type { CustomTriggerDefinition } from "./automation/custom.js"
 export { AutomationNotification, AutomationNotificationKind, AutomationNotificationStatus } from "./automation/notifications.js"
 export { codingIntegrationReference, codingActionReference, CodingRepositoryConfiguration, CodingAgentArguments, CodingAgentResult, codingIntegrationDefinition, CapacityState, CapacityProbe, CodingProviderRule, CodingCapacitySelectionConfig, CodingSelectionOutcome, CodingSelectionResult } from "./automation/coding.js"
 export { skillActionReference, SkillCheckResult, SkillExecuteArguments, SkillExecuteResult, SampleWriteFileInput } from "./automation/skills.js"
+export {
+  GithubPrConflictPayload, GithubPrConflictConfiguration, GithubPrResolveArguments,
+  GithubPrResolveResult, conflictIntegrationReference, conflictIntegrationDefinition,
+  prConflictTriggerReference, prResolveActionReference, prConflictTemplateReference,
+  prConflictTriggerDefinition, buildPrConflictProcess, prConflictTemplate, validateConflictInput, makeConflictExtension
+} from "./automation/conflicts.js"
