@@ -139,9 +139,11 @@ describe("desktop PoC verification", () => {
         expect(history.run.value.state.kind).toBe("succeeded")
         expect(history.attempts.length).toBeGreaterThanOrEqual(2)
         expect(jev.calls.length).toBeGreaterThanOrEqual(1)
-        const decision = history.attempts.find((attempt) => attempt.kind === "decision")
-        expect(decision?.kind).toBe("decision")
-        if (decision?.kind === "decision") expect(decision.request.input.id).toBe("t20-delivery-1:github")
+        const decisions = history.attempts.filter((attempt) => attempt.kind === "decision")
+        expect(decisions.length).toBeGreaterThanOrEqual(1)
+        for (const decision of decisions) {
+          if (decision.kind === "decision") expect(decision.request.input.id).toBe("t20-delivery-1:github")
+        }
         const reopened = yield* Layer.build(buildLayers(filename, new AutomationRegistry()))
         const reopenedExecutions = Context.get(reopened, ExecutionRepository)
         expect((yield* reopenedExecutions.getRun(scope, runId))?.value.state.kind).toBe("succeeded")
@@ -314,9 +316,11 @@ describe("desktop PoC verification", () => {
         expect(github.getIssueLabels(425)).toContain("type: question")
         const crashHistory = (yield* executions.history(scope, runId))!
         expect(crashHistory.run.value.state.kind).toBe("succeeded")
-        const crashDecision = crashHistory.attempts.find((attempt) => attempt.kind === "decision")
-        expect(crashDecision?.kind).toBe("decision")
-        if (crashDecision?.kind === "decision") expect(crashDecision.request.input.id).toBe("t20-delivery-crash:github")
+        const crashDecisions = crashHistory.attempts.filter((attempt) => attempt.kind === "decision")
+        expect(crashDecisions.length).toBeGreaterThanOrEqual(2)
+        for (const crashDecision of crashDecisions) {
+          if (crashDecision.kind === "decision") expect(crashDecision.request.input.id).toBe("t20-delivery-crash:github")
+        }
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped),
