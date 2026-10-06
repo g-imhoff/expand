@@ -1,6 +1,9 @@
-import { Deferred, Effect, Exit, Queue, Scope, Stream } from "effect"
+import { Deferred, Effect, Exit, Layer, Path, Queue, Scope, Stream } from "effect"
 import { type RpcMessage, RpcSerialization, RpcServer } from "effect/rpc"
+import { NodeFileSystem, NodePath } from "@effect/platform-node"
+import { homedir } from "node:os"
 import { ExpandRpcs } from "@expand/contracts/rpc"
+import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ClientSession } from "@expand/client-ts"
 import { AutomationClient } from "@expand/client-ts/automation"
 import { ProjectClient } from "@expand/client-ts/project"
@@ -26,10 +29,22 @@ export const runRpcServer = Effect.fn("DesktopMain.runRpcServer")((
   port: MainPortLike
 ): Effect.Effect<never, never, ClientSession | ProjectClient | ServerClient | AutomationClient | Scope.Scope> =>
   RpcServer.make(ExpandRpcs).pipe(
-    Effect.provide(DesktopRpcHandlers),
+    Effect.provide(DesktopRpcHandlers.pipe(Layer.provide(mainNodeLayer))),
     Effect.provideServiceEffect(RpcServer.Protocol, makePortProtocol(port)),
     Effect.provideService(RpcSerialization.RpcSerialization, RpcSerialization.json)
   )
+)
+
+const appContextLayer = Layer.effect(
+  AppContext,
+  Effect.flatMap(Path.Path, (path) =>
+    Effect.sync(() => makeAppContext(path, { homeDir: homedir(), cwd: process.cwd() })))
+).pipe(Layer.provide(NodePath.layer))
+
+const mainNodeLayer = Layer.mergeAll(
+  NodeFileSystem.layer,
+  NodePath.layer,
+  appContextLayer
 )
 
 const makePortProtocol = Effect.fn("DesktopMain.makePortProtocol")((port: MainPortLike) =>
