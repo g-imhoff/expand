@@ -10,6 +10,7 @@ import { boot } from "@expand/desktop/renderer/app/runtime"
 import { router } from "@expand/desktop/renderer/app/router"
 import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
 import { AutomationContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-context"
+import { AutomationRunContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-run-context"
 import { supervised } from "@expand/desktop/renderer/app/supervised"
 
 interface RendererHotContext {
@@ -48,7 +49,13 @@ ownRendererRoot({
               <RendererRunnerProvider value={runner}>
                 <ProjectContextProvider value={value}>
                   <AutomationContextProvider value={value.automation ?? null}>
-                    <RouterProvider router={router} />
+                    {value.automation === undefined ? (
+                      <RouterProvider router={router} />
+                    ) : (
+                      <AutomationRunContextProvider value={{ rpc: value.automation }}>
+                        <RouterProvider router={router} />
+                      </AutomationRunContextProvider>
+                    )}
                   </AutomationContextProvider>
                 </ProjectContextProvider>
               </RendererRunnerProvider>
