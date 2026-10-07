@@ -570,4 +570,133 @@ describe("automation worker integration", () => {
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped)
   )
+
+  for (const testCase of [
+    {
+      decision: { schemaVersion: 1, kind: "selected", outcomeId: "bug", data: {} },
+      outcome: "completed",
+      state: "succeeded"
+    },
+    {
+      decision: { schemaVersion: 1, kind: "abstained", reason: "Saved abstention" },
+      outcome: "unresolved",
+      state: "unresolved"
+    }
+  ] as const) {
+    it.live(`reuses a saved ${testCase.decision.kind} decision after reclaiming an interrupted run`, () =>
+      Effect.gen(function*() {
+        const jev = yield* withJev
+        const github = yield* withGithub
+        const labels = testCase.decision.kind === "selected" ? ["type: bug"] : []
+        github.setIssue(12, { title: "Boom", body: "Details", labels })
+        const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+        const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+        const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+        const registry = new AutomationRegistry()
+        const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+          Layer.provideMerge(Creds)
+        )
+        const connectorOptions = { baseUrl: github.baseUrl, timeoutMs: 5000, maxRetries: 0 }
+        const program = Effect.gen(function*() {
+          const routines = yield* RoutineService
+          const executions = yield* ExecutionRepository
+          const configurations = yield* ConfigurationRepository
+          const credentials = yield* CredentialRepository
+          const sql = yield* SqlClient
+          const http = yield* HttpClient.HttpClient
+          yield* registry.register(makeGithubConnectorExtension(connectorOptions, { configurations, credentials, http }).extension)
+          yield* credentials.putCredential(scope, "github-token", new TextEncoder().encode("stub-github-token"), 0)
+          const process = yield* buildGithubClassificationProcess("github", classification)
+          yield* routines.create(scope, {
+            routineId: "triage",
+            template: githubTemplateReference,
+            configuration: classification,
+            integrations: [githubIntegration],
+            process
+          })
+          yield* ingestGithubRun("run-12", "job-12", "issue-12", 12)
+          const run = (yield* executions.getRun(scope, "run-12"))!
+          const job = (yield* executions.getJob(scope, "job-12"))!
+          const started: Extract<Attempt, { kind: "decision"; status: "started" }> = {
+            id: "saved-decision-12",
+            scope,
+            runId: "run-12",
+            jobId: "job-12",
+            stepId: "decision",
+            attempt: 1,
+            startedAt: "1",
+            kind: "decision",
+            status: "started",
+            request: {
+              schemaVersion: 1,
+              kind: "jev-request",
+              provider: "opencode-zen",
+              model: "jev",
+              version: "1.13",
+              configuration: run.value.configuration,
+              input: run.value.input,
+              outcomes: ["bug", "question"],
+              data: { issueNumber: 12, title: "Boom", body: "Details" }
+            }
+          }
+          yield* executions.recordAttempt(scope, started)
+          const completed: Attempt = { ...started, status: "completed", finishedAt: "2", result: testCase.decision }
+          yield* executions.recordAttempt(scope, completed, {
+            expectedRunVersion: run.version,
+            expectedJobVersion: job.version,
+            run: { ...run.value, state: { kind: "running" }, decision: testCase.decision },
+            job: { ...job.value, state: { kind: "running" } }
+          })
+          if (testCase.decision.kind === "selected") {
+            yield* executions.recordAttempt(scope, {
+              id: "unfinished-label-12",
+              scope,
+              runId: "run-12",
+              jobId: "job-12",
+              stepId: "label-bug",
+              attempt: 1,
+              startedAt: "3",
+              kind: "action",
+              status: "started",
+              integration: { id: "github", definition: githubIntegrationReference },
+              action: githubLabelActionReference,
+              arguments: { issueNumber: 12, label: "type: bug" }
+            })
+          }
+          jev.setReply(() => ({ status: 200, body: stubChoiceBody("question", { bug: 0.08, question: 0.9, no_match: 0.02 }, 0.85) }))
+          const environment: AutomationWorkerEnvironment = {
+            services: { configurations, credentials, executions, sql, http },
+            registry,
+            routines,
+            decide: (input) => classifyJev(input.request, input.descriptions, fakeKey, { endpoint: jev.url, timeoutMs: 5000, maxRetries: 0 }),
+            githubOptions: connectorOptions
+          }
+          expect(yield* reclaimInterruptedRuns(environment)).toBe(1)
+          expect((yield* executions.getRun(scope, "run-12"))?.value.state.kind).toBe("queued")
+          expect(yield* processRun(environment, DefaultAutomationWorkerOptions, scope, "run-12")).toBe(testCase.outcome)
+          const history = (yield* executions.history(scope, "run-12"))!
+          expect(history.run.value.state.kind).toBe(testCase.state)
+          expect(history.run.value.decision).toEqual(testCase.decision)
+          expect(history.attempts.filter((entry) => entry.kind === "decision")).toEqual([completed])
+          expect(jev.calls).toEqual([])
+          expect(github.getIssueLabels(12)).toEqual(labels)
+          expect(github.calls.filter((call) => call.method === "POST")).toEqual([])
+          if (testCase.decision.kind === "selected") {
+            expect(github.calls.some((call) => call.method === "GET")).toBe(true)
+            expect(history.run.value.actions).toEqual([{
+              kind: "succeeded",
+              stepId: "label-bug",
+              action: githubLabelActionReference,
+              result: { reconciled: true, label: "type: bug" }
+            }])
+            expect(history.attempts.filter((entry) => entry.kind === "action").map((entry) => entry.stepId)).toEqual(["label-bug", "label-bug"])
+          } else {
+            expect(history.run.value.actions).toEqual([])
+            expect(history.attempts.filter((entry) => entry.kind === "action")).toEqual([])
+          }
+        })
+        yield* program.pipe(Effect.provide(Live))
+      }).pipe(Effect.scoped)
+    )
+  }
 })

@@ -433,7 +433,9 @@ const processClassificationRun = (
             : new StorageError({ code: "invalid", message: "Invalid classification input" })
       )
     )
-    const decision = yield* runDecisionWithRetries(environment, options, scope, run, runVersion, built.request, built.descriptions)
+    const decision = run.decision === undefined
+      ? yield* runDecisionWithRetries(environment, options, scope, run, runVersion, built.request, built.descriptions)
+      : { outcome: "decided" as const, run, runVersion, decision: run.decision }
     if (decision.outcome === "failed") return "failed" as WorkerOutcomeKind
     if (decision.outcome === "cancelled") return "cancelled" as WorkerOutcomeKind
     if (decision.decision.kind === "abstained") {
