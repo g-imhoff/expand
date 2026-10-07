@@ -1,7 +1,7 @@
-import { Effect, Layer, Option } from "effect"
+import { Effect, Layer, Option, Stream } from "effect"
 import { HttpMiddleware, HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { RpcSerialization, RpcServer } from "effect/rpc"
-import { NodeHttpServer } from "@effect/platform-node"
+import { NodeHttpServer, NodeHttpServerRequest, NodeStream } from "@effect/platform-node"
 import { timingSafeEqual } from "node:crypto"
 import { createServer } from "node:http"
 import { ExpandRpcs } from "@expand/contracts/rpc"
@@ -26,6 +26,7 @@ export interface CustomWebhookHttpResult {
 }
 
 export const serviceHealthBody = encodeJson({ status: "ok" })
+export const webhookBodyLimitBytes = 1024 * 1024
 
 export const httpServerLayer = (port: number, token: string, webhookServices?: GithubWebhookServices, customWebhook?: CustomWebhookRoute, host = "127.0.0.1") => {
   const node = NodeHttpServer.layer(createServer, { port, host })
@@ -48,8 +49,8 @@ export const githubWebhookRouteHandler = (webhookServices: GithubWebhookServices
     const deliveryId = headers["x-github-delivery"] ?? ""
     const event = headers["x-github-event"] ?? ""
     const signature = headers["x-hub-signature-256"]
-    const buffer = yield* request.arrayBuffer
-    const raw = new Uint8Array(buffer)
+    const raw = yield* readWebhookBody(request)
+    if (raw === null) return HttpServerResponse.empty({ status: 413, headers: { connection: "close" } })
     if (event === "pull_request") {
       const conflictOutcome = yield* conflictWebhook.handle({ deliveryId, event, signature, raw })
       if (conflictOutcome.status === 401) {
@@ -116,11 +117,32 @@ export const customWebhookRouteHandler = (services: CustomWebhookServices, regis
     const webhook = makeCustomWebhookHandler(services, registry)
     const request = yield* HttpServerRequest.HttpServerRequest
     const headers = request.headers as Record<string, string | undefined>
-    const buffer = yield* request.arrayBuffer
-    const outcome = yield* webhook.handle(customWebhookRequestInput(headers, new Uint8Array(buffer)))
+    const raw = yield* readWebhookBody(request)
+    if (raw === null) return HttpServerResponse.empty({ status: 413, headers: { connection: "close" } })
+    const outcome = yield* webhook.handle(customWebhookRequestInput(headers, raw))
     const result = customWebhookResult(outcome)
     if (result.body === null) return HttpServerResponse.empty({ status: result.status })
     return HttpServerResponse.text(result.body, { status: result.status, headers: { "content-type": "application/json" } })
+  })
+
+const readWebhookBody = (request: HttpServerRequest.HttpServerRequest) =>
+  Effect.gen(function* () {
+    const contentLength = request.headers["content-length"]
+    if (contentLength !== undefined && Number(contentLength) > webhookBodyLimitBytes) return null
+    const chunks: Array<Uint8Array> = []
+    let size = 0
+    yield* NodeStream.fromReadable<Uint8Array, HttpServerError.HttpServerError>({
+      evaluate: () => NodeHttpServerRequest.toIncomingMessage(request),
+      closeOnDone: false,
+      onError: (cause) => new HttpServerError.HttpServerError({ reason: new HttpServerError.RequestParseError({ request, cause }) }),
+    }).pipe(Stream.runForEachWhile((chunk) => Effect.sync(() => {
+      size += chunk.byteLength
+      if (size > webhookBodyLimitBytes) return false
+      chunks.push(chunk)
+      return true
+    })))
+    if (size > webhookBodyLimitBytes) return null
+    return Buffer.concat(chunks, size)
   })
 
 const accessLogger = HttpMiddleware.make((httpApp) =>

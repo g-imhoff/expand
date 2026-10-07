@@ -1,6 +1,7 @@
 import { it as effectIt } from "@effect/vitest"
 import { describe, expect, it } from "vitest"
 import { createHmac } from "node:crypto"
+import { Readable } from "node:stream"
 import { Context, Effect, Layer, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/http"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -130,7 +131,7 @@ const routeSign = (secret: string, raw: Uint8Array): string =>
 const stubRequest = (headers: Record<string, string | undefined>, raw: Uint8Array) =>
   ({
     headers,
-    arrayBuffer: Effect.succeed(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer),
+    source: Readable.from([raw]),
   }) as unknown as HttpServerRequest.HttpServerRequest
 
 const readRouteBody = (response: HttpServerResponse.HttpServerResponse): string | null => {
