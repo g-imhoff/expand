@@ -7,7 +7,7 @@ import { GithubRepositoryConfiguration } from "@expand/contracts/automation/gith
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import { ExecutionRepository } from "./execution-repository.js"
-import { StorageError, encodeJson } from "./persistence-models.js"
+import { StorageError } from "./persistence-models.js"
 
 export interface PrConflictWebhookServices {
   readonly configurations: ConfigurationRepository["Service"]
@@ -53,26 +53,7 @@ export const verifyPrConflictSignature = (
 }
 
 export const decodePrConflictEvent = (value: unknown): Effect.Effect<typeof GithubPrConflictPayload.Type | null, never> =>
-  Effect.gen(function*() {
-    const parsed = yield* Schema.decodeUnknownEffect(PrWebhookPullEvent, { onExcessProperty: "ignore" })(value).pipe(Effect.option)
-    if (parsed._tag === "None") return null
-    const event = parsed.value
-    if (event.action !== "opened" && event.action !== "synchronize" && event.action !== "reopened") return null
-    const mergeable = event.pull_request.mergeable ?? null
-    const state = typeof event.pull_request.mergeable_state === "string" ? event.pull_request.mergeable_state.toLowerCase() : ""
-    const isConflicted = mergeable === false || state === "dirty"
-    if (!isConflicted) return null
-    const payload = {
-      pullNumber: event.pull_request.number,
-      headBranch: event.pull_request.head.ref,
-      baseBranch: event.pull_request.base.ref,
-      headSha: event.pull_request.head.sha,
-      mergeable: false
-    }
-    const proved = yield* Schema.decodeUnknownEffect(GithubPrConflictPayload, { onExcessProperty: "error" })(payload).pipe(Effect.option)
-    if (proved._tag === "None") return null
-    return proved.value
-  })
+  decodePrConflictWebhookEvent(value).pipe(Effect.map((event) => event?.payload ?? null))
 
 export const makePrConflictWebhookHandler = (services: PrConflictWebhookServices) => {
   const handle = (input: PrConflictWebhookInput): Effect.Effect<PrConflictWebhookOutcome, StorageError> =>
@@ -87,11 +68,12 @@ export const makePrConflictWebhookHandler = (services: PrConflictWebhookServices
       if (textOption._tag === "None") return { status: 401, accepted: false } as const
       const unknownOption = yield* Schema.decodeUnknownEffect(JsonUnknown, { onExcessProperty: "ignore" })(textOption.value).pipe(Effect.option)
       if (unknownOption._tag === "None") return { status: 401, accepted: false } as const
-      const payload = yield* decodePrConflictEvent(unknownOption.value)
-      if (payload === null) return { status: 200, accepted: false } as const
+      const event = yield* decodePrConflictWebhookEvent(unknownOption.value)
+      if (event === null) return { status: 200, accepted: false } as const
+      const payload = event.payload
       const deliveryOption = yield* Schema.decodeUnknownEffect(LocalId, { onExcessProperty: "error" })(input.deliveryId).pipe(Effect.option)
       if (deliveryOption._tag === "None") return { status: 401, accepted: false } as const
-      const candidates = yield* findCandidateIntegrations(services)
+      const candidates = yield* findCandidateIntegrations(services, event.repository)
       if (candidates.length === 0) return { status: 200, accepted: false } as const
       const verified = []
       for (const candidate of candidates) {
@@ -170,6 +152,31 @@ export const makePrConflictWebhookHandler = (services: PrConflictWebhookServices
   return { handle }
 }
 
+const decodePrConflictWebhookEvent = (value: unknown): Effect.Effect<{
+  readonly payload: typeof GithubPrConflictPayload.Type
+  readonly repository: typeof GithubRepositoryConfiguration.Type
+} | null, never> =>
+  Effect.gen(function*() {
+    const parsed = yield* Schema.decodeUnknownEffect(PrWebhookPullEvent, { onExcessProperty: "ignore" })(value).pipe(Effect.option)
+    if (parsed._tag === "None") return null
+    const event = parsed.value
+    if (event.action !== "opened" && event.action !== "synchronize" && event.action !== "reopened") return null
+    const mergeable = event.pull_request.mergeable ?? null
+    const state = typeof event.pull_request.mergeable_state === "string" ? event.pull_request.mergeable_state.toLowerCase() : ""
+    const isConflicted = mergeable === false || state === "dirty"
+    if (!isConflicted) return null
+    const payload = {
+      pullNumber: event.pull_request.number,
+      headBranch: event.pull_request.head.ref,
+      baseBranch: event.pull_request.base.ref,
+      headSha: event.pull_request.head.sha,
+      mergeable: false
+    }
+    const proved = yield* Schema.decodeUnknownEffect(GithubPrConflictPayload, { onExcessProperty: "error" })(payload).pipe(Effect.option)
+    if (proved._tag === "None") return null
+    return { payload: proved.value, repository: { owner: event.repository.owner.login, repo: event.repository.name } }
+  })
+
 const PrWebhookBranch = Schema.Struct({ ref: Schema.String.check(Schema.isMinLength(1)), sha: Schema.String.check(Schema.isMinLength(1)) })
 const PrWebhookPull = Schema.Struct({
   number: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -178,7 +185,14 @@ const PrWebhookPull = Schema.Struct({
   mergeable: Schema.optional(Schema.Union([Schema.Boolean, Schema.Null])),
   mergeable_state: Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 })
-const PrWebhookPullEvent = Schema.Struct({ action: Schema.String, pull_request: PrWebhookPull })
+const PrWebhookPullEvent = Schema.Struct({
+  action: Schema.String,
+  repository: Schema.Struct({
+    name: Schema.String.check(Schema.isMinLength(1)),
+    owner: Schema.Struct({ login: Schema.String.check(Schema.isMinLength(1)) })
+  }),
+  pull_request: PrWebhookPull
+})
 const JsonUnknown = Schema.fromJsonString(Schema.Unknown)
 
 interface CandidateIntegration {
@@ -186,7 +200,10 @@ interface CandidateIntegration {
   readonly integration: { readonly id: string; readonly definition: { readonly id: string; readonly version: number }; readonly configuration: Record<string, unknown>; readonly credentials: Record<string, unknown> }
 }
 
-const findCandidateIntegrations = (services: PrConflictWebhookServices): Effect.Effect<ReadonlyArray<CandidateIntegration>, StorageError> =>
+const findCandidateIntegrations = (
+  services: PrConflictWebhookServices,
+  repository: typeof GithubRepositoryConfiguration.Type
+): Effect.Effect<ReadonlyArray<CandidateIntegration>, StorageError> =>
   Effect.gen(function*() {
     const rows = yield* services.sql<{ owner_id: string; project_id: string; id: string }>`
       SELECT owner_id, project_id, id FROM automation_integrations
@@ -199,6 +216,10 @@ const findCandidateIntegrations = (services: PrConflictWebhookServices): Effect.
       const stored = yield* services.configurations.getIntegration(scopeOption.value, row.id)
       if (stored === null) continue
       if (!sameDefinition(stored.configuration.definition, conflictIntegrationReference)) continue
+      const configuredRepository = yield* Schema.decodeUnknownEffect(GithubRepositoryConfiguration, { onExcessProperty: "ignore" })(stored.configuration.configuration).pipe(Effect.option)
+      if (configuredRepository._tag === "None") continue
+      if (configuredRepository.value.owner.toLowerCase() !== repository.owner.toLowerCase()) continue
+      if (configuredRepository.value.repo.toLowerCase() !== repository.repo.toLowerCase()) continue
       candidates.push({ scope: scopeOption.value, integration: { id: stored.configuration.id, definition: { ...stored.configuration.definition }, configuration: { ...(stored.configuration.configuration as Record<string, unknown>) }, credentials: { ...(stored.configuration.credentials as Record<string, unknown>) } } })
     }
     return candidates as ReadonlyArray<CandidateIntegration>
