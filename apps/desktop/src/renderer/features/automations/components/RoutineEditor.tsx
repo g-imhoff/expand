@@ -42,7 +42,11 @@ export interface RoutineEditorProps {
   readonly routineId: string | undefined
 }
 
-export const RoutineEditor = ({ projectId, routineId }: RoutineEditorProps) => {
+export const RoutineEditor = ({ projectId, routineId }: RoutineEditorProps) => (
+  <RoutineEditorSession key={JSON.stringify([projectId, routineId])} projectId={projectId} routineId={routineId} />
+)
+
+const RoutineEditorSession = ({ projectId, routineId }: RoutineEditorProps) => {
   const catalogQuery = useAutomationCatalog()
   const [createdId, setCreatedId] = useState<string | undefined>(undefined)
   const editingId = routineId ?? createdId

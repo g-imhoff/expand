@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { it } from "@effect/vitest"
-import { fireEvent, screen } from "@testing-library/react"
-import { Effect, Stream } from "effect"
+import { fireEvent, screen, waitFor } from "@testing-library/react"
+import { Deferred, Effect, Stream } from "effect"
 import { afterEach, describe, expect } from "vitest"
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router"
 import type { ActionStep, Binding, Catalog, EditorSchema } from "@expand/contracts/automation"
@@ -17,6 +17,7 @@ import type { AutomationRpcApi } from "@expand/desktop/renderer/rpc/automation-r
 import { fakeProject, makeFakeProjectContext, renderScoped, uid } from "./ui-harness"
 
 const projectId = uid(1)
+const betaProjectId = uid(2)
 const scope = { ownerId: "local", projectId }
 
 const renderEditor = (rpc: AutomationRpcApi, routineId: string | undefined) =>
@@ -29,6 +30,45 @@ const renderEditor = (rpc: AutomationRpcApi, routineId: string | undefined) =>
       </ProjectContextProvider>
     </RendererRunnerProvider>
   )
+
+const renderEditorRoute = Effect.fn("RoutineEditorTest.renderEditorRoute")(function* (
+  rpc: AutomationRpcApi,
+  routineId: string | undefined = undefined
+) {
+  const context = makeFakeProjectContext([
+    fakeProject({ id: projectId, name: "alpha" }),
+    fakeProject({ id: betaProjectId, name: "beta" })
+  ])
+  const router = createAppRouter(createMemoryHistory({
+    initialEntries: [`/p/${projectId}/automations/routines/${routineId ?? "new"}`]
+  }))
+  yield* renderScoped(
+    <RendererRunnerProvider value={{ start: startRendererRoot }}>
+      <ProjectContextProvider value={context}>
+        <AutomationContextProvider value={rpc}>
+          <RouterProvider router={router} />
+        </AutomationContextProvider>
+      </ProjectContextProvider>
+    </RendererRunnerProvider>
+  )
+  return router
+})
+
+const fillSetup = (owner: string) => {
+  fireEvent.change(screen.getByLabelText("Routine id"), { target: { value: "triage" } })
+  fireEvent.change(screen.getByLabelText("Start from a template"), {
+    target: { value: "github:issue-classification@1" }
+  })
+  fireEvent.change(screen.getByLabelText("Repository owner"), { target: { value: owner } })
+  fireEvent.change(screen.getByLabelText("Repository name"), { target: { value: "hello" } })
+}
+
+const selectProject = (name: string) => {
+  const trigger = screen.getByRole("button", { name: /Active project:/ })
+  fireEvent.pointerDown(trigger)
+  fireEvent.click(trigger)
+  fireEvent.click(screen.getByRole("menuitem", { name: new RegExp(name) }))
+}
 
 const editorSchema = (properties?: { readonly [key: string]: EditorSchema["schema"] }) => ({
   dialect: "draft-2020-12" as const,
@@ -133,6 +173,18 @@ const triageRecord: RoutineRecord = {
   },
   credentials: []
 }
+
+const recordForProject = (targetProjectId: string, owner: string): RoutineRecord => ({
+  ...triageRecord,
+  configuration: {
+    ...triageRecord.configuration,
+    scope: { ...scope, projectId: targetProjectId },
+    integrations: triageRecord.configuration.integrations.map((integration) => ({
+      ...integration,
+      configuration: { owner, repo: "hello" }
+    }))
+  }
+})
 
 const classifiedPreview: PreviewOutcome = {
   kind: "classified",
@@ -304,6 +356,127 @@ describe("routine editor", () => {
       yield* Effect.tryPromise(() => screen.findByDisplayValue("triage"))
       yield* Effect.tryPromise(() => screen.findByDisplayValue("octo"))
       expect(screen.getByRole("button", { name: "Save changes" })).toBeDefined()
+    })))
+
+  it.effect("starts a fresh setup when the project switcher leaves a created routine", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const created: Array<Parameters<AutomationRpcApi["createRoutine"]>[0]> = []
+      let edited = 0
+      const rpc = automationRpc({
+        catalog: () => Effect.succeed(catalogStub),
+        getRoutine: ({ scope: requestedScope }) => Effect.succeed(recordForProject(
+          requestedScope.projectId,
+          requestedScope.projectId === projectId ? "alpha-owner" : "beta-owner"
+        )),
+        createRoutine: (payload) => {
+          created.push(payload)
+          return Effect.succeed({ revision: 1 })
+        },
+        editRoutine: () => {
+          edited += 1
+          return Effect.succeed({ revision: 3 })
+        },
+        preview: () => Effect.succeed(classifiedPreview)
+      })
+      const router = yield* renderEditorRoute(rpc)
+      yield* Effect.tryPromise(() => screen.findByLabelText("Routine id"))
+      fillSetup("alpha-owner")
+      fireEvent.change(screen.getByLabelText("Issue title"), { target: { value: "Alpha issue" } })
+      selectProject("alpha")
+      yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Active project: alpha" }))
+      expect((screen.getByLabelText("Repository owner") as HTMLInputElement).value).toBe("alpha-owner")
+      expect((screen.getByLabelText("Issue title") as HTMLInputElement).value).toBe("Alpha issue")
+      fireEvent.click(screen.getByRole("button", { name: "Create routine" }))
+      yield* Effect.tryPromise(() => screen.findByText("Created revision 1."))
+      yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Pause" }))
+      fireEvent.click(screen.getByRole("button", { name: "Run preview" }))
+      yield* Effect.tryPromise(() => screen.findByText("Proposed outcome: bug"))
+      selectProject("beta")
+      yield* Effect.tryPromise(() => waitFor(() =>
+        expect(router.state.location.pathname).toBe(`/p/${betaProjectId}/automations/routines/new`)))
+      const routineId = yield* Effect.tryPromise(() => screen.findByLabelText("Routine id"))
+      expect((routineId as HTMLInputElement).value).toBe("")
+      expect((routineId as HTMLInputElement).disabled).toBe(false)
+      expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Pause" })).toBeNull()
+      expect(screen.queryByText("Created revision 1.")).toBeNull()
+      expect(screen.queryByText("Proposed outcome: bug")).toBeNull()
+      expect((screen.getByLabelText("Issue title") as HTMLInputElement).value).toBe("Login fails on retry")
+      fillSetup("beta-owner")
+      fireEvent.click(screen.getByRole("button", { name: "Create routine" }))
+      yield* Effect.tryPromise(() => screen.findByText("Created revision 1."))
+      expect(created.map((payload) => payload.scope.projectId)).toEqual([projectId, betaProjectId])
+      expect(created[1]?.integrations[0]?.configuration).toMatchObject({ owner: "beta-owner" })
+      expect(edited).toBe(0)
+    })))
+
+  it.effect.each(["create", "preview"] as const)("ignores an old project's pending %s response", (operation) =>
+    Effect.scoped(Effect.gen(function* () {
+      const pendingSave = yield* Deferred.make<{ readonly revision: number }>()
+      const pendingPreview = yield* Deferred.make<PreviewOutcome>()
+      const requestedProjects: Array<string> = []
+      const rpc = automationRpc({
+        catalog: () => Effect.succeed(catalogStub),
+        getRoutine: ({ scope: requestedScope }) => {
+          requestedProjects.push(requestedScope.projectId)
+          return Effect.succeed(triageRecord)
+        },
+        createRoutine: () => Deferred.await(pendingSave).pipe(Effect.uninterruptible),
+        preview: () => Deferred.await(pendingPreview).pipe(Effect.uninterruptible)
+      })
+      const router = yield* renderEditorRoute(rpc)
+      yield* Effect.tryPromise(() => screen.findByLabelText("Routine id"))
+      fillSetup("alpha-owner")
+      fireEvent.click(screen.getByRole("button", { name: operation === "create" ? "Create routine" : "Run preview" }))
+      yield* Effect.tryPromise(() => screen.findByRole("button", {
+        name: operation === "create" ? "Saving…" : "Running preview…"
+      }))
+      selectProject("beta")
+      yield* Effect.tryPromise(() => waitFor(() =>
+        expect(router.state.location.pathname).toBe(`/p/${betaProjectId}/automations/routines/new`)))
+      yield* Effect.tryPromise(() => screen.findByLabelText("Routine id"))
+      fillSetup("beta-owner")
+      fireEvent.change(screen.getByLabelText("Issue title"), { target: { value: "Beta issue" } })
+      yield* Deferred.succeed(pendingSave, { revision: 1 })
+      yield* Deferred.succeed(pendingPreview, classifiedPreview)
+      yield* Effect.yieldNow
+      expect((screen.getByLabelText("Repository owner") as HTMLInputElement).value).toBe("beta-owner")
+      expect((screen.getByLabelText("Issue title") as HTMLInputElement).value).toBe("Beta issue")
+      expect((screen.getByLabelText("Routine id") as HTMLInputElement).disabled).toBe(false)
+      expect((screen.getByRole("button", { name: "Create routine" }) as HTMLButtonElement).disabled).toBe(false)
+      expect(screen.queryByText("Created revision 1.")).toBeNull()
+      expect(screen.queryByText("Proposed outcome: bug")).toBeNull()
+      expect(requestedProjects).toEqual([])
+    })))
+
+  it.effect("loads the new project's saved routine even when its id and revision match", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const pendingRecord = yield* Deferred.make<RoutineRecord>()
+      const edited: Array<Parameters<AutomationRpcApi["editRoutine"]>[0]> = []
+      const rpc = automationRpc({
+        catalog: () => Effect.succeed(catalogStub),
+        getRoutine: ({ scope: requestedScope }) => requestedScope.projectId === projectId
+          ? Effect.succeed(recordForProject(projectId, "alpha-owner"))
+          : Deferred.await(pendingRecord),
+        editRoutine: (payload) => {
+          edited.push(payload)
+          return Effect.succeed({ revision: 3 })
+        }
+      })
+      const router = yield* renderEditorRoute(rpc, "triage")
+      yield* Effect.tryPromise(() => screen.findByDisplayValue("alpha-owner"))
+      yield* Effect.tryPromise(() => router.navigate({
+        to: "/p/$projectId/automations/routines/$routineId",
+        params: { projectId: betaProjectId, routineId: "triage" }
+      }))
+      yield* Effect.tryPromise(() => screen.findByText("Loading routine…"))
+      expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull()
+      yield* Deferred.succeed(pendingRecord, recordForProject(betaProjectId, "beta-owner"))
+      yield* Effect.tryPromise(() => screen.findByDisplayValue("beta-owner"))
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      yield* Effect.tryPromise(() => screen.findByText("Saved revision 3."))
+      expect(edited[0]?.scope.projectId).toBe(betaProjectId)
+      expect(edited[0]?.integrations[0]?.configuration).toMatchObject({ owner: "beta-owner" })
     })))
 
   it.effect("redacts secret-like keys in preview arguments", () =>
