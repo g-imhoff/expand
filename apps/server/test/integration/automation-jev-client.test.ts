@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect } from "vitest"
+import { afterEach, describe, expect, vi } from "vitest"
 import { Config, ConfigProvider, Effect, Layer, Option, Schema } from "effect"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeFileSystem, NodeHttpClient } from "@effect/platform-node"
@@ -7,6 +7,7 @@ import { DatabaseReadyLayer } from "../../migrations/sqlite.js"
 import { ConfigurationRepositoryLayer } from "../../automation/configuration-repository.js"
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
 import { checkJevLive, classifyJevWithCredential, jevCredentialStatus } from "../../automation/jev-client.js"
+import { makeAutomationDecide } from "../../composition/app.js"
 import { startJevStub, stubChoiceBody } from "../fixtures/automation-jev-stub.js"
 
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
@@ -35,6 +36,82 @@ const descriptions = {
 }
 const withStub = Effect.acquireRelease(startJevStub(), (stub) => Effect.sync(() => stub.close()))
 const encode = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
+
+afterEach(() => vi.unstubAllEnvs())
+
+describe("production automation decision wiring", () => {
+  it.live("uses the saved project Zen key without an environment key", () => Effect.gen(function*() {
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", undefined)
+    vi.stubEnv("OPENCODE_API_KEY", undefined)
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "zen-api-key", fakeSecret, 0)
+    stub.setReply(() => ({ status: 200, body: stubChoiceBody("billing", { billing: 0.91, technical: 0.09 }, 0.86) }))
+    const decide = makeAutomationDecide(credentials, { endpoint: stub.url, timeoutMs: 5000, maxRetries: 0 })
+    const result = yield* decide({ scope, request, descriptions })
+    expect(result).toMatchObject({ kind: "selected", outcomeId: "billing" })
+    expect(stub.calls).toHaveLength(1)
+    expect(stub.calls[0]?.authorization).toBe(`Bearer ${fakeKey}`)
+    expect(encode({ result, statuses: yield* credentials.listStatuses(scope), request: stub.calls[0]?.body })).not.toContain(fakeKey)
+  }).pipe(Effect.provide(Live)))
+  it.live("uses the owning scope's saved key before environment fallbacks", () => Effect.gen(function*() {
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
+    vi.stubEnv("OPENCODE_API_KEY", "environment-opencode-key")
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    const otherOwner = { ...scope, ownerId: "other-owner" }
+    const otherProject = { ...scope, projectId: "other-project" }
+    yield* credentials.putCredential(scope, "zen-api-key", fakeSecret, 0)
+    yield* credentials.putCredential(otherOwner, "zen-api-key", encoder.encode("other-owner-key"), 0)
+    yield* credentials.putCredential(otherProject, "zen-api-key", encoder.encode("other-project-key"), 0)
+    stub.setReply(() => ({ status: 200, body: stubChoiceBody("billing", { billing: 1, technical: 0 }, 1) }))
+    const decide = makeAutomationDecide(credentials, { endpoint: stub.url, timeoutMs: 5000, maxRetries: 0 })
+    yield* decide({ scope, request, descriptions })
+    yield* decide({ scope: otherOwner, request, descriptions })
+    yield* decide({ scope: otherProject, request, descriptions })
+    expect(stub.calls.map((call) => call.authorization)).toEqual([
+      `Bearer ${fakeKey}`, "Bearer other-owner-key", "Bearer other-project-key"
+    ])
+  }).pipe(Effect.provide(Live)))
+  it.live("does not use a key saved under a different owner or project", () => Effect.gen(function*() {
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", undefined)
+    vi.stubEnv("OPENCODE_API_KEY", undefined)
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential({ ...scope, ownerId: "other-owner" }, "zen-api-key", fakeSecret, 0)
+    yield* credentials.putCredential({ ...scope, projectId: "other-project" }, "zen-api-key", fakeSecret, 0)
+    const decide = makeAutomationDecide(credentials, { endpoint: stub.url })
+    const error = yield* Effect.flip(decide({ scope, request, descriptions }))
+    expect(error).toMatchObject({ code: "missing-credential" })
+    expect(encode(error)).not.toContain(fakeKey)
+    expect(stub.calls).toHaveLength(0)
+  }).pipe(Effect.provide(Live)))
+  it.live("retains both environment key fallbacks when the scoped key is absent", () => Effect.gen(function*() {
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    stub.setReply(() => ({ status: 200, body: stubChoiceBody("billing", { billing: 1, technical: 0 }, 1) }))
+    const decide = makeAutomationDecide(credentials, { endpoint: stub.url, timeoutMs: 5000, maxRetries: 0 })
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", "environment-zen-key")
+    vi.stubEnv("OPENCODE_API_KEY", "environment-opencode-key")
+    yield* decide({ scope, request, descriptions })
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", "")
+    yield* decide({ scope, request, descriptions })
+    expect(stub.calls.map((call) => call.authorization)).toEqual([
+      "Bearer environment-zen-key", "Bearer environment-opencode-key"
+    ])
+  }).pipe(Effect.provide(Live)))
+  it.live("rejects an invalid saved key without using environment credentials", () => Effect.gen(function*() {
+    vi.stubEnv("OPENCODE_ZEN_API_KEY", fakeKey)
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "zen-api-key", new Uint8Array([255, 254, 255]), 0)
+    const decide = makeAutomationDecide(credentials, { endpoint: stub.url })
+    const error = yield* Effect.flip(decide({ scope, request, descriptions }))
+    expect(error).toMatchObject({ code: "invalid-credential" })
+    expect(encode(error)).not.toContain(fakeKey)
+    expect(stub.calls).toHaveLength(0)
+  }).pipe(Effect.provide(Live)))
+})
 
 describe("jev credential wiring", () => {
   it.live("resolves the Zen key by reference and classifies without persisting secrets", () => Effect.gen(function*() {

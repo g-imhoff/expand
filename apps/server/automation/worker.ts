@@ -60,7 +60,7 @@ export interface AutomationWorkerEnvironment {
 }
 
 export type WorkerDecide = (
-  input: ClassificationDecideInput
+  input: ClassificationDecideInput & { readonly scope: PersonalScope }
 ) => Effect.Effect<typeof JevDecisionResult.Type, unknown, HttpClient.HttpClient>
 
 export type WorkerOutcomeKind = "completed" | "unresolved" | "failed" | "cancelled" | "skipped"
@@ -601,7 +601,7 @@ const runDecisionWithRetries = (
       yield* Effect.exit(environment.services.executions.recordAttempt(scope, started))
       const finishedAt = String(yield* Clock.currentTimeMillis)
       const result = yield* Effect.exit(
-        environment.decide({ request, descriptions }).pipe(Effect.timeout(`${options.attemptTimeoutMs} millis`))
+        environment.decide({ scope, request, descriptions }).pipe(Effect.timeout(`${options.attemptTimeoutMs} millis`))
       )
       if (result._tag === "Success") {
         const value = result.value

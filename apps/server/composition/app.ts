@@ -25,8 +25,9 @@ import { makeConflictConnectorExtension } from "@expand/server/automation/confli
 import { makeSonarConnectorExtension } from "@expand/server/automation/sonar-connector"
 import { makeGmailConnectorExtension } from "@expand/server/automation/gmail-connector"
 import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
-import type { ClassificationDecideInput } from "@expand/server/automation/issue-classification"
-import { classifyJev } from "@expand/server/automation/jev-client"
+import type { WorkerDecide } from "@expand/server/automation/worker"
+import { classifyJev, classifyJevWithCredential } from "@expand/server/automation/jev-client"
+import type { JevClassifyOptions } from "@expand/server/automation/jev-client"
 import { NodeHttpClient } from "@effect/platform-node"
 import { HttpClient } from "effect/http"
 import { AutomationError } from "@expand/contracts/automation"
@@ -47,6 +48,31 @@ export interface RunServerOptions {
 export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.Layer<never> }>("expand/ServerComposition", {
   defaultValue: () => ({ coreLayer: Layer.empty })
 })
+
+export const makeAutomationDecide = (
+  credentials: CredentialRepository["Service"],
+  options?: JevClassifyOptions
+): WorkerDecide => (input) => {
+  const settings = input.options ?? options
+  return classifyJevWithCredential(
+    input.scope,
+    { schemaVersion: 1, kind: "credential-reference", credentialId: "zen-api-key" },
+    input.request,
+    input.descriptions,
+    settings
+  ).pipe(
+    Effect.provideService(CredentialRepository, credentials),
+    Effect.catchIf(
+      (error) => error.code === "missing-credential",
+      (error) => {
+        const apiKey = globalThis.process?.env?.["OPENCODE_ZEN_API_KEY"] || globalThis.process?.env?.["OPENCODE_API_KEY"]
+        return apiKey === undefined || apiKey.length === 0
+          ? Effect.fail(error)
+          : classifyJev(input.request, input.descriptions, apiKey, settings)
+      }
+    )
+  )
+}
 
 export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
   const dbPath = options.dbPath
@@ -128,10 +154,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       notifications: notificationService,
       registry,
       routines,
-      decide: (input: ClassificationDecideInput) => {
-        const apiKey = globalThis.process?.env?.["OPENCODE_ZEN_API_KEY"] ?? globalThis.process?.env?.["OPENCODE_API_KEY"] ?? ""
-        return classifyJev(input.request, input.descriptions, apiKey, { timeoutMs: 10000, maxRetries: 0 })
-      },
+      decide: makeAutomationDecide(webhookServices.credentials, { timeoutMs: 10000, maxRetries: 0 }),
       githubOptions: connectorOptions
     }
     const httpScope = yield* Scope.make()

@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
-import { describe, expect } from "vitest"
-import { Context, Effect, Layer } from "effect"
+import { afterEach, describe, expect, vi } from "vitest"
+import { Context, Effect, Layer, Schema } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -22,6 +22,7 @@ import {
   makeGithubExtension
 } from "@expand/contracts/automation/github"
 import { classifyJev } from "../../automation/jev-client.js"
+import { makeAutomationDecide } from "../../composition/app.js"
 import {
   DefaultAutomationWorkerOptions,
   processRun,
@@ -86,6 +87,8 @@ const ingestGithubRun = (runId: string, jobId: string, deliveryId: string, issue
     }
     yield* executions.ingest({ delivery, raw: new Uint8Array([1, 2, 3]), targets: [{ jobId, run }] })
   })
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe("automation worker integration", () => {
   for (const kind of ["generic", "classification"] as const) {
@@ -199,6 +202,8 @@ describe("automation worker integration", () => {
 
   it.live("completes a queued run end to end via stubs with zero clients", () =>
     Effect.gen(function*() {
+      vi.stubEnv("OPENCODE_ZEN_API_KEY", undefined)
+      vi.stubEnv("OPENCODE_API_KEY", undefined)
       const jev = yield* withJev
       const github = yield* withGithub
       github.setIssue(7, { title: "Boom", body: "Details", labels: [] })
@@ -220,6 +225,7 @@ describe("automation worker integration", () => {
         const connectorServices: GithubConnectorServices = { configurations, credentials, http }
         yield* registry.register(makeGithubConnectorExtension(connectorOptions, connectorServices).extension)
         yield* credentials.putCredential(scope, "github-token", new TextEncoder().encode("stub-github-token"), 0)
+        yield* credentials.putCredential(scope, "zen-api-key", new TextEncoder().encode(fakeKey), 0)
         const process = yield* buildGithubClassificationProcess("github", classification)
         yield* routines.create(scope, {
           routineId: "triage",
@@ -234,7 +240,7 @@ describe("automation worker integration", () => {
           services: { configurations, credentials, executions, sql, http },
           registry,
           routines,
-          decide: (input) => classifyJev(input.request, input.descriptions, fakeKey, { endpoint: jev.url, timeoutMs: 5000, maxRetries: 0 }),
+          decide: makeAutomationDecide(credentials, { endpoint: jev.url, timeoutMs: 5000, maxRetries: 0 }),
           githubOptions: connectorOptions
         }
         const processed = yield* sweepOnce(environment, { ...DefaultAutomationWorkerOptions, baseBackoffMs: 1 })
@@ -242,6 +248,8 @@ describe("automation worker integration", () => {
         expect((yield* executions.getRun(scope, "run-7"))?.value.state.kind).toBe("succeeded")
         expect(github.getIssueLabels(7)).toContain("type: bug")
         expect(jev.calls.length).toBeGreaterThanOrEqual(1)
+        expect(jev.calls[0]?.authorization).toBe(`Bearer ${fakeKey}`)
+        expect(Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))(yield* executions.history(scope, "run-7"))).not.toContain(fakeKey)
       })
       yield* program.pipe(Effect.provide(Live))
     }).pipe(Effect.scoped)
