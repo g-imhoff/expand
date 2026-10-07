@@ -91,11 +91,18 @@ const ingestGithubRun = (runId: string, jobId: string, deliveryId: string, issue
 afterEach(() => vi.unstubAllEnvs())
 
 describe("automation worker integration", () => {
-  for (const kind of ["generic", "classification"] as const) {
-    it.live(`stops ${kind} actions when the durable attempt start fails and retries safely`, () =>
+  for (const { kind, failureStage } of [
+    { kind: "generic", failureStage: "action-start" },
+    { kind: "classification", failureStage: "action-start" },
+    { kind: "generic", failureStage: "job-start" },
+    { kind: "classification", failureStage: "job-start" },
+    { kind: "generic", failureStage: "job-completion" },
+    { kind: "classification", failureStage: "job-completion" }
+  ] as const) {
+    it.live(`retries ${kind} after a durable ${failureStage} failure without repeating succeeded actions`, () =>
       Effect.gen(function*() {
         let calls = 0
-        let startFailures = 0
+        let storageFailures = 0
         const registry = new AutomationRegistry()
         yield* registry.register(kind === "classification"
           ? makeGithubExtension(() => Effect.sync(() => { calls += 1; return { applied: true } })).extension
@@ -158,12 +165,15 @@ describe("automation worker integration", () => {
             actions: []
           }
           yield* executions.ingest({ delivery, raw: new Uint8Array([1]), targets: [{ jobId: "job-storage-failure", run }] })
-          const storageError = new StorageError({ code: "storage", message: "Injected action start failure" })
+          const storageError = new StorageError({ code: "storage", message: `Injected ${failureStage} failure` })
           const faultingExecutions: ExecutionRepository["Service"] = {
             ...executions,
             recordAttempt: (personalScope, attempt, summary) => {
-              if (attempt.kind === "action" && attempt.status === "started" && startFailures === 0) {
-                startFailures += 1
+              const shouldFail = failureStage === "action-start"
+                ? attempt.kind === "action" && attempt.status === "started"
+                : attempt.kind === "job" && attempt.status === (failureStage === "job-start" ? "started" : "completed")
+              if (shouldFail && storageFailures === 0) {
+                storageFailures += 1
                 return Effect.fail(storageError)
               }
               return executions.recordAttempt(personalScope, attempt, summary)
@@ -178,17 +188,30 @@ describe("automation worker integration", () => {
           const options = { ...DefaultAutomationWorkerOptions, maxAttempts: 2, baseBackoffMs: 1 }
           const failure = yield* processRun(environment, options, scope, run.id).pipe(Effect.flip)
           expect(failure).toBe(storageError)
-          expect(startFailures).toBe(1)
-          expect(calls).toBe(0)
+          expect(storageFailures).toBe(1)
+          expect(calls).toBe(failureStage === "action-start" ? 0 : 1)
           const interrupted = (yield* executions.history(scope, run.id))!
-          expect(interrupted.run.value.state.kind).toBe(kind === "classification" ? "running" : "queued")
+          expect(["queued", "running"]).toContain(interrupted.run.value.state.kind)
           expect(interrupted.job.value.state).toEqual(interrupted.run.value.state)
-          expect(interrupted.run.value.actions).toEqual([])
-          expect(interrupted.attempts.filter((attempt) => attempt.kind === "action")).toEqual([])
+          const interruptedActions = interrupted.attempts.filter((attempt) => attempt.kind === "action")
+          const interruptedJobs = interrupted.attempts.filter((attempt) => attempt.kind === "job")
+          if (failureStage === "action-start") {
+            expect(interrupted.run.value.actions).toEqual([])
+            expect(interruptedActions).toEqual([])
+          } else {
+            expect(interrupted.run.value.actions).toHaveLength(1)
+            expect(interrupted.run.value.actions[0]).toMatchObject({ kind: "succeeded" })
+            expect(interruptedActions).toHaveLength(1)
+            expect(interruptedActions[0]).toMatchObject({ status: "completed", outcome: { kind: "succeeded" } })
+          }
+          expect(interruptedJobs).toHaveLength(failureStage === "job-completion" ? 1 : 0)
+          if (failureStage === "job-completion") expect(interruptedJobs[0]).toMatchObject({ status: "started" })
           expect(yield* processRun(environment, options, scope, run.id)).toBe("completed")
           expect(calls).toBe(1)
           const recovered = (yield* executions.history(scope, run.id))!
           expect(recovered.run.value.state.kind).toBe("succeeded")
+          expect(recovered.job.value.state).toEqual(recovered.run.value.state)
+          expect(recovered.attempts.filter((attempt) => attempt.kind === "job" && attempt.status === "completed")).toHaveLength(1)
           const actionAttempts = recovered.attempts.filter((attempt) => attempt.kind === "action")
           expect(actionAttempts).toHaveLength(1)
           expect(actionAttempts[0]).toMatchObject({ attempt: 1, status: "completed", outcome: { kind: "succeeded" } })

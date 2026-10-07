@@ -982,7 +982,7 @@ const recordSucceeded = (
       status: "started",
       request: { reason: "complete" }
     }
-    yield* Effect.exit(environment.services.executions.recordAttempt(scope, started))
+    yield* environment.services.executions.recordAttempt(scope, started)
     const result = { completed: true, actions: run.actions.length }
     const completed: Attempt = {
       ...(started as Extract<Attempt, { kind: "job"; status: "started" }>),
@@ -992,15 +992,13 @@ const recordSucceeded = (
     const nextRun: AutomationRun = { ...run, state: { kind: "succeeded", result } }
     const nextJob: Job = { ...job, state: nextRun.state }
     const jobRecord = yield* environment.services.executions.getJob(scope, job.id)
-    if (jobRecord === null) return
-    yield* Effect.exit(
-      environment.services.executions.recordAttempt(scope, completed, {
-        expectedRunVersion: runVersion,
-        expectedJobVersion: jobRecord.version,
-        run: nextRun,
-        job: nextJob
-      })
-    )
+    if (jobRecord === null) return yield* new StorageError({ code: "missing", message: "Job is missing for run" })
+    yield* environment.services.executions.recordAttempt(scope, completed, {
+      expectedRunVersion: runVersion,
+      expectedJobVersion: jobRecord.version,
+      run: nextRun,
+      job: nextJob
+    })
   })
 
 const toActionFailure = (cause: unknown): { readonly code: string; readonly message: string } => {
