@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Cause, Effect, Exit, Fiber, FileSystem, Layer } from "effect"
+import { Cause, Effect, Exit, Fiber, FileSystem, Layer, Schema } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -26,6 +26,7 @@ const stubPath = fileURLToPath(new URL("../fixtures/automation-acp-stub.mjs", im
 const grandchildStubPath = fileURLToPath(new URL("../fixtures/automation-acp-grandchild-stub.mjs", import.meta.url))
 const protocolStubPath = fileURLToPath(new URL("../fixtures/automation-acp-protocol-stub.mjs", import.meta.url))
 const floodStubPath = fileURLToPath(new URL("../fixtures/automation-acp-flood-stub.mjs", import.meta.url))
+const closedStdinHostPath = fileURLToPath(new URL("../fixtures/automation-acp-closed-stdin-host.ts", import.meta.url))
 
 const sampleIntegration = {
   schemaVersion: 1 as const,
@@ -488,6 +489,47 @@ describe("automation coding agent", () => {
       expect(handle.durationMs).toBeDefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
   )
+
+  for (const mode of ["prompt", "cancel"]) {
+    it.live(`survives closed agent stdin during ${mode} and reaps the child`, () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const directory = yield* fs.makeTempDirectoryScoped({ prefix: "coding-acp-closed-stdin-" })
+        const pidFile = `${directory}/agent.pid`
+        yield* Effect.addFinalizer(() => fs.readFileString(pidFile).pipe(
+          Effect.flatMap((pid) => Effect.sync(() => {
+            try {
+              process.kill(-Number(pid), "SIGKILL")
+            } catch {}
+          })),
+          Effect.ignore
+        ))
+        const host = yield* Effect.sync(() => spawnSync(process.execPath, ["--import", "tsx", closedStdinHostPath, mode, directory], {
+          encoding: "utf-8",
+          timeout: 15000
+        }))
+        expect(host.stderr).toBe("")
+        expect(host.status).toBe(0)
+        expect(host.signal).toBeNull()
+        const result = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown))(host.stdout) as {
+          _tag?: string; code?: string; message?: string; transcript?: Array<string>; durationMs?: number; interrupted?: boolean
+        }
+        if (mode === "prompt") {
+          expect(result._tag).toBe("AcpTransportError")
+          expect(result.code).toBe("io")
+          expect(result.message).toContain("session/prompt send failed")
+          expect(result.transcript?.join("\n")).toContain("stdin closed")
+          expect(result.transcript?.join("").length).toBeLessThanOrEqual(4000)
+          expect(result.durationMs).toBeLessThan(5000)
+        } else {
+          expect(result.interrupted).toBe(true)
+        }
+        const pid = Number(yield* fs.readFileString(pidFile))
+        expect(pid).toBeGreaterThan(0)
+        expect(spawnSync("kill", ["-0", `${pid}`]).status).not.toBe(0)
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+    )
+  }
 
   it.live("fails fast with evidence when the agent cannot spawn", () =>
     Effect.gen(function*() {

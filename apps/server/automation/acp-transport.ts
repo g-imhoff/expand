@@ -36,7 +36,10 @@ export const runAcpPrompt = (
         }),
       catch: () => new AcpTransportError({ code: "spawn", message: "ACP agent failed to spawn", durationMs: 0, transcript: [], exitStatus: undefined })
     })
-    const state: TransportState = { lines: [], updates: [], buffer: "" }
+    const state: TransportState = { lines: [], updates: [], buffer: "", stdinFailed: false }
+    child.stdin?.on("error", () => {
+      state.stdinFailed = true
+    })
     const snapshotTranscript = (): ReadonlyArray<string> => boundTranscript(state.updates)
     const stdout = child.stdout
     if (stdout === null) {
@@ -56,7 +59,7 @@ export const runAcpPrompt = (
         }
       })
       let settledNoStdout = 0
-      while (child.exitCode === null && settledNoStdout < 1000) {
+      while (child.exitCode === null && child.signalCode === null && settledNoStdout < 1000) {
         yield* Effect.sleep("50 millis")
         settledNoStdout += 50
       }
@@ -86,10 +89,10 @@ export const runAcpPrompt = (
     })
     let cancelSession: string | null = null
     const cleanup = Effect.gen(function*() {
-      if (cancelSession !== null && child.exitCode === null && child.stdin !== null) {
+      if (cancelSession !== null && child.exitCode === null && child.signalCode === null && child.stdin !== null && !state.stdinFailed) {
         yield* sendCancelLine(child, cancelSession).pipe(Effect.ignore)
         let waited = 0
-        while (child.exitCode === null && waited < 1000) {
+        while (child.exitCode === null && child.signalCode === null && !state.stdinFailed && waited < 1000) {
           yield* Effect.sleep("50 millis")
           waited += 50
         }
@@ -115,7 +118,7 @@ export const runAcpPrompt = (
         } catch {}
       })
       let settled = 0
-      while (child.exitCode === null && settled < 1000) {
+      while (child.exitCode === null && child.signalCode === null && settled < 1000) {
         yield* Effect.sleep("50 millis")
         settled += 50
       }
@@ -167,6 +170,7 @@ interface TransportState {
   readonly lines: Array<{ readonly id: number; readonly result: unknown; readonly error: string | null }>
   readonly updates: Array<string>
   buffer: string
+  stdinFailed: boolean
 }
 const boundTranscript = (lines: ReadonlyArray<string>): Array<string> => {
   const sliced = lines.slice(0, 50)
@@ -255,14 +259,27 @@ const sendLine = (
     }
     const line = encodeLine(message)
     const nowBeforeWrite = yield* Clock.currentTimeMillis
+    if (child.exitCode !== null || child.signalCode !== null) {
+      return yield* new AcpTransportError({ code: "protocol", message: `ACP agent exited during ${label}`, durationMs: nowBeforeWrite - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
+    }
+    if (state.stdinFailed) {
+      return yield* new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: nowBeforeWrite - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
+    }
     const written = yield* Effect.try({
       try: () => stdin.write(`${line}\n`),
-      catch: () => new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: nowBeforeWrite - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
+      catch: () => {
+        state.stdinFailed = true
+        return new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: nowBeforeWrite - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
+      }
     })
     void written
     const sendStartedAt = yield* Clock.currentTimeMillis
     const deadline = sendStartedAt + timeoutMs
     while (true) {
+      if (state.stdinFailed) {
+        const nowFailed = yield* Clock.currentTimeMillis
+        return yield* new AcpTransportError({ code: "io", message: `ACP ${label} send failed`, durationMs: nowFailed - sessionStartedAt, transcript: boundTranscript(state.updates), exitStatus: child.exitCode ?? undefined })
+      }
       const index = state.lines.findIndex((entry) => entry.id === message.id)
       if (index >= 0) {
         const entry = state.lines[index]!
