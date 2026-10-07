@@ -65,6 +65,12 @@ export const startGmailStub = Effect.fn("GmailStub.start")(function* () {
         response.end(Schema.encodeSync(GmailStubBodyJson)(next.body as Schema.Json))
         return
       }
+      const profileMatch = path.match(/^\/gmail\/v1\/users\/[^/]+\/profile$/u)
+      if (call.method === "GET" && profileMatch) {
+        response.writeHead(200, { "content-type": "application/json" })
+        response.end(Schema.encodeSync(GmailStubBodyJson)({ historyId: currentHistoryId } as unknown as Schema.Json))
+        return
+      }
       const listMatch = path.match(/^\/gmail\/v1\/users\/[^/]+\/messages$/u)
       if (call.method === "GET" && listMatch) {
         const items = [...messages.entries()].map(([id, stored]) => ({ id, threadId: stored.threadId }))
@@ -108,11 +114,12 @@ export const startGmailStub = Effect.fn("GmailStub.start")(function* () {
           labelIds: [...stored.labelIds],
           snippet: stored.snippet,
           payload: {
+            mimeType: "text/plain",
             headers: [
               { name: "From", value: stored.from },
               { name: "Subject", value: stored.subject }
             ],
-            body: { data: stored.body }
+            body: { data: Buffer.from(stored.body, "utf8").toString("base64url") }
           }
         } as unknown as Schema.Json))
         return

@@ -24,7 +24,7 @@ import { makeGithubConnectorExtension } from "@expand/server/automation/github-c
 import { makeConflictConnectorExtension } from "@expand/server/automation/conflict-connector"
 import { makeSonarConnectorExtension } from "@expand/server/automation/sonar-connector"
 import { makeGmailConnectorExtension } from "@expand/server/automation/gmail-connector"
-import { DefaultAutomationWorkerOptions, startAutomationWorker } from "@expand/server/automation/worker"
+import { startAutomationProcessing } from "@expand/server/automation/runtime"
 import type { WorkerDecide } from "@expand/server/automation/worker"
 import { classifyJev, classifyJevWithCredential } from "@expand/server/automation/jev-client"
 import type { JevClassifyOptions } from "@expand/server/automation/jev-client"
@@ -155,7 +155,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       registry,
       routines,
       decide: makeAutomationDecide(webhookServices.credentials, { timeoutMs: 10000, maxRetries: 0 }),
-      githubOptions: connectorOptions
+      githubOptions: connectorOptions,
+      gmailOptions: connectorOptions
     }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
@@ -190,7 +191,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       })
       yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
-      yield* Effect.forkScoped(startAutomationWorker(workerEnvironment, DefaultAutomationWorkerOptions).pipe(Effect.provideService(HttpClient.HttpClient, httpClient)))
+      yield* Effect.forkScoped(startAutomationProcessing(workerEnvironment).pipe(Effect.provideService(HttpClient.HttpClient, httpClient)))
 
       if (options.keepRunning === true) {
         return yield* Effect.never

@@ -15,7 +15,7 @@ import type { InstalledAction } from "@expand/contracts/automation"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
 import {
-  GmailTransportError, getMessage, listHistory, listMessages, modifyMessage
+  GmailTransportError, getMessage, listHistory, listMessages, modifyMessage, readMailboxHistoryId
 } from "./gmail-transport.js"
 import type { GmailMessage, GmailTransportOptions } from "./gmail-transport.js"
 export class GmailConnectorError extends Data.TaggedError("GmailConnectorError")<{
@@ -275,10 +275,18 @@ export const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
   const previous = yield* getPollHistoryId(provedScope, provedIntegration.id).pipe(
     Effect.mapError(transportErrorFromConnector)
   )
+  const fullSync = Effect.gen(function*() {
+    const historyId = yield* readMailboxHistoryId(mailbox.mailbox, token, options)
+    const added = yield* listMessages(mailbox.mailbox, token, options)
+    return { historyId, added }
+  })
   const listed = previous === null
-    ? yield* listMessages(mailbox.mailbox, token, options).pipe(Effect.map((messages) => ({ added: messages, historyId: "" })), Effect.mapError(transportError))
-    : yield* listHistory(mailbox.mailbox, previous, token, options).pipe(Effect.mapError(transportError))
-  let historyId = listed.historyId
+    ? yield* fullSync.pipe(Effect.mapError(transportError))
+    : yield* listHistory(mailbox.mailbox, previous, token, options).pipe(
+      Effect.catchIf((error) => error.status === 404, () => fullSync),
+      Effect.mapError(transportError)
+    )
+  const historyId = listed.historyId
   const fresh: Array<GmailMessage> = []
   let skippedSeen = 0
   let skippedSent = 0
@@ -294,24 +302,33 @@ export const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
       yield* markSeenMessage(provedScope, provedIntegration.id, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
       continue
     }
-    const full = yield* getMessage(mailbox.mailbox, entry.id, token, options).pipe(Effect.mapError(transportError))
+    const full = yield* getMessage(mailbox.mailbox, entry.id, token, options).pipe(
+      Effect.catchIf((error) => error.status === 404, () => Effect.succeed(null)),
+      Effect.mapError(transportError)
+    )
+    if (full === null) continue
     if (full.labelIds.includes("SENT")) {
-      if (full.historyId.length > 0) historyId = full.historyId
       skippedSent += 1
       yield* markSentMessage(provedScope, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
       yield* markSeenMessage(provedScope, provedIntegration.id, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
       continue
     }
-    if (full.historyId.length > 0) historyId = full.historyId
-    yield* markSeenMessage(provedScope, provedIntegration.id, entry.id).pipe(Effect.mapError(transportErrorFromConnector))
     fresh.push(full)
-  }
-  if (historyId.length > 0) {
-    yield* savePollHistoryId(provedScope, provedIntegration.id, historyId).pipe(Effect.mapError(transportErrorFromConnector))
   }
   yield* Effect.logInfo("gmail poll completed", { integrationId: provedIntegration.id, fresh: fresh.length, skippedSeen, skippedSent })
   const result: GmailPollResult = { historyId, fresh, skippedSeen, skippedSent }
   return result
+})
+export const acknowledgeGmailPoll = Effect.fn("GmailConnector.acknowledgePoll")(function*(
+  scope: PersonalScope,
+  integrationId: string,
+  result: GmailPollResult
+) {
+  const sql = yield* SqlClient
+  yield* sql.withTransaction(Effect.gen(function*() {
+    for (const message of result.fresh) yield* markSeenMessage(scope, integrationId, message.id)
+    if (result.historyId.length > 0) yield* savePollHistoryId(scope, integrationId, result.historyId)
+  })).pipe(Effect.mapError(() => new GmailConnectorError({ code: "connection", message: "Gmail poll acknowledgment failed" })))
 })
 export const makeGmailConnectorExtension = (options: GmailConnectorOptions | undefined, services: GmailConnectorServices) => {
   const action = defineAction({

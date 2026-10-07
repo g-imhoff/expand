@@ -10,7 +10,7 @@ import { ConfigurationRepository, ConfigurationRepositoryLayer } from "../../aut
 import { CredentialRepository, CredentialRepositoryLayer } from "../../automation/credential-repository.js"
 import { AutomationRegistry } from "../../automation/registry.js"
 import {
-  checkGmailConnection, getPollHistoryId, hasSeenMessage, makeGmailConnectorExtension,
+  acknowledgeGmailPoll, checkGmailConnection, getPollHistoryId, hasSeenMessage, makeGmailConnectorExtension,
   organizeGmailMessage, pollGmailInbox, readGmailMessage
 } from "../../automation/gmail-connector.js"
 import type { GmailConnectorServices } from "../../automation/gmail-connector.js"
@@ -71,6 +71,7 @@ describe("gmail connector integration", () => {
     const organized = yield* organizeGmailMessage(scope, integration, "msg-int-1", "Label_receipts", "Label_receipts", options)
     expect(organized).toEqual({ applied: true, moved: true })
     expect(stub.getMessageLabels("msg-int-1")).toContain("Label_receipts")
+    yield* acknowledgeGmailPoll(scope, "gmail", polled)
     const again = yield* pollGmailInbox(scope, integration, options)
     expect(again.fresh).toEqual([])
     expect(yield* hasSeenMessage(scope, "gmail", "msg-int-1")).toBe(true)

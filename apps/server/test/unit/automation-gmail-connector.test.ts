@@ -13,10 +13,10 @@ import { runEmailClassification } from "../../automation/email-classification.js
 import type { EmailDecide } from "../../automation/email-classification.js"
 import { JevDecisionError } from "../../automation/jev-client.js"
 import {
-  checkGmailConnection, hasSeenMessage, isSentMessage, markSeenMessage, markSentMessage,
-  organizeGmailMessage, pollGmailInbox, resolveGmailToken, unionLabelIds
+  acknowledgeGmailPoll, checkGmailConnection, getPollHistoryId, hasSeenMessage, isSentMessage, markSeenMessage, markSentMessage,
+  organizeGmailMessage, pollGmailInbox, resolveGmailToken, savePollHistoryId, unionLabelIds
 } from "../../automation/gmail-connector.js"
-import { getMessage, listMessages } from "../../automation/gmail-transport.js"
+import { getMessage, listHistory, listMessages } from "../../automation/gmail-transport.js"
 import { startGmailStub } from "../fixtures/automation-gmail-stub.js"
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
 const Configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
@@ -166,6 +166,69 @@ describe("gmail transport privacy", () => {
   }).pipe(Effect.provide(Live)))
 })
 describe("gmail poll dedupe and sent tracking", () => {
+  it.live("reads every list page and checkpoints the profile snapshot before message reads", () => Effect.gen(function*() {
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "gmail-oauth", secretBytes, 0)
+    stub.setReply((call) => {
+      if (call.path.endsWith("/profile")) return { status: 200, body: { historyId: "400" } }
+      if (call.path.endsWith("/messages")) return { status: 200, body: { messages: [{ id: "first", threadId: "t-first" }], nextPageToken: "page-2" } }
+      if (call.path.includes("pageToken=page-2")) return { status: 200, body: { messages: [{ id: "second", threadId: "t-second" }] } }
+      const id = call.path.includes("/first?") ? "first" : "second"
+      return { status: 200, body: { id, threadId: `t-${id}`, historyId: "999", labelIds: ["INBOX"], payload: {
+        mimeType: "multipart/mixed",
+        headers: [{ name: "From", value: "shop@example.com" }, { name: "Subject", value: "Receipt" }],
+        parts: [{ mimeType: "multipart/alternative", parts: [
+          { mimeType: "text/html", body: { data: Buffer.from("<p>Total €12</p>").toString("base64url") } },
+          { mimeType: "text/plain", body: { data: Buffer.from("Total €12").toString("base64url") } }
+        ] }, { mimeType: "text/plain", filename: "attachment.txt", body: { data: Buffer.from("unrelated attachment").toString("base64url") } }]
+      } } }
+    })
+    const polled = yield* pollGmailInbox(scope, integration, { baseUrl: stub.baseUrl, maxRetries: 0 })
+    expect(polled.fresh.map((entry) => entry.id)).toEqual(["first", "second"])
+    expect(polled.fresh.map((entry) => entry.body)).toEqual(["Total €12", "Total €12"])
+    expect(polled.historyId).toBe("400")
+    expect(yield* getPollHistoryId(scope, "gmail")).toBeNull()
+    yield* acknowledgeGmailPoll(scope, "gmail", polled)
+    expect(yield* getPollHistoryId(scope, "gmail")).toBe("400")
+  }).pipe(Effect.provide(Live)))
+
+  it.live("reads all history pages, deduplicates added ids, and preserves the checkpoint when a later page fails", () => Effect.gen(function*() {
+    const stub = yield* withStub
+    stub.setReply((call) => call.path.includes("pageToken=next")
+      ? { status: 200, body: { historyId: "500", history: [{ messagesAdded: [{ message: { id: "first", threadId: "t-first" } }, { message: { id: "second", threadId: "t-second" } }] }] } }
+      : { status: 200, body: { historyId: "500", nextPageToken: "next", history: [{ messagesAdded: [{ message: { id: "first", threadId: "t-first" } }] }] } })
+    const options = { baseUrl: stub.baseUrl, maxRetries: 0 }
+    expect((yield* listHistory("me", "400", fakeToken, options)).added.map((entry) => entry.id)).toEqual(["first", "second"])
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "gmail-oauth", secretBytes, 0)
+    yield* savePollHistoryId(scope, "gmail", "400")
+    stub.setReply((call) => call.path.includes("pageToken=next")
+      ? { status: 500, body: {} }
+      : { status: 200, body: { historyId: "500", nextPageToken: "next", history: [{ messagesAdded: [{ message: { id: "first", threadId: "t-first" } }] }] } })
+    expect((yield* Effect.exit(pollGmailInbox(scope, integration, options)))._tag).toBe("Failure")
+    expect(yield* getPollHistoryId(scope, "gmail")).toBe("400")
+    expect(yield* hasSeenMessage(scope, "gmail", "first")).toBe(false)
+  }).pipe(Effect.provide(Live)))
+
+  it.live("resynchronizes an expired history marker and skips messages deleted before retrieval", () => Effect.gen(function*() {
+    const stub = yield* withStub
+    const credentials = yield* CredentialRepository
+    yield* credentials.putCredential(scope, "gmail-oauth", secretBytes, 0)
+    yield* savePollHistoryId(scope, "gmail", "100")
+    stub.setReply((call) => {
+      if (call.path.includes("/history?")) return { status: 404, body: {} }
+      if (call.path.endsWith("/profile")) return { status: 200, body: { historyId: "500" } }
+      if (call.path.endsWith("/messages")) return { status: 200, body: { messages: [{ id: "deleted", threadId: "t-deleted" }] } }
+      return { status: 404, body: {} }
+    })
+    const polled = yield* pollGmailInbox(scope, integration, { baseUrl: stub.baseUrl, maxRetries: 0 })
+    expect(polled.fresh).toEqual([])
+    expect(yield* getPollHistoryId(scope, "gmail")).toBe("100")
+    yield* acknowledgeGmailPoll(scope, "gmail", polled)
+    expect(yield* getPollHistoryId(scope, "gmail")).toBe("500")
+  }).pipe(Effect.provide(Live)))
+
   it.live("deduplicates on stable message ids and skips self-sent mail", () => Effect.gen(function* () {
     const stub = yield* withStub
     const credentials = yield* CredentialRepository
@@ -179,8 +242,11 @@ describe("gmail poll dedupe and sent tracking", () => {
     const first = yield* pollGmailInbox(scope, integration, options)
     expect(first.fresh.map((entry) => entry.id).sort()).toEqual(["msg-seen"])
     expect(first.skippedSent).toBe(1)
+    expect(yield* hasSeenMessage(scope, "gmail", "msg-seen")).toBe(false)
+    yield* acknowledgeGmailPoll(scope, "gmail", first)
     expect(yield* hasSeenMessage(scope, "gmail", "msg-seen")).toBe(true)
     expect(yield* isSentMessage(scope, "msg-sent")).toBe(true)
+    stub.setHistoryId("203")
     const second = yield* pollGmailInbox(scope, integration, options)
     expect(second.fresh).toEqual([])
     expect(second.skippedSeen).toBeGreaterThanOrEqual(1)
@@ -207,7 +273,7 @@ describe("gmail email classification preview and abstention", () => {
       expect(outcome.results).toEqual([])
       expect(mutations).toHaveLength(0)
       expect(stub.calls.filter((call) => call.method === "POST").length).toBe(0)
-      expect(encode(outcome)).not.toContain("Receipt")
+      expect(outcome.request.data).toEqual({ messageId: "msg-preview", threadId: "t-preview", from: "shop@example.com", subject: "Receipt", body: "Total" })
     }).pipe(Effect.provide(NodeHttpClient.layerFetch))
   )
   it.live("leaves the mailbox unchanged on abstention and records unresolved", () =>

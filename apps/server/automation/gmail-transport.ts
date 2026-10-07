@@ -32,6 +32,19 @@ export interface GmailModifyResult {
 export const GmailApiBaseUrl = "https://gmail.googleapis.com"
 export const GmailDefaultTimeoutMs = 10000
 export const GmailDefaultMaxRetries = 2
+export const readMailboxHistoryId = Effect.fn("GmailTransport.readMailboxHistoryId")(function*(
+  userId: string,
+  token: string,
+  options?: GmailTransportOptions
+) {
+  const transport = yield* resolveTransport(options)
+  const user = yield* encodeUser(userId)
+  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/profile`, token, transport }, 0)
+  const profile = yield* Schema.decodeUnknownEffect(Schema.Struct({ historyId: Schema.String.check(Schema.isMinLength(1)) }), { onExcessProperty: "ignore" })(raw).pipe(
+    Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected profile payload" }))
+  )
+  return profile.historyId
+})
 export const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
   userId: string,
   token: string,
@@ -39,8 +52,19 @@ export const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
 ) {
   const transport = yield* resolveTransport(options)
   const user = yield* encodeUser(userId)
-  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages`, token, transport }, 0)
-  return yield* decodeMessageIds(raw)
+  const messages: Array<GmailMessageId> = []
+  const seen = new Set<string>()
+  let pageToken = ""
+  while (true) {
+    const suffix = pageToken.length === 0 ? "" : `?pageToken=${encodeURIComponent(pageToken)}`
+    const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages${suffix}`, token, transport }, 0)
+    const page = yield* decodeMessageIds(raw)
+    messages.push(...page.messages)
+    pageToken = page.nextPageToken
+    if (pageToken.length === 0) return messages
+    if (seen.has(pageToken) || seen.size >= 1000) return yield* new GmailTransportError({ code: "api", message: "Gmail pagination did not complete" })
+    seen.add(pageToken)
+  }
 })
 export const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
   userId: string,
@@ -53,8 +77,19 @@ export const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
   }
   const transport = yield* resolveTransport(options)
   const user = yield* encodeUser(userId)
-  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/history?startHistoryId=${encodeURIComponent(startHistoryId)}`, token, transport }, 0)
-  return yield* decodeHistory(raw)
+  const added = new Map<string, GmailMessageId>()
+  const seen = new Set<string>()
+  let pageToken = ""
+  while (true) {
+    const suffix = pageToken.length === 0 ? "" : `&pageToken=${encodeURIComponent(pageToken)}`
+    const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/history?startHistoryId=${encodeURIComponent(startHistoryId)}${suffix}`, token, transport }, 0)
+    const page = yield* decodeHistory(raw)
+    for (const message of page.added) added.set(message.id, message)
+    pageToken = page.nextPageToken
+    if (pageToken.length === 0) return { historyId: page.historyId, added: [...added.values()] }
+    if (seen.has(pageToken) || seen.size >= 1000) return yield* new GmailTransportError({ code: "api", message: "Gmail pagination did not complete" })
+    seen.add(pageToken)
+  }
 })
 export const getMessage = Effect.fn("GmailTransport.getMessage")(function*(
   userId: string,
@@ -110,10 +145,13 @@ const GmailHistoryResponse = Schema.Struct({
   history: Schema.optional(Schema.Array(Schema.Struct({
     messagesAdded: Schema.optional(Schema.Array(Schema.Struct({ message: Schema.Struct({ id: GmailLabelId, threadId: GmailLabelId }) })))
   }))),
-  historyId: Schema.String
+  historyId: Schema.String,
+  nextPageToken: Schema.optional(Schema.String)
 })
 const GmailHeader = Schema.Struct({ name: Schema.String, value: Schema.String })
 const GmailPayload = Schema.Struct({
+  mimeType: Schema.optional(Schema.String),
+  filename: Schema.optional(Schema.String),
   headers: Schema.optional(Schema.Array(GmailHeader)),
   body: Schema.optional(Schema.Struct({ data: Schema.optional(Schema.String) })),
   parts: Schema.optional(Schema.Array(Schema.Unknown))
@@ -135,13 +173,13 @@ const GmailModifyResponse = Schema.Struct({
   threadId: GmailLabelId,
   labelIds: Schema.optional(Schema.Array(Schema.String))
 })
-function decodeMessageIds(input: unknown): Effect.Effect<ReadonlyArray<GmailMessageId>, GmailTransportError> {
+function decodeMessageIds(input: unknown): Effect.Effect<{ readonly messages: ReadonlyArray<GmailMessageId>; readonly nextPageToken: string }, GmailTransportError> {
   return Schema.decodeUnknownEffect(GmailListResponse, { onExcessProperty: "ignore" })(input).pipe(
     Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected list payload" })),
-    Effect.map((response) => (response.messages ?? []).map((entry) => ({ id: entry.id, threadId: entry.threadId })))
+    Effect.map((response) => ({ messages: response.messages ?? [], nextPageToken: response.nextPageToken ?? "" }))
   )
 }
-function decodeHistory(input: unknown): Effect.Effect<{ readonly historyId: string; readonly added: ReadonlyArray<GmailMessageId> }, GmailTransportError> {
+function decodeHistory(input: unknown): Effect.Effect<{ readonly historyId: string; readonly added: ReadonlyArray<GmailMessageId>; readonly nextPageToken: string }, GmailTransportError> {
   return Schema.decodeUnknownEffect(GmailHistoryResponse, { onExcessProperty: "ignore" })(input).pipe(
     Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected history payload" })),
     Effect.flatMap((response) => {
@@ -152,16 +190,16 @@ function decodeHistory(input: unknown): Effect.Effect<{ readonly historyId: stri
           added.push({ id: item.message.id, threadId: item.message.threadId })
         }
       }
-      return Effect.succeed({ historyId: response.historyId, added })
+      return Effect.succeed({ historyId: response.historyId, added, nextPageToken: response.nextPageToken ?? "" })
     })
   )
 }
 function decodeMessage(input: unknown): Effect.Effect<GmailMessage, GmailTransportError> {
   return Schema.decodeUnknownEffect(GmailGetResponse, { onExcessProperty: "ignore" })(input).pipe(
     Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected message payload" })),
-    Effect.flatMap((response) => {
+    Effect.flatMap(Effect.fn("GmailTransport.decodeMessage")(function*(response) {
       if (response.id.length === 0 || response.threadId.length === 0) {
-        return Effect.fail(new GmailTransportError({ code: "api", message: "Gmail returned an unexpected message payload" }))
+        return yield* new GmailTransportError({ code: "api", message: "Gmail returned an unexpected message payload" })
       }
       const headers = response.payload?.headers ?? []
       let from = ""
@@ -171,8 +209,8 @@ function decodeMessage(input: unknown): Effect.Effect<GmailMessage, GmailTranspo
         if (name === "from" && from.length === 0) from = header.value
         if (name === "subject" && subject.length === 0) subject = header.value
       }
-      const body = response.payload?.body?.data ?? ""
-      return Effect.succeed({
+      const body = response.payload === undefined ? response.snippet ?? "" : yield* decodeMessageBody(response.payload)
+      return {
         id: response.id,
         threadId: response.threadId,
         historyId: response.historyId ?? "",
@@ -181,10 +219,32 @@ function decodeMessage(input: unknown): Effect.Effect<GmailMessage, GmailTranspo
         subject,
         snippet: response.snippet ?? "",
         body
-      })
-    })
+      }
+    }))
   )
 }
+const decodeMessageBody = Effect.fn("GmailTransport.decodeBody")(function*(payload: typeof GmailPayload.Type) {
+  const queue: Array<unknown> = [payload]
+  const plain: Array<string> = []
+  const html: Array<string> = []
+  let count = 0
+  while (queue.length > 0) {
+    if (++count > 1000) return yield* new GmailTransportError({ code: "api", message: "Gmail message has too many MIME parts" })
+    const part = yield* Schema.decodeUnknownEffect(GmailPayload, { onExcessProperty: "ignore" })(queue.shift()).pipe(
+      Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected MIME part" }))
+    )
+    if ((part.filename ?? "").length > 0) continue
+    queue.push(...part.parts ?? [])
+    const data = part.body?.data
+    if (data === undefined || data.length === 0) continue
+    if (part.mimeType !== undefined && part.mimeType !== "text/plain" && part.mimeType !== "text/html") continue
+    if (!/^[A-Za-z0-9_-]*={0,2}$/u.test(data)) return yield* new GmailTransportError({ code: "api", message: "Gmail message body is not base64url" })
+    const text = Buffer.from(data, "base64url").toString("utf8")
+    if (part.mimeType === "text/html") html.push(text)
+    else plain.push(text)
+  }
+  return (plain.length > 0 ? plain : html).join("\n")
+})
 function decodeModify(input: unknown): Effect.Effect<GmailModifyResult, GmailTransportError> {
   return Schema.decodeUnknownEffect(GmailModifyResponse, { onExcessProperty: "ignore" })(input).pipe(
     Effect.mapError(() => new GmailTransportError({ code: "api", message: "Gmail returned an unexpected modify payload" })),

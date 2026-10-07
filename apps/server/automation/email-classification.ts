@@ -76,7 +76,7 @@ export type EmailDecide = (input: EmailDecideInput) => Effect.Effect<typeof JevD
 export type EmailOutcome = EmailClassifiedOutcome | EmailUnresolvedOutcome | EmailFailedOutcome
 export type EmailWorkerOutcome = "completed" | "unresolved" | "failed" | "cancelled" | "skipped"
 export const buildEmailClassificationRequest = Effect.fn("EmailClassification.build")(function*(
-  input: { readonly configuration: RoutineConfiguration; readonly email: EmailInput }
+  input: { readonly configuration: RoutineConfiguration; readonly email: EmailInput; readonly inputId?: string }
 ) {
   const validated = yield* validateGmailClassificationInput({
     configuration: input.configuration.configuration,
@@ -102,11 +102,14 @@ export const buildEmailClassificationRequest = Effect.fn("EmailClassification.bu
     model: "jev",
     version: "1.13",
     configuration: input.configuration.reference,
-    input: { kind: "input-reference", id: input.email.messageId },
+    input: { kind: "input-reference", id: input.inputId ?? input.email.messageId },
     outcomes: [...validated.classification.categories],
     data: {
       messageId: input.email.messageId,
-      threadId: input.email.threadId
+      threadId: input.email.threadId,
+      from: input.email.from,
+      subject: input.email.subject,
+      body: input.email.body
     }
   })
   return { classification: validated.classification, process: validated.process, request, descriptions, triggerPayload }

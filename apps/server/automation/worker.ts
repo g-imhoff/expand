@@ -4,7 +4,8 @@ import { SqlClient } from "effect/sql/SqlClient"
 import {
   AutomationError,
   decodeJson,
-  LocalId,
+  EmailMessagePayload,
+  JevDecisionRequest,
   PersonalScope,
   sameDefinition
 } from "@expand/contracts/automation"
@@ -31,6 +32,10 @@ import { emitNotificationForRun } from "./notification-emit.js"
 import type { NotificationRepository } from "./notification-repository.js"
 import { readGithubIssue } from "./github-connector.js"
 import type { GithubConnectorOptions } from "./github-connector.js"
+import { readGmailMessage } from "./gmail-connector.js"
+import type { GmailConnectorOptions } from "./gmail-connector.js"
+import { emailTriggerReference, validateGmailClassificationInput } from "@expand/contracts/automation/gmail"
+import { buildEmailClassificationRequest } from "./email-classification.js"
 import { StorageError } from "./persistence-models.js"
 import type { Attempt, Delivery, Job } from "./persistence-models.js"
 
@@ -56,6 +61,7 @@ export interface AutomationWorkerEnvironment {
   readonly routines: RoutineService["Service"]
   readonly decide: WorkerDecide
   readonly githubOptions?: GithubConnectorOptions
+  readonly gmailOptions?: GmailConnectorOptions
   readonly notifications?: NotificationRepository["Service"]
 }
 
@@ -484,33 +490,7 @@ const processGenericRun = (
     let currentVersion = runVersion
     let decision: typeof JevDecisionResult.Type | undefined = run.decision
     if (revision.process.decision !== undefined && decision === undefined) {
-      const outcomes = [...revision.process.decision.outcomes]
-      const request = yield* decodeJson(
-        Schema.Struct({
-          schemaVersion: Schema.Literal(1),
-          kind: Schema.Literal("jev-request"),
-          provider: Schema.Literal("opencode-zen"),
-          model: Schema.Literal("jev"),
-          version: Schema.Literal("1.13"),
-          configuration: Schema.Struct({ routineId: LocalId, revision: Schema.Int }),
-          input: Schema.Struct({ kind: Schema.Literal("input-reference"), id: LocalId }),
-          outcomes: Schema.Array(LocalId),
-          data: Schema.Json
-        }),
-        {
-          schemaVersion: 1,
-          kind: "jev-request",
-          provider: "opencode-zen",
-          model: "jev",
-          version: "1.13",
-          configuration: { routineId: run.configuration.routineId, revision: run.configuration.revision },
-          input: { kind: "input-reference", id: run.input.id },
-          outcomes,
-          data: triggerPayload
-        }
-      ).pipe(Effect.mapError(() => new StorageError({ code: "invalid", message: "Decision request is not usable" })))
-      const descriptions: Record<string, string> = {}
-      for (const outcome of outcomes) descriptions[outcome] = outcome
+      const { request, descriptions } = yield* buildWorkerDecisionRequest(environment, scope, run, revision, triggerPayload)
       const decided = yield* runDecisionWithRetries(
         environment,
         options,
@@ -547,6 +527,58 @@ const processGenericRun = (
     }
     return yield* runActionsToCompletion(environment, options, scope, currentRun, currentVersion, revision, triggerPayload, decision, resolved.actions)
   })
+
+const buildWorkerDecisionRequest = Effect.fn("AutomationWorker.buildDecisionRequest")(function*(
+  environment: AutomationWorkerEnvironment,
+  scope: PersonalScope,
+  run: AutomationRun,
+  revision: RoutineConfiguration,
+  triggerPayload: Schema.Json
+) {
+  if (sameDefinition(revision.process.trigger.definition, emailTriggerReference)) {
+    const payload = yield* decodeJson(EmailMessagePayload, triggerPayload)
+    const stored = yield* environment.services.configurations.getIntegration(scope, revision.process.trigger.integration.id)
+    if (stored === null) return yield* new StorageError({ code: "missing", message: "Gmail integration is missing" })
+    const message = yield* readGmailMessage(scope, stored.configuration, payload.messageId, environment.gmailOptions).pipe(
+      Effect.provideService(CredentialRepository, environment.services.credentials),
+      Effect.provideService(HttpClient.HttpClient, environment.services.http),
+      Effect.mapError(() => new StorageError({ code: "storage", message: "Gmail message could not be read" }))
+    )
+    const email = { messageId: message.id, threadId: message.threadId, from: message.from, subject: message.subject, body: message.body }
+    const classified = yield* validateGmailClassificationInput({
+      configuration: revision.configuration,
+      integrations: revision.integrations,
+      process: revision.process
+    }).pipe(Effect.option)
+    if (classified._tag === "Some") {
+      return yield* buildEmailClassificationRequest({ configuration: revision, email, inputId: run.input.id })
+    }
+    return yield* buildGenericDecisionRequest(run, revision, email)
+  }
+  return yield* buildGenericDecisionRequest(run, revision, triggerPayload)
+})
+
+const buildGenericDecisionRequest = Effect.fn("AutomationWorker.buildGenericDecisionRequest")(function*(
+  run: AutomationRun,
+  revision: RoutineConfiguration,
+  data: Schema.Json
+) {
+  const outcomes = [...revision.process.decision!.outcomes]
+  const request = yield* decodeJson(JevDecisionRequest, {
+    schemaVersion: 1,
+    kind: "jev-request",
+    provider: "opencode-zen",
+    model: "jev",
+    version: "1.13",
+    configuration: run.configuration,
+    input: run.input,
+    outcomes,
+    data
+  }).pipe(Effect.mapError(() => new StorageError({ code: "invalid", message: "Decision request is not usable" })))
+  const descriptions: Record<string, string> = {}
+  for (const outcome of outcomes) descriptions[outcome] = outcome
+  return { request, descriptions }
+})
 
 interface Decided {
   readonly outcome: "decided"
