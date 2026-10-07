@@ -117,6 +117,8 @@ const clientExports = {
   "./project": { types: "./dist/project/index.d.ts", import: "./dist/project/index.js", default: "./dist/project/index.js" },
   "./server": { types: "./dist/server/index.d.ts", import: "./dist/server/index.js", default: "./dist/server/index.js" },
   "./adapters/node": { types: "./dist/adapters/node.d.ts", import: "./dist/adapters/node.js", default: "./dist/adapters/node.js" },
+  "./automation": { types: "./dist/automation/index.d.ts", import: "./dist/automation/index.js", default: "./dist/automation/index.js" },
+  "./backend-connection": { types: "./dist/backend-connection.d.ts", import: "./dist/backend-connection.js", default: "./dist/backend-connection.js" },
   "./package.json": "./package.json"
 } as const
 
@@ -438,7 +440,14 @@ const smokeTargets = (workspace: Workspace, files: ReadonlyArray<string>) => {
     return { runtime: targets, types: targets }
   }
   if (workspace === "@expand/client-ts") {
-    const targets = ["@expand/client-ts", "@expand/client-ts/project", "@expand/client-ts/server", "@expand/client-ts/adapters/node"]
+    const targets = [
+      "@expand/client-ts",
+      "@expand/client-ts/project",
+      "@expand/client-ts/server",
+      "@expand/client-ts/adapters/node",
+      "@expand/client-ts/automation",
+      "@expand/client-ts/backend-connection"
+    ]
     return { runtime: targets, types: targets }
   }
   if (workspace === "@expand/electron-ipc") {
@@ -545,7 +554,15 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
       "smoke target could not be encoded",
       target
     ))
-    const importSource = `${runtimeTargets.map((target) => `import ${target}`).join("\n")}\n`
+    const importSource = [
+      ...runtimeTargets.map((target) => `import ${target}`),
+      'import { AutomationClient } from "@expand/client-ts/automation"',
+      'import { resolveRemoteEndpoint } from "@expand/client-ts/backend-connection"',
+      'if (typeof AutomationClient !== "function") throw new Error("AutomationClient export missing")',
+      'const endpoint = resolveRemoteEndpoint({ _tag: "remote", url: "https://example.com", token: "smoke" })',
+      'if (endpoint.url !== "wss://example.com/rpc" || endpoint.token !== "smoke") throw new Error("backend connection export failed")',
+      ""
+    ].join("\n")
     yield* fs.writeFileString(path.join(consumer, "smoke.mjs"), importSource).pipe(
       Effect.mapError((cause) => failure("@expand/client-ts", "inspect", "import smoke could not be written", cause))
     )
@@ -556,7 +573,15 @@ export const certifyPackages = Effect.fn("PackageCertification.run")(
       "type smoke target could not be encoded",
       target
     ))
-    const typeSource = `${typeTargets.map((target, index) => `import type * as T${index} from ${target}\ntype V${index} = typeof T${index}`).join("\n")}\n`
+    const typeSource = [
+      ...typeTargets.map((target, index) => `import type * as T${index} from ${target}\ntype V${index} = typeof T${index}`),
+      'import type { AutomationClientApi } from "@expand/client-ts/automation"',
+      'import type { BackendConnection, RemoteConnection } from "@expand/client-ts/backend-connection"',
+      'type StartRoutine = AutomationClientApi["startRoutine"]',
+      'const remote: RemoteConnection = { _tag: "remote", url: "https://example.com", token: "smoke" }',
+      'const connection: BackendConnection = remote',
+      ""
+    ].join("\n")
     yield* fs.writeFileString(path.join(consumer, "smoke.ts"), typeSource).pipe(
       mapCertificationError("@expand/client-ts", "inspect", "type smoke could not be written")
     )

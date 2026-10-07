@@ -22,6 +22,6 @@
     "outDir": "./dist",
     "rootDir": "."
   },
-  "include": ["*.ts", "project/*.ts", "server/*.ts", "adapters/*.ts", "../contracts/globals.d.ts"],
+  "include": ["*.ts", "project/*.ts", "server/*.ts", "adapters/*.ts", "automation/*.ts", "../contracts/globals.d.ts"],
   "exclude": ["test", "dist", "node_modules", "**/*.test.ts", "tsup.config.ts", "tsconfig.build.json"]
 }
