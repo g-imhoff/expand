@@ -36,7 +36,7 @@ import { readGmailMessage } from "./gmail-connector.js"
 import type { GmailConnectorOptions } from "./gmail-connector.js"
 import { emailTriggerReference, validateGmailClassificationInput } from "@expand/contracts/automation/gmail"
 import { buildEmailClassificationRequest } from "./email-classification.js"
-import { StorageError } from "./persistence-models.js"
+import { encodeJson, StorageError } from "./persistence-models.js"
 import type { Attempt, Delivery, Job } from "./persistence-models.js"
 
 export interface AutomationWorkerOptions {
@@ -150,6 +150,7 @@ export const sweepOnce = (
   options: AutomationWorkerOptions = DefaultAutomationWorkerOptions
 ): Effect.Effect<number, StorageError, HttpClient.HttpClient> =>
   Effect.gen(function*() {
+    yield* recoverPendingRuns(environment)
     const scopes = yield* listPendingScopes(environment.services.sql)
     let processed = 0
     for (const scope of scopes) {
@@ -191,18 +192,90 @@ export const processRun = (
   scope: PersonalScope,
   runId: string
 ): Effect.Effect<WorkerOutcomeKind, StorageError | AutomationError, HttpClient.HttpClient> =>
+  Effect.suspend(() => {
+    const processing = processingState(environment.services.sql)
+    const key = encodeJson([scope.ownerId, scope.projectId, runId])
+    if (processing.active.has(key)) return Effect.succeed("skipped" as WorkerOutcomeKind)
+    processing.active.add(key)
+    return processRunInner(environment, options, scope, runId).pipe(
+      Effect.onExit((exit) =>
+        Effect.gen(function*() {
+          if (exit._tag === "Failure") {
+            processing.pending.set(key, { scope, runId })
+            yield* recoverPendingRun(environment, processing, key, scope, runId)
+          } else {
+            processing.pending.delete(key)
+          }
+          yield* emitNotificationForRun(
+            {
+              executions: environment.services.executions,
+              configurations: environment.services.configurations,
+              ...(environment.notifications === undefined ? {} : { notifications: environment.notifications })
+            },
+            scope,
+            runId
+          ).pipe(Effect.ignore)
+        })
+      ),
+      Effect.ensuring(Effect.sync(() => { processing.active.delete(key) }))
+    )
+  })
+
+interface WorkerProcessingState {
+  readonly active: Set<string>
+  readonly pending: Map<string, { readonly scope: PersonalScope; readonly runId: string }>
+}
+
+const workerProcessingStates = new WeakMap<SqlClient, WorkerProcessingState>()
+
+const processingState = (sql: SqlClient): WorkerProcessingState => {
+  let state = workerProcessingStates.get(sql)
+  if (state === undefined) {
+    state = { active: new Set(), pending: new Map() }
+    workerProcessingStates.set(sql, state)
+  }
+  return state
+}
+
+const recoverPendingRun = (
+  environment: AutomationWorkerEnvironment,
+  processing: WorkerProcessingState,
+  key: string,
+  scope: PersonalScope,
+  runId: string
+): Effect.Effect<void> =>
   Effect.gen(function*() {
-    const exit = yield* Effect.exit(processRunInner(environment, options, scope, runId))
-    yield* emitNotificationForRun(
-      {
-        executions: environment.services.executions,
-        configurations: environment.services.configurations,
-        ...(environment.notifications === undefined ? {} : { notifications: environment.notifications })
-      },
-      scope,
-      runId
-    ).pipe(Effect.ignore)
-    return yield* exit
+    const history = yield* environment.services.executions.history(scope, runId)
+    if (history !== null && history.run.value.state.kind === "running") {
+      const routine = yield* environment.routines.get(scope, history.run.value.configuration.routineId)
+      const run: AutomationRun = {
+        ...history.run.value,
+        state: routine?.head.status === "enabled"
+          ? { kind: "queued" }
+          : { kind: "cancelled", reason: "Routine is not enabled for execution" }
+      }
+      yield* environment.services.executions.update(scope, {
+        expectedRunVersion: history.run.version,
+        expectedJobVersion: history.job.version,
+        run,
+        job: { ...history.job.value, state: run.state }
+      })
+    }
+    processing.pending.delete(key)
+  }).pipe(
+    Effect.catch((error) => Effect.logWarning("automation worker run recovery failed", { runId, error: String(error) }))
+  )
+
+const recoverPendingRuns = (environment: AutomationWorkerEnvironment): Effect.Effect<void> =>
+  Effect.gen(function*() {
+    const processing = processingState(environment.services.sql)
+    for (const [key, { scope, runId }] of processing.pending) {
+      if (processing.active.has(key)) continue
+      processing.active.add(key)
+      yield* recoverPendingRun(environment, processing, key, scope, runId).pipe(
+        Effect.ensuring(Effect.sync(() => { processing.active.delete(key) }))
+      )
+    }
   })
 
 const processRunInner = (

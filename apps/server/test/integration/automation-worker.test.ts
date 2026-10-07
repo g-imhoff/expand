@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { afterEach, describe, expect, vi } from "vitest"
-import { Context, Effect, Layer, Schema } from "effect"
+import { Context, Deferred, Effect, Fiber, Layer, Schema } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -91,21 +91,38 @@ const ingestGithubRun = (runId: string, jobId: string, deliveryId: string, issue
 afterEach(() => vi.unstubAllEnvs())
 
 describe("automation worker integration", () => {
-  for (const { kind, failureStage } of [
-    { kind: "generic", failureStage: "action-start" },
-    { kind: "classification", failureStage: "action-start" },
-    { kind: "generic", failureStage: "job-start" },
-    { kind: "classification", failureStage: "job-start" },
-    { kind: "generic", failureStage: "job-completion" },
-    { kind: "classification", failureStage: "job-completion" }
+  for (const { kind, failureStage, recovery } of [
+    { kind: "generic", failureStage: "action-start", recovery: "immediate" },
+    { kind: "classification", failureStage: "action-start", recovery: "immediate" },
+    { kind: "generic", failureStage: "job-start", recovery: "immediate" },
+    { kind: "classification", failureStage: "job-start", recovery: "immediate" },
+    { kind: "generic", failureStage: "job-completion", recovery: "immediate" },
+    { kind: "classification", failureStage: "job-completion", recovery: "immediate" },
+    { kind: "classification", failureStage: "action-start", recovery: "transient-storage" },
+    { kind: "classification", failureStage: "job-completion", recovery: "transient-storage" },
+    { kind: "classification", failureStage: "action-start", recovery: "active-retry" },
+    { kind: "classification", failureStage: "action-start", recovery: "concurrent-cancel" },
+    { kind: "classification", failureStage: "action-start", recovery: "paused" },
+    { kind: "classification", failureStage: "action-start", recovery: "deleted" }
   ] as const) {
-    it.live(`retries ${kind} after a durable ${failureStage} failure without repeating succeeded actions`, () =>
+    it.live(`recovers ${kind} in later sweeps after a durable ${failureStage} failure with ${recovery} recovery`, () =>
       Effect.gen(function*() {
         let calls = 0
+        let decisions = 0
         let storageFailures = 0
+        let recoveryFailures = 0
+        const actionStarted = yield* Deferred.make<void>()
+        const releaseAction = yield* Deferred.make<void>()
         const registry = new AutomationRegistry()
         yield* registry.register(kind === "classification"
-          ? makeGithubExtension(() => Effect.sync(() => { calls += 1; return { applied: true } })).extension
+          ? makeGithubExtension(() => Effect.gen(function*() {
+            calls += 1
+            if (recovery === "active-retry") {
+              yield* Deferred.succeed(actionStarted, undefined)
+              yield* Deferred.await(releaseAction)
+            }
+            return { applied: true }
+          })).extension
           : makeSampleExtension(() => Effect.sync(() => { calls += 1; return { summary: "sent", total: 2 } })).extension
         )
         const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
@@ -174,24 +191,60 @@ describe("automation worker integration", () => {
                 : attempt.kind === "job" && attempt.status === (failureStage === "job-start" ? "started" : "completed")
               if (shouldFail && storageFailures === 0) {
                 storageFailures += 1
+                if (recovery === "paused" || recovery === "deleted") {
+                  return Effect.gen(function*() {
+                    const head = (yield* routines.get(scope, routineId))!.head
+                    yield* recovery === "paused"
+                      ? routines.pause(scope, routineId, head.version)
+                      : routines.remove(scope, routineId, head.version)
+                    return yield* storageError
+                  }).pipe(Effect.mapError(() => storageError))
+                }
                 return Effect.fail(storageError)
               }
               return executions.recordAttempt(personalScope, attempt, summary)
+            },
+            update: (personalScope, summary) => {
+              if (summary.run.state.kind === "queued" && recoveryFailures === 0) {
+                if (recovery === "transient-storage" || recovery === "active-retry") {
+                  recoveryFailures += 1
+                  return Effect.fail(new StorageError({ code: "storage", message: "Injected recovery failure" }))
+                }
+                if (recovery === "concurrent-cancel") {
+                  recoveryFailures += 1
+                  return Effect.gen(function*() {
+                    const current = (yield* executions.history(personalScope, summary.run.id))!
+                    const state = { kind: "cancelled" as const, reason: "Concurrent cancellation" }
+                    yield* executions.update(personalScope, {
+                      expectedRunVersion: current.run.version,
+                      expectedJobVersion: current.job.version,
+                      run: { ...current.run.value, state },
+                      job: { ...current.job.value, state }
+                    })
+                    return yield* executions.update(personalScope, summary)
+                  })
+                }
+              }
+              return executions.update(personalScope, summary)
             }
           }
           const environment: AutomationWorkerEnvironment = {
             services: { configurations, credentials, executions: faultingExecutions, sql, http },
             registry,
             routines,
-            decide: () => Effect.succeed({ schemaVersion: 1, kind: "selected", outcomeId: "bug", data: {} })
+            decide: () => Effect.sync(() => {
+              decisions += 1
+              return { schemaVersion: 1, kind: "selected", outcomeId: "bug", data: {} }
+            })
           }
           const options = { ...DefaultAutomationWorkerOptions, maxAttempts: 2, baseBackoffMs: 1 }
-          const failure = yield* processRun(environment, options, scope, run.id).pipe(Effect.flip)
-          expect(failure).toBe(storageError)
+          expect(yield* sweepOnce(environment, options)).toBe(1)
           expect(storageFailures).toBe(1)
           expect(calls).toBe(failureStage === "action-start" ? 0 : 1)
           const interrupted = (yield* executions.history(scope, run.id))!
-          expect(["queued", "running"]).toContain(interrupted.run.value.state.kind)
+          const stopped = ["concurrent-cancel", "paused", "deleted"].includes(recovery)
+          const deferredRecovery = recovery === "transient-storage" || recovery === "active-retry"
+          expect(interrupted.run.value.state.kind).toBe(stopped ? "cancelled" : deferredRecovery ? "running" : "queued")
           expect(interrupted.job.value.state).toEqual(interrupted.run.value.state)
           const interruptedActions = interrupted.attempts.filter((attempt) => attempt.kind === "action")
           const interruptedJobs = interrupted.attempts.filter((attempt) => attempt.kind === "job")
@@ -206,16 +259,41 @@ describe("automation worker integration", () => {
           }
           expect(interruptedJobs).toHaveLength(failureStage === "job-completion" ? 1 : 0)
           if (failureStage === "job-completion") expect(interruptedJobs[0]).toMatchObject({ status: "started" })
-          expect(yield* processRun(environment, options, scope, run.id)).toBe("completed")
+          if (stopped) {
+            expect(yield* sweepOnce(environment, options)).toBe(0)
+            expect(yield* sweepOnce(environment, options)).toBe(0)
+            expect(calls).toBe(0)
+            const stoppedRun = (yield* executions.history(scope, run.id))!
+            expect(stoppedRun.run.value.state).toEqual(interrupted.run.value.state)
+            expect(stoppedRun.job.value.state).toEqual(interrupted.job.value.state)
+            if (recovery === "paused" || recovery === "deleted") {
+              expect((yield* routines.get(scope, routineId))!.head.status).toBe(recovery)
+            }
+            return
+          }
+          if (recovery === "active-retry") {
+            const retry = yield* Effect.forkChild(processRun(environment, options, scope, run.id))
+            yield* Deferred.await(actionStarted)
+            expect(yield* sweepOnce(environment, options)).toBe(0)
+            expect((yield* executions.getRun(scope, run.id))!.value.state.kind).toBe("running")
+            expect(calls).toBe(1)
+            yield* Deferred.succeed(releaseAction, undefined)
+            expect(yield* Fiber.join(retry)).toBe("completed")
+          } else {
+            expect(yield* sweepOnce(environment, options)).toBe(1)
+          }
           expect(calls).toBe(1)
           const recovered = (yield* executions.history(scope, run.id))!
           expect(recovered.run.value.state.kind).toBe("succeeded")
+          expect(recovered.run.value.decision).toEqual(interrupted.run.value.decision)
+          expect(decisions).toBe(kind === "classification" ? 1 : 0)
+          expect(recoveryFailures).toBe(deferredRecovery ? 1 : 0)
           expect(recovered.job.value.state).toEqual(recovered.run.value.state)
           expect(recovered.attempts.filter((attempt) => attempt.kind === "job" && attempt.status === "completed")).toHaveLength(1)
           const actionAttempts = recovered.attempts.filter((attempt) => attempt.kind === "action")
           expect(actionAttempts).toHaveLength(1)
           expect(actionAttempts[0]).toMatchObject({ attempt: 1, status: "completed", outcome: { kind: "succeeded" } })
-          expect(yield* processRun(environment, options, scope, run.id)).toBe("completed")
+          expect(yield* sweepOnce(environment, options)).toBe(0)
           expect(calls).toBe(1)
         })
         yield* program.pipe(Effect.provide(Live))

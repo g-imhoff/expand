@@ -11,7 +11,7 @@ import { CredentialRepository, CredentialRepositoryLayer } from "../../automatio
 import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/execution-repository.js"
 import { RoutineService, RoutineServiceLayer } from "../../automation/routine-service.js"
 import { AutomationRegistry } from "../../automation/registry.js"
-import { DefaultAutomationWorkerOptions, processRun, startAutomationWorker } from "../../automation/worker.js"
+import { DefaultAutomationWorkerOptions, processRun, startAutomationWorker, sweepOnce } from "../../automation/worker.js"
 import type { AutomationWorkerEnvironment } from "../../automation/worker.js"
 import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
 
@@ -511,6 +511,9 @@ describe("automation worker unit", () => {
         for (let i = 0; i < 100 && calls === 0; i++) {
           yield* Effect.sleep("10 millis")
         }
+        expect(calls).toBe(1)
+        expect(yield* processRun({ ...environment }, options, scope, "run-midpause")).toBe("skipped")
+        expect(yield* sweepOnce(environment, options)).toBe(1)
         expect(calls).toBe(1)
         const head = (yield* routines.get(scope, "mail"))!.head
         yield* routines.pause(scope, "mail", head.version)
