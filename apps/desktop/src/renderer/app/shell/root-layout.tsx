@@ -20,6 +20,7 @@ const RootLayoutContent = () => {
   const { openMobile, setOpenMobile, mobileTriggerRef } = useSidebar()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const activeProjectId = pathname.startsWith("/p/") ? decodeURIComponent(pathname.slice(3).split("/")[0] ?? "") : null
+  const settingsActive = pathname === "/settings"
   const automationPage = automationPageForPath(pathname)
   const [activeDeviceId, setActiveDeviceId] = useState<string | undefined>(defaultSidebarDevices[0]?.id)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
@@ -48,6 +49,12 @@ const RootLayoutContent = () => {
           setActiveConversationId(null)
           setOpenMobile(false)
           void navigate({ to: automationRoutes.overview, params: { projectId } })
+        }}
+        settingsActive={settingsActive}
+        onOpenSettings={() => {
+          setActiveConversationId(null)
+          setOpenMobile(false)
+          void navigate({ to: "/settings" })
         }}
         activeDeviceId={activeDeviceId}
         onSelectDevice={(deviceId) => {

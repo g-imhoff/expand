@@ -5,6 +5,7 @@ import type { ConnectionSettingsModel } from "@expand/desktop/renderer/features/
 
 export interface ConnectionSettingsPageProps {
   readonly model: ConnectionSettingsModel
+  readonly oauthUnavailable?: boolean | undefined
   readonly onStartGithubOAuth: () => void
   readonly onPushToGh: () => void
   readonly onSaveZenKey: (key: string) => void
@@ -14,6 +15,7 @@ export interface ConnectionSettingsPageProps {
 
 export const ConnectionSettingsPage = ({
   model,
+  oauthUnavailable = false,
   onStartGithubOAuth,
   onPushToGh,
   onSaveZenKey,
@@ -56,14 +58,18 @@ export const ConnectionSettingsPage = ({
               </ul>
             )}
             <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={onStartGithubOAuth}
-                disabled={model.github.isBusy}
-                className="inline-flex min-h-10 items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
-              >
-                {model.github.health === "healthy" ? "Reconnect GitHub" : "Connect GitHub"}
-              </button>
+              {oauthUnavailable ? (
+                <p className="text-sm text-muted-foreground">GitHub OAuth needs backend support and is not available in this build. Health below reflects the saved project credential.</p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onStartGithubOAuth}
+                  disabled={model.github.isBusy}
+                  className="inline-flex min-h-10 items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+                >
+                  {model.github.health === "healthy" ? "Reconnect GitHub" : "Connect GitHub"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onTestConnection("github")}
@@ -72,15 +78,17 @@ export const ConnectionSettingsPage = ({
               >
                 Test connection
               </button>
-              <button
-                type="button"
-                onClick={onPushToGh}
-                disabled={!model.github.canPushToGh || model.github.isBusy}
-                title={model.github.canPushToGh ? undefined : "Connect GitHub first"}
-                className="inline-flex min-h-10 items-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
-              >
-                Push token to local gh
-              </button>
+              {!oauthUnavailable && (
+                <button
+                  type="button"
+                  onClick={onPushToGh}
+                  disabled={!model.github.canPushToGh || model.github.isBusy}
+                  title={model.github.canPushToGh ? undefined : "Connect GitHub first"}
+                  className="inline-flex min-h-10 items-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50"
+                >
+                  Push token to local gh
+                </button>
+              )}
             </div>
           </section>
           <section aria-labelledby="settings-zen-heading" className="rounded-md border px-4 py-4">

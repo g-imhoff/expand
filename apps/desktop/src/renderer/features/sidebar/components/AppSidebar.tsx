@@ -10,6 +10,7 @@ import {
   MonitorSmartphone,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   Zap
 } from "lucide-react"
 import {
@@ -56,6 +57,8 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   readonly onSelectConversation?: ((conversationId: string) => void) | undefined
   readonly automationsActive?: boolean | undefined
   readonly onOpenAutomations?: ((projectId: string) => void) | undefined
+  readonly settingsActive?: boolean | undefined
+  readonly onOpenSettings?: (() => void) | undefined
 }
 
 export const AppSidebar = ({
@@ -69,6 +72,8 @@ export const AppSidebar = ({
   onSelectConversation,
   automationsActive = false,
   onOpenAutomations,
+  settingsActive = false,
+  onOpenSettings,
   ...props
 }: AppSidebarProps) => {
   const { isMobile, setOpen, state, toggleSidebar } = useSidebar()
@@ -222,6 +227,19 @@ export const AppSidebar = ({
                 className="justify-center aria-disabled:pointer-events-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-sidebar-foreground data-[active=true]:[&>svg]:fill-current"
               >
                 <Zap aria-hidden="true" />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                aria-label="Settings"
+                aria-current={settingsActive ? "page" : undefined}
+                isActive={settingsActive}
+                tooltip={{ children: "Settings", hidden: false }}
+                onClick={onOpenSettings}
+                className="justify-center focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-sidebar-foreground data-[active=true]:[&>svg]:fill-current"
+              >
+                <Settings aria-hidden="true" />
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
