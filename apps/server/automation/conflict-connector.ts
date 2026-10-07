@@ -17,10 +17,9 @@ import {
 import type { InstalledAction } from "@expand/contracts/automation"
 import { ConfigurationRepository } from "./configuration-repository.js"
 import { CredentialRepository } from "./credential-repository.js"
-import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter } from "./coding-agent.js"
 import { getPullRequest } from "./github-pr-transport.js"
 import type { GithubPrTransportOptions } from "./github-pr-transport.js"
-import { classifyMergeability, isPermittedBranch, isProtectedBranch, normalizeBranch } from "./pr-conflict-policy.js"
+import { classifyMergeability, isPermittedBranch, isProtectedBranch } from "./pr-conflict-policy.js"
 
 export interface ConflictConnectorOptions {
   readonly worktreeRoot: string
@@ -37,31 +36,6 @@ export interface ConflictConnectorServices {
 }
 
 export const ConflictCredentialSlot = "token"
-
-export const buildConflictPrompt = (input: { readonly pullNumber: number; readonly headBranch: string; readonly baseBranch: string }): string => {
-  const head = input.headBranch.trim().slice(0, 120)
-  const base = input.baseBranch.trim().slice(0, 120)
-  if (head.length === 0 || base.length === 0) return ""
-  if (/[\r\n\0]/.test(head) || /[\r\n\0]/.test(base)) return ""
-  if (/[\x00-\x1F\x7F]/.test(head) || /[\x00-\x1F\x7F]/.test(base)) return ""
-  if (normalizeBranch(head) === null || normalizeBranch(base) === null) return ""
-  return [
-    `You are resolving a GitHub PR merge conflict in an isolated worktree.`,
-    `Merge origin/${base} into ${head} and resolve only real merge conflicts.`,
-    `PR: ${input.pullNumber} head:${head} base:${base}`,
-    `Only modify files that Git reports as conflicted. Do not reformat unrelated files.`,
-    `write:RESOLUTION.md:resolved ${head} pr ${input.pullNumber}`,
-    `When done, report resolved ${head}.`
-  ].join("\n")
-}
-
-export const evaluateResolutionChecks = (input: { readonly diffSummary: string; readonly transcript: ReadonlyArray<string>; readonly exitStatus: number; readonly headBranch: string }): { readonly passed: boolean; readonly reason: string } => {
-  if (input.exitStatus !== 0) return { passed: false, reason: "check-failed:agent-exit" }
-  if (input.diffSummary.trim().length === 0) return { passed: false, reason: "check-failed:empty-diff" }
-  const transcript = [...input.transcript].join("\n")
-  if (!transcript.includes(`resolved ${input.headBranch}`) && !transcript.includes("wrote RESOLUTION.md")) return { passed: false, reason: "check-failed:missing-resolution-marker" }
-  return { passed: true, reason: "ok" }
-}
 
 export const checkPrConflicts = Effect.fn("ConflictConnector.checkConflicts")(function*(
   owner: string,
@@ -88,7 +62,6 @@ export const checkPrConflicts = Effect.fn("ConflictConnector.checkConflicts")(fu
 })
 
 export const makeConflictConnectorExtension = (options: ConflictConnectorOptions, services: ConflictConnectorServices) => {
-  registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
   const action = defineAction({
     definition: { ...prResolveActionReference },
     title: "GitHub resolve PR conflict",
@@ -160,30 +133,7 @@ export const makeConflictConnectorExtension = (options: ConflictConnectorOptions
       if (state !== "conflicted") {
         return { resolved: false, reason: "not-conflicted" }
       }
-      const timeoutMs = options.defaultTimeoutMs
-      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300000) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Timeout is out of range" } as AutomationFailure)
-      }
-      const prompt = buildConflictPrompt({ pullNumber: args.pullNumber, headBranch: args.headBranch, baseBranch: args.baseBranch })
-      if (prompt.length === 0) {
-        return yield* Effect.fail({ code: "invalid-contract", message: "Conflict prompt is not usable" } as AutomationFailure)
-      }
-      const outcome = yield* executeCodingSession(options.worktreeRoot, {
-        runId: `${context.routineId}-${context.configurationRevision}-${context.integrationId}-${args.pullNumber}`,
-        repository: `${configuration.owner}/${configuration.repo}`,
-        prompt,
-        agentKind: "opencode",
-        requestedCapabilities: ["execute"],
-        timeoutMs,
-        tokenEnv: { CODING_AGENT_TOKEN_LENGTH: String(Math.max(32, Math.ceil(secret.length / 32) * 32)) }
-      }).pipe(
-        Effect.mapError((error) => ({ code: error.code, message: error.message, details: { transcript: error.transcript ?? [], exitStatus: error.exitStatus ?? -1 } } as unknown as AutomationFailure))
-      )
-      const checks = evaluateResolutionChecks({ diffSummary: outcome.diffSummary, transcript: [...outcome.transcript], exitStatus: outcome.exitStatus, headBranch: args.headBranch })
-      if (!checks.passed) {
-        return yield* Effect.fail({ code: "check-failed", message: checks.reason, details: { resolved: false, reason: "check-failed" } as unknown as Schema.Json } as AutomationFailure)
-      }
-      return { resolved: true, headSha: fresh.headSha, reason: "resolved-in-worktree" }
+      return { resolved: false, reason: "resolution-unavailable:verified-repository-worktree-required" }
     })
   })
   const installed: InstalledAction = {

@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, FileSystem, Layer } from "effect"
+import { Cause, Effect, Exit, FileSystem, Layer } from "effect"
 import { HttpClient } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
@@ -13,8 +13,8 @@ import { ExecutionRepository, ExecutionRepositoryLayer } from "../../automation/
 import { RoutineService, RoutineServiceLayer } from "../../automation/routine-service.js"
 import { AutomationRegistry } from "../../automation/registry.js"
 import { resetCodingAdaptersForTests } from "../../automation/coding-connector.js"
-import { clearCodingAdapters } from "../../automation/coding-agent.js"
-import { buildConflictPrompt, evaluateResolutionChecks, makeConflictConnectorExtension } from "../../automation/conflict-connector.js"
+import { clearCodingAdapters, registerCodingAdapter } from "../../automation/coding-agent.js"
+import { makeConflictConnectorExtension } from "../../automation/conflict-connector.js"
 import type { ConflictConnectorServices } from "../../automation/conflict-connector.js"
 import { buildPrConflictProcess } from "@expand/contracts/automation/conflicts"
 import { DefaultAutomationWorkerOptions, processRun } from "../../automation/worker.js"
@@ -56,21 +56,13 @@ const unusedDecide: AutomationWorkerEnvironment["decide"] = () => Effect.fail({ 
 const readRoot = (fs: FileSystem.FileSystem, root: string) => fs.readDirectory(root).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<string>)))
 
 describe("automation pr conflicts", () => {
-  it.effect("builds a worktree prompt and validates resolution checks", () =>
-    Effect.gen(function*() {
-      const prompt = buildConflictPrompt({ pullNumber: 7, headBranch: "feature/conflict-demo", baseBranch: "develop" })
-      expect(prompt).toContain("feature/conflict-demo")
-      expect(prompt).toContain("write:RESOLUTION.md:")
-      expect(buildConflictPrompt({ pullNumber: 7, headBranch: "", baseBranch: "develop" })).toBe("")
-      expect(evaluateResolutionChecks({ diffSummary: "", transcript: [], exitStatus: 0, headBranch: "feature/conflict-demo" }).passed).toBe(false)
-      expect(evaluateResolutionChecks({ diffSummary: " RESOLUTION.md | 1 +", transcript: ["wrote RESOLUTION.md"], exitStatus: 0, headBranch: "feature/conflict-demo" }).passed).toBe(true)
-    }))
-  it.live("resolves a conflicted feature PR in an isolated worktree without touching protected branches", () =>
+  it.live("records resolution as unavailable without running a marker-only agent or creating a worktree", () =>
     Effect.gen(function*() {
       resetCodingAdaptersForTests()
       clearCodingAdapters()
       const fs = yield* FileSystem.FileSystem
       const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "conflict-worktrees-" })
+      let agentCalls = 0
       const githubStub = yield* Effect.acquireRelease(startGithubStub(), (stub) => Effect.sync(() => stub.close()))
       githubStub.setReply((call) => {
         if (call.method === "GET" && call.path === "/repos/octo/hello/pulls/7") {
@@ -91,6 +83,15 @@ describe("automation pr conflicts", () => {
           { worktreeRoot, agentCommand: "node", agentArgs: [stubPath], defaultTimeoutMs: 8000, githubOptions: { baseUrl: githubStub.baseUrl, timeoutMs: 5000, maxRetries: 0 } },
           services
         ).extension)
+        registerCodingAdapter({
+          kind: "opencode",
+          capabilities: ["execute"],
+          spawn: (input) => Effect.gen(function*() {
+            agentCalls += 1
+            yield* fs.writeFileString(`${input.worktree}/RESOLUTION.md`, "resolved feature/conflict-demo pr 7")
+            return { sessionId: "marker-only", transcript: ["wrote RESOLUTION.md"], exitStatus: 0, durationMs: 1 }
+          }).pipe(Effect.orDie)
+        })
         yield* credentials.putCredential(scope, "conflict-token", tokenBytes, 0)
         const process = yield* buildPrConflictProcess("conflicts", conflictIntegration.configuration)
         yield* routines.create(scope, { routineId: "conflicts", configuration: conflictIntegration.configuration, integrations: [conflictIntegration], process })
@@ -121,11 +122,66 @@ describe("automation pr conflicts", () => {
         expect(outcome).toBe("completed")
         const stored = (yield* executions.getRun(scope, "run-conflict-1"))!
         expect(stored.value.state.kind).toBe("succeeded")
+        expect(stored.value.actions).toHaveLength(1)
+        expect(stored.value.actions[0]).toMatchObject({
+          kind: "succeeded",
+          result: { resolved: false, reason: "resolution-unavailable:verified-repository-worktree-required" }
+        })
+        expect(agentCalls).toBe(0)
         expect(githubStub.calls.some((call) => call.path === "/repos/octo/hello/pulls/7")).toBe(true)
         expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
       })
       const Full = Layer.mergeAll(Live, NodeServices.layer)
       yield* program.pipe(Effect.provide(Full))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+  it.live("rechecks the current PR and rejects changed refs before reporting resolution unavailable", () =>
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const worktreeRoot = yield* fs.makeTempDirectoryScoped({ prefix: "conflict-current-pr-" })
+      const githubStub = yield* Effect.acquireRelease(startGithubStub(), (stub) => Effect.sync(() => stub.close()))
+      const { registry, Live } = setupLayers()
+      const program = Effect.gen(function*() {
+        const routines = yield* RoutineService
+        const configurations = yield* ConfigurationRepository
+        const credentials = yield* CredentialRepository
+        const http = yield* HttpClient.HttpClient
+        const connector = makeConflictConnectorExtension(
+          { worktreeRoot, agentCommand: "expand-agent-must-not-run", agentArgs: [], defaultTimeoutMs: 8000, githubOptions: { baseUrl: githubStub.baseUrl, timeoutMs: 5000, maxRetries: 0 } },
+          { configurations, credentials, http }
+        )
+        yield* registry.register(connector.extension)
+        yield* credentials.putCredential(scope, "conflict-token", tokenBytes, 0)
+        const process = yield* buildPrConflictProcess("conflicts", conflictIntegration.configuration)
+        yield* routines.create(scope, { routineId: "conflicts", configuration: conflictIntegration.configuration, integrations: [conflictIntegration], process })
+        const installed = connector.extension.actions[0]!
+        const args = { pullNumber: 7, headBranch: "feature/conflict-demo", baseBranch: "develop", expectedHeadSha: "abc123" }
+        const context = { scope, routineId: "conflicts", configurationRevision: 1, integrationId: "conflicts", mode: "live" as const }
+        const cases = [
+          { headSha: "moved123", headBranch: "feature/conflict-demo", baseBranch: "develop", mergeable: false, message: "unvalidated:head moved" },
+          { headSha: "abc123", headBranch: "feature/other", baseBranch: "develop", mergeable: false, message: "unvalidated:branches moved" },
+          { headSha: "abc123", headBranch: "feature/conflict-demo", baseBranch: "main", mergeable: false, message: "unvalidated:branches moved" },
+          { headSha: "abc123", headBranch: "feature/conflict-demo", baseBranch: "develop", mergeable: true, reason: "not-conflicted" },
+          { headSha: "abc123", headBranch: "feature/conflict-demo", baseBranch: "develop", mergeable: false, reason: "resolution-unavailable:verified-repository-worktree-required" }
+        ]
+        for (const check of cases) {
+          githubStub.setReply(() => ({
+            status: 200,
+            body: { number: 7, title: "current PR", head: { ref: check.headBranch, sha: check.headSha }, base: { ref: check.baseBranch, sha: "def456" }, mergeable: check.mergeable, mergeable_state: check.mergeable ? "clean" : "dirty" }
+          }))
+          const result = yield* Effect.exit(installed.invoke(args, conflictIntegration.configuration, context))
+          if (check.message !== undefined) {
+            expect(Exit.isFailure(result)).toBe(true)
+            if (Exit.isFailure(result)) expect(Cause.squash(result.cause)).toMatchObject({ failure: { code: "check-failed", message: check.message, details: { resolved: false } } })
+          } else {
+            expect(Exit.isSuccess(result)).toBe(true)
+            if (Exit.isSuccess(result)) expect(result.value).toEqual({ resolved: false, reason: check.reason })
+          }
+        }
+        expect(githubStub.calls).toHaveLength(cases.length)
+        expect(githubStub.calls.every((call) => call.method === "GET" && call.path === "/repos/octo/hello/pulls/7")).toBe(true)
+        expect(yield* readRoot(fs, worktreeRoot)).toEqual([])
+      })
+      yield* program.pipe(Effect.provide(Layer.mergeAll(Live, NodeServices.layer)))
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
   it.live("records protected heads as unresolved without publishing changes", () =>
     Effect.gen(function*() {
