@@ -813,7 +813,7 @@ const invokeActionWithRetries = (
         action: { ...step.action },
         arguments: step.arguments
       }
-      yield* Effect.exit(environment.services.executions.recordAttempt(scope, started))
+      yield* environment.services.executions.recordAttempt(scope, started)
       const hasUnfinished = history !== null &&
         history.attempts.some((entry) => entry.kind === "action" && entry.stepId === step.stepId && entry.status === "started")
       let skipInvoke = false

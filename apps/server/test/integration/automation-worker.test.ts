@@ -29,10 +29,11 @@ import {
   sweepOnce
 } from "../../automation/worker.js"
 import type { AutomationWorkerEnvironment } from "../../automation/worker.js"
+import { StorageError } from "../../automation/persistence-models.js"
 import type { Attempt } from "../../automation/persistence-models.js"
 import { startJevStub, stubChoiceBody } from "../fixtures/automation-jev-stub.js"
 import { startGithubStub } from "../fixtures/automation-github-stub.js"
-import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
+import { makeSampleExtension, sampleAuthority, sampleConfiguration } from "../fixtures/automation-sample-extension.js"
 
 const scope = { ownerId: "worker-int-owner", projectId: "worker-int-project" }
 const fakeKey = "stub-zen-key-for-tests-only"
@@ -87,6 +88,115 @@ const ingestGithubRun = (runId: string, jobId: string, deliveryId: string, issue
   })
 
 describe("automation worker integration", () => {
+  for (const kind of ["generic", "classification"] as const) {
+    it.live(`stops ${kind} actions when the durable attempt start fails and retries safely`, () =>
+      Effect.gen(function*() {
+        let calls = 0
+        let startFailures = 0
+        const registry = new AutomationRegistry()
+        yield* registry.register(kind === "classification"
+          ? makeGithubExtension(() => Effect.sync(() => { calls += 1; return { applied: true } })).extension
+          : makeSampleExtension(() => Effect.sync(() => { calls += 1; return { summary: "sent", total: 2 } })).extension
+        )
+        const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
+        const Configs = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(Ready))
+        const Creds = CredentialRepositoryLayer.pipe(Layer.provideMerge(Configs))
+        const Live = Layer.mergeAll(RoutineServiceLayer(registry), ExecutionRepositoryLayer, NodeHttpClient.layerFetch).pipe(
+          Layer.provideMerge(Creds)
+        )
+        const program = Effect.gen(function*() {
+          const routines = yield* RoutineService
+          const executions = yield* ExecutionRepository
+          const configurations = yield* ConfigurationRepository
+          const credentials = yield* CredentialRepository
+          const sql = yield* SqlClient
+          const http = yield* HttpClient.HttpClient
+          const routineId = kind === "classification" ? "triage" : "personal-mail"
+          const configuration = { routineId, revision: 1 as const }
+          const process = kind === "classification"
+            ? yield* buildGithubClassificationProcess("github", classification)
+            : sampleConfiguration.process
+          yield* credentials.putCredential(scope, kind === "classification" ? "github-token" : "account-1", new TextEncoder().encode("secret"), 0)
+          yield* routines.create(scope, {
+            routineId,
+            configuration: kind === "classification" ? classification : sampleConfiguration.configuration,
+            integrations: kind === "classification" ? [githubIntegration] : sampleConfiguration.integrations,
+            process
+          })
+          const delivery = {
+            schemaVersion: 1 as const,
+            id: "input-storage-failure",
+            scope,
+            integration: process.trigger.integration,
+            externalId: "input-storage-failure",
+            trigger: process.trigger.definition,
+            payload: kind === "classification"
+              ? { issueNumber: 7, title: "Boom", body: "Details" }
+              : { subject: "hello", count: "2" }
+          }
+          const run = {
+            schemaVersion: 1 as const,
+            kind: "run" as const,
+            id: "run-storage-failure",
+            scope,
+            configuration,
+            input: { kind: "input-reference" as const, id: delivery.id },
+            mode: "live" as const,
+            authority: {
+              ...sampleAuthority,
+              scope,
+              configuration,
+              integrationIds: kind === "classification" ? ["github"] : sampleAuthority.integrationIds,
+              actionGrants: kind === "classification"
+                ? [{ action: githubLabelActionReference, integrationId: "github", capabilities: ["label"] }]
+                : sampleAuthority.actionGrants
+            },
+            state: { kind: "queued" as const },
+            actions: []
+          }
+          yield* executions.ingest({ delivery, raw: new Uint8Array([1]), targets: [{ jobId: "job-storage-failure", run }] })
+          const storageError = new StorageError({ code: "storage", message: "Injected action start failure" })
+          const faultingExecutions: ExecutionRepository["Service"] = {
+            ...executions,
+            recordAttempt: (personalScope, attempt, summary) => {
+              if (attempt.kind === "action" && attempt.status === "started" && startFailures === 0) {
+                startFailures += 1
+                return Effect.fail(storageError)
+              }
+              return executions.recordAttempt(personalScope, attempt, summary)
+            }
+          }
+          const environment: AutomationWorkerEnvironment = {
+            services: { configurations, credentials, executions: faultingExecutions, sql, http },
+            registry,
+            routines,
+            decide: () => Effect.succeed({ schemaVersion: 1, kind: "selected", outcomeId: "bug", data: {} })
+          }
+          const options = { ...DefaultAutomationWorkerOptions, maxAttempts: 2, baseBackoffMs: 1 }
+          const failure = yield* processRun(environment, options, scope, run.id).pipe(Effect.flip)
+          expect(failure).toBe(storageError)
+          expect(startFailures).toBe(1)
+          expect(calls).toBe(0)
+          const interrupted = (yield* executions.history(scope, run.id))!
+          expect(interrupted.run.value.state.kind).toBe(kind === "classification" ? "running" : "queued")
+          expect(interrupted.job.value.state).toEqual(interrupted.run.value.state)
+          expect(interrupted.run.value.actions).toEqual([])
+          expect(interrupted.attempts.filter((attempt) => attempt.kind === "action")).toEqual([])
+          expect(yield* processRun(environment, options, scope, run.id)).toBe("completed")
+          expect(calls).toBe(1)
+          const recovered = (yield* executions.history(scope, run.id))!
+          expect(recovered.run.value.state.kind).toBe("succeeded")
+          const actionAttempts = recovered.attempts.filter((attempt) => attempt.kind === "action")
+          expect(actionAttempts).toHaveLength(1)
+          expect(actionAttempts[0]).toMatchObject({ attempt: 1, status: "completed", outcome: { kind: "succeeded" } })
+          expect(yield* processRun(environment, options, scope, run.id)).toBe("completed")
+          expect(calls).toBe(1)
+        })
+        yield* program.pipe(Effect.provide(Live))
+      }).pipe(Effect.scoped)
+    )
+  }
+
   it.live("completes a queued run end to end via stubs with zero clients", () =>
     Effect.gen(function*() {
       const jev = yield* withJev
