@@ -75,6 +75,24 @@ export const AutomationOverviewView = ({
                   <span className="text-sm font-medium">{routine.routineId}</span>
                   <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground">{routine.head.status}</span>
                   <span className="text-xs text-muted-foreground">revision {routine.head.revision}</span>
+                  <div className="ml-auto flex items-center gap-3">
+                    <Link
+                      to={automationRoutes["routine-edit"]}
+                      params={{ projectId, routineId: routine.routineId }}
+                      aria-label={`Edit routine ${routine.routineId}`}
+                      className="inline-flex min-h-10 items-center text-sm underline hover:text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      Edit
+                    </Link>
+                    <Link
+                      to={automationRoutes["routine-test"]}
+                      params={{ projectId, routineId: routine.routineId }}
+                      aria-label={`Test routine ${routine.routineId}`}
+                      className="inline-flex min-h-10 items-center text-sm underline hover:text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                      Test
+                    </Link>
+                  </div>
                 </li>
               ))}
             </ul>

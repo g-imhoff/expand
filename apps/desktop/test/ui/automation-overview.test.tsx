@@ -117,6 +117,12 @@ describe("automation overview", () => {
     expect(dom.screen.getByText("paused")).toBeDefined()
     expect(dom.screen.getByText("run-1")).toBeDefined()
     expect(dom.screen.getByText("Live updates on")).toBeDefined()
+    for (const routineId of ["triage", "labels"]) {
+      expect(dom.screen.getByRole("link", { name: `Edit routine ${routineId}` }).getAttribute("href"))
+        .toBe(`/p/${alpha}/automations/routines/${routineId}`)
+      expect(dom.screen.getByRole("link", { name: `Test routine ${routineId}` }).getAttribute("href"))
+        .toBe(`/p/${alpha}/automations/routines/${routineId}/test`)
+    }
   })))
 
   it("updates the run list when a live automation event arrives", () => Effect.runPromise(Effect.gen(function* () {

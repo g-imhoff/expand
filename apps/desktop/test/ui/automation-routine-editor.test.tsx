@@ -239,6 +239,79 @@ const automationRpc = (over: Partial<AutomationRpcApi>): AutomationRpcApi =>
 const catalogRpc = () => automationRpc({ catalog: () => Effect.succeed(catalogStub) })
 
 describe("routine editor", () => {
+  it.effect.each(["triage", "triage / daily"] as const)("opens a saved routine %s with no runs from overview to edit, pause, and test", (routineId) =>
+    Effect.scoped(Effect.gen(function* () {
+      const editPath = `/p/${projectId}/automations/routines/${encodeURIComponent(routineId)}`
+      const requested: Array<Parameters<AutomationRpcApi["getRoutine"]>[0]> = []
+      const edited: Array<Parameters<AutomationRpcApi["editRoutine"]>[0]> = []
+      const paused: Array<Parameters<AutomationRpcApi["pauseRoutine"]>[0]> = []
+      let record: RoutineRecord = {
+        ...triageRecord,
+        routineId,
+        configuration: { ...triageRecord.configuration, reference: { routineId, revision: 2 } }
+      }
+      const rpc = automationRpc({
+        catalog: () => Effect.succeed(catalogStub),
+        listRoutines: () => Effect.succeed({ routines: [record] }),
+        listRuns: () => Effect.succeed({ runs: [], cursor: null }),
+        metrics: () => Effect.succeed({ total: 0, queued: 0, running: 0, succeeded: 0, unresolved: 0, failed: 0, cancelled: 0 }),
+        getRoutine: (payload) => {
+          requested.push(payload)
+          return Effect.succeed(record)
+        },
+        editRoutine: (payload) => {
+          edited.push(payload)
+          record = { ...record, head: { ...record.head, revision: 3, version: 4 } }
+          return Effect.succeed({ revision: 3 })
+        },
+        pauseRoutine: (payload) => {
+          paused.push(payload)
+          record = { ...record, head: { ...record.head, status: "paused", version: 5 } }
+          return Effect.succeed(record.head)
+        }
+      })
+      const router = createAppRouter(createMemoryHistory({ initialEntries: [`/p/${projectId}/automations`] }))
+      yield* renderScoped(
+        <RendererRunnerProvider value={{ start: startRendererRoot }}>
+          <ProjectContextProvider value={makeFakeProjectContext([fakeProject({ id: projectId, name: "alpha" })])}>
+            <AutomationContextProvider value={rpc}>
+              <RouterProvider router={router} />
+            </AutomationContextProvider>
+          </ProjectContextProvider>
+        </RendererRunnerProvider>
+      )
+      yield* Effect.tryPromise(() => screen.findByText("No runs yet."))
+      const editLink = screen.getByRole("link", { name: `Edit routine ${routineId}` }) as HTMLAnchorElement
+      expect(editLink.getAttribute("href")).toBe(editPath)
+      editLink.focus()
+      expect(document.activeElement).toBe(editLink)
+      fireEvent.click(editLink)
+      yield* Effect.tryPromise(() => screen.findByDisplayValue("octo"))
+      expect(router.state.location.pathname).toBe(decodeURI(editPath))
+      expect(requested[0]).toEqual({ scope, routineId })
+      fireEvent.change(screen.getByLabelText("Repository owner"), { target: { value: "new-owner" } })
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }))
+      yield* Effect.tryPromise(() => screen.findByText("Saved revision 3."))
+      expect(edited[0]).toMatchObject({ scope, routineId })
+      expect(edited[0]?.integrations[0]?.configuration).toMatchObject({ owner: "new-owner" })
+      const pauseButton = yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Pause" }))
+      yield* Effect.tryPromise(() => waitFor(() => expect((pauseButton as HTMLButtonElement).disabled).toBe(false)))
+      fireEvent.click(pauseButton)
+      yield* Effect.tryPromise(() => screen.findByText("Status: paused (revision 3)"))
+      expect(paused).toEqual([{ scope, routineId, expectedVersion: 4 }])
+      yield* Effect.tryPromise(() => router.navigate({ to: "/p/$projectId/automations", params: { projectId } }))
+      yield* Effect.tryPromise(() => screen.findByText("No runs yet."))
+      const testLink = screen.getByRole("link", { name: `Test routine ${routineId}` }) as HTMLAnchorElement
+      expect(testLink.getAttribute("href")).toBe(`${editPath}/test`)
+      testLink.focus()
+      expect(document.activeElement).toBe(testLink)
+      fireEvent.click(testLink)
+      yield* Effect.tryPromise(() => screen.findByText("Test preview runs without changing anything."))
+      expect(router.state.location.pathname).toBe(`${decodeURI(editPath)}/test`)
+      yield* Effect.tryPromise(() => screen.findByRole("button", { name: "Run preview" }))
+      expect(requested.at(-1)).toEqual({ scope, routineId })
+    })))
+
   it.effect("renders the form from the catalog with exactly one trigger and no canvas", () =>
     Effect.scoped(Effect.gen(function* () {
       yield* renderEditor(catalogRpc(), undefined)
