@@ -1,7 +1,7 @@
 import { Effect, Schema, Semaphore } from "effect"
 import {
   ActionDescriptor, AutomationError, Catalog, decodeJson, definitionKey, deriveSelectedActions, editorSchema,
-  IntegrationDescriptor, InvocationAuthority, JevDecisionResult, resolveActionArguments, RoutineConfiguration,
+  IntegrationConfiguration, IntegrationDescriptor, InvocationAuthority, JevDecisionResult, resolveActionArguments, RoutineConfiguration,
   RoutineDescriptor, sameDefinition, TriggerDescriptor, validateProcess
 } from "@expand/contracts/automation"
 import type {
@@ -62,6 +62,13 @@ export class AutomationRegistry {
     return definition.payloadSchema
   })
 
+  readonly validateIntegration = Effect.fn("AutomationRegistry.validateIntegration")(function*(this: AutomationRegistry, input: unknown) {
+    const integration = yield* decodeJson(IntegrationConfiguration, input)
+    const definition = yield* requireDefinition(this.definitions, integration.definition, "integration")
+    yield* decodeJson(definition.configurationSchema, integration.configuration)
+    return integration
+  })
+
   readonly validateConfiguration = Effect.fn("AutomationRegistry.validateConfiguration")(function*(this: AutomationRegistry, input: unknown) {
     const configuration = yield* decodeJson(RoutineConfiguration, input)
     if (configuration.template !== undefined) {
@@ -73,8 +80,7 @@ export class AutomationRegistry {
     for (const integration of configuration.integrations) {
       if (integrationIds.has(integration.id)) return yield* invalidReference("Duplicate integration instance ID")
       integrationIds.add(integration.id)
-      const definition = yield* requireDefinition(this.definitions, integration.definition, "integration")
-      yield* decodeJson(definition.configurationSchema, integration.configuration)
+      yield* this.validateIntegration(integration)
     }
     const trigger = yield* requireDefinition(this.definitions, configuration.process.trigger.definition, "trigger")
     yield* decodeJson(trigger.configurationSchema, configuration.process.trigger.configuration)

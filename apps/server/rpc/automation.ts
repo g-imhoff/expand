@@ -94,14 +94,16 @@ export const automationHandlers = {
     })),
   AutomationIntegrationPut: ({ scope, integration, expectedVersion }) =>
     guard(Effect.gen(function*() {
+      const registry = yield* AutomationRegistryService
+      const validated = yield* registry.validateIntegration(integration).pipe(Effect.mapError(toRpcError))
       const configurations = yield* ConfigurationRepository
-      const version = yield* configurations.putIntegration(scope, integration, expectedVersion ?? 0).pipe(
+      const version = yield* configurations.putIntegration(scope, validated, expectedVersion ?? 0).pipe(
         Effect.mapError(toRpcError)
       )
       yield* emit(AutomationIntegrationChanged.make({
         projectId: scope.projectId,
         ownerId: scope.ownerId,
-        integrationId: integration.id,
+        integrationId: validated.id,
         occurredAt: yield* nowIso
       }))
       return { version }

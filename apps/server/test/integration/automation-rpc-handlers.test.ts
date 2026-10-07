@@ -1,6 +1,6 @@
 import { it } from "@effect/vitest"
 import { describe, expect } from "vitest"
-import { Effect, Exit, Layer } from "effect"
+import { Effect, Exit, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql/SqlClient"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { NodeHttpClient } from "@effect/platform-node"
@@ -15,6 +15,8 @@ import { AutomationRegistryService } from "../../automation/registry-service.js"
 import { RoutineServiceLayer } from "../../automation/routine-service.js"
 import { encodeJson } from "../../automation/persistence-models.js"
 import { automationHandlers } from "../../rpc/automation.js"
+import { SampleCount } from "../fixtures/automation-sample-extension.js"
+import { defineIntegration } from "@expand/contracts/automation"
 import {
   buildGithubClassificationProcess,
   githubTemplateReference,
@@ -65,6 +67,57 @@ const triagePayload = Effect.gen(function*() {
 const containsSecret = (value: unknown): boolean => encodeJson(value).includes(secret)
 
 describe("automation RPC handlers", () => {
+  it.live("rejects invalid integration contracts without writing integrations or events", () => Effect.gen(function*() {
+    const sql = yield* SqlClient
+    const invalid = [
+      { integration: { ...githubIntegration, configuration: { owner: 42, repo: "hello" } }, tag: "AutomationInvalid", code: "invalid-contract" },
+      { integration: { ...githubIntegration, configuration: { owner: "octo" } }, tag: "AutomationInvalid", code: "invalid-contract" },
+      { integration: { ...githubIntegration, configuration: { owner: "octo", repo: "hello", extra: true } }, tag: "AutomationInvalid", code: "invalid-contract" },
+      { integration: { ...githubIntegration, definition: { id: "unknown:integration", version: 99 } }, tag: "AutomationNotFound", code: "missing-definition" },
+      { integration: { ...githubIntegration, definition: { id: "github:integration", version: 99 } }, tag: "AutomationNotFound", code: "missing-definition" },
+      { integration: { ...githubIntegration, definition: githubTemplateReference }, tag: "AutomationNotFound", code: "missing-definition" }
+    ]
+    for (const { integration, tag, code } of invalid) {
+      expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration }).pipe(Effect.flip)).toMatchObject({ _tag: tag, code })
+      expect(yield* sql<{ n: number }>`SELECT count(*) n FROM automation_integrations`).toEqual([{ n: 0 }])
+      expect(yield* sql<{ n: number }>`SELECT count(*) n FROM events`).toEqual([{ n: 0 }])
+    }
+  }).pipe(Effect.provide(makeLayers())))
+
+  it.live("preserves integration state and events when invalid or stale updates fail", () => Effect.gen(function*() {
+    const sql = yield* SqlClient
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: githubIntegration })).toEqual({ version: 1 })
+    const beforeEvents = yield* sql<{ n: number }>`SELECT count(*) n FROM events`
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: { ...githubIntegration, configuration: { owner: 42, repo: "hello" } }, expectedVersion: 1 }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationInvalid", code: "invalid-contract" })
+    const updated = { ...githubIntegration, configuration: { owner: "octo", repo: "updated" } }
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: updated, expectedVersion: 0 }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationConflict", code: "conflict" })
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "github" })).toEqual({ configuration: githubIntegration, version: 1 })
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM events`).toEqual(beforeEvents)
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: updated, expectedVersion: 1 })).toEqual({ version: 2 })
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "github" })).toEqual({ configuration: updated, version: 2 })
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: updated })).toEqual({ version: 2 })
+  }).pipe(Effect.provide(makeLayers())))
+
+  it.live("roundtrips encoded configuration for registered extension codecs", () => Effect.gen(function*() {
+    const sql = yield* SqlClient
+    const registry = yield* AutomationRegistryService
+    const definition = defineIntegration({
+      definition: { id: "extension:integration", version: 7 }, title: "Registered extension", capabilities: [],
+      configurationSchema: Schema.Struct({ count: SampleCount })
+    })
+    yield* registry.register({ integrations: [definition], triggers: [], actions: [], routines: [] })
+    const integration = { ...githubIntegration, id: "extension", definition: definition.definition, configuration: { count: "2" }, credentials: {} }
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration })).toEqual({ version: 1 })
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "extension" })).toEqual({ configuration: integration, version: 1 })
+    const beforeEvents = yield* sql<{ n: number }>`SELECT count(*) n FROM events`
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: { ...integration, configuration: { count: 2 } }, expectedVersion: 1 }).pipe(Effect.flip)).toMatchObject({ _tag: "AutomationInvalid", code: "invalid-contract" })
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "extension" })).toEqual({ configuration: integration, version: 1 })
+    expect(yield* sql<{ n: number }>`SELECT count(*) n FROM events`).toEqual(beforeEvents)
+    const updated = { ...integration, configuration: { count: "3" } }
+    expect(yield* automationHandlers.AutomationIntegrationPut({ scope, integration: updated, expectedVersion: 1 })).toEqual({ version: 2 })
+    expect(yield* automationHandlers.AutomationIntegrationGet({ scope, integrationId: "extension" })).toEqual({ configuration: updated, version: 2 })
+  }).pipe(Effect.provide(makeLayers())))
+
   it.live("runs routine CRUD lifecycle through RPC with redacted credentials", () => Effect.gen(function*() {
     const createInput = yield* triagePayload
     yield* automationHandlers.AutomationCredentialPut({ scope, credentialId: "github-token", secret })
