@@ -16,11 +16,14 @@ import {
   buildGithubClassificationProcess, githubIntegrationReference, githubLabelActionReference,
   githubTemplateReference, githubTriggerReference, makeGithubExtension
 } from "@expand/contracts/automation/github"
+import { buildGmailClassificationProcess, emailTriggerReference, gmailTemplateReference, makeGmailExtension } from "@expand/contracts/automation/gmail"
+import { buildEmailClassificationRequest } from "../../automation/email-classification.js"
 import { makeSampleExtension } from "../fixtures/automation-sample-extension.js"
 
 const registry = new AutomationRegistry()
 Effect.runSync(Effect.gen(function*() {
   yield* registry.register(makeGithubExtension().extension)
+  yield* registry.register(makeGmailExtension().extension)
   yield* registry.register(makeSampleExtension().extension)
 }))
 const Ready = DatabaseReadyLayer.pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" })))
@@ -42,6 +45,19 @@ const classification = {
   labels: { bug: "type: bug", question: "type: question" },
   notifications: { onMatch: true, onNoMatch: false }
 }
+const gmailIntegration = {
+  schemaVersion: 1, kind: "integration-configuration", id: "gmail",
+  definition: { id: "gmail:integration", version: 1 },
+  configuration: { mailbox: "me" }, credentials: {}
+}
+const emailClassification = {
+  categories: ["receipt"], labels: { receipt: "Label_receipt" }, moves: { receipt: "Label_receipt" },
+  notifications: { onMatch: true, onNoMatch: false }
+}
+const emailInput = Effect.gen(function*() {
+  const process = yield* buildGmailClassificationProcess("gmail", emailClassification)
+  return { routineId: "email", template: gmailTemplateReference, configuration: emailClassification, integrations: [gmailIntegration], process }
+})
 const seedCredentials = Effect.gen(function*() {
   const credentials = yield* CredentialRepository
   yield* credentials.putCredential(scope, "github-token", secretBytes, 0)
@@ -112,6 +128,91 @@ describe("routine lifecycle", () => {
 })
 
 describe("routine validation", () => {
+  it.live("rejects Gmail classification mismatches before create or edit writes", () => Effect.gen(function*() {
+    const routines = yield* RoutineService
+    const sql = yield* SqlClient
+    const config = yield* ConfigurationRepository
+    const base = yield* emailInput
+    const { template: _template, ...custom } = base
+    const step = base.process.actions["receipt"]![0]!
+    const invalidProcesses = [
+      { ...base.process, actions: { receipt: [{ ...step, bindings: { ...step.bindings, moveTo: { kind: "literal", value: "TRASH" } } }] } },
+      { ...base.process, actions: { receipt: [{ ...step, bindings: { ...step.bindings, label: { kind: "literal", value: "Label_wrong" } } }] } },
+      { ...base.process, actions: { receipt: [{ ...step, bindings: { ...step.bindings, messageId: { kind: "literal", value: "another-message" } } }] } },
+      { ...base.process, actions: { receipt: [step, { ...step, id: "extra-organize" }] } }
+    ]
+    for (const input of [base, custom]) {
+      for (const process of invalidProcesses) {
+        expectFailure(yield* Effect.exit(routines.create(scope, { ...input, process })), "invalid-reference")
+        expect(yield* routines.get(scope, "email")).toBeNull()
+      }
+    }
+    expect(yield* revisionCount).toEqual([{ n: 0 }])
+    expect(yield* sql`SELECT count(*) n FROM automation_routines`).toEqual([{ n: 0 }])
+    expect(yield* sql`SELECT count(*) n FROM automation_integrations`).toEqual([{ n: 0 }])
+    yield* routines.create(scope, base)
+    const created = (yield* routines.get(scope, "email"))!
+    for (const input of [base, custom]) {
+      for (const process of invalidProcesses) {
+        expectFailure(yield* Effect.exit(routines.edit(scope, "email", { ...input, process })), "invalid-reference")
+        expect(yield* routines.get(scope, "email")).toEqual(created)
+      }
+    }
+    expect(yield* config.getRevision(scope, "email", 2)).toBeNull()
+    expect(yield* revisionCount).toEqual([{ n: 1 }])
+    expect(yield* sql`SELECT count(*) n FROM automation_integrations`).toEqual([{ n: 1 }])
+  }).pipe(Effect.provide(All)))
+  it.live("keeps the Gmail template on its declared email trigger", () => Effect.gen(function*() {
+    const routines = yield* RoutineService
+    const base = yield* emailInput
+    const input = {
+      ...base,
+      integrations: [{ schemaVersion: 1, kind: "integration-configuration", id: "mail", definition: { id: "sample:mail", version: 1 }, configuration: { mailbox: "inbox" }, credentials: {} }],
+      process: {
+        schemaVersion: 1, kind: "process",
+        trigger: { definition: { id: "sample:received", version: 1 }, integration: { id: "mail", definition: { id: "sample:mail", version: 1 } }, configuration: {} },
+        actions: { triggered: [] }
+      }
+    }
+    expectFailure(yield* Effect.exit(routines.create(scope, input)), "invalid-reference")
+    expect(yield* routines.get(scope, "email")).toBeNull()
+    yield* routines.create(scope, base)
+    const created = yield* routines.get(scope, "email")
+    expectFailure(yield* Effect.exit(routines.edit(scope, "email", input)), "invalid-reference")
+    expect(yield* routines.get(scope, "email")).toEqual(created)
+    expect(yield* revisionCount).toEqual([{ n: 1 }])
+  }).pipe(Effect.provide(All)))
+  it.live("creates and edits Gmail classifications that execution can validate", () => Effect.gen(function*() {
+    const routines = yield* RoutineService
+    const base = yield* emailInput
+    expect(yield* routines.create(scope, base)).toBe(1)
+    const revised = { ...emailClassification, moves: { receipt: "INBOX" } }
+    expect(yield* routines.edit(scope, "email", { ...base, configuration: revised, process: yield* buildGmailClassificationProcess("gmail", revised) })).toBe(2)
+    const saved = (yield* routines.get(scope, "email"))!
+    expect(saved.head).toEqual({ revision: 2, version: 2, status: "enabled" })
+    const request = yield* buildEmailClassificationRequest({ configuration: saved.configuration, email: { messageId: "message", threadId: "thread", from: "shop@example.com", subject: "Receipt", body: "Paid" } })
+    expect(request.classification.moves).toEqual({ receipt: "INBOX" })
+    expect(request.request.outcomes).toEqual(["receipt"])
+    const { template: _template, ...custom } = base
+    expect(yield* routines.create(scope, { ...custom, routineId: "custom-email-classification" })).toBe(1)
+  }).pipe(Effect.provide(All)))
+  it.live("keeps generic email action processes editable without classification settings", () => Effect.gen(function*() {
+    const routines = yield* RoutineService
+    const base = yield* emailInput
+    const custom = {
+      configuration: {}, integrations: [gmailIntegration],
+      process: {
+        schemaVersion: 1, kind: "process",
+        trigger: { definition: emailTriggerReference, integration: { id: "gmail", definition: gmailIntegration.definition }, configuration: {} },
+        actions: { triggered: base.process.actions["receipt"] }
+      }
+    }
+    expect(yield* routines.create(scope, { routineId: "custom-email", ...custom })).toBe(1)
+    expect(yield* routines.edit(scope, "custom-email", custom)).toBe(2)
+    const saved = (yield* routines.get(scope, "custom-email"))!
+    const resolved = yield* registry.resolveSelectedActions(saved.configuration, { messageId: "message", threadId: "thread" })
+    expect(resolved.actions.map((action) => action.arguments)).toEqual([{ messageId: "message", label: "Label_receipt", moveTo: "Label_receipt" }])
+  }).pipe(Effect.provide(All)))
   it.live("rejects invalid triggers actions loops and classification fields before any write", () => Effect.gen(function*() {
     const routines = yield* RoutineService
     const sql = yield* SqlClient
