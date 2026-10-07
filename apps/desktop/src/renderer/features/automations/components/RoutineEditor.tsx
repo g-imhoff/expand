@@ -11,6 +11,7 @@ import {
   useRoutineSave,
   useRoutineStatus
 } from "@expand/desktop/renderer/features/automations/data/use-routine-editor"
+import { useCredentialStatuses } from "@expand/desktop/renderer/features/automations/data/use-integrations"
 import {
   abstainChoice,
   actionArgumentNames,
@@ -36,6 +37,11 @@ import {
   type RoutineEditorForm
 } from "@expand/desktop/renderer/features/automations/model/routine-editor"
 import { describeAutomationError } from "@expand/desktop/renderer/features/automations/model/run-history"
+import { FeatureCredentialSeam } from "@expand/desktop/renderer/features/settings/components/FeatureCredentialSeam"
+import {
+  automationScopeForProject,
+  githubCredentialId
+} from "@expand/desktop/renderer/features/automations/model/integration-messages"
 
 export interface RoutineEditorProps {
   readonly projectId: string
@@ -251,7 +257,7 @@ const RoutineEditorSession = ({ projectId, routineId }: RoutineEditorProps) => {
           </select>
         </div>
       </section>
-      <IntegrationSection form={form} catalog={catalog} onChange={updateForm} />
+      <IntegrationSection form={form} catalog={catalog} projectId={projectId} onChange={updateForm} />
       <section aria-label="Jev decision" className="mt-8">
         <h2 className="text-lg font-semibold">Jev decision</h2>
         <label className="mt-3 flex items-center gap-2 text-sm">
@@ -410,15 +416,19 @@ const RoutineEditorSession = ({ projectId, routineId }: RoutineEditorProps) => {
 const IntegrationSection = ({
   form,
   catalog,
+  projectId,
   onChange
 }: {
   readonly form: RoutineEditorForm
   readonly catalog: Catalog
+  readonly projectId: string
   readonly onChange: (form: RoutineEditorForm) => void
 }) => {
+  const credentials = useCredentialStatuses(automationScopeForProject(projectId))
   const trigger = form.triggerKey === "" ? undefined : triggerForKey(catalog, form.triggerKey)
   const integration = trigger === undefined ? undefined : integrationForTrigger(catalog, trigger)
   const showRepository = trigger?.definition.id === "github:issue-opened" || integration?.definition.id === "github:integration"
+  const githubConnected = credentials.credentials?.some((credential) => credential.credentialId === githubCredentialId && credential.configured) ?? false
   return (
     <section aria-label="Integration" className="mt-8">
       <h2 className="text-lg font-semibold">Integration</h2>
@@ -438,26 +448,37 @@ const IntegrationSection = ({
           />
         </div>
         {showRepository && (
-          <div>
-            <Label htmlFor="routine-editor-owner">Repository owner</Label>
-            <Input
-              id="routine-editor-owner"
-              value={form.owner}
-              onChange={(event) => onChange({ ...form, owner: event.target.value })}
-              autoComplete="off"
-            />
-          </div>
-        )}
-        {showRepository && (
-          <div>
-            <Label htmlFor="routine-editor-repo">Repository name</Label>
-            <Input
-              id="routine-editor-repo"
-              value={form.repo}
-              onChange={(event) => onChange({ ...form, repo: event.target.value })}
-              autoComplete="off"
-            />
-          </div>
+          <FeatureCredentialSeam
+            seam={{ connected: githubConnected, featureName: "GitHub", returnTarget: "routine-editor" }}
+            onOpenSettings={() => {
+              window.location.hash = "#/settings"
+            }}
+          >
+            {(disabled) => (
+              <>
+                <div>
+                  <Label htmlFor="routine-editor-owner">Repository owner</Label>
+                  <Input
+                    id="routine-editor-owner"
+                    value={form.owner}
+                    disabled={disabled}
+                    onChange={(event) => onChange({ ...form, owner: event.target.value })}
+                    autoComplete="off"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="routine-editor-repo">Repository name</Label>
+                  <Input
+                    id="routine-editor-repo"
+                    value={form.repo}
+                    disabled={disabled}
+                    onChange={(event) => onChange({ ...form, repo: event.target.value })}
+                    autoComplete="off"
+                  />
+                </div>
+              </>
+            )}
+          </FeatureCredentialSeam>
         )}
       </div>
     </section>

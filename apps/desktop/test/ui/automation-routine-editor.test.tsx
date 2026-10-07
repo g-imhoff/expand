@@ -23,7 +23,7 @@ const scope = { ownerId: "local", projectId }
 const renderEditor = (rpc: AutomationRpcApi, routineId: string | undefined) =>
   renderScoped(
     <RendererRunnerProvider value={{ start: startRendererRoot }}>
-      <ProjectContextProvider value={makeFakeProjectContext([fakeProject({ id: projectId, name: "alpha" })])}>
+      <ProjectContextProvider value={makeFakeProjectContext([fakeProject({ id: projectId, name: "alpha" })], {}, rpc)}>
         <AutomationContextProvider value={rpc}>
           <RoutineEditor projectId={projectId} routineId={routineId} />
         </AutomationContextProvider>
@@ -223,7 +223,8 @@ const automationRpc = (over: Partial<AutomationRpcApi>): AutomationRpcApi =>
     integrationStatus: unusedEffect("integrationStatus"),
     putCredential: unusedEffect("putCredential"),
     removeCredential: unusedEffect("removeCredential"),
-    listCredentials: unusedEffect("listCredentials"),
+    listCredentials: () =>
+      Effect.succeed({ credentials: [{ credentialId: "github-token", version: 1, configured: true as const }] }),
     preview: unusedEffect("preview"),
     listRuns: unusedEffect("listRuns"),
     getRun: unusedEffect("getRun"),
@@ -598,5 +599,27 @@ describe("routine editor", () => {
         )
         yield* Effect.tryPromise(() => screen.findByRole("heading", { name: heading }))
       }
+    })))
+})
+
+describe("routine editor credential seam", () => {
+  it.effect("disables the repository fields and links to settings when disconnected", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const rpc = automationRpc({
+        catalog: () => Effect.succeed(catalogStub),
+        listCredentials: () => Effect.succeed({ credentials: [] })
+      })
+      yield* renderEditor(rpc, undefined)
+      yield* Effect.tryPromise(() => screen.findByLabelText("Start from a template"))
+      fireEvent.change(screen.getByLabelText("Start from a template"), {
+        target: { value: "github:issue-classification@1" }
+      })
+      fireEvent.change(screen.getByLabelText("Trigger", { selector: "select" }), {
+        target: { value: "github:issue-opened@1" }
+      })
+      const owner = yield* Effect.tryPromise(() => screen.findByLabelText("Repository owner"))
+      expect((owner as HTMLInputElement).disabled).toBe(true)
+      fireEvent.click(screen.getByRole("button", { name: "Open settings" }))
+      expect(window.location.hash).toBe("#/settings")
     })))
 })

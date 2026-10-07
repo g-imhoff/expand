@@ -8,6 +8,7 @@ import { AutomationIntegrations } from "@expand/desktop/renderer/features/automa
 import { AutomationRoutineSetup } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineSetup"
 import { AutomationRoutineEdit } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineEdit"
 import { AutomationHistory } from "@expand/desktop/renderer/features/automations/pages/AutomationHistory"
+import { SettingsPage } from "@expand/desktop/renderer/features/settings/pages/SettingsPage"
 
 export const createAppRouter = (history: RouterHistory = createHashHistory()) => {
   const rootRoute = createRootRoute({ component: RootLayout })
@@ -29,10 +30,12 @@ export const createAppRouter = (history: RouterHistory = createHashHistory()) =>
   const routineEditRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/$routineId", component: AutomationRoutineEdit })
   const routineTestRoute = createRoute({ getParentRoute: () => automationRoute, path: "routines/$routineId/test", component: AutomationRoutineEdit })
   const historyRoute = createRoute({ getParentRoute: () => automationRoute, path: "history", component: AutomationHistory })
+  const settingsRoute = createRoute({ getParentRoute: () => rootRoute, path: "/settings", component: SettingsPage })
 
   const routeTree = rootRoute.addChildren([
     indexRoute,
     projectRoute,
+    settingsRoute,
     automationRoute.addChildren([overviewRoute, integrationsRoute, routineSetupRoute, routineEditRoute, routineTestRoute, historyRoute])
   ])
   return createRouter({ routeTree, history })
