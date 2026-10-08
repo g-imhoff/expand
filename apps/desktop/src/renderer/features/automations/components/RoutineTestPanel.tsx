@@ -64,7 +64,7 @@ export const RoutineTestPanel = ({
     <section aria-label="Test preview" className="mt-8">
       <h2 className="text-lg font-semibold">Test preview</h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Send a sample issue through preview. Preview only proposes actions: nothing is applied or stored.
+        Send a test issue through preview. Preview only proposes actions: nothing is applied or stored.
       </p>
       <div className="mt-3 grid max-w-xl gap-3">
         <div>

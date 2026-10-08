@@ -1,5 +1,5 @@
 import { Context, Effect, Layer } from "effect"
-import { IntegrationConfiguration, LocalId, PersonalScope } from "@expand/contracts/automation"
+import { globalCredentialScope, IntegrationConfiguration, LocalId, PersonalScope } from "@expand/contracts/automation"
 import { SqlClient } from "effect/sql/SqlClient"
 import { DatabaseReady } from "../migrations/sqlite.js"
 import { decode, guard, protectStorage, StorageError } from "./persistence-models.js"
@@ -38,6 +38,13 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
       yield* guard(row.id === credentialId && Number.isSafeInteger(row.version) && row.version > 0 && row.secret instanceof Uint8Array)
       return { id: row.id, version: row.version, secret: row.secret }
     })
+    const readEffectiveRow = Effect.fn("Credentials.readEffectiveRow")(function* (scope: PersonalScope, credentialId: string) {
+      yield* decode(PersonalScope, scope)
+      const generalScope = globalCredentialScope(scope.ownerId)
+      const shared = yield* readRow(generalScope, credentialId)
+      if (shared !== null || scope.projectId === generalScope.projectId) return shared
+      return yield* readRow(scope, credentialId)
+    })
     const putCredential = (scope: PersonalScope, credentialId: string, secret: Uint8Array, expectedVersion: number) => protectStorage(sql.withTransaction(Effect.gen(function* () {
       yield* decode(PersonalScope, scope)
       yield* decode(LocalId, credentialId)
@@ -73,24 +80,29 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
     const getStatus = (scope: PersonalScope, credentialId: string) => protectStorage(Effect.gen(function* () {
       yield* decode(PersonalScope, scope)
       yield* decode(LocalId, credentialId)
-      const rows = yield* sql<{ id: string; version: number }>`SELECT id, version FROM automation_credentials WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${credentialId}`
+      const generalScope = globalCredentialScope(scope.ownerId)
+      const rows = yield* sql<{ id: string; version: number }>`SELECT id, version FROM automation_credentials WHERE owner_id=${scope.ownerId} AND (project_id=${generalScope.projectId} OR project_id=${scope.projectId}) AND id=${credentialId} ORDER BY CASE WHEN project_id=${generalScope.projectId} THEN 0 ELSE 1 END LIMIT 1`
       if (!rows[0]) return null
       yield* guard(rows[0].id === credentialId && Number.isSafeInteger(rows[0].version) && rows[0].version > 0)
       return { credentialId: rows[0].id, version: rows[0].version, configured: true as const }
     }))
     const listStatuses = (scope: PersonalScope) => protectStorage(Effect.gen(function* () {
       yield* decode(PersonalScope, scope)
-      const rows = yield* sql<{ id: string; version: number }>`SELECT id, version FROM automation_credentials WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} ORDER BY id`
+      const generalScope = globalCredentialScope(scope.ownerId)
+      const rows = yield* sql<{ id: string; version: number }>`SELECT id, version FROM automation_credentials WHERE owner_id=${scope.ownerId} AND (project_id=${generalScope.projectId} OR project_id=${scope.projectId}) ORDER BY id, CASE WHEN project_id=${generalScope.projectId} THEN 0 ELSE 1 END`
       const statuses: Array<CredentialStatus> = []
+      const seen = new Set<string>()
       for (const row of rows) {
         yield* decode(LocalId, row.id)
         yield* guard(Number.isSafeInteger(row.version) && row.version > 0)
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
         statuses.push({ credentialId: row.id, version: row.version, configured: true as const })
       }
       return statuses
     }))
     const resolveSecret = (scope: PersonalScope, credentialId: string) => protectStorage(Effect.gen(function* () {
-      const row = yield* readRow(scope, credentialId)
+      const row = yield* readEffectiveRow(scope, credentialId)
       if (!row) return null
       return new Uint8Array(row.secret)
     }))
@@ -100,12 +112,9 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
       const credentials: Record<string, CredentialStatus> = {}
       const missing: Array<string> = []
       for (const [slot, reference] of Object.entries(value.credentials)) {
-        const rows = yield* sql<{ id: string; version: number }>`SELECT id, version FROM automation_credentials WHERE owner_id=${scope.ownerId} AND project_id=${scope.projectId} AND id=${reference.credentialId}`
-        if (!rows[0]) missing.push(slot)
-        else {
-          yield* guard(rows[0].id === reference.credentialId && Number.isSafeInteger(rows[0].version) && rows[0].version > 0)
-          credentials[slot] = { credentialId: rows[0].id, version: rows[0].version, configured: true as const }
-        }
+        const status = yield* getStatus(scope, reference.credentialId)
+        if (status === null) missing.push(slot)
+        else credentials[slot] = status
       }
       return { integrationId: value.id, configured: missing.length === 0, missing, credentials }
     }))
@@ -114,7 +123,7 @@ export class CredentialRepository extends Context.Service<CredentialRepository, 
       const value = yield* decode(IntegrationConfiguration, integration)
       const secrets: Record<string, Uint8Array> = {}
       for (const [slot, reference] of Object.entries(value.credentials)) {
-        const row = yield* readRow(scope, reference.credentialId)
+        const row = yield* readEffectiveRow(scope, reference.credentialId)
         yield* guard(row !== null, "missing")
         secrets[slot] = new Uint8Array(row!.secret)
       }

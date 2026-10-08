@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
 import { Cause } from "effect"
 import { BootError } from "@expand/desktop/renderer/app/BootError"
+import { initializeTheme } from "@expand/desktop/renderer/app/theme"
 import { ownRendererRoot } from "@expand/desktop/renderer/app/root"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { startRendererRoot } from "@expand/desktop/renderer/app/runner"
@@ -17,6 +18,7 @@ interface RendererHotContext {
   readonly dispose: (callback: () => void) => void
 }
 
+initializeTheme()
 const root = createRoot(document.getElementById("root")!)
 const retry = () => window.location.reload()
 const onDispose = (dispose: () => void): (() => void) => {

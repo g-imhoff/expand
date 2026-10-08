@@ -84,7 +84,7 @@ describe("RootLayout conversation preview", () => {
 
     dom.fireEvent.click(dom.screen.getByRole("button", { name: "Select sample" }))
     expect(dom.screen.queryByTestId("route-content")).toBeNull()
-    expect(dom.screen.getByText("Sample conversation preview")).toBeDefined()
+    expect(dom.screen.getByText("Conversation preview")).toBeDefined()
     expect(dom.screen.getByRole("heading", { name: "Sidebar three-zone shape" })).toBeDefined()
     expect(dom.screen.getByText("Rail holds devices, the panel holds the project switcher and the worktree inbox.")).toBeDefined()
     expect(dom.screen.getByRole("button", { name: "Select sample" }).getAttribute("aria-current")).toBe("true")
@@ -92,7 +92,7 @@ describe("RootLayout conversation preview", () => {
 
     dom.fireEvent.click(dom.screen.getByRole("button", { name: "Back to workspace" }))
     expect(dom.screen.getByTestId("route-content")).toBeDefined()
-    expect(dom.screen.queryByText("Sample conversation preview")).toBeNull()
+    expect(dom.screen.queryByText("Conversation preview")).toBeNull()
     expect(dom.screen.getByRole("button", { name: "Select sample" }).getAttribute("aria-current")).toBeNull()
   })
 
@@ -114,19 +114,19 @@ describe("RootLayout conversation preview", () => {
     expect(dom.screen.getByTestId("route-content")).toBeDefined()
     route.pathname = "/p/alpha"
     rendered.rerender(<RootLayout />)
-    expect(dom.screen.queryByText("Sample conversation preview")).toBeNull()
+    expect(dom.screen.queryByText("Conversation preview")).toBeNull()
   })
 
   it("clears the preview when the palette opens the current project without changing the route", () => {
     dom.render(<RootLayout />)
 
     dom.fireEvent.click(dom.screen.getByRole("button", { name: "Select sample" }))
-    expect(dom.screen.getByText("Sample conversation preview")).toBeDefined()
+    expect(dom.screen.getByText("Conversation preview")).toBeDefined()
 
     dom.fireEvent.click(dom.screen.getByRole("button", { name: "Open current project from palette" }))
 
     expect(route.pathname).toBe("/p/alpha")
     expect(dom.screen.getByTestId("route-content")).toBeDefined()
-    expect(dom.screen.queryByText("Sample conversation preview")).toBeNull()
+    expect(dom.screen.queryByText("Conversation preview")).toBeNull()
   })
 })

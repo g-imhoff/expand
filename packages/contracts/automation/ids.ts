@@ -7,6 +7,7 @@ export const DefinitionReference = Schema.Struct({ id: DefinitionId, version: Po
 export type DefinitionReference = typeof DefinitionReference.Type
 export const PersonalScope = Schema.Struct({ ownerId: LocalId, projectId: LocalId })
 export type PersonalScope = typeof PersonalScope.Type
+export const globalCredentialScope = (ownerId: string): PersonalScope => ({ ownerId, projectId: "__global__" })
 export const ConfigurationReference = Schema.Struct({ routineId: LocalId, revision: PositiveVersion })
 export type ConfigurationReference = typeof ConfigurationReference.Type
 export const IntegrationReference = Schema.Struct({ id: LocalId, definition: DefinitionReference })

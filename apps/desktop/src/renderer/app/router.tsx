@@ -3,6 +3,7 @@ import { ProjectsView } from "@expand/desktop/renderer/features/projects/pages/P
 import { Workspace } from "@expand/desktop/renderer/features/projects/pages/Workspace"
 import { RootLayout } from "@expand/desktop/renderer/app/shell/root-layout"
 import { AutomationLayout } from "@expand/desktop/renderer/features/automations/components/AutomationLayout"
+import { AutomationHome } from "@expand/desktop/renderer/features/automations/pages/AutomationHome"
 import { AutomationOverview } from "@expand/desktop/renderer/features/automations/pages/AutomationOverview"
 import { AutomationIntegrations } from "@expand/desktop/renderer/features/automations/pages/AutomationIntegrations"
 import { AutomationRoutineSetup } from "@expand/desktop/renderer/features/automations/pages/AutomationRoutineSetup"
@@ -19,6 +20,7 @@ export const createAppRouter = (history: RouterHistory = createHashHistory()) =>
     component: Workspace
   })
 
+  const automationHomeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/automations", component: AutomationHome })
   const automationRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/p/$projectId/automations",
@@ -36,6 +38,7 @@ export const createAppRouter = (history: RouterHistory = createHashHistory()) =>
     indexRoute,
     projectRoute,
     settingsRoute,
+    automationHomeRoute,
     automationRoute.addChildren([overviewRoute, integrationsRoute, routineSetupRoute, routineEditRoute, routineTestRoute, historyRoute])
   ])
   return createRouter({ routeTree, history })

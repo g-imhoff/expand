@@ -115,7 +115,7 @@ describe("production automation routes", () => {
       yield* expectPath(router, `/p/${beta}/automations${suffix}`)
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: label }))
       expect(screen.getByText("beta-project", { selector: "p" })).toBeDefined()
-      expect(screen.queryByText("Sample conversation preview")).toBeNull()
+      expect(screen.queryByText("Conversation preview")).toBeNull()
     })))
 
   it.effect("keeps the full conversation article and returns to the prior automation section", () =>
@@ -140,7 +140,7 @@ describe("production automation routes", () => {
       selectConversation()
       fireEvent.click(screen.getByRole("button", { name: "Automations" }))
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Overview" }))
-      expect(screen.queryByText("Sample conversation preview")).toBeNull()
+      expect(screen.queryByText("Conversation preview")).toBeNull()
       expect(router.state.location.pathname).toBe(`/p/${alpha}/automations`)
     })))
 
@@ -149,13 +149,13 @@ describe("production automation routes", () => {
       const { router } = yield* mountApp(`/p/${alpha}/automations/integrations`)
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Integrations" }))
       selectConversation()
-      const device = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      const device = screen.getByRole("button", { name: "Switch device, active: This machine" })
       fireEvent.pointerDown(device)
       fireEvent.click(device)
       fireEvent.click(screen.getByRole("menuitem", { name: /Field laptop/ }))
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Integrations" }))
       expect(router.state.location.pathname).toBe(`/p/${alpha}/automations/integrations`)
-      expect(screen.getByRole("button", { name: "Switch sample device, active: Field laptop" })).toBeDefined()
+      expect(screen.getByRole("button", { name: "Switch device, active: Field laptop" })).toBeDefined()
     })))
 
   it.effect("keeps command palette project opening directed to workspace", () =>
@@ -168,7 +168,7 @@ describe("production automation routes", () => {
       fireEvent.click(within(dialog).getByText("alpha-project", { exact: true }))
       yield* expectPath(router, `/p/${alpha}`)
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "alpha-project" }))
-      expect(screen.queryByText("Sample conversation preview")).toBeNull()
+      expect(screen.queryByText("Conversation preview")).toBeNull()
     })))
 
   it.effect("decodes encoded project IDs and names archived projects", () =>
@@ -181,36 +181,67 @@ describe("production automation routes", () => {
       expect(screen.getByRole("button", { name: "Active project: alpha-project" })).toBeDefined()
     })))
 
-  it.effect("shows unknown and deleted projects without enabled automation navigation", () =>
+  it.effect("opens the automation entry page from an unknown or deleted project", () =>
     Effect.scoped(Effect.gen(function* () {
       const { router, context } = yield* mountApp("/p/missing/automations/history")
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Unknown project" }))
       expect(screen.getByRole("link", { name: "Projects" })).toBeDefined()
       expect(screen.queryByRole("navigation", { name: "Automation pages" })).toBeNull()
       const rail = screen.getByRole("button", { name: "Automations" })
-      expect(rail.getAttribute("aria-disabled")).toBe("true")
-      expect(rail.getAttribute("aria-current")).toBeNull()
+      expect(rail.getAttribute("aria-disabled")).toBeNull()
       fireEvent.click(rail)
-      expect(router.state.location.pathname).toBe("/p/missing/automations/history")
+      yield* expectPath(router, "/automations")
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Automations" }))
       yield* Effect.tryPromise(() => router.navigate({ to: "/p/$projectId/automations", params: { projectId: alpha } }))
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Overview" }))
       context.store.setState({ projects: [], seq: 1 })
       yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Unknown project" }))
       expect(screen.queryByRole("navigation", { name: "Automation pages" })).toBeNull()
-      expect(rail.getAttribute("aria-disabled")).toBe("true")
-      expect(rail.getAttribute("aria-current")).toBeNull()
+      expect(rail.getAttribute("aria-disabled")).toBeNull()
+      fireEvent.click(rail)
+      yield* expectPath(router, "/automations")
+      yield* Effect.tryPromise(() => screen.findByRole("link", { name: "Create a project" }))
     })))
 
-  it.effect("keeps the no-project control focusable with an explanation and no route mutation", () =>
+  it.effect("opens automations from the project list and enters a project overview", () =>
     Effect.scoped(Effect.gen(function* () {
       const { router } = yield* mountApp("/")
       const button = screen.getByRole("button", { name: "Automations" })
       button.focus()
       expect(document.activeElement).toBe(button)
-      expect(button.getAttribute("aria-disabled")).toBe("true")
-      expect((yield* Effect.tryPromise(() => screen.findByRole("tooltip"))).textContent).toBe("Select a project to open automations")
+      expect(button.getAttribute("aria-disabled")).toBeNull()
       fireEvent.click(button)
-      expect(router.state.location.pathname).toBe("/")
+      yield* expectPath(router, "/automations")
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Automations" }))
+      expect(button.getAttribute("aria-current")).toBe("page")
+      expect(screen.getByRole("button", { name: "Select a project" })).toBeDefined()
+      fireEvent.click(screen.getByRole("link", { name: "Open automations for beta-project" }))
+      yield* expectPath(router, `/p/${beta}/automations`)
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Overview" }))
+    })))
+
+  it.effect("opens the direct global URL and keeps sidebar project selection in automations", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const { router } = yield* mountApp("/automations")
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Automations" }))
+      const trigger = screen.getByRole("button", { name: "Select a project" })
+      fireEvent.pointerDown(trigger)
+      fireEvent.click(trigger)
+      fireEvent.click(screen.getByRole("menuitem", { name: /alpha-project/ }))
+      yield* expectPath(router, `/p/${alpha}/automations`)
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: "Overview" }))
+    })))
+
+  it.effect("keeps the global entry usable with no projects", () =>
+    Effect.scoped(Effect.gen(function* () {
+      const { router, context } = yield* mountApp("/")
+      context.store.setState({ projects: [], seq: 1 })
+      fireEvent.click(screen.getByRole("button", { name: "Automations" }))
+      yield* expectPath(router, "/automations")
+      const create = yield* Effect.tryPromise(() => screen.findByRole("link", { name: "Create a project" }))
+      fireEvent.click(create)
+      yield* expectPath(router, "/")
+      yield* Effect.tryPromise(() => screen.findByRole("heading", { name: /Projects \(0\)/ }))
     })))
 
   it.effect.each([`/p/${alpha}/automations-other`, `/p/${alpha}/automations/history-extra`])("does not mark unrelated path %s active", (path) =>

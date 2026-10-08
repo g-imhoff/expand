@@ -1,4 +1,4 @@
-export { DefinitionId, PositiveVersion, LocalId, DefinitionReference, PersonalScope, ConfigurationReference, IntegrationReference, CredentialReference, definitionKey, sameDefinition } from "./automation/ids.js"
+export { DefinitionId, PositiveVersion, LocalId, DefinitionReference, PersonalScope, globalCredentialScope, ConfigurationReference, IntegrationReference, CredentialReference, definitionKey, sameDefinition } from "./automation/ids.js"
 export { AutomationError, JsonValue, EditorSchema, IntegrationConfiguration, IntegrationDescriptor, TriggerDescriptor, ActionDescriptor, RoutineDescriptor, DefinitionDescriptor, Catalog, AutomationFailure, InvocationContext, isJsonValue, decodeJson, editorSchema } from "./automation/descriptors.js"
 export { Binding, fieldBinding, literalBinding, ActionStep, JevDecision, ProcessDefinition, RoutineConfiguration, validateProcess, deriveSelectedActions, resolveBindings, resolveActionArguments } from "./automation/process.js"
 export type { BindingSources, FieldPath, ActionSelection } from "./automation/process.js"

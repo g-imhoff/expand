@@ -1,10 +1,9 @@
-import type { CredentialStatus, GithubConnectionStatus } from "@expand/contracts/rpc/automation-schemas"
+import { globalCredentialScope } from "@expand/contracts/automation"
+import type { CredentialStatus } from "@expand/contracts/rpc/automation-schemas"
 import {
   useCredentialStatuses,
-  useGithubStatusCheck,
   useZenConnect
 } from "@expand/desktop/renderer/features/automations/data/use-integrations"
-import { automationScopeForProject } from "@expand/desktop/renderer/features/automations/model/integration-messages"
 import type { ConnectionSettingsModel } from "@expand/desktop/renderer/features/settings/model/settings-contract"
 
 export interface ConnectionSettingsBinding {
@@ -14,33 +13,22 @@ export interface ConnectionSettingsBinding {
   readonly retry: () => void
 }
 
-export const useConnectionSettings = (projectId: string): ConnectionSettingsBinding => {
-  const scope = automationScopeForProject(projectId)
+export const useConnectionSettings = (): ConnectionSettingsBinding => {
+  const scope = globalCredentialScope("local")
   const credentials = useCredentialStatuses(scope)
-  const check = useGithubStatusCheck(scope)
-  const zen = useZenConnect(scope)
+  const zenVersion = credentials.credentials?.find((credential) => credential.credentialId === "zen-api-key")?.version ?? 0
+  const zen = useZenConnect(scope, zenVersion)
   return {
     model: toConnectionSettingsModel({
       credentials: credentials.credentials,
-      isLoading: credentials.isLoading || check.isStatusPending,
+      isLoading: credentials.isLoading,
       error: credentials.error,
       unavailable: credentials.unavailable,
-      status: check.status,
       zenBusy: zen.isConnectPending
     }),
     saveZenKey: (key) => zen.connect(key, { onSuccess: credentials.retry }),
-    testConnection: (target) => {
-      if (target === "github") {
-        check.resetStatus()
-        check.check()
-        return
-      }
-      credentials.retry()
-    },
-    retry: () => {
-      credentials.retry()
-      check.resetStatus()
-    }
+    testConnection: credentials.retry,
+    retry: credentials.retry
   }
 }
 
@@ -49,14 +37,13 @@ const toConnectionSettingsModel = (input: {
   readonly isLoading: boolean
   readonly error: unknown
   readonly unavailable: boolean
-  readonly status: GithubConnectionStatus | undefined
   readonly zenBusy: boolean
 }): ConnectionSettingsModel => {
   if (input.unavailable) {
     return {
       status: "error",
       error: "Automation services are unavailable in this session.",
-      github: githubModel(undefined, undefined, false),
+      github: githubModel(false),
       zen: { kind: "zen", health: "unknown", keySaved: false, isBusy: input.zenBusy },
       backendName: "local"
     }
@@ -65,7 +52,7 @@ const toConnectionSettingsModel = (input: {
     return {
       status: "loading",
       error: null,
-      github: githubModel(undefined, undefined, false),
+      github: githubModel(false),
       zen: { kind: "zen", health: "unknown", keySaved: false, isBusy: input.zenBusy },
       backendName: "local"
     }
@@ -74,7 +61,7 @@ const toConnectionSettingsModel = (input: {
     return {
       status: "error",
       error: "Connections could not be loaded.",
-      github: githubModel(undefined, undefined, false),
+      github: githubModel(false),
       zen: { kind: "zen", health: "unknown", keySaved: false, isBusy: input.zenBusy },
       backendName: "local"
     }
@@ -83,7 +70,7 @@ const toConnectionSettingsModel = (input: {
   return {
     status: "ready",
     error: null,
-    github: githubModel(input.status, undefined, false),
+    github: githubModel(input.credentials?.some((credential) => credential.credentialId === "github-token" && credential.configured) ?? false),
     zen: {
       kind: "zen",
       health: keySaved ? "healthy" : "missing",
@@ -94,20 +81,11 @@ const toConnectionSettingsModel = (input: {
   }
 }
 
-const githubModel = (
-  status: GithubConnectionStatus | undefined,
-  accountName: string | null | undefined,
-  busy: boolean
-): ConnectionSettingsModel["github"] => {
-  if (status === undefined) {
-    return { kind: "github", health: "unknown", accountName: accountName ?? null, scopes: [], canPushToGh: false, isBusy: busy }
-  }
-  return {
-    kind: "github",
-    health: status.ok ? "healthy" : status.configured ? "degraded" : "missing",
-    accountName: accountName ?? null,
-    scopes: [],
-    canPushToGh: false,
-    isBusy: busy
-  }
-}
+const githubModel = (configured: boolean): ConnectionSettingsModel["github"] => ({
+  kind: "github",
+  health: configured ? "unknown" : "missing",
+  accountName: null,
+  scopes: [],
+  canPushToGh: false,
+  isBusy: false
+})

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router"
 import { ArrowLeft, Menu } from "lucide-react"
 import { CommandPalette } from "@expand/desktop/renderer/features/command/components/CommandPalette"
+import { ThemeProvider } from "@expand/desktop/renderer/app/theme"
 import { SidebarInset, SidebarProvider, useSidebar } from "@expand/desktop/renderer/components/ui/sidebar"
 import { AppSidebar } from "@expand/desktop/renderer/features/sidebar/components/AppSidebar"
 import { defaultSidebarDevices, defaultSidebarWorktrees } from "@expand/desktop/renderer/features/sidebar/data/sidebar-data"
@@ -9,9 +10,11 @@ import { automationPageForPath, automationRoutes } from "@expand/desktop/rendere
 
 export const RootLayout = () => {
   return (
-    <SidebarProvider defaultOpen>
-      <RootLayoutContent />
-    </SidebarProvider>
+    <ThemeProvider>
+      <SidebarProvider defaultOpen>
+        <RootLayoutContent />
+      </SidebarProvider>
+    </ThemeProvider>
   )
 }
 
@@ -32,6 +35,8 @@ const RootLayoutContent = () => {
     setActiveConversationId(null)
   }, [pathname])
 
+  if (settingsActive) return <Outlet />
+
   return (
     <>
       <AppSidebar
@@ -48,7 +53,8 @@ const RootLayoutContent = () => {
         onOpenAutomations={(projectId) => {
           setActiveConversationId(null)
           setOpenMobile(false)
-          void navigate({ to: automationRoutes.overview, params: { projectId } })
+          if (projectId === null) void navigate({ to: "/automations" })
+          else void navigate({ to: automationRoutes.overview, params: { projectId } })
         }}
         settingsActive={settingsActive}
         onOpenSettings={() => {
@@ -93,7 +99,7 @@ const RootLayoutContent = () => {
             </button>
             <div className="mt-8 border-b pb-6">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Sample conversation preview
+                Conversation preview
               </p>
               <h1 className="mt-2 text-2xl font-semibold">{activeConversation.title}</h1>
               <p className="mt-4 text-sm text-muted-foreground">{activeConversation.teaser}</p>

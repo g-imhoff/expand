@@ -92,7 +92,8 @@ describe("mobile app shell", () => {
       fireEvent.click(trigger)
       const reopenedSheet = yield* Effect.tryPromise(() => screen.findByRole("dialog", { name: "Sidebar" }))
       expect(within(reopenedSheet).getByRole("button", { name: "Active project: beta" })).toBeDefined()
-      fireEvent.click(within(reopenedSheet).getByRole("button", { name: "Close" }))
+      expect(within(reopenedSheet).queryByRole("button", { name: "Close" })).toBeNull()
+      fireEvent.keyDown(document.activeElement ?? reopenedSheet, { key: "Escape" })
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(trigger.getAttribute("aria-expanded")).toBe("false")
         expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull()

@@ -53,7 +53,7 @@ describe("AutomationRail", () => {
       const pane = document.querySelector('[aria-label="Project and conversations"]')
       expect(pane?.contains(button)).toBe(false)
       expect(button.closest('[data-slot="sidebar"]')?.contains(
-        screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+        screen.getByRole("button", { name: "Switch device, active: This machine" })
       )).toBe(true)
       expect(button.textContent).toBe("")
       expect(button.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true")
@@ -77,18 +77,18 @@ describe("AutomationRail", () => {
       expect(screen.queryByRole("textbox", { name: "Search conversations" })).toBeNull()
     })))
 
-  it.effect("explains the missing project and suppresses automation activation", () =>
+  it.effect("opens automations without an active project", () =>
     Effect.scoped(Effect.gen(function* () {
       const onOpenAutomations = vi.fn()
       yield* renderSidebar({ activeProjectId: null, onOpenAutomations })
       const button = screen.getByRole("button", { name: "Automations" })
-      expect(button.getAttribute("aria-disabled")).toBe("true")
+      expect(button.getAttribute("aria-disabled")).toBeNull()
       button.focus()
       expect(document.activeElement).toBe(button)
       const tooltip = yield* Effect.tryPromise(() => screen.findByRole("tooltip"))
-      expect(tooltip.textContent).toBe("Select a project to open automations")
+      expect(tooltip.textContent).toBe("Automations")
       fireEvent.click(button)
-      expect(onOpenAutomations).not.toHaveBeenCalled()
+      expect(onOpenAutomations).toHaveBeenCalledExactlyOnceWith(null)
     })))
 
   it.effect("shows the automation tooltip when the expanded rail receives focus", () =>

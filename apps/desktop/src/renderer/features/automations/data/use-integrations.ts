@@ -162,14 +162,14 @@ export const useGithubStatusCheck = (scope: PersonalScope): GithubStatusCheck =>
   }
 }
 
-export const useZenConnect = (scope: PersonalScope): ZenConnectState => {
+export const useZenConnect = (scope: PersonalScope, expectedVersion?: number): ZenConnectState => {
   const rpc = useAutomationRpc()
   const mutation = useRunMutation((
     apiKey: string
   ): Effect.Effect<CredentialStatus, unknown> =>
     rpc === undefined
       ? Effect.fail(new AutomationUnavailable({ message: "Automation services are unavailable in this session." }))
-      : rpc.putCredential({ scope, credentialId: zenCredentialId, secret: apiKey }))
+      : rpc.putCredential({ scope, credentialId: zenCredentialId, secret: apiKey, ...(expectedVersion === undefined ? {} : { expectedVersion }) }))
   return {
     connect: (apiKey, options) => {
       if (options?.onSuccess === undefined) {

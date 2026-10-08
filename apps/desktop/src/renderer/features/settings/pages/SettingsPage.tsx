@@ -1,57 +1,156 @@
-import { useState } from "react"
-import { Link } from "@tanstack/react-router"
-import { useProjects } from "@expand/desktop/renderer/features/projects/data/use-projects"
+import { useState, type CSSProperties } from "react"
+import { useCanGoBack, useRouter } from "@tanstack/react-router"
+import { ArrowLeft, ChevronRight, Link2, Palette, PanelLeft, Server } from "lucide-react"
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar
+} from "@expand/desktop/renderer/components/ui/sidebar"
 import { ConnectionSettingsPage } from "@expand/desktop/renderer/features/settings/components/ConnectionSettingsPage"
+import { AppearanceSettingsPage } from "@expand/desktop/renderer/features/settings/components/AppearanceSettingsPage"
 import { useConnectionSettings } from "@expand/desktop/renderer/features/settings/data/use-connection-settings"
 
 export const SettingsPage = () => {
-  const { data: projects } = useProjects()
-  const visible = projects.filter((project) => !project.archived)
-  const [projectId, setProjectId] = useState<string | undefined>(undefined)
-  const selected = visible.find((project) => project.id === projectId) ?? visible[0] ?? null
+  const router = useRouter()
+  const canGoBack = useCanGoBack()
+  const { isMobile, open, openMobile, setOpenMobile, toggleSidebar, mobileTriggerRef } = useSidebar()
+  const [section, setSection] = useState<"connections" | "backend" | "appearance">("connections")
+  const title = section === "connections" ? "Connections" : section === "backend" ? "Backend" : "Appearance"
+
   return (
-    <section className="mx-auto w-full min-w-0 max-w-5xl px-6 py-8">
-      <header>
-        <Link to="/" className="text-sm text-muted-foreground underline">
-          Projects
-        </Link>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <label htmlFor="settings-project" className="text-sm text-muted-foreground">Project</label>
-          <select
-            id="settings-project"
-            value={selected?.id ?? ""}
-            onChange={(event) => setProjectId(event.target.value)}
-            className="h-9 min-w-0 rounded-md border border-input bg-background px-3 text-sm"
+    <section
+      aria-label="Settings"
+      className="flex h-dvh w-full min-w-0 overflow-hidden"
+      style={{ "--sidebar-width": "14rem" } as CSSProperties}
+    >
+      <Sidebar collapsible="icon">
+        <div className="flex h-full w-full flex-col">
+          <SidebarHeader className="h-16 justify-center">
+            <SidebarMenuButton
+              type="button"
+              aria-label="Back"
+              tooltip="Back"
+              onClick={() => {
+                if (canGoBack) router.history.back()
+                else void router.navigate({ to: "/" })
+              }}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              <span>Back</span>
+            </SidebarMenuButton>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupLabel>Settings</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <nav aria-label="Settings sections">
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        aria-label="Connections"
+                        tooltip="Connections"
+                        isActive={section === "connections"}
+                        aria-current={section === "connections" ? "true" : undefined}
+                        onClick={() => {
+                          setSection("connections")
+                          setOpenMobile(false)
+                        }}
+                      >
+                        <Link2 aria-hidden="true" />
+                        <span>Connections</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        aria-label="Backend"
+                        tooltip="Backend"
+                        isActive={section === "backend"}
+                        aria-current={section === "backend" ? "true" : undefined}
+                        onClick={() => {
+                          setSection("backend")
+                          setOpenMobile(false)
+                        }}
+                      >
+                        <Server aria-hidden="true" />
+                        <span>Backend</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        aria-label="Appearance"
+                        tooltip="Appearance"
+                        isActive={section === "appearance"}
+                        aria-current={section === "appearance" ? "true" : undefined}
+                        onClick={() => {
+                          setSection("appearance")
+                          setOpenMobile(false)
+                        }}
+                      >
+                        <Palette aria-hidden="true" />
+                        <span>Appearance</span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </nav>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </div>
+      </Sidebar>
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex h-16 shrink-0 items-center gap-4 border-b px-4">
+          <button
+            ref={mobileTriggerRef}
+            type="button"
+            aria-label="Toggle settings sidebar"
+            aria-expanded={isMobile ? openMobile : open}
+            onClick={toggleSidebar}
+            className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {visible.map((project) => (
-              <option key={project.id} value={project.id}>{project.name}</option>
-            ))}
-          </select>
+            <PanelLeft className="size-4" aria-hidden="true" />
+          </button>
+          <nav aria-label="Breadcrumb">
+            <ol className="flex items-center gap-2 text-sm">
+              <li className="text-muted-foreground">Settings</li>
+              <li aria-hidden="true"><ChevronRight className="size-4 text-muted-foreground" /></li>
+              <li aria-current="page">{title}</li>
+            </ol>
+          </nav>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+          <div className="mx-auto w-full max-w-3xl">
+            <SettingsContent section={section} />
+          </div>
         </div>
-      </header>
-      {selected === null ? (
-        <div className="py-8">
-          <h1 className="text-2xl font-semibold">Settings</h1>
-          <p className="mt-3 text-sm text-muted-foreground">Create a project first. Connections are stored per project.</p>
-        </div>
-      ) : (
-        <SettingsContent key={selected.id} projectId={selected.id} />
-      )}
+      </main>
     </section>
   )
 }
 
-const SettingsContent = ({ projectId }: { readonly projectId: string }) => {
-  const binding = useConnectionSettings(projectId)
+const SettingsContent = ({ section }: { readonly section: "connections" | "backend" | "appearance" }) => {
+  const binding = useConnectionSettings()
   return (
-    <ConnectionSettingsPage
-      model={binding.model}
-      oauthUnavailable
-      onStartGithubOAuth={() => {}}
-      onPushToGh={() => {}}
-      onSaveZenKey={binding.saveZenKey}
-      onTestConnection={binding.testConnection}
-      onRetry={binding.retry}
-    />
+    <>
+      <div hidden={section === "appearance"}>
+        <ConnectionSettingsPage
+          model={binding.model}
+          section={section === "backend" ? "backend" : "connections"}
+          oauthUnavailable
+          onStartGithubOAuth={() => {}}
+          onPushToGh={() => {}}
+          onSaveZenKey={binding.saveZenKey}
+          onTestConnection={binding.testConnection}
+          onRetry={binding.retry}
+        />
+      </div>
+      {section === "appearance" && <AppearanceSettingsPage />}
+    </>
   )
 }

@@ -56,7 +56,7 @@ export interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   readonly activeConversationId?: string | null | undefined
   readonly onSelectConversation?: ((conversationId: string) => void) | undefined
   readonly automationsActive?: boolean | undefined
-  readonly onOpenAutomations?: ((projectId: string) => void) | undefined
+  readonly onOpenAutomations?: ((projectId: string | null) => void) | undefined
   readonly settingsActive?: boolean | undefined
   readonly onOpenSettings?: (() => void) | undefined
 }
@@ -90,15 +90,9 @@ export const AppSidebar = ({
   const selectedConversationId = activeConversationId === undefined ? internalConversationId : activeConversationId
   const visibleProjects = projects.filter((p) => !p.archived)
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null
-  const allDevicesAreSamples = devices.length > 0 && devices.every((device) => device.sample)
-  const allGroupsAreSamples = groups.length > 0 && groups.every((group) => group.sample)
   const paneIsCollapsed = state === "collapsed" && !isMobile
-  const canOpenAutomations = activeProject !== null && onOpenAutomations !== undefined
-  const automationTooltip = activeProject === null
-    ? "Select a project to open automations"
-    : onOpenAutomations === undefined
-      ? "Automations unavailable"
-      : "Automations"
+  const canOpenAutomations = onOpenAutomations !== undefined
+  const automationTooltip = canOpenAutomations ? "Automations" : "Automations unavailable"
 
   useLayoutEffect(() => {
     if (paneIsCollapsed && paneRef.current?.contains(document.activeElement)) {
@@ -137,12 +131,13 @@ export const AppSidebar = ({
   return (
     <Sidebar
       collapsible="icon"
-      className="overflow-hidden *:data-[sidebar=sidebar]:flex-row"
+      resizable
+      className="*:data-[sidebar=sidebar]:flex-row"
       {...props}
     >
       <Sidebar
         collapsible="none"
-        className="w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-r"
+        className="w-(--sidebar-width-icon)! min-w-0 shrink-0 border-r border-sidebar-border"
       >
         <SidebarHeader>
           <SidebarMenu>
@@ -151,29 +146,18 @@ export const AppSidebar = ({
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton
                     size="lg"
-                    className="md:h-8 md:p-0"
+                    className="h-8 justify-center bg-sidebar-primary p-0! text-sidebar-primary-foreground hover:bg-sidebar-primary/90 hover:text-sidebar-primary-foreground data-[state=open]:hover:bg-sidebar-primary/90 data-[state=open]:hover:text-sidebar-primary-foreground"
                     aria-label={
                       activeDevice
-                        ? `Switch ${activeDevice.sample ? "sample " : ""}device, active: ${activeDevice.name}`
+                        ? `Switch device, active: ${activeDevice.name}`
                         : "Switch device"
                     }
                   >
-                    <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground [&>svg]:size-4">
-                      {activeDevice ? <DeviceIcon device={activeDevice} /> : <Command className="size-4" />}
-                    </span>
-                    <span className="grid flex-1 text-left text-sm leading-tight">
-                      <span className="truncate font-medium">{activeDevice?.name ?? "Expand"}</span>
-                      <span className="truncate text-xs">
-                        {activeDevice
-                          ? `${activeDevice.sample ? "Sample · " : ""}${activeDevice.status}`
-                          : "Desktop"}
-                      </span>
-                    </span>
-                    <ChevronsUpDown className="ml-auto size-4" />
+                    {activeDevice ? <DeviceIcon device={activeDevice} /> : <Command className="size-4" />}
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-64">
-                  <DropdownMenuLabel>{allDevicesAreSamples ? "Sample devices" : "Devices"}</DropdownMenuLabel>
+                  <DropdownMenuLabel>Devices</DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   {devices.length === 0 && (
                     <DropdownMenuItem disabled>No devices yet</DropdownMenuItem>
@@ -191,7 +175,7 @@ export const AppSidebar = ({
                         <span className="grid flex-1 text-left leading-tight">
                           <span className="truncate">{device.name}</span>
                           <span className="truncate text-xs text-muted-foreground">
-                            {device.sample ? `Sample · ${device.status}` : device.status}
+                            {device.status}
                           </span>
                         </span>
                         {isActive && <Check className="ml-auto size-4 shrink-0" aria-label="active" />}
@@ -222,13 +206,17 @@ export const AppSidebar = ({
                 isActive={automationsActive && canOpenAutomations}
                 tooltip={{ children: automationTooltip, hidden: false }}
                 onClick={() => {
-                  if (canOpenAutomations && activeProject) onOpenAutomations?.(activeProject.id)
+                  onOpenAutomations?.(activeProject?.id ?? null)
                 }}
                 className="justify-center aria-disabled:pointer-events-auto focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-sidebar-foreground data-[active=true]:[&>svg]:fill-current"
               >
                 <Zap aria-hidden="true" />
               </SidebarMenuButton>
             </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
+        <SidebarFooter className="mt-auto">
+          <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
                 type="button"
@@ -243,12 +231,7 @@ export const AppSidebar = ({
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
-        </SidebarHeader>
-        {allDevicesAreSamples && (
-          <SidebarFooter className="items-center px-0 text-[10px] text-muted-foreground">
-            Sample
-          </SidebarFooter>
-        )}
+        </SidebarFooter>
       </Sidebar>
 
       <Sidebar
@@ -270,7 +253,7 @@ export const AppSidebar = ({
                 <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
                   <FolderGit2 className="size-4" />
                 </span>
-                <span className="grid flex-1 text-left text-sm leading-tight">
+                <span className="grid min-w-0 flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{activeProject?.name ?? "Select a project"}</span>
                   <span className="truncate text-xs">Project</span>
                 </span>
@@ -306,7 +289,7 @@ export const AppSidebar = ({
           </DropdownMenu>
           <div className="flex w-full flex-col gap-2">
             <div className="text-base font-medium text-foreground">
-              {allGroupsAreSamples ? "Sample conversations" : "Conversations"}
+              Conversations
             </div>
             <Label className="flex w-full items-center justify-between gap-2 text-sm">
               <span>Unreads</span>
@@ -342,7 +325,6 @@ export const AppSidebar = ({
                 <SidebarGroup key={group.id} className="px-0">
                   <SidebarGroupLabel className="px-4">
                     <GitBranch className="mr-1 size-3.5" aria-hidden />
-                    {group.sample && <span className="mr-1 shrink-0 text-[10px]">Sample</span>}
                     <span className="truncate">{group.worktreeName}</span>
                     <span className="ml-1 truncate font-normal text-muted-foreground">{group.branch}</span>
                     <span className="ml-auto pl-2 text-muted-foreground">{group.conversations.length}</span>
@@ -393,7 +375,7 @@ const ConversationRow = ({
       {conversation.unread && (
         <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-sidebar-primary" />
       )}
-      <span className="truncate font-medium">{conversation.title}</span>
+      <span className="min-w-0 truncate font-medium">{conversation.title}</span>
       <span className="ml-auto shrink-0 text-xs text-muted-foreground">{conversation.updatedAt}</span>
     </span>
     <span className="line-clamp-2 w-full text-xs whitespace-break-spaces text-muted-foreground">

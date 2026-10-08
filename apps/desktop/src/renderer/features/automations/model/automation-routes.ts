@@ -10,6 +10,7 @@ export const automationRoutes = {
 } as const satisfies Record<AutomationPage | "routine-edit" | "routine-test", string>
 
 export const automationPageForPath = (pathname: string): AutomationPage | null => {
+  if (/^\/automations\/?$/.test(pathname)) return "overview"
   const match = /^\/p\/[^/]+\/automations(?:\/(integrations|routines\/[^/]+(?:\/test)?|history))?\/?$/.exec(pathname)
   if (!match) return null
   const section = match[1]

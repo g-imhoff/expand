@@ -50,7 +50,7 @@ describe("AppSidebar", () => {
     Effect.scoped(Effect.gen(function* () {
       const onSelectDevice = vi.fn()
       yield* renderSidebar({ activeDeviceId: "device-local", onSelectDevice })
-      const trigger = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      const trigger = screen.getByRole("button", { name: "Switch device, active: This machine" })
       fireEvent.pointerDown(trigger)
       fireEvent.click(trigger)
       const active = screen.getByRole("menuitem", { name: /This machine/ })
@@ -155,18 +155,21 @@ describe("AppSidebar", () => {
       expect(screen.queryByRole("button", { name: /^Auth flow review/ })).toBeNull()
     })))
 
-  it.effect("marks fixture entries as samples and omits account controls", () =>
+  it.effect("shows navigation without fixture labels or account controls", () =>
     Effect.scoped(Effect.gen(function* () {
       yield* renderSidebar({})
-      expect(screen.getByText("Sample conversations")).toBeDefined()
-      expect(screen.getAllByText("Sample").length).toBeGreaterThan(0)
+      expect(screen.getByText("Conversations")).toBeDefined()
+      expect(screen.queryAllByText(/sample/i)).toHaveLength(0)
       expect(screen.queryByText("Ada Lovelace")).toBeNull()
       expect(screen.queryByRole("button", { name: /account|notifications|log out/i })).toBeNull()
-      const trigger = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      const trigger = screen.getByRole("button", { name: "Switch device, active: This machine" })
+      expect(trigger.textContent).toBe("")
+      expect(within(trigger.closest('[data-slot="sidebar"]') as HTMLElement).queryByText("Sample")).toBeNull()
       fireEvent.pointerDown(trigger)
       fireEvent.click(trigger)
-      expect(screen.getByText("Sample devices")).toBeDefined()
-      expect(screen.getByRole("menuitem", { name: /Studio server.*Sample/ })).toBeDefined()
+      expect(screen.getByText("Devices")).toBeDefined()
+      expect(screen.getByRole("menuitem", { name: /Studio server.*online/ })).toBeDefined()
+      expect(screen.queryAllByText(/sample/i)).toHaveLength(0)
     })))
 
   it.effect("does not mark supplied live entries as samples", () =>
@@ -197,6 +200,52 @@ describe("AppSidebar", () => {
     })))
 })
 
+describe("AppSidebar resizing", () => {
+  it.effect("resizes with the keyboard within bounds and retains width after collapsing", () =>
+    Effect.scoped(Effect.gen(function* () {
+      yield* renderSidebar()
+      const handle = screen.getByRole("separator", { name: "Resize sidebar" })
+      const initialWidth = Number(handle.getAttribute("aria-valuenow"))
+      fireEvent.keyDown(handle, { key: "ArrowRight" })
+      expect(Number(handle.getAttribute("aria-valuenow"))).toBeGreaterThan(initialWidth)
+      fireEvent.keyDown(handle, { key: "End" })
+      const expandedWidth = handle.getAttribute("aria-valuemax")
+      expect(handle.getAttribute("aria-valuenow")).toBe(expandedWidth)
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }))
+      expect(screen.queryByRole("separator", { name: "Resize sidebar" })).toBeNull()
+      fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }))
+      const restored = screen.getByRole("separator", { name: "Resize sidebar" })
+      expect(restored.getAttribute("aria-valuenow")).toBe(expandedWidth)
+
+      fireEvent.keyDown(restored, { key: "Home" })
+      fireEvent.keyDown(restored, { key: "ArrowLeft" })
+      expect(restored.getAttribute("aria-valuenow")).toBe(restored.getAttribute("aria-valuemin"))
+      fireEvent.doubleClick(restored)
+      expect(Number(restored.getAttribute("aria-valuenow"))).toBe(initialWidth)
+    })))
+
+  it.effect("limits the expanded width when the desktop window becomes narrower", () =>
+    Effect.scoped(Effect.gen(function* () {
+      vi.stubGlobal("innerWidth", 1024)
+      yield* renderSidebar()
+      const handle = screen.getByRole("separator", { name: "Resize sidebar" })
+      fireEvent.keyDown(handle, { key: "End" })
+      const wideWidth = Number(handle.getAttribute("aria-valuenow"))
+
+      vi.stubGlobal("innerWidth", 768)
+      fireEvent(window, new Event("resize"))
+      expect(Number(handle.getAttribute("aria-valuenow"))).toBeLessThan(wideWidth)
+      expect(768 - Number(handle.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(320)
+      fireEvent.keyDown(handle, { key: "ArrowRight" })
+      expect(handle.getAttribute("aria-valuenow")).toBe(handle.getAttribute("aria-valuemax"))
+
+      vi.stubGlobal("innerWidth", 1024)
+      fireEvent(window, new Event("resize"))
+      expect(Number(handle.getAttribute("aria-valuenow"))).toBe(wideWidth)
+    })))
+})
+
 describe("AppSidebar desktop toggle", () => {
   it.effect("moves focus out of the hidden pane when the keyboard shortcut collapses it", () =>
     Effect.scoped(Effect.gen(function* () {
@@ -223,7 +272,7 @@ describe("AppSidebar desktop toggle", () => {
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Expand sidebar" }))
 
       fireEvent.keyDown(window, { key: "b", metaKey: true })
-      const device = screen.getByRole("button", { name: "Switch sample device, active: This machine" })
+      const device = screen.getByRole("button", { name: "Switch device, active: This machine" })
       device.focus()
       fireEvent.keyDown(window, { key: "b", metaKey: true })
       expect(document.activeElement).toBe(device)
@@ -249,7 +298,7 @@ describe("AppSidebar desktop toggle", () => {
       expect(screen.queryByRole("button", { name: "Active project: alpha" })).toBeNull()
       expect(screen.queryByRole("textbox", { name: "Search conversations" })).toBeNull()
       expect(screen.queryByRole("button", { name: "Sidebar three-zone shape, unread" })).toBeNull()
-      expect(screen.getByRole("button", { name: "Switch sample device, active: This machine" })).toBeDefined()
+      expect(screen.getByRole("button", { name: "Switch device, active: This machine" })).toBeDefined()
 
       const expand = screen.getByRole("button", { name: "Expand sidebar" })
       expect(document.activeElement).toBe(expand)

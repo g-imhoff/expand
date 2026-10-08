@@ -21,7 +21,7 @@ export const AutomationNavigation = ({
         aria-current={activePage === page ? "page" : undefined}
         data-active={activePage === page}
         onClick={() => onSelectPage(page)}
-        className="min-h-10 border-b-2 border-transparent px-1 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-foreground data-[active=true]:border-primary data-[active=true]:font-medium data-[active=true]:text-foreground"
+        className="min-h-10 border-b-2 border-transparent px-1 py-2 text-sm text-muted-foreground hover:text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-ring data-[active=true]:border-primary data-[active=true]:font-medium data-[active=true]:text-primary"
       >
         {label}
       </button>

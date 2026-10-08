@@ -68,7 +68,7 @@ const SheetPortal = ({ ...props }: React.ComponentProps<typeof SheetPrimitive.Po
 const SheetOverlay = ({ className, ...props }: React.ComponentProps<typeof SheetPrimitive.Overlay>) => (
   <SheetPrimitive.Overlay
     data-slot="sheet-overlay"
-    className={cn("fixed inset-0 z-50 bg-black/50", className)}
+    className={cn("fixed inset-0 z-50 bg-black/50 data-[state=open]:animate-[sheet-overlay-in_200ms_linear] data-[state=closed]:animate-[sheet-overlay-out_200ms_linear] motion-reduce:animate-none!", className)}
     {...props}
   />
 )

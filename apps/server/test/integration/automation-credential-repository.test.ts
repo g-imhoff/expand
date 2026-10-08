@@ -26,6 +26,38 @@ const storageCode = (exit: Exit.Exit<unknown, unknown>) => {
 }
 
 describe("credential repository", () => {
+  it.live("shares general credentials across projects while keeping owners isolated", () => Effect.gen(function* () {
+    const credentials = yield* CredentialRepository
+    const generalScope = { ownerId: scope.ownerId, projectId: "__global__" }
+    const otherProject = { ...scope, projectId: "other-project" }
+    const otherOwner = { ...scope, ownerId: "other-owner" }
+    yield* credentials.putCredential(generalScope, credentialId, secretA, 0)
+    for (const projectScope of [scope, otherProject]) {
+      expect(yield* credentials.getStatus(projectScope, credentialId)).toEqual({ credentialId, version: 1, configured: true })
+      expect(yield* credentials.listStatuses(projectScope)).toEqual([{ credentialId, version: 1, configured: true }])
+      expect(Array.from((yield* credentials.resolveSecret(projectScope, credentialId))!)).toEqual(Array.from(secretA))
+      expect((yield* credentials.statusForIntegration(projectScope, integration)).configured).toBe(true)
+      expect(Array.from((yield* credentials.requireIntegrationSecrets(projectScope, integration))["account"]!)).toEqual(Array.from(secretA))
+    }
+    expect(yield* credentials.getStatus(otherOwner, credentialId)).toBeNull()
+    expect(yield* credentials.listStatuses(otherOwner)).toEqual([])
+    expect(yield* credentials.resolveSecret(otherOwner, credentialId)).toBeNull()
+    yield* credentials.putCredential(generalScope, credentialId, secretB, 1)
+    expect(Array.from((yield* credentials.resolveSecret(otherProject, credentialId))!)).toEqual(Array.from(secretB))
+  }).pipe(Effect.provide(Repositories)))
+
+  it.live("uses general credentials ahead of legacy project credentials without discarding them", () => Effect.gen(function* () {
+    const credentials = yield* CredentialRepository
+    const generalScope = { ownerId: scope.ownerId, projectId: "__global__" }
+    yield* credentials.putCredential(scope, credentialId, secretA, 0)
+    expect(Array.from((yield* credentials.resolveSecret(scope, credentialId))!)).toEqual(Array.from(secretA))
+    yield* credentials.putCredential(generalScope, credentialId, secretB, 0)
+    expect(Array.from((yield* credentials.resolveSecret(scope, credentialId))!)).toEqual(Array.from(secretB))
+    expect(yield* credentials.listStatuses(scope)).toEqual([{ credentialId, version: 1, configured: true }])
+    yield* credentials.removeCredential(generalScope, credentialId, 1)
+    expect(Array.from((yield* credentials.resolveSecret(scope, credentialId))!)).toEqual(Array.from(secretA))
+  }).pipe(Effect.provide(Repositories)))
+
   it.live("configures replaces and removes credentials with CAS and scope isolation", () => Effect.gen(function* () {
     const credentials = yield* CredentialRepository
     expect(yield* credentials.resolveSecret(scope, credentialId)).toBeNull()

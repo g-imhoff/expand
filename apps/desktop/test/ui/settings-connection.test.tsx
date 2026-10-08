@@ -41,7 +41,7 @@ describe("SettingsConnection", () => {
       yield* renderScoped(
         <ConnectionSettingsPage model={readyModel} {...props} />
       )
-      expect(screen.getByRole("heading", { name: "Settings" })).toBeDefined()
+      expect(screen.getByRole("heading", { name: "Connections" })).toBeDefined()
       expect(screen.getByText("Missing scope:")).toBeDefined()
       expect(screen.getByText("read:org")).toBeDefined()
       expect(screen.queryByDisplayValue("octo")).toBeNull()
