@@ -33,6 +33,7 @@ export const bindElectronIpc = Effect.fn("ElectronIpc.bindElectronIpc")(function
       if (source?.sender !== target || frame === null || frame === undefined || frame.detached || frame !== target.mainFrame) return undefined
       let parsed: URL
       try { parsed = new URL(frame.url) } catch { return undefined }
+      if (options.rendererUrl !== undefined) parsed.hash = ""
       if (options.rendererOrigin !== undefined ? parsed.origin !== location : parsed.href !== location) return undefined
       if (utf8Bytes(payload) > max) return undefined
       return { frameUrl: frame.url }
