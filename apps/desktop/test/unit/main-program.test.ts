@@ -327,6 +327,8 @@ describe("mainProgram startup and shutdown", () => {
           value: "file:///repo/apps/desktop/out/renderer/index.html"
         })
         expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html")).toBe(false)
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html#/settings")).toBe(false)
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html#/p/project-1")).toBe(false)
         harness.fireRpcPortRequest("file:///repo/apps/desktop/out/renderer/index.html")
         yield* Effect.yieldNow
         expect(harness.portGrants()).toBe(1)
@@ -347,6 +349,9 @@ describe("mainProgram startup and shutdown", () => {
         yield* waitFor(harness.loadStarted)
         const hostileFile = "file:///repo/apps/desktop/out/renderer/hostile.html"
         expect(harness.fireWillNavigate(hostileFile)).toBe(true)
+        expect(harness.fireWillNavigate(`${hostileFile}#/settings`)).toBe(true)
+        expect(harness.fireWillNavigate("file:///foreign/index.html#/settings")).toBe(true)
+        expect(harness.fireWillNavigate("file:///repo/apps/desktop/out/renderer/index.html?query#/settings")).toBe(true)
         harness.fireRpcPortRequest(hostileFile)
         yield* Effect.yieldNow
         expect(harness.portGrants()).toBe(0)

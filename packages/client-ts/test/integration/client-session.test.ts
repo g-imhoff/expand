@@ -55,7 +55,31 @@ const makeHandlers = () =>
     ProjectDelete: () => Effect.die("unused"),
     ProjectList: () => Effect.succeed({ projects: [], seq: 0 }),
     Connect: () => Stream.make(true).pipe(Stream.concat(Stream.never)),
-    Events: () => Stream.never
+    Events: () => Stream.never,
+    AutomationRoutineCreate: () => Effect.die("unused"),
+    AutomationRoutineEdit: () => Effect.die("unused"),
+    AutomationRoutineEnable: () => Effect.die("unused"),
+    AutomationRoutinePause: () => Effect.die("unused"),
+    AutomationRoutineDelete: () => Effect.die("unused"),
+    AutomationRoutineGet: () => Effect.die("unused"),
+    AutomationRoutineList: () => Effect.die("unused"),
+    AutomationIntegrationPut: () => Effect.die("unused"),
+    AutomationIntegrationGet: () => Effect.die("unused"),
+    AutomationIntegrationStatus: () => Effect.die("unused"),
+    AutomationCredentialPut: () => Effect.die("unused"),
+    AutomationCredentialRemove: () => Effect.die("unused"),
+    AutomationCredentialList: () => Effect.die("unused"),
+    AutomationPreviewClassification: () => Effect.die("unused"),
+    AutomationRoutineStart: () => Effect.die("unused"),
+    AutomationRunList: () => Effect.die("unused"),
+    AutomationRunGet: () => Effect.die("unused"),
+    AutomationRunMetrics: () => Effect.die("unused"),
+    AutomationNotificationList: () => Effect.die("unused"),
+    AutomationNotificationMarkRead: () => Effect.die("unused"),
+    AutomationCatalog: () => Effect.die("unused"),
+    BackendConnectionGet: () => Effect.die("unused"),
+    BackendConnectionSet: () => Effect.die("unused"),
+    BackendConnectionTest: () => Effect.die("unused")
   })
 
 const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(function*() {

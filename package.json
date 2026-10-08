@@ -9,7 +9,10 @@
     "npm": ">=11"
   },
   "overrides": {
-    "@effect/platform-node-shared": "4.0.0"
+    "@effect/platform-node-shared": "4.0.0",
+    "tsup": {
+      "esbuild": "^0.28.2"
+    }
   },
   "workspaces": [
     "apps/desktop",
@@ -77,7 +80,7 @@
     "@vitest/coverage-istanbul": "5.0.3",
     "@vitest/coverage-v8": "5.0.3",
     "electron-vite": "5",
-    "esbuild": "^0.27.4",
+    "esbuild": "^0.28.2",
     "eslint": "^10.5.0",
     "fast-check": "4.8.0",
     "happy-dom": "^20.9.0",

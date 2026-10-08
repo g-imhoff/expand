@@ -11,8 +11,16 @@ export const writeEndpointFile = Effect.fn("EndpointFile.write")((endpoint: Endp
       const { paths } = yield* AppContext
       yield* fs.makeDirectory(path.dirname(paths.endpointFile), { recursive: true, mode: 0o700 })
       const json = yield* Schema.encodeEffect(EndpointFromJson)(endpoint)
-      yield* fs.writeFileString(paths.endpointFile, json, { mode: 0o600 })
-      yield* fs.chmod(paths.endpointFile, 0o600)
+      yield* Effect.scoped(Effect.gen(function*() {
+        const directory = yield* fs.makeTempDirectoryScoped({
+          directory: path.dirname(paths.endpointFile),
+          prefix: ".endpoint-"
+        })
+        const temporary = path.join(directory, path.basename(paths.endpointFile))
+        yield* fs.writeFileString(temporary, json, { mode: 0o600 })
+        yield* fs.chmod(temporary, 0o600)
+        yield* fs.rename(temporary, paths.endpointFile)
+      }))
       return paths.endpointFile
     }),
     (file, ownerExit) =>

@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
+import { Input } from "@expand/desktop/renderer/components/ui/input"
 import { useChangeDirectory, useCreateProject, useDeleteProject, useProjects, useRenameProject } from "@expand/desktop/renderer/features/projects/data/use-projects"
 import { RenameDialog } from "@expand/desktop/renderer/features/projects/components/RenameDialog"
 import { ChangeDirectoryDialog } from "@expand/desktop/renderer/features/projects/components/ChangeDirectoryDialog"
@@ -23,28 +24,33 @@ export const ProjectsView = () => {
   }
   const visible = projects.filter((p) => !p.archived)
   return (
-    <main style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>Expand — Projects ({visible.length})</h1>
-      <form onSubmit={submit}>
-        <input
+    <main className="min-w-0 p-6 font-sans">
+      <h1 className="text-2xl font-semibold">Expand — Projects ({visible.length})</h1>
+      <form onSubmit={submit} className="mt-6 flex max-w-md flex-wrap gap-2">
+        <Input
+          className="min-w-0 flex-1 basis-48"
           aria-label="project name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="new project name"
         />
-        <button type="submit">Create</button>
+        <button type="submit" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Create</button>
       </form>
       {Boolean(error ?? create.error) && (
-        <p role="alert" style={{ color: "crimson" }}>{String(error ?? create.error)}</p>
+        <p role="alert" className="mt-4 text-sm text-destructive">{String(error ?? create.error)}</p>
       )}
-      <ul data-testid="project-list">
+      <ul data-testid="project-list" className="mt-6 divide-y rounded-lg border bg-card empty:border-0">
         {visible.map((p) => (
-          <li key={p.id}>
-            <Link to="/p/$projectId" params={{ projectId: p.id }}>{p.name}</Link>{" "}
-            <small style={{ opacity: 0.6 }}>{p.id}</small>{" "}
-            <button type="button" onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>{" "}
-            <button type="button" onClick={() => setMovingDir({ id: p.id, name: p.name, directory: p.directory })}>Change directory</button>{" "}
-            <button type="button" onClick={() => setTarget({ id: p.id, name: p.name })}>Delete</button>
+          <li key={p.id} className="flex min-w-0 flex-wrap items-center gap-3 p-4">
+            <div className="min-w-0 flex-1 basis-48">
+              <Link to="/p/$projectId" params={{ projectId: p.id }} className="break-words font-medium text-primary underline-offset-4 hover:underline">{p.name}</Link>
+              <small className="mt-1 block break-all text-muted-foreground">{p.id}</small>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="rounded-md border px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setRenaming({ id: p.id, name: p.name })}>Rename</button>
+              <button type="button" className="rounded-md border px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setMovingDir({ id: p.id, name: p.name, directory: p.directory })}>Change directory</button>
+              <button type="button" className="rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setTarget({ id: p.id, name: p.name })}>Delete</button>
+            </div>
           </li>
         ))}
       </ul>

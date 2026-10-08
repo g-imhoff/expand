@@ -211,7 +211,7 @@ describe("Effect Playwright adapter", () => {
       expect(launch).not.toHaveBeenCalled()
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("recursively removes real backend artifacts from the E2E data directory", () =>
+  it.live("recursively removes backend and Electron profile artifacts from the E2E data directory", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       let dataHome = ""
@@ -225,11 +225,55 @@ describe("Effect Playwright adapter", () => {
         launchApp("/workspace/apps/desktop/e2e/playwright.config.ts", { launch }).pipe(
           Effect.tap(() => {
             dataHome = launch.mock.calls[0]?.[0].args?.at(-1) ?? ""
-            return fs.writeFileString(`${dataHome}/events.db`, "owned")
+            return Effect.gen(function* () {
+              yield* fs.writeFileString(`${dataHome}/events.db`, "owned")
+              yield* fs.makeDirectory(`${dataHome}/electron-profile`)
+              yield* fs.writeFileString(`${dataHome}/electron-profile/Preferences`, "owned")
+            })
           })
         )
       )
       expect(yield* fs.exists(dataHome)).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.live("owns a distinct fresh Electron profile for every launch and removes it after app close", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const profiles: Array<string> = []
+      const dataHomes: Array<string> = []
+      const close = vi.fn().mockResolvedValue(undefined)
+      const fakeApp = {
+        close,
+        firstWindow: vi.fn().mockResolvedValue({ getByText: () => ({ waitFor: vi.fn().mockResolvedValue(undefined) }) })
+      }
+      const launch = vi.fn().mockResolvedValue(fakeApp)
+      for (let index = 0; index < 2; index += 1) {
+        yield* Effect.scoped(
+          launchApp("/workspace/apps/desktop/e2e/playwright.config.ts", { launch }).pipe(
+            Effect.tap(() => Effect.gen(function* () {
+              const args: ReadonlyArray<string> = launch.mock.calls.at(-1)?.[0].args ?? []
+              const profileArg = args.find((arg) => arg.startsWith("--user-data-dir="))
+              if (profileArg === undefined) throw new Error("missing owned Electron profile")
+              const profile = profileArg.slice("--user-data-dir=".length)
+              const dataHome = args.at(-1) ?? ""
+              expect(path.dirname(profile)).toBe(dataHome)
+              expect(yield* fs.exists(dataHome)).toBe(true)
+              expect(yield* fs.exists(profile)).toBe(false)
+              yield* fs.makeDirectory(profile)
+              yield* fs.writeFileString(path.join(profile, "Preferences"), "owned")
+              profiles.push(profile)
+              dataHomes.push(dataHome)
+              expect(close).toHaveBeenCalledTimes(index)
+            }))
+          )
+        )
+        expect(close).toHaveBeenCalledTimes(index + 1)
+        expect(yield* fs.exists(profiles[index]!)).toBe(false)
+        expect(yield* fs.exists(dataHomes[index]!)).toBe(false)
+      }
+      expect(new Set(profiles).size).toBe(2)
+      expect(new Set(dataHomes).size).toBe(2)
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("cleans every launch owner before propagating an assertion Promise failure", () =>
@@ -288,7 +332,7 @@ describe("Effect Playwright adapter", () => {
       expect(launch.mock.calls[0]?.[0].executablePath).toBe(
         path.resolve("/workspace/apps/desktop/release/linux-unpacked/expand")
       )
-      expect(launch.mock.calls[0]?.[0].args).toEqual(["--no-sandbox", "--data-dir", dataHome])
+      expect(launch.mock.calls[0]?.[0].args).toEqual(["--no-sandbox", `--user-data-dir=${path.join(dataHome, "electron-profile")}`, "--data-dir", dataHome])
       expect(launch.mock.calls[0]?.[0].cwd).toBe("/workspace/apps/desktop/release/linux-unpacked")
     }).pipe(Effect.provide(NodeServices.layer)))
 })

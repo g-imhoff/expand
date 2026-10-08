@@ -78,6 +78,16 @@ export const stage = Effect.fn("ClientPublish.stage")(
           import: "./dist/adapters/node.js",
           default: "./dist/adapters/node.js"
         },
+        "./automation": {
+          types: "./dist/automation/index.d.ts",
+          import: "./dist/automation/index.js",
+          default: "./dist/automation/index.js"
+        },
+        "./backend-connection": {
+          types: "./dist/backend-connection.d.ts",
+          import: "./dist/backend-connection.js",
+          default: "./dist/backend-connection.js"
+        },
         "./package.json": "./package.json"
       },
       files: ["dist"] as const,

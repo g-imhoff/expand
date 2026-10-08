@@ -28,7 +28,10 @@ export const EVENT_REVISIONS = {
   ProjectArchived: 1,
   ProjectRestored: 1,
   ProjectMetadataChanged: 1,
-  ProjectDeleted: 1
+  ProjectDeleted: 1,
+  AutomationRoutineChanged: 1,
+  AutomationIntegrationChanged: 1,
+  AutomationCredentialChanged: 1
 } as const satisfies Record<DomainEvent["_tag"], number>
 
 export type EventRevisionRegistry = Readonly<Record<string, number>>
@@ -42,7 +45,10 @@ export const EVENT_UPCASTERS = {
   ProjectArchived: {},
   ProjectRestored: {},
   ProjectMetadataChanged: {},
-  ProjectDeleted: {}
+  ProjectDeleted: {},
+  AutomationRoutineChanged: {},
+  AutomationIntegrationChanged: {},
+  AutomationCredentialChanged: {}
 } as const satisfies EventUpcasterRegistry
 
 export const decodeStoredEventWithRegistry = Effect.fn("StoredEvent.decodeWithRegistry")(function*(

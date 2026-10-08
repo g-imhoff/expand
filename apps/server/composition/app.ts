@@ -2,6 +2,7 @@ import { Context, Effect, Exit, Fiber, FileSystem, Layer, Path, Scope } from "ef
 import { HttpServer } from "effect/http"
 import { NetAddress } from "effect/net"
 import { SqliteClient } from "@effect/sql-sqlite-node"
+import { SqlClient } from "effect/sql/SqlClient"
 import { ReplayFeedLayer } from "@expand/server/db/replay-feed"
 import { ProjectEventStoreLayer } from "@expand/server/application/projects/project-event-store"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -11,40 +12,157 @@ import { ProjectUseCasesLayer } from "@expand/server/application/projects/use-ca
 import { ServerUseCasesLayer } from "@expand/server/application/server/use-cases"
 import { ConnectionTracker, ConnectionTrackerLayer } from "@expand/server/runtime/connection-tracker"
 import { httpServerLayer } from "@expand/server/transport/http-server"
+import { ConfigurationRepository, ConfigurationRepositoryLayer } from "@expand/server/automation/configuration-repository"
+import { CredentialRepository, CredentialRepositoryLayer } from "@expand/server/automation/credential-repository"
+import { ExecutionRepository, ExecutionRepositoryLayer } from "@expand/server/automation/execution-repository"
+import { NotificationRepository, NotificationRepositoryLayer } from "@expand/server/automation/notification-repository"
+import { RoutineService, RoutineServiceLayer } from "@expand/server/automation/routine-service"
+import { AutomationRegistry } from "@expand/server/automation/registry"
+import { AutomationEventStoreLayer } from "@expand/server/automation/event-store"
+import { AutomationRegistryService } from "@expand/server/automation/registry-service"
+import { makeGithubConnectorExtension } from "@expand/server/automation/github-connector"
+import { makeConflictConnectorExtension } from "@expand/server/automation/conflict-connector"
+import { makeSonarConnectorExtension } from "@expand/server/automation/sonar-connector"
+import { makeGmailConnectorExtension } from "@expand/server/automation/gmail-connector"
+import { startAutomationProcessing } from "@expand/server/automation/runtime"
+import type { WorkerDecide } from "@expand/server/automation/worker"
+import { classifyJev, classifyJevWithCredential } from "@expand/server/automation/jev-client"
+import type { JevClassifyOptions } from "@expand/server/automation/jev-client"
+import { NodeHttpClient } from "@effect/platform-node"
+import { HttpClient } from "effect/http"
+import { AutomationError } from "@expand/contracts/automation"
 import { removeEndpointFile, writeEndpointFile } from "@expand/server/runtime/endpoint-file"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { newId } from "@expand/server/application/ids"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { advertisedHostFor } from "@expand/server/runtime/service-config"
 
 export interface RunServerOptions {
   readonly dbPath: string
   readonly port?: number
+  readonly host?: string
+  readonly keepRunning?: boolean
 }
 
 export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.Layer<never> }>("expand/ServerComposition", {
   defaultValue: () => ({ coreLayer: Layer.empty })
 })
 
+export const makeAutomationDecide = (
+  credentials: CredentialRepository["Service"],
+  options?: JevClassifyOptions
+): WorkerDecide => (input) => {
+  const settings = input.options ?? options
+  return classifyJevWithCredential(
+    input.scope,
+    { schemaVersion: 1, kind: "credential-reference", credentialId: "zen-api-key" },
+    input.request,
+    input.descriptions,
+    settings
+  ).pipe(
+    Effect.provideService(CredentialRepository, credentials),
+    Effect.catchIf(
+      (error) => error.code === "missing-credential",
+      (error) => {
+        const apiKey = globalThis.process?.env?.["OPENCODE_ZEN_API_KEY"] || globalThis.process?.env?.["OPENCODE_API_KEY"]
+        return apiKey === undefined || apiKey.length === 0
+          ? Effect.fail(error)
+          : classifyJev(input.request, input.descriptions, apiKey, settings)
+      }
+    )
+  )
+}
+
 export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
   const dbPath = options.dbPath
   const portHint = options.port ?? 0
+  const host = options.host ?? "127.0.0.1"
   const token = yield* newId()
   const processControl = yield* ProcessControl
   const pid = processControl.currentPid
   const path = yield* Path.Path
   const composition = yield* ServerComposition
-  const coreLayerDefinition = Layer.merge(coreLayer(dbPath), composition.coreLayer)
+  const registry = new AutomationRegistry()
+  const coreLayerDefinition = Layer.merge(coreLayer(dbPath, registry), composition.coreLayer)
 
   const program = Effect.gen(function*() {
     const parentScope = yield* Scope.Scope
     const coreScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => Scope.close(coreScope, exit))
     const core = yield* Layer.buildWithScope(coreLayerDefinition, coreScope)
+    const webhookServices = {
+      configurations: Context.get(core, ConfigurationRepository),
+      credentials: Context.get(core, CredentialRepository),
+      executions: Context.get(core, ExecutionRepository),
+      sql: Context.get(core, SqlClient),
+    }
+    const notificationService = Context.get(core, NotificationRepository)
+    const httpClient = Context.get(core, HttpClient.HttpClient)
+    const connectorServices = {
+      configurations: webhookServices.configurations,
+      credentials: webhookServices.credentials,
+      http: httpClient
+    }
+    const connectorOptions = { timeoutMs: 10000, maxRetries: 0 }
+    const connector = makeGithubConnectorExtension(connectorOptions, connectorServices)
+    yield* registry.register(connector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker github connector already registered")
+      )
+    )
+    const gmailServices = {
+      configurations: webhookServices.configurations,
+      credentials: webhookServices.credentials,
+      http: httpClient,
+      sql: webhookServices.sql
+    }
+    const gmailConnector = makeGmailConnectorExtension(connectorOptions, gmailServices)
+    yield* registry.register(gmailConnector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker gmail connector already registered")
+      )
+    )
+    const conflictConnector = makeConflictConnectorExtension(
+      { worktreeRoot: "/tmp/opencode", agentCommand: "opencode", agentArgs: [], defaultTimeoutMs: 8000, githubOptions: connectorOptions },
+      connectorServices
+    )
+    yield* registry.register(conflictConnector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker conflict connector already registered")
+      )
+    )
+    const sonarConnector = makeSonarConnectorExtension(connectorOptions, connectorServices)
+    yield* registry.register(sonarConnector.extension).pipe(
+      Effect.catchIf(
+        (error) => error instanceof AutomationError && error.code === "duplicate-definition",
+        () => Effect.logWarning("automation worker sonarqube connector already registered")
+      )
+    )
+    const routines = Context.get(core, RoutineService)
+    const workerEnvironment = {
+      services: {
+        configurations: webhookServices.configurations,
+        credentials: webhookServices.credentials,
+        executions: webhookServices.executions,
+        sql: webhookServices.sql,
+        http: httpClient
+      },
+      notifications: notificationService,
+      registry,
+      routines,
+      decide: makeAutomationDecide(webhookServices.credentials, { timeoutMs: 10000, maxRetries: 0 }),
+      githubOptions: connectorOptions,
+      gmailOptions: connectorOptions
+    }
     const httpScope = yield* Scope.make()
     yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
+    const customWebhook = { services: { configurations: webhookServices.configurations, credentials: webhookServices.credentials, executions: webhookServices.executions }, registry }
     const transport = yield* Layer.buildWithScope(
-      httpServerLayer(portHint, token).pipe(Layer.provide(Layer.succeedContext(core))),
+      httpServerLayer(portHint, token, webhookServices, customWebhook, host).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
     )
 
@@ -57,7 +175,8 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       )
       const addr = yield* address
       const boundPort = NetAddress.isInetAddress(addr) ? addr.port : portHint
-      const url = `ws://127.0.0.1:${boundPort}/rpc`
+      const advertised = advertisedHostFor(host === "0.0.0.0" ? "0.0.0.0" : "127.0.0.1")
+      const url = `ws://${advertised}:${boundPort}/rpc`
 
       yield* fs.chmod(path.dirname(dbPath), 0o700)
       yield* fs.chmod(dbPath, 0o600)
@@ -72,12 +191,18 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
       })
       yield* Effect.logInfo(`expand backend listening on ${url} (pid ${pid})`)
 
-      yield* tracker.awaitShutdown
-      yield* Effect.logInfo("last connection closed — shutting down")
+      yield* Effect.forkScoped(startAutomationProcessing(workerEnvironment).pipe(Effect.provideService(HttpClient.HttpClient, httpClient)))
 
-      yield* removeEndpointFile(fs, endpointFile)
+      if (options.keepRunning === true) {
+        return yield* Effect.never
+      } else {
+        yield* tracker.awaitShutdown
+        yield* Effect.logInfo("last connection closed — shutting down")
 
-      yield* closeHttpScope(httpScope, Exit.void)
+        yield* removeEndpointFile(fs, endpointFile)
+
+        yield* closeHttpScope(httpScope, Exit.void)
+      }
     })
 
     return yield* lifecycle.pipe(Effect.provide(core))
@@ -116,7 +241,7 @@ const secureIfPresent = Effect.fn("Server.secureIfPresent")((fs: FileSystem.File
   Effect.flatMap(fs.exists(path), (present) => (present ? fs.chmod(path, 0o600) : Effect.void))
 )
 
-const coreLayer = (dbPath: string) => {
+const coreLayer = (dbPath: string, registry: AutomationRegistry) => {
   const sql = SqliteClient.layer({ filename: dbPath })
   const database = DatabaseReadyLayer.pipe(Layer.provideMerge(sql))
   const replay = ReplayFeedLayer.pipe(Layer.provide(database))
@@ -128,5 +253,13 @@ const coreLayer = (dbPath: string) => {
     Layer.provide(EventBusLayer),
     Layer.provide(projection)
   )
-  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay)
+  const configurations = ConfigurationRepositoryLayer.pipe(Layer.provideMerge(database))
+  const withCredentials = CredentialRepositoryLayer.pipe(Layer.provideMerge(configurations))
+  const automation = ExecutionRepositoryLayer.pipe(Layer.provideMerge(withCredentials))
+  const notifications = NotificationRepositoryLayer.pipe(Layer.provideMerge(database))
+  const routines = RoutineServiceLayer(registry).pipe(Layer.provideMerge(withCredentials))
+  const http = NodeHttpClient.layerFetch
+  const automationEvents = AutomationEventStoreLayer.pipe(Layer.provide(database))
+  const registryService = Layer.succeed(AutomationRegistryService, registry)
+  return Layer.mergeAll(projectUseCases, ServerUseCasesLayer, EventBusLayer, ConnectionTrackerLayer, projection, replay, automation, notifications, routines, http, automationEvents, registryService)
 }

@@ -22,6 +22,8 @@ const clientExports = () => ({
   "./project": { types: "./dist/project/index.d.ts", import: "./dist/project/index.js", default: "./dist/project/index.js" },
   "./server": { types: "./dist/server/index.d.ts", import: "./dist/server/index.js", default: "./dist/server/index.js" },
   "./adapters/node": { types: "./dist/adapters/node.d.ts", import: "./dist/adapters/node.js", default: "./dist/adapters/node.js" },
+  "./automation": { types: "./dist/automation/index.d.ts", import: "./dist/automation/index.js", default: "./dist/automation/index.js" },
+  "./backend-connection": { types: "./dist/backend-connection.d.ts", import: "./dist/backend-connection.js", default: "./dist/backend-connection.js" },
   "./package.json": "./package.json"
 })
 
@@ -92,7 +94,9 @@ const filesFor = (kind: PackageKind) => kind === "contracts"
       "dist/index.js", "dist/index.d.ts",
       "dist/project/index.js", "dist/project/index.d.ts",
       "dist/server/index.js", "dist/server/index.d.ts",
-      "dist/adapters/node.js", "dist/adapters/node.d.ts"
+      "dist/adapters/node.js", "dist/adapters/node.d.ts",
+      "dist/automation/index.js", "dist/automation/index.d.ts",
+      "dist/backend-connection.js", "dist/backend-connection.d.ts"
     ]
     : kind === "electron-ipc"
       ? [
@@ -225,6 +229,23 @@ describe("package certification model", () => {
     inspect("client", (_manifest, files) => files.splice(files.indexOf("dist/project/index.js"), 1)).pipe(
       Effect.flip,
       Effect.map((error) => expect(error).toMatchObject({ detail: expect.stringContaining("missing export target") }))
+    ))
+
+  it.effect.each([
+    "dist/automation/index.js",
+    "dist/automation/index.d.ts",
+    "dist/backend-connection.js",
+    "dist/backend-connection.d.ts"
+  ])("rejects a missing new client export target %s", (target) =>
+    inspect("client", (_manifest, files) => files.splice(files.indexOf(target), 1)).pipe(
+      Effect.flip,
+      Effect.map((error) => expect(error).toMatchObject({ detail: `missing export target: ./${target}` }))
+    ))
+
+  it.effect.each(["./automation", "./backend-connection"])("rejects an omitted client subpath %s", (subpath) =>
+    inspect("client", (manifest) => { delete (manifest.exports as Record<string, unknown>)[subpath] }).pipe(
+      Effect.flip,
+      Effect.map((error) => expect(error).toMatchObject({ detail: "wrong export surface" }))
     ))
 
   it.effect.each([
@@ -474,10 +495,14 @@ describe("package certification resources", () => {
       "@expand/client-ts/project",
       "@expand/client-ts/server",
       "@expand/client-ts/adapters/node",
+      "@expand/client-ts/automation",
+      "@expand/client-ts/backend-connection",
       "@expand/electron-ipc/contract",
       "@expand/electron-ipc/renderer",
       "@expand/ink-input"
     ]) expect(smoke.runtime).toContain(`import "${target}"`)
+    expect(smoke.runtime).toContain('import { AutomationClient } from "@expand/client-ts/automation"')
+    expect(smoke.runtime).toContain('import { resolveRemoteEndpoint } from "@expand/client-ts/backend-connection"')
     expect(smoke.runtime).not.toContain("@expand/electron-ipc/main")
     expect(smoke.runtime).not.toContain("@expand/electron-ipc/preload")
     for (const target of [
@@ -486,12 +511,16 @@ describe("package certification resources", () => {
       "@expand/client-ts/project",
       "@expand/client-ts/server",
       "@expand/client-ts/adapters/node",
+      "@expand/client-ts/automation",
+      "@expand/client-ts/backend-connection",
       "@expand/electron-ipc/contract",
       "@expand/electron-ipc/main",
       "@expand/electron-ipc/preload",
       "@expand/electron-ipc/renderer",
       "@expand/ink-input"
     ]) expect(smoke.types).toContain(`from "${target}"`)
+    expect(smoke.types).toContain('import type { AutomationClientApi } from "@expand/client-ts/automation"')
+    expect(smoke.types).toContain('import type { BackendConnection, RemoteConnection } from "@expand/client-ts/backend-connection"')
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect.each([

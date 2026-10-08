@@ -7,6 +7,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Project } from "@expand/contracts/project"
 import { FOLD_VERSIONS } from "@expand/contracts/fold-version.generated"
 import type { DomainEvent } from "@expand/contracts/events/domain"
+import type { ProjectEvent } from "@expand/contracts/events/project"
 import {
   ProjectArchived, ProjectCreated, ProjectDeleted, ProjectMetadataChanged, ProjectRenamed, ProjectRestored
 } from "@expand/contracts/events/project"
@@ -22,7 +23,7 @@ const foldAll = (events: ReadonlyArray<DomainEvent>): ReadonlyArray<Project> =>
   events.reduce<ReadonlyArray<Project>>((acc, e) => Project.foldList(acc, e), [])
 
 // A representative sequence touching all 7 event types.
-const script: ReadonlyArray<DomainEvent> = [
+const script: ReadonlyArray<ProjectEvent> = [
   ProjectCreated.make({ projectId: uid(1), name: "alpha", occurredAt: "t1" }),
   ProjectCreated.make({ projectId: uid(2), name: "beta", occurredAt: "t2" }),
   ProjectRenamed.make({ projectId: uid(1), name: "alpha2", occurredAt: "t3" }),

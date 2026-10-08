@@ -120,6 +120,7 @@ const expectedDiagnosticSeverity = {
 }
 
 const expectedWorkspaceIncludes = [
+  ".expskill/design",
   "apps",
   "packages",
   "scripts",

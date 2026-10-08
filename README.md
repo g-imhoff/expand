@@ -9,3 +9,5 @@ An AI-assisted development workflow tool: a desktop app, a backend service and a
 - **Desktop app** — Electron · Vite · React, connected to the backend over WebSocket.
 - **Backend service** — owns all state (SQLite, event bus) and spawns the agent (ACP) subprocesses.
 - **CLI** — a thin RPC client over WebSocket, also exposed to coding agents as a tool.
+
+Run a development backend that stays available between client sessions with `npm run dev:server -- --keep-running`. Without the flag, the backend stops after the last client disconnects. Stop a keep-running backend explicitly with Ctrl-C or SIGINT/SIGTERM.

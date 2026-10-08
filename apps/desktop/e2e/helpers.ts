@@ -67,8 +67,8 @@ export const launchApp = Effect.fn("DesktopE2E.launchApp")(function* (
     }
   }
   const args = yield* Schema.decodeUnknownEffect(
-    Schema.Tuple([Schema.Literal("--no-sandbox"), Schema.Literal("--data-dir"), Schema.String])
-  )(["--no-sandbox", "--data-dir", dataHome])
+    Schema.Tuple([Schema.Literal("--no-sandbox"), Schema.String, Schema.Literal("--data-dir"), Schema.String])
+  )(["--no-sandbox", `--user-data-dir=${path.join(dataHome, "electron-profile")}`, "--data-dir", dataHome])
   const app = yield* Effect.acquireRelease(
     Effect.tryPromise(() => dependencies.launch({
       args: [...args],

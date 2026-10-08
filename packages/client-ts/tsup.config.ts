@@ -13,7 +13,9 @@ export default defineConfig({
     "index": "index.ts",
     "project/index": "project/index.ts",
     "server/index": "server/index.ts",
-    "adapters/node": "adapters/node.ts"
+    "adapters/node": "adapters/node.ts",
+    "automation/index": "automation/index.ts",
+    "backend-connection": "backend-connection.ts"
   },
   format: ["esm"],
   outDir: "dist",

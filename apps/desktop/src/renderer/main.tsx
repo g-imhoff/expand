@@ -3,18 +3,22 @@ import { createRoot } from "react-dom/client"
 import { RouterProvider } from "@tanstack/react-router"
 import { Cause } from "effect"
 import { BootError } from "@expand/desktop/renderer/app/BootError"
+import { initializeTheme } from "@expand/desktop/renderer/app/theme"
 import { ownRendererRoot } from "@expand/desktop/renderer/app/root"
 import { RendererRunnerProvider } from "@expand/desktop/renderer/app/runner-context"
 import { startRendererRoot } from "@expand/desktop/renderer/app/runner"
 import { boot } from "@expand/desktop/renderer/app/runtime"
 import { router } from "@expand/desktop/renderer/app/router"
 import { ProjectContextProvider } from "@expand/desktop/renderer/features/projects/data/project-context"
+import { AutomationContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-context"
+import { AutomationRunContextProvider } from "@expand/desktop/renderer/features/automations/data/automation-run-context"
 import { supervised } from "@expand/desktop/renderer/app/supervised"
 
 interface RendererHotContext {
   readonly dispose: (callback: () => void) => void
 }
 
+initializeTheme()
 const root = createRoot(document.getElementById("root")!)
 const retry = () => window.location.reload()
 const onDispose = (dispose: () => void): (() => void) => {
@@ -46,7 +50,15 @@ ownRendererRoot({
             root.render(
               <RendererRunnerProvider value={runner}>
                 <ProjectContextProvider value={value}>
-                  <RouterProvider router={router} />
+                  <AutomationContextProvider value={value.automation ?? null}>
+                    {value.automation === undefined ? (
+                      <RouterProvider router={router} />
+                    ) : (
+                      <AutomationRunContextProvider value={{ rpc: value.automation }}>
+                        <RouterProvider router={router} />
+                      </AutomationRunContextProvider>
+                    )}
+                  </AutomationContextProvider>
                 </ProjectContextProvider>
               </RendererRunnerProvider>
             )

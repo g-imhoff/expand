@@ -58,6 +58,38 @@ effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minu
     >()
   })
 
+  for (const phase of ["ready", "result"] as const) {
+    test.effect(`reports ${phase} barrier diagnostics after the unchanged coordination deadline`, () =>
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const reachedBarrier = yield* Queue.unbounded<void>()
+        let diagnosticReads = 0
+        const details = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+          total: 64,
+          ready: 63,
+          results: 0,
+          contenders: [{ index: 63, pid: 4242, ready: false, result: false, exit: 1, stderr: "fixture startup failure" }]
+        })
+        const fiber = yield* Effect.forkChild(waitForAllPaths(["/missing-contender"], phase, Effect.sync(() => {
+          diagnosticReads += 1
+          return details
+        })).pipe(
+          Effect.provideService(FileSystem.FileSystem, FileSystem.FileSystem.of({
+            ...fs,
+            exists: () => Queue.offer(reachedBarrier, undefined).pipe(Effect.as(false))
+          })),
+          Effect.flip
+        ))
+        yield* TestClock.testClockWith((clock) => clock.withLive(awaitSignal(Queue.take(reachedBarrier))))
+        yield* TestClock.adjust("44 seconds")
+        expect(fiber.pollUnsafe()).toBeUndefined()
+        expect(diagnosticReads).toBe(0)
+        yield* TestClock.adjust("1 second")
+        expect(yield* Fiber.join(fiber)).toBe(`coordination timed out at ${phase} barrier: ${details}`)
+        expect(diagnosticReads).toBe(1)
+      }).pipe(Effect.provide(TestClock.layer({ warningDelay: "10 seconds" }))))
+  }
+
   test.effect("constructs startup ownership lazily", () =>
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -1383,17 +1415,44 @@ const runContenders = Effect.fn("StateRootLockTest.runContenders")(function*(
             stderr: "pipe"
           }
         ))
+        let stderrText = ""
         const stderr = yield* handle.stderr.pipe(
           Stream.decodeText(),
-          Stream.mkString,
+          Stream.runForEach((chunk) => Effect.sync(() => {
+            stderrText = (stderrText + chunk).slice(-2000)
+          })),
           Effect.forkScoped
         )
-        return { readyPath, resultPath, handle, stderr }
+        const exit = yield* handle.exitCode.pipe(Effect.forkScoped)
+        return { readyPath, resultPath, handle, stderr, exit, stderrText: () => stderrText }
       })),
     (processes) => Effect.gen(function*() {
-      yield* waitForAllPaths(processes.map(({ readyPath }) => readyPath))
+      const diagnostics = Effect.gen(function*() {
+        const contenders = yield* Effect.forEach(processes, (contender, index) => Effect.gen(function*() {
+          const [ready, result] = yield* Effect.all([
+            fs.exists(contender.readyPath),
+            fs.exists(contender.resultPath)
+          ])
+          const exit = contender.exit.pollUnsafe()
+          return {
+            index,
+            pid: Number(contender.handle.pid),
+            ready,
+            result,
+            exit: exit === undefined ? "running" : Exit.isSuccess(exit) ? Number(exit.value) : "failed",
+            stderr: contender.stderrText()
+          }
+        }), { concurrency: "unbounded" })
+        return Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({
+          total: count,
+          ready: contenders.filter((contender) => contender.ready).length,
+          results: contenders.filter((contender) => contender.result).length,
+          contenders
+        })
+      })
+      yield* waitForAllPaths(processes.map(({ readyPath }) => readyPath), "ready", diagnostics)
       yield* fs.writeFileString(startPath, "start")
-      yield* waitForAllPaths(processes.map(({ resultPath }) => resultPath))
+      yield* waitForAllPaths(processes.map(({ resultPath }) => resultPath), "result", diagnostics)
       return yield* Effect.forEach(processes, ({ resultPath }) =>
         fs.readFileString(resultPath).pipe(
           Effect.flatMap(Schema.decodeUnknownEffect(ContenderResultFromJson, strictParseOptions))
@@ -1402,9 +1461,11 @@ const runContenders = Effect.fn("StateRootLockTest.runContenders")(function*(
     (processes) => Effect.gen(function*() {
       yield* fs.writeFileString(startPath, "start")
       yield* fs.writeFileString(releasePath, "release")
-      const exits = yield* Effect.forEach(processes, ({ handle, stderr }) =>
-        Effect.all([handle.exitCode, Fiber.join(stderr)]), { concurrency: "unbounded" })
-      yield* Effect.forEach(exits, ([exitCode, stderr]) => Number(exitCode) === 0
+      const exits = yield* Effect.forEach(processes, ({ exit, stderr, stderrText }) =>
+        Effect.all([Fiber.join(exit), Fiber.join(stderr)]).pipe(
+          Effect.map(([exitCode]) => ({ exitCode, stderr: stderrText() }))
+        ), { concurrency: "unbounded" })
+      yield* Effect.forEach(exits, ({ exitCode, stderr }) => Number(exitCode) === 0
         ? Effect.void
         : Effect.fail(`state-root contender failed with ${String(exitCode)}: ${stderr}`))
     })
@@ -1412,7 +1473,9 @@ const runContenders = Effect.fn("StateRootLockTest.runContenders")(function*(
 })
 
 const waitForAllPaths = Effect.fn("StateRootLockTest.waitForAllPaths")(function*(
-  paths: ReadonlyArray<string>
+  paths: ReadonlyArray<string>,
+  phase: "ready" | "result",
+  diagnostics: Effect.Effect<string, PlatformError.PlatformError>
 ) {
   const fs = yield* FileSystem.FileSystem
   yield* Effect.forEach(paths, (path) => fs.exists(path), { concurrency: "unbounded" }).pipe(
@@ -1420,7 +1483,7 @@ const waitForAllPaths = Effect.fn("StateRootLockTest.waitForAllPaths")(function*
     Effect.retry(Schedule.spaced("2 millis")),
     Effect.timeoutOrElse({
       duration: "45 seconds",
-      orElse: () => Effect.fail("coordination timed out" as const)
+      orElse: () => diagnostics.pipe(Effect.flatMap((details) => Effect.fail(`coordination timed out at ${phase} barrier: ${details}`)))
     }),
     Effect.asVoid
   )

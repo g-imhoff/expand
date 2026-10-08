@@ -3,7 +3,9 @@ import { Deferred, Effect, Exit, Layer, ManagedRuntime, Queue, Scope, Stream, Su
 import { describe, expect } from "vitest"
 import { ClientSession, type ClientSessionApi, type ConnectionStatus } from "@expand/client-ts"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
+import { AutomationClient } from "@expand/client-ts/automation"
 import { ServerClient } from "@expand/client-ts/server"
+import { unusedAutomationClient } from "../support/automation-stub"
 import { connectPort } from "@expand/desktop/main/rpc/transport"
 
 const waitFor = Deferred.await
@@ -40,7 +42,8 @@ const makeRuntime = Effect.fn("DesktopTransportTest.makeRuntime")(function* (
       Deferred.succeed(acquisitionStarted, undefined).pipe(Effect.andThen(waitFor(releaseAcquisition)))
     ),
     Layer.succeed(ProjectClient, project),
-    Layer.succeed(ServerClient, { health: () => Effect.die("unused") })
+    Layer.succeed(ServerClient, { health: () => Effect.die("unused") }),
+    Layer.succeed(AutomationClient, unusedAutomationClient)
   )
   const runtime = ManagedRuntime.make(layer)
   yield* Effect.addFinalizer(() => runtime.disposeEffect)

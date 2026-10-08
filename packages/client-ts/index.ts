@@ -49,6 +49,8 @@ export {
 
 // Escape hatch
 export { withClient } from "./with-client"
+export { readRemoteConnection, writeRemoteConnection, testRemoteConnection, resolveRemoteEndpoint, remoteSpawnGuard } from "./backend-connection"
+export type { BackendConnection } from "@expand/contracts/backend-connection"
 
 // Platform (adapter seam — type only)
 export type { RuntimeAdapter } from "./adapter"

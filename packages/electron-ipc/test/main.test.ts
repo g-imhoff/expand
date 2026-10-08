@@ -162,6 +162,69 @@ describe("main Electron IPC facade", () => {
     expect(sent).toEqual(["injected:trusted:https://app.example/"])
   }))
 
+  it.effect("admits the same packaged file after main-frame replacement at hash routes", () => Effect.gen(function* () {
+    const rendererUrl = "file:///app/index.html"
+    const urls = [rendererUrl, `${rendererUrl}#/settings`, `${rendererUrl}#/p/project-1`]
+    yield* withRuntime(Effect.scoped(Effect.gen(function* () {
+      yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, rendererUrl })
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const request = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      for (const [index, url] of urls.entries()) {
+        const reloadedFrame = { url, detached: false }
+        contents.mainFrame = reloadedFrame
+        const event = eventFor(contents, reloadedFrame)
+        send(event, "route")
+        expect(yield* Effect.promise(() => invoke(event, "route"))).toEqual({ _tag: "IpcSuccess", value: 5 })
+        request(event, { nonce: `reload-${index}` })
+        yield* TestClock.adjust("10 millis")
+        expect(contents.postMessage).toHaveBeenNthCalledWith(index + 1, "main:port:grant", { nonce: `reload-${index}` }, [portValue])
+      }
+    })))
+    expect(sent).toEqual(urls.map((url) => `injected:route:${url}`))
+  }))
+
+  it.effect("keeps packaged hash-route admission strict for sender, frame, file, and query", () => Effect.gen(function* () {
+    const rendererUrl = "file:///app/index.html"
+    yield* withRuntime(Effect.scoped(Effect.gen(function* () {
+      yield* bindElectronIpc<typeof contract, Runtime>(contract, handlers, { window: browserWindow, rendererUrl })
+      const send = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
+      const request = first(electron.listeners.get("main:port:request") ?? new Set<MainListener>())
+      const invoke = electron.handlers.get("main:invoke")
+      if (invoke === undefined) throw new Error("expected a registered invoke handler")
+      const reject = (event: unknown) => Effect.gen(function* () {
+        send(event, "rejected")
+        request(event, { nonce: "rejected" })
+        expect(yield* Effect.promise(() => invoke(event, "route"))).toEqual({ _tag: "IpcDefect", message: "sender rejected" })
+      })
+      frame.url = `${rendererUrl}#/settings`
+      yield* reject(eventFor({}, frame))
+      yield* reject(eventFor(contents, { ...frame }))
+      yield* reject(eventFor(contents, null))
+      frame.detached = true
+      yield* reject(eventFor())
+      frame.detached = false
+      contents.mainFrame = { ...frame }
+      yield* reject(eventFor(contents, frame))
+      contents.mainFrame = frame
+      for (const url of [
+        "file:///app/sibling.html#/settings",
+        "file:///foreign/index.html#/settings",
+        "file://foreign/app/index.html#/settings",
+        "file:///app/index.html?query#/settings",
+        "https://app.example/index.html#/settings",
+        "not a url"
+      ]) {
+        frame.url = url
+        yield* reject(eventFor())
+      }
+      yield* TestClock.adjust("10 millis")
+      expect(contents.postMessage).not.toHaveBeenCalled()
+      expect(sent).toEqual([])
+    })))
+  }))
+
   it.effect("measures admitted payloads in UTF-8 bytes", () => Effect.gen(function* () {
     yield* withRuntime(Effect.scoped(Effect.gen(function* () {
       yield* bind({ maxPayloadBytes: 2 })
