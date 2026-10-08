@@ -1,4 +1,5 @@
-import { writeFile } from "node:fs/promises"
+import { NodeServices } from "@effect/platform-node"
+import { Effect, FileSystem, Schema } from "effect"
 import { expect, test } from "@playwright/test"
 
 for (const size of [
@@ -6,29 +7,31 @@ for (const size of [
   { name: "intermediate", width: 768, height: 700 },
   { name: "wide", width: 980, height: 700 }
 ]) {
-  test(`${size.name}: real sidebar with production context`, async ({ page }, testInfo) => {
+  test(`${size.name}: real sidebar with production context`, ({ page }, testInfo) => Effect.runPromise(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
     const errors: string[] = []
     page.on("pageerror", (error) => errors.push(error.message))
     page.on("console", (message) => {
       if (message.type() === "error") errors.push(message.text())
     })
-    await page.setViewportSize({ width: size.width, height: size.height })
-    await page.goto("/")
-    await expect(page.getByRole("heading", { name: "Project inbox" })).toBeVisible()
+    yield* Effect.promise(() => page.setViewportSize({ width: size.width, height: size.height }))
+    yield* Effect.promise(() => page.goto("/"))
+    yield* Effect.promise(() => expect(page.getByRole("heading", { name: "Project inbox" })).toBeVisible())
 
     if (size.name === "compact") {
-      await expect(page.getByRole("dialog", { name: "Sidebar" })).toHaveCount(0)
-      await page.screenshot({ path: testInfo.outputPath("closed.png") })
-      await page.keyboard.press("Control+b")
-      await expect(page.getByRole("dialog", { name: "Sidebar" })).toBeVisible()
+      yield* Effect.promise(() => expect(page.getByRole("dialog", { name: "Sidebar" })).toHaveCount(0))
+      yield* Effect.promise(() => page.screenshot({ path: testInfo.outputPath("closed.png") }))
+      yield* Effect.promise(() => page.keyboard.press("Control+b"))
+      yield* Effect.promise(() => expect(page.getByRole("dialog", { name: "Sidebar" })).toBeVisible())
+      yield* Effect.promise(() => expect.poll(() => page.getByRole("dialog", { name: "Sidebar" }).evaluate((sidebar) => Math.round(sidebar.getBoundingClientRect().x))).toBe(0))
     }
 
-    await expect(page.getByRole("button", { name: "Active project: expand" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Switch device, active: Workstation" })).toBeVisible()
-    await expect(page.getByRole("button", { name: "Inspect reconnect behavior, unread" })).toBeVisible()
-    await page.screenshot({ path: testInfo.outputPath("light.png") })
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Active project: expand" })).toBeVisible())
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Switch device, active: Workstation" })).toBeVisible())
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Inspect reconnect behavior, unread" })).toBeVisible())
+    yield* Effect.promise(() => page.screenshot({ path: testInfo.outputPath("light.png") }))
 
-    const observations = await page.evaluate(() => {
+    const observations = yield* Effect.promise(() => page.evaluate(() => {
       const sidebar = document.querySelector<HTMLElement>("[data-mobile=true], [data-slot=sidebar-container]")
       if (sidebar === null) throw new Error("The production sidebar is missing")
       const bounds = sidebar.getBoundingClientRect()
@@ -43,32 +46,33 @@ for (const size of [
         sidebarPrimary: getComputedStyle(document.documentElement).getPropertyValue("--sidebar-primary").trim(),
         mobile: sidebar.dataset.mobile === "true"
       }
-    })
+    }))
     expect(observations.innerWidth).toBe(size.width)
     expect(observations.innerHeight).toBe(size.height)
+    expect(observations.documentWidth).toBeLessThanOrEqual(size.width)
     expect(observations.sidebar.width).toBeGreaterThan(0)
     expect(observations.sidebar.height).toBeGreaterThan(0)
     expect(observations.sidebarPrimary).not.toBe("")
     expect(observations.mobile).toBe(size.name === "compact")
 
-    await page.getByRole("switch", { name: "Show unread conversations only" }).click()
-    await expect(page.getByRole("button", { name: "Check connection settings", exact: true })).toHaveCount(0)
-    await expect(page.getByRole("button", { name: "Inspect reconnect behavior, unread" })).toBeVisible()
-    await page.getByRole("switch", { name: "Show unread conversations only" }).click()
-    await expect(page.getByRole("button", { name: "Check connection settings", exact: true })).toBeVisible()
+    yield* Effect.promise(() => page.getByRole("switch", { name: "Show unread conversations only" }).click())
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Check connection settings", exact: true })).toHaveCount(0))
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Inspect reconnect behavior, unread" })).toBeVisible())
+    yield* Effect.promise(() => page.getByRole("switch", { name: "Show unread conversations only" }).click())
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Check connection settings", exact: true })).toBeVisible())
 
-    await page.getByRole("button", { name: "Active project: expand" }).click()
-    await page.getByRole("menuitem", { name: /docs-site/ }).click()
-    await expect(page.getByRole("button", { name: "Active project: docs-site" })).toBeVisible()
+    yield* Effect.promise(() => page.getByRole("button", { name: "Active project: expand" }).click())
+    yield* Effect.promise(() => page.getByRole("menuitem", { name: /docs-site/ }).click())
+    yield* Effect.promise(() => expect(page.getByRole("button", { name: "Active project: docs-site" })).toBeVisible())
 
-    await page.evaluate(() => document.documentElement.classList.add("dark"))
-    await page.screenshot({ path: testInfo.outputPath("dark.png") })
-    const darkPrimary = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--sidebar-primary").trim())
+    yield* Effect.promise(() => page.evaluate(() => document.documentElement.classList.add("dark")))
+    yield* Effect.promise(() => page.screenshot({ path: testInfo.outputPath("dark.png") }))
+    const darkPrimary = yield* Effect.promise(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--sidebar-primary").trim()))
     expect(darkPrimary).not.toBe(observations.sidebarPrimary)
     expect(errors).toEqual([])
 
     const path = testInfo.outputPath("observations.json")
-    await writeFile(path, JSON.stringify({ scenario: "sidebar-two-worktrees-unread", requested: size, observed: observations, darkPrimary, errors }, null, 2) + "\n")
-    await testInfo.attach("runtime-observations", { path, contentType: "application/json" })
-  })
+    yield* fs.writeFileString(path, Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))({ scenario: "sidebar-two-worktrees-unread", requested: size, observed: observations, darkPrimary, errors }) + "\n")
+    yield* Effect.promise(() => testInfo.attach("runtime-observations", { path, contentType: "application/json" }))
+  }).pipe(Effect.provide(NodeServices.layer))))
 }

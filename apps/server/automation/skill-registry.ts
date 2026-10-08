@@ -19,9 +19,14 @@ export interface SkillCheckOutcome {
   readonly detail?: string
 }
 
-export const skillKey = (id: string, version: number): string => `${id}@${version}`
+export {
+  resolveSkill,
+  decodeSkillInputs,
+  evaluateCompletionChecks,
+  allowedPathsCheck
+}
 
-export const resolveSkill = (
+const resolveSkill = (
   skills: ReadonlyArray<SkillDefinition>,
   skillId: string
 ): Effect.Effect<SkillDefinition, AutomationError> =>
@@ -33,12 +38,12 @@ export const resolveSkill = (
     return found
   })
 
-export const decodeSkillInputs = (skill: SkillDefinition, inputs: unknown): Effect.Effect<unknown, AutomationError> =>
+const decodeSkillInputs = (skill: SkillDefinition, inputs: unknown): Effect.Effect<unknown, AutomationError> =>
   decodeJson(skill.inputSchema, inputs).pipe(
     Effect.mapError(() => new AutomationError({ code: "invalid-contract", message: `Skill inputs do not match ${skill.id}` }))
   )
 
-export const evaluateCompletionChecks = (
+const evaluateCompletionChecks = (
   skill: SkillDefinition,
   outcome: { readonly transcript: ReadonlyArray<string>; readonly diffSummary: string; readonly exitStatus: number }
 ): Array<SkillCheckOutcome> => {
@@ -72,7 +77,7 @@ export const evaluateCompletionChecks = (
   return [exitCheck, diffCheck, allowed, writeCheck]
 }
 
-export const allowedPathsCheck = (allowedPaths: ReadonlyArray<string>, diffSummary: string): SkillCheckOutcome => {
+const allowedPathsCheck = (allowedPaths: ReadonlyArray<string>, diffSummary: string): SkillCheckOutcome => {
   const allowed = new Set<string>()
   for (const entry of allowedPaths) {
     const normalized = normalizeRepoPath(entry)

@@ -32,9 +32,14 @@ export interface SonarStub {
   readonly close: () => void
 }
 
-export const SonarStubBodyJson = Schema.fromJsonString(Schema.Unknown)
+export {
+  startSonarStub
+}
 
-export const startSonarStub = Effect.fn("SonarStub.start")(function*() {
+
+const SonarStubBodyJson = Schema.fromJsonString(Schema.Unknown)
+
+const startSonarStub = Effect.fn("SonarStub.start")(function*() {
   let reply: ((call: SonarStubCall) => SonarStubReply) | null = null
   const calls: Array<SonarStubCall> = []
   const issues = new Map<string, SonarStubIssue>()

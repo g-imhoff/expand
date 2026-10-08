@@ -34,14 +34,21 @@ export interface GithubWebhookInput {
   readonly raw: Uint8Array
 }
 
-export type GithubWebhookOutcome =
+export {
+  type GithubWebhookOutcome,
+  GithubWebhookCredentialSlot,
+  verifyGithubSignature,
+  makeGithubWebhookHandler
+}
+
+type GithubWebhookOutcome =
   | { readonly status: 200; readonly accepted: false }
   | { readonly status: 200; readonly accepted: true; readonly deliveryId: string; readonly jobIds: ReadonlyArray<string>; readonly runIds: ReadonlyArray<string> }
   | { readonly status: 401; readonly accepted: false }
 
-export const GithubWebhookCredentialSlot = "webhook"
+const GithubWebhookCredentialSlot = "webhook"
 
-export const verifyGithubSignature = (
+const verifyGithubSignature = (
   secret: Uint8Array,
   raw: Uint8Array,
   signatureHeader: string | undefined,
@@ -63,7 +70,7 @@ export const verifyGithubSignature = (
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-export const decodeWebhookSecret = (secret: Uint8Array): Effect.Effect<string, StorageError> =>
+const decodeWebhookSecret = (secret: Uint8Array): Effect.Effect<string, StorageError> =>
   Effect.try({
     try: () => new TextDecoder("utf-8", { fatal: true }).decode(secret),
     catch: () => new StorageError({ code: "invalid", message: "Webhook secret is not usable" }),
@@ -75,7 +82,7 @@ export const decodeWebhookSecret = (secret: Uint8Array): Effect.Effect<string, S
     ),
   )
 
-export const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
+const makeGithubWebhookHandler = (services: GithubWebhookServices) => {
   const handle = (input: GithubWebhookInput): Effect.Effect<GithubWebhookOutcome, StorageError> =>
     Effect.gen(function* () {
       if (typeof input.deliveryId !== "string" || input.deliveryId.length === 0) {

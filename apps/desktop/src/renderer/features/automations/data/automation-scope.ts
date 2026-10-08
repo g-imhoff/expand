@@ -3,9 +3,13 @@ export interface AutomationScope {
   readonly projectId: string
 }
 
-export const AUTOMATION_OWNER_ID = "local"
+export {
+  automationScope
+}
 
-export const automationScope = (projectId: string): AutomationScope => ({
+const AUTOMATION_OWNER_ID = "local"
+
+const automationScope = (projectId: string): AutomationScope => ({
   ownerId: AUTOMATION_OWNER_ID,
   projectId
 })

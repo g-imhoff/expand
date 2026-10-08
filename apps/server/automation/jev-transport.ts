@@ -13,24 +13,32 @@ export interface ZenPostInput {
   readonly body: unknown
 }
 
-export const ZenSystemOneEndpoint = "https://opencode.ai/zen/v1/systemone"
-export const ZenJevModel = "jev-1.13"
+export {
+  ZenSystemOneEndpoint,
+  ZenJevModel,
+  ZenSystemOneRequest,
+  ZenChoiceAnswer,
+  postSystemOne
+}
 
-export const ZenChoiceQuestion = Schema.Struct({
+const ZenSystemOneEndpoint = "https://opencode.ai/zen/v1/systemone"
+const ZenJevModel = "jev-1.13"
+
+const ZenChoiceQuestion = Schema.Struct({
   type: Schema.Literal("choice"),
   instructions: Schema.String.check(Schema.isMinLength(1)),
   criteria: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Null]))
 })
-export type ZenChoiceQuestion = typeof ZenChoiceQuestion.Type
+type ZenChoiceQuestion = typeof ZenChoiceQuestion.Type
 
-export const ZenSystemOneRequest = Schema.Struct({
+const ZenSystemOneRequest = Schema.Struct({
   model: Schema.Literal("jev-1.13"),
   state: Schema.Json,
   questions: Schema.Record(Schema.String, ZenChoiceQuestion)
 })
-export type ZenSystemOneRequest = typeof ZenSystemOneRequest.Type
+type ZenSystemOneRequest = typeof ZenSystemOneRequest.Type
 
-export const ZenChoiceAnswer = Schema.Struct({
+const ZenChoiceAnswer = Schema.Struct({
   type: Schema.Literal("choice"),
   choice: Schema.String.check(Schema.isMinLength(1)),
   probabilities: Schema.Record(
@@ -39,9 +47,9 @@ export const ZenChoiceAnswer = Schema.Struct({
   ),
   confidence: Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0), Schema.isLessThanOrEqualTo(1))
 })
-export type ZenChoiceAnswer = typeof ZenChoiceAnswer.Type
+type ZenChoiceAnswer = typeof ZenChoiceAnswer.Type
 
-export const ZenSystemOneResponse = Schema.Struct({
+const ZenSystemOneResponse = Schema.Struct({
   model: Schema.String.check(Schema.isMinLength(1)),
   answers: Schema.Record(Schema.String, ZenChoiceAnswer),
   usage: Schema.Struct({
@@ -49,9 +57,9 @@ export const ZenSystemOneResponse = Schema.Struct({
     output_tokens: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
   })
 })
-export type ZenSystemOneResponse = typeof ZenSystemOneResponse.Type
+type ZenSystemOneResponse = typeof ZenSystemOneResponse.Type
 
-export const postSystemOne = Effect.fn("ZenTransport.postSystemOne")(function*(input: ZenPostInput) {
+const postSystemOne = Effect.fn("ZenTransport.postSystemOne")(function*(input: ZenPostInput) {
   if (typeof input.apiKey !== "string" || input.apiKey.length === 0) {
     return yield* new ZenTransportError({ code: "auth", message: "Zen rejected the API key" })
   }

@@ -4,8 +4,6 @@ import {
   AutomationFailure,
   CredentialReference,
   InvocationContext,
-  LocalId,
-  PersonalScope,
   CodingRepositoryConfiguration,
   defineAction,
   defineExtension
@@ -30,11 +28,6 @@ import { executeCodingSession, makeOpencodeAdapter, registerCodingAdapter } from
 import { decodeSkillInputs, evaluateCompletionChecks, resolveSkill } from "./skill-registry.js"
 import type { SkillDefinition } from "./skill-registry.js"
 
-export class PipelineRepairError extends Data.TaggedError("PipelineRepairError")<{
-  readonly code: "invalid-contract" | "protected-branch" | "branch-not-allowed" | "duplicate" | "retry-exhausted" | "log-fetch" | "skill" | "check-failed" | "connection" | "missing-credential"
-  readonly message: string
-}> {}
-
 export interface PipelineRepairOptions {
   readonly skills: ReadonlyArray<SkillDefinition>
   readonly worktreeRoot: string
@@ -50,43 +43,58 @@ export interface PipelineRepairServices {
   readonly http: HttpClient.HttpClient
 }
 
-export const DefaultPipelineMaxAttempts = 2
-export const DefaultPipelineProtectedBranches: ReadonlyArray<string> = ["develop", "master", "main"]
+export {
+  pipelineRepairKey,
+  pipelineRepairKeyForScope,
+  normalizeRepairBranch,
+  isProtectedBranch,
+  isBranchAllowed,
+  shouldAttemptRepair,
+  boundLogsSnippet,
+  resetPipelineRepairAttemptsForTests,
+  decodePipelineWebhookText,
+  toPipelinePayload,
+  pipelineExternalId,
+  pipelineStoredDeliveryId,
+  makePipelineRepairExtension
+}
 
-export const pipelineRepairKey = (owner: string, repo: string, runId: number): string =>
+class PipelineRepairError extends Data.TaggedError("PipelineRepairError")<{
+  readonly code: "invalid-contract" | "protected-branch" | "branch-not-allowed" | "duplicate" | "retry-exhausted" | "log-fetch" | "skill" | "check-failed" | "connection" | "missing-credential"
+  readonly message: string
+}> {}
+
+const pipelineRepairKey = (owner: string, repo: string, runId: number): string =>
   `${owner}/${repo}#${runId}`
 
-export const pipelineRepairKeyForScope = (scope: { readonly ownerId: string; readonly projectId: string }, owner: string, repo: string, runId: number): string =>
+const pipelineRepairKeyForScope = (scope: { readonly ownerId: string; readonly projectId: string }, owner: string, repo: string, runId: number): string =>
   `${scope.ownerId}/${scope.projectId}:${owner}/${repo}#${runId}`
 
-export const normalizeRepairBranch = (branch: string): string => {
+const normalizeRepairBranch = (branch: string): string => {
   const trimmed = branch.trim().toLowerCase()
   return trimmed.startsWith("refs/heads/") ? trimmed.slice("refs/heads/".length) : trimmed
 }
 
-export const isProtectedBranch = (branch: string, protectedBranches: ReadonlyArray<string>): boolean =>
+const isProtectedBranch = (branch: string, protectedBranches: ReadonlyArray<string>): boolean =>
   protectedBranches.map((entry) => normalizeRepairBranch(entry)).includes(normalizeRepairBranch(branch))
 
-export const isBranchAllowed = (branch: string, allowedBranches: ReadonlyArray<string> | undefined): boolean => {
+const isBranchAllowed = (branch: string, allowedBranches: ReadonlyArray<string> | undefined): boolean => {
   if (allowedBranches === undefined) return true
   const normalized = normalizeRepairBranch(branch)
   return allowedBranches.map((entry) => normalizeRepairBranch(entry)).includes(normalized)
 }
 
-export const shouldAttemptRepair = (attempts: number, maxAttempts: number): boolean =>
+const shouldAttemptRepair = (attempts: number, maxAttempts: number): boolean =>
   Number.isSafeInteger(attempts) && attempts >= 0 && Number.isSafeInteger(maxAttempts) && maxAttempts > 0 && attempts < maxAttempts
 
-export const boundLogsSnippet = (text: string): string =>
+const boundLogsSnippet = (text: string): string =>
   text.length <= 4000 ? text : text.slice(0, 4000)
 
-export const resetPipelineRepairAttemptsForTests = (): void => {
+const resetPipelineRepairAttemptsForTests = (): void => {
   repairAttempts.clear()
 }
 
-export const repairAttemptCount = (key: string): number =>
-  repairAttempts.get(key)?.attempts ?? 0
-
-export const decodePipelineWebhookText = (raw: Uint8Array): Effect.Effect<typeof PipelineWebhookEvent.Type, PipelineRepairError> =>
+const decodePipelineWebhookText = (raw: Uint8Array): Effect.Effect<typeof PipelineWebhookEvent.Type, PipelineRepairError> =>
   Effect.gen(function*() {
     const text = yield* Effect.try({
       try: () => new TextDecoder("utf-8", { fatal: true }).decode(raw),
@@ -101,7 +109,7 @@ export const decodePipelineWebhookText = (raw: Uint8Array): Effect.Effect<typeof
     return event
   })
 
-export const toPipelinePayload = (event: typeof PipelineWebhookEvent.Type): typeof PipelineWorkflowPayload.Type | null => {
+const toPipelinePayload = (event: typeof PipelineWebhookEvent.Type): typeof PipelineWorkflowPayload.Type | null => {
   if (event.workflow_run.conclusion !== "failure") return null
   const owner = event.repository.owner.login
   const repo = event.repository.name
@@ -123,13 +131,13 @@ export const toPipelinePayload = (event: typeof PipelineWebhookEvent.Type): type
   }
 }
 
-export const pipelineExternalId = (payload: typeof PipelineWorkflowPayload.Type): string =>
+const pipelineExternalId = (payload: typeof PipelineWorkflowPayload.Type): string =>
   `${payload.owner}/${payload.repo}#${payload.runId}`
 
-export const pipelineStoredDeliveryId = (deliveryId: string, integrationId: string): string =>
+const pipelineStoredDeliveryId = (deliveryId: string, integrationId: string): string =>
   `${deliveryId}:${integrationId}`
 
-export const makePipelineRepairExtension = (options: PipelineRepairOptions, services: PipelineRepairServices) => {
+const makePipelineRepairExtension = (options: PipelineRepairOptions, services: PipelineRepairServices) => {
   registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
   const action = defineAction({
     definition: { ...pipelineRepairActionReference },
@@ -382,25 +390,6 @@ export const makePipelineRepairExtension = (options: PipelineRepairOptions, serv
     })
   }
 }
-
-export const pipelineContextFor = (scope: PersonalScope, routineId: string, revision: number, integrationId: string, mode: "preview" | "live") => ({
-  scope: { ...scope },
-  routineId,
-  configurationRevision: revision,
-  integrationId,
-  mode
-})
-
-export const decodePipelineScope = (value: unknown): Effect.Effect<PersonalScope, PipelineRepairError> =>
-  Schema.decodeUnknownEffect(PersonalScope, { onExcessProperty: "error" })(value).pipe(
-    Effect.mapError(() => new PipelineRepairError({ code: "invalid-contract", message: "Scope is not usable" }))
-  )
-
-export const decodePipelineLocalId = (value: unknown): Effect.Effect<string, PipelineRepairError> =>
-  Schema.decodeUnknownEffect(LocalId, { onExcessProperty: "error" })(value).pipe(
-    Effect.mapError(() => new PipelineRepairError({ code: "invalid-contract", message: "Id is not usable" }))
-  )
-
 
 const sameBranchList = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean =>
   left.length === right.length && left.every((entry, index) => entry === right[index])

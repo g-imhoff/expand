@@ -5,10 +5,28 @@ export interface ScoredOutcome {
   readonly outcomeId?: string
 }
 
-export const EvalExpected = Schema.Literals(["bug", "question", "abstain"])
-export type EvalExpected = typeof EvalExpected.Type
+export {
+  type EvalIssue,
+  type EvalItem,
+  encodeEvalReport,
+  decodeEvalReport,
+  evalIssues,
+  scoreClassification,
+  summarizeEval,
+  stubChoiceForText,
+  stubChoiceForRequestBody,
+  stubProbabilitiesForChoice,
+  stubConfidenceForChoice
+}
 
-export const EvalIssue = Schema.Struct({
+
+
+
+
+const EvalExpected = Schema.Literals(["bug", "question", "abstain"])
+type EvalExpected = typeof EvalExpected.Type
+
+const EvalIssue = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1)),
   source: Schema.String.check(Schema.isMinLength(1)),
   issueNumber: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -17,12 +35,12 @@ export const EvalIssue = Schema.Struct({
   expected: EvalExpected,
   accepted: Schema.Array(Schema.Literals(["bug", "question", "abstain"]))
 })
-export type EvalIssue = typeof EvalIssue.Type
+type EvalIssue = typeof EvalIssue.Type
 
-export const EvalVerdict = Schema.Literals(["correct", "wrong", "unresolved"])
-export type EvalVerdict = typeof EvalVerdict.Type
+const EvalVerdict = Schema.Literals(["correct", "wrong", "unresolved"])
+type EvalVerdict = typeof EvalVerdict.Type
 
-export const EvalItem = Schema.Struct({
+const EvalItem = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1)),
   source: Schema.String.check(Schema.isMinLength(1)),
   expected: EvalExpected,
@@ -31,17 +49,17 @@ export const EvalItem = Schema.Struct({
   latencyMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
   label: Schema.optional(Schema.String)
 })
-export type EvalItem = typeof EvalItem.Type
+type EvalItem = typeof EvalItem.Type
 
-export const EvalTotals = Schema.Struct({
+const EvalTotals = Schema.Struct({
   issues: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   correct: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   wrong: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   unresolved: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 })
-export type EvalTotals = typeof EvalTotals.Type
+type EvalTotals = typeof EvalTotals.Type
 
-export const EvalReport = Schema.Struct({
+const EvalReport = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   kind: Schema.Literal("classification-eval"),
   mode: Schema.Literals(["offline-stub", "live-jev"]),
@@ -49,15 +67,15 @@ export const EvalReport = Schema.Struct({
   totals: EvalTotals,
   items: Schema.Array(EvalItem)
 })
-export type EvalReport = typeof EvalReport.Type
+type EvalReport = typeof EvalReport.Type
 
-export const EvalReportFromJson = Schema.fromJsonString(EvalReport)
+const EvalReportFromJson = Schema.fromJsonString(EvalReport)
 
-export const encodeEvalReport = Schema.encodeSync(EvalReportFromJson)
+const encodeEvalReport = Schema.encodeSync(EvalReportFromJson)
 
-export const decodeEvalReport = Schema.decodeUnknownSync(EvalReportFromJson)
+const decodeEvalReport = Schema.decodeUnknownSync(EvalReportFromJson)
 
-export const evalIssues: Array<EvalIssue> = [
+const evalIssues: Array<EvalIssue> = [
   {
     id: "eval-01",
     source: "g-imhoff/expand#10",
@@ -177,7 +195,7 @@ export const evalIssues: Array<EvalIssue> = [
   }
 ]
 
-export const scoreClassification = (
+const scoreClassification = (
   expected: EvalExpected,
   accepted: ReadonlyArray<EvalExpected>,
   outcome: ScoredOutcome
@@ -195,7 +213,7 @@ export const scoreClassification = (
     : { predicted, verdict: "wrong" }
 }
 
-export const summarizeEval = (items: ReadonlyArray<EvalItem>): EvalTotals => {
+const summarizeEval = (items: ReadonlyArray<EvalItem>): EvalTotals => {
   let correct = 0
   let wrong = 0
   let unresolved = 0
@@ -207,7 +225,7 @@ export const summarizeEval = (items: ReadonlyArray<EvalItem>): EvalTotals => {
   return { issues: items.length, correct, wrong, unresolved }
 }
 
-export const stubChoiceForText = (title: string, body?: string): "bug" | "question" | "no_match" => {
+const stubChoiceForText = (title: string, body?: string): "bug" | "question" | "no_match" => {
   const text = body === undefined || body.length === 0 ? title : `${title}\n${body}`
   if (OutOfScopePattern.test(text)) return "no_match"
   if (QuestionPattern.test(text)) return "question"
@@ -216,7 +234,7 @@ export const stubChoiceForText = (title: string, body?: string): "bug" | "questi
   return "no_match"
 }
 
-export const stubChoiceForState = (state: unknown): "bug" | "question" | "no_match" => {
+const stubChoiceForState = (state: unknown): "bug" | "question" | "no_match" => {
   if (typeof state !== "object" || state === null) return "no_match"
   const record = state as Record<string, unknown>
   const title = typeof record["title"] === "string" ? record["title"] : ""
@@ -224,19 +242,19 @@ export const stubChoiceForState = (state: unknown): "bug" | "question" | "no_mat
   return stubChoiceForText(title, body)
 }
 
-export const stubChoiceForRequestBody = (body: unknown): "bug" | "question" | "no_match" => {
+const stubChoiceForRequestBody = (body: unknown): "bug" | "question" | "no_match" => {
   if (typeof body !== "object" || body === null) return "no_match"
   return stubChoiceForState((body as Record<string, unknown>)["state"])
 }
 
-export const stubProbabilitiesForChoice = (choice: "bug" | "question" | "no_match"): Record<string, number> =>
+const stubProbabilitiesForChoice = (choice: "bug" | "question" | "no_match"): Record<string, number> =>
   choice === "bug"
     ? { bug: 0.82, question: 0.12, no_match: 0.06 }
     : choice === "question"
       ? { bug: 0.12, question: 0.82, no_match: 0.06 }
       : { bug: 0.2, question: 0.2, no_match: 0.6 }
 
-export const stubConfidenceForChoice = (choice: "bug" | "question" | "no_match"): number =>
+const stubConfidenceForChoice = (choice: "bug" | "question" | "no_match"): number =>
   choice === "no_match" ? 0.35 : 0.78
 
 const OutOfScopePattern = /reusing the shadcn|must be vendored|draft pr against|deferred from the current delivery|stock price|sales framing/i

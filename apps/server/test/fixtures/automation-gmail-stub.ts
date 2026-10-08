@@ -30,8 +30,13 @@ export interface GmailStub {
   readonly setHistoryId: (historyId: string) => void
   readonly close: () => void
 }
-export const GmailStubBodyJson = Schema.fromJsonString(Schema.Unknown)
-export const startGmailStub = Effect.fn("GmailStub.start")(function* () {
+
+export {
+  startGmailStub
+}
+
+const GmailStubBodyJson = Schema.fromJsonString(Schema.Unknown)
+const startGmailStub = Effect.fn("GmailStub.start")(function* () {
   let reply: ((call: GmailStubCall) => GmailStubReply) | null = null
   const calls: Array<GmailStubCall> = []
   const messages = new Map<string, { threadId: string; historyId: string; labelIds: Array<string>; from: string; subject: string; body: string; snippet: string }>()

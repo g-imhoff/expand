@@ -35,33 +35,13 @@ export interface ConflictConnectorServices {
   readonly http: HttpClient.HttpClient
 }
 
-export const ConflictCredentialSlot = "token"
+export {
+  makeConflictConnectorExtension
+}
 
-export const checkPrConflicts = Effect.fn("ConflictConnector.checkConflicts")(function*(
-  owner: string,
-  repo: string,
-  token: string,
-  policy: { readonly permittedBranches: ReadonlyArray<string>; readonly protectedBranches: ReadonlyArray<string>; readonly defaultBranch: string },
-  options?: GithubPrTransportOptions
-) {
-  const { listOpenPulls } = yield* Effect.promise(() => import("./github-pr-transport.js"))
-  const pulls = yield* listOpenPulls(owner, repo, token, options)
-  const bounded = pulls.slice(0, 20)
-  const out: Array<{ readonly pullNumber: number; readonly headBranch: string; readonly baseBranch: string; readonly headSha: string; readonly mergeable: boolean }> = []
-  for (const pull of bounded) {
-    const fresh = yield* getPullRequest(owner, repo, pull.number, token, options)
-    const state = classifyMergeability({ mergeable: fresh.mergeable, mergeableState: fresh.mergeableState })
-    if (state !== "conflicted") continue
-    const permitted = isPermittedBranch(fresh.headBranch, policy)
-    const protectedHead = isProtectedBranch(fresh.headBranch, policy.protectedBranches, policy.defaultBranch)
-    if (!permitted || protectedHead) continue
-    out.push({ pullNumber: fresh.number, headBranch: fresh.headBranch, baseBranch: fresh.baseBranch, headSha: fresh.headSha, mergeable: false })
-    if (out.length >= 20) break
-  }
-  return out
-})
+const ConflictCredentialSlot = "token"
 
-export const makeConflictConnectorExtension = (options: ConflictConnectorOptions, services: ConflictConnectorServices) => {
+const makeConflictConnectorExtension = (options: ConflictConnectorOptions, services: ConflictConnectorServices) => {
   const action = defineAction({
     definition: { ...prResolveActionReference },
     title: "GitHub resolve PR conflict",

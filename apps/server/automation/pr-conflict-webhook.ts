@@ -23,14 +23,21 @@ export interface PrConflictWebhookInput {
   readonly raw: Uint8Array
 }
 
-export type PrConflictWebhookOutcome =
+export {
+  type PrConflictWebhookOutcome,
+  verifyPrConflictSignature,
+  decodePrConflictEvent,
+  makePrConflictWebhookHandler
+}
+
+type PrConflictWebhookOutcome =
   | { readonly status: 200; readonly accepted: false }
   | { readonly status: 200; readonly accepted: true; readonly deliveryId: string; readonly jobIds: ReadonlyArray<string>; readonly runIds: ReadonlyArray<string> }
   | { readonly status: 401; readonly accepted: false }
 
-export const PrConflictWebhookCredentialSlot = "token"
+const PrConflictWebhookCredentialSlot = "token"
 
-export const verifyPrConflictSignature = (
+const verifyPrConflictSignature = (
   secret: Uint8Array,
   raw: Uint8Array,
   signatureHeader: string | undefined
@@ -52,10 +59,10 @@ export const verifyPrConflictSignature = (
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-export const decodePrConflictEvent = (value: unknown): Effect.Effect<typeof GithubPrConflictPayload.Type | null, never> =>
+const decodePrConflictEvent = (value: unknown): Effect.Effect<typeof GithubPrConflictPayload.Type | null, never> =>
   decodePrConflictWebhookEvent(value).pipe(Effect.map((event) => event?.payload ?? null))
 
-export const makePrConflictWebhookHandler = (services: PrConflictWebhookServices) => {
+const makePrConflictWebhookHandler = (services: PrConflictWebhookServices) => {
   const handle = (input: PrConflictWebhookInput): Effect.Effect<PrConflictWebhookOutcome, StorageError> =>
     Effect.gen(function*() {
       if (typeof input.deliveryId !== "string" || input.deliveryId.length === 0) return { status: 401, accepted: false } as const

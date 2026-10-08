@@ -48,11 +48,19 @@ export interface RoutinePreviewInput {
   readonly abstainReason: string
 }
 
-export class AutomationUnavailable extends Data.TaggedError("AutomationUnavailable")<{
+export {
+  useAutomationCatalog,
+  useRoutineRecord,
+  useRoutineSave,
+  useRoutineStatus,
+  useRoutinePreview
+}
+
+class AutomationUnavailable extends Data.TaggedError("AutomationUnavailable")<{
   readonly message: string
 }> {}
 
-export const useAutomationCatalog = (): CatalogState => {
+const useAutomationCatalog = (): CatalogState => {
   const query = useAutomationQuery((api) => api.catalog(), "catalog")
   return {
     catalog: query.data,
@@ -63,7 +71,7 @@ export const useAutomationCatalog = (): CatalogState => {
   }
 }
 
-export const useRoutineRecord = (projectId: string, routineId: string | undefined): RoutineRecordState => {
+const useRoutineRecord = (projectId: string, routineId: string | undefined): RoutineRecordState => {
   const query = useAutomationQuery(
     (api) => api.getRoutine({ scope: automationScope(projectId), routineId: routineId ?? "" }),
     `${projectId}/${routineId ?? ""}`,
@@ -78,7 +86,7 @@ export const useRoutineRecord = (projectId: string, routineId: string | undefine
   }
 }
 
-export const useRoutineSave = (
+const useRoutineSave = (
   projectId: string
 ): MutationState<RoutineSaveInput, { readonly revision: number }, unknown> => {
   const rpc = useAutomationRpc()
@@ -91,7 +99,7 @@ export const useRoutineSave = (
   })
 }
 
-export const useRoutineStatus = (
+const useRoutineStatus = (
   projectId: string
 ): MutationState<RoutineStatusInput, RoutineHead, unknown> => {
   const rpc = useAutomationRpc()
@@ -104,7 +112,7 @@ export const useRoutineStatus = (
   })
 }
 
-export const useRoutinePreview = (
+const useRoutinePreview = (
   projectId: string
 ): MutationState<RoutinePreviewInput, PreviewOutcome, unknown> => {
   const rpc = useAutomationRpc()

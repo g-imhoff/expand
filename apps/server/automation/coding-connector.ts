@@ -40,9 +40,14 @@ export interface CodingConnectorServices {
   readonly credentials: CredentialRepository["Service"]
 }
 
-export const CodingCredentialSlot = "token"
+export {
+  makeCodingConnectorExtension,
+  resetCodingAdaptersForTests
+}
 
-export const makeCodingConnectorExtension = (options: CodingConnectorOptions, services: CodingConnectorServices) => {
+const CodingCredentialSlot = "token"
+
+const makeCodingConnectorExtension = (options: CodingConnectorOptions, services: CodingConnectorServices) => {
   registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
   if (!isCapacityAdapterRegistered("opencode")) {
     registerCapacityAdapter(makeUnknownCapacityAdapter("opencode", ["execute", "worktree", "transcript", "diff"]))
@@ -170,7 +175,7 @@ export const makeCodingConnectorExtension = (options: CodingConnectorOptions, se
   }
 }
 
-export const resetCodingAdaptersForTests = (): void => {
+const resetCodingAdaptersForTests = (): void => {
   clearCodingAdapters()
 }
 

@@ -30,9 +30,14 @@ export interface GithubStub {
   readonly close: () => void
 }
 
-export const GithubStubBodyJson = Schema.fromJsonString(Schema.Unknown)
+export {
+  startGithubStub
+}
 
-export const startGithubStub = Effect.fn("GithubStub.start")(function* () {
+
+const GithubStubBodyJson = Schema.fromJsonString(Schema.Unknown)
+
+const startGithubStub = Effect.fn("GithubStub.start")(function* () {
   let reply: ((call: GithubStubCall) => GithubStubReply) | null = null
   const calls: Array<GithubStubCall> = []
   const labels: Array<string> = []

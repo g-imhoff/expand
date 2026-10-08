@@ -18,11 +18,7 @@ import {
   GmailTransportError, getMessage, listHistory, listMessages, modifyMessage, readMailboxHistoryId
 } from "./gmail-transport.js"
 import type { GmailMessage, GmailTransportOptions } from "./gmail-transport.js"
-export class GmailConnectorError extends Data.TaggedError("GmailConnectorError")<{
-  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
-  readonly message: string
-  readonly status?: number
-}> {}
+
 export interface GmailConnectorOptions extends GmailTransportOptions {}
 export interface GmailConnectorServices {
   readonly configurations: ConfigurationRepository["Service"]
@@ -45,8 +41,32 @@ export interface GmailPollResult {
   readonly skippedSeen: number
   readonly skippedSent: number
 }
-export const GmailCredentialSlot = "oauth"
-export function unionLabelIds(
+
+export {
+  unionLabelIds,
+  resolveGmailToken,
+  readGmailMessage,
+  organizeGmailMessage,
+  checkGmailConnection,
+  getPollHistoryId,
+  hasSeenMessage,
+  markSeenMessage,
+  isSentMessage,
+  markSentMessage,
+  savePollHistoryId,
+  pollGmailInbox,
+  acknowledgeGmailPoll,
+  makeGmailConnectorExtension
+}
+
+class GmailConnectorError extends Data.TaggedError("GmailConnectorError")<{
+  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
+  readonly message: string
+  readonly status?: number
+}> {}
+
+const GmailCredentialSlot = "oauth"
+function unionLabelIds(
   existing: ReadonlyArray<string>,
   configured: ReadonlyArray<string>
 ): ReadonlyArray<string> {
@@ -60,7 +80,7 @@ export function unionLabelIds(
   }
   return result
 }
-export const resolveGmailToken = Effect.fn("GmailConnector.resolveToken")(function*(
+const resolveGmailToken = Effect.fn("GmailConnector.resolveToken")(function*(
   scope: unknown,
   integration: unknown
 ) {
@@ -79,7 +99,7 @@ export const resolveGmailToken = Effect.fn("GmailConnector.resolveToken")(functi
   }
   return yield* decodeSecret(secret)
 })
-export const readGmailMessage = Effect.fn("GmailConnector.readMessage")(function*(
+const readGmailMessage = Effect.fn("GmailConnector.readMessage")(function*(
   scope: unknown,
   integration: unknown,
   messageId: unknown,
@@ -95,7 +115,7 @@ export const readGmailMessage = Effect.fn("GmailConnector.readMessage")(function
     Effect.mapError(transportError)
   )
 })
-export const organizeGmailMessage = Effect.fn("GmailConnector.organize")(function*(
+const organizeGmailMessage = Effect.fn("GmailConnector.organize")(function*(
   scope: unknown,
   integration: unknown,
   messageId: unknown,
@@ -137,7 +157,7 @@ export const organizeGmailMessage = Effect.fn("GmailConnector.organize")(functio
     Effect.mapError(() => new GmailConnectorError({ code: "api", message: "Gmail organize result is not usable" }))
   )
 })
-export const checkGmailConnection = (
+const checkGmailConnection = (
   scope: unknown,
   integration: unknown,
   options?: GmailConnectorOptions
@@ -186,7 +206,7 @@ export const checkGmailConnection = (
     }
     return { ...configuredBase, ok: true, messages: listed.value.length }
   })
-export const getPollHistoryId = Effect.fn("GmailConnector.getPollHistoryId")(function*(
+const getPollHistoryId = Effect.fn("GmailConnector.getPollHistoryId")(function*(
   scope: PersonalScope,
   integrationId: string
 ) {
@@ -207,7 +227,7 @@ export const getPollHistoryId = Effect.fn("GmailConnector.getPollHistoryId")(fun
   }
   return first.last_history_id
 })
-export const hasSeenMessage = Effect.fn("GmailConnector.hasSeen")(function*(
+const hasSeenMessage = Effect.fn("GmailConnector.hasSeen")(function*(
   scope: PersonalScope,
   integrationId: string,
   messageId: string
@@ -218,7 +238,7 @@ export const hasSeenMessage = Effect.fn("GmailConnector.hasSeen")(function*(
   )
   return rows.length > 0
 })
-export const markSeenMessage = Effect.fn("GmailConnector.markSeen")(function*(
+const markSeenMessage = Effect.fn("GmailConnector.markSeen")(function*(
   scope: PersonalScope,
   integrationId: string,
   messageId: string
@@ -229,7 +249,7 @@ export const markSeenMessage = Effect.fn("GmailConnector.markSeen")(function*(
     Effect.mapError(() => new GmailConnectorError({ code: "connection", message: "Gmail seen state is not writable" }))
   )
 })
-export const isSentMessage = Effect.fn("GmailConnector.isSent")(function*(
+const isSentMessage = Effect.fn("GmailConnector.isSent")(function*(
   scope: PersonalScope,
   messageId: string
 ) {
@@ -239,7 +259,7 @@ export const isSentMessage = Effect.fn("GmailConnector.isSent")(function*(
   )
   return rows.length > 0
 })
-export const markSentMessage = Effect.fn("GmailConnector.markSent")(function*(
+const markSentMessage = Effect.fn("GmailConnector.markSent")(function*(
   scope: PersonalScope,
   messageId: string
 ) {
@@ -249,7 +269,7 @@ export const markSentMessage = Effect.fn("GmailConnector.markSent")(function*(
     Effect.mapError(() => new GmailConnectorError({ code: "connection", message: "Gmail sent state is not writable" }))
   )
 })
-export const savePollHistoryId = Effect.fn("GmailConnector.savePoll")(function*(
+const savePollHistoryId = Effect.fn("GmailConnector.savePoll")(function*(
   scope: PersonalScope,
   integrationId: string,
   historyId: string
@@ -263,7 +283,7 @@ export const savePollHistoryId = Effect.fn("GmailConnector.savePoll")(function*(
     Effect.mapError(() => new GmailConnectorError({ code: "connection", message: "Gmail poll state is not writable" }))
   )
 })
-export const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
+const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
   scope: unknown,
   integration: unknown,
   options?: GmailConnectorOptions
@@ -319,7 +339,7 @@ export const pollGmailInbox = Effect.fn("GmailConnector.pollInbox")(function*(
   const result: GmailPollResult = { historyId, fresh, skippedSeen, skippedSent }
   return result
 })
-export const acknowledgeGmailPoll = Effect.fn("GmailConnector.acknowledgePoll")(function*(
+const acknowledgeGmailPoll = Effect.fn("GmailConnector.acknowledgePoll")(function*(
   scope: PersonalScope,
   integrationId: string,
   result: GmailPollResult
@@ -330,7 +350,7 @@ export const acknowledgeGmailPoll = Effect.fn("GmailConnector.acknowledgePoll")(
     if (result.historyId.length > 0) yield* savePollHistoryId(scope, integrationId, result.historyId)
   })).pipe(Effect.mapError(() => new GmailConnectorError({ code: "connection", message: "Gmail poll acknowledgment failed" })))
 })
-export const makeGmailConnectorExtension = (options: GmailConnectorOptions | undefined, services: GmailConnectorServices) => {
+const makeGmailConnectorExtension = (options: GmailConnectorOptions | undefined, services: GmailConnectorServices) => {
   const action = defineAction({
     definition: emailOrganizeActionReference,
     title: "Email organize message",

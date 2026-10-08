@@ -19,7 +19,6 @@ import {
   validateClassificationInput
 } from "@expand/contracts/automation/github"
 import { AutomationRegistry } from "./registry.js"
-import { classifyJev } from "./jev-client.js"
 import type { JevClassifyOptions, JevDecisionError } from "./jev-client.js"
 
 export interface IssueInput {
@@ -74,11 +73,15 @@ export interface FailedOutcome {
   readonly executed: boolean
 }
 
-export type ClassificationDecide = (input: ClassificationDecideInput) => Effect.Effect<typeof JevDecisionResult.Type, JevDecisionError, HttpClient.HttpClient>
+export {
+  type ClassificationDecide,
+  buildClassificationRequest,
+  runIssueClassification
+}
 
-export type ClassificationOutcome = ClassifiedOutcome | UnresolvedOutcome | FailedOutcome
+type ClassificationDecide = (input: ClassificationDecideInput) => Effect.Effect<typeof JevDecisionResult.Type, JevDecisionError, HttpClient.HttpClient>
 
-export const buildClassificationRequest = Effect.fn("IssueClassification.build")(function*(
+const buildClassificationRequest = Effect.fn("IssueClassification.build")(function*(
   input: { readonly configuration: RoutineConfiguration; readonly issue: IssueInput; readonly inputId: string }
 ) {
   const validated = yield* validateClassificationInput({
@@ -117,15 +120,12 @@ export const buildClassificationRequest = Effect.fn("IssueClassification.build")
   return { classification: validated.classification, process: validated.process, request, descriptions, triggerPayload }
 })
 
-export const makeLiveDecide = (apiKey: string, baseOptions?: JevClassifyOptions): ClassificationDecide =>
-  (input) => classifyJev(input.request, input.descriptions, apiKey, input.options ?? baseOptions)
-
-export const toClassificationFailure = (error: JevDecisionError): AutomationFailure => ({
+const toClassificationFailure = (error: JevDecisionError): AutomationFailure => ({
   code: error.code,
   message: error.message
 })
 
-export const buildClassificationAuthority = Effect.fn("IssueClassification.authority")(function*(
+const buildClassificationAuthority = Effect.fn("IssueClassification.authority")(function*(
   configuration: RoutineConfiguration,
   registry: AutomationRegistry
 ) {
@@ -156,7 +156,7 @@ export const buildClassificationAuthority = Effect.fn("IssueClassification.autho
   })
 })
 
-export const runIssueClassification = Effect.fn("IssueClassification.run")(function*(
+const runIssueClassification = Effect.fn("IssueClassification.run")(function*(
   input: ClassificationRunInput
 ) {
   const built = yield* buildClassificationRequest({

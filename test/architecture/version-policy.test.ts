@@ -54,6 +54,17 @@ const selectPolicySources = (
   return tracked.filter((relative) => availableSet.has(relative) && isPolicySourcePath(relative))
 }
 
+const policySourcesAtRoot = Effect.fn("VersionPolicyTest.policySourcesAtRoot")(function*(root: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const tracked = yield* runCommand("git", ["ls-files", "-z", "--", "apps", "packages"], { cwd: root })
+  expect(tracked.exitCode).toBe(0)
+  const sources = tracked.stdout.split("\0").filter(Boolean)
+  const available = yield* Effect.forEach(sources, (relative) =>
+    fs.exists(path.join(root, relative)).pipe(Effect.map((exists) => exists ? relative : undefined)))
+  return selectPolicySources(sources, available.filter((relative) => relative !== undefined))
+})
+
 const propertyName = (name: ts.PropertyName) => ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : undefined
 
 const visit = (node: ts.Node, use: (node: ts.Node) => void) => {
@@ -215,6 +226,7 @@ describe("version policy", () => {
     expect(selectPolicySources(
       [
         "apps/cli/owner.ts",
+        "apps/cli/deleted.ts",
         "apps/desktop/e2e/release.spec.ts",
         "packages/contracts/generated/schema.ts",
         "packages/contracts/runtime.ts"
@@ -276,9 +288,7 @@ describe("version policy", () => {
         ENVELOPE_VERSION: [] as Array<string>,
         PROTOCOL_VERSION: [] as Array<string>
       }
-      const tracked = yield* runCommand("git", ["ls-files", "-z", "--", "apps", "packages"], { cwd: root })
-      expect(tracked.exitCode).toBe(0)
-      for (const relative of selectPolicySources(tracked.stdout.split("\0").filter(Boolean))) {
+      for (const relative of yield* policySourcesAtRoot(root)) {
         const source = yield* fs.readFileString(`${root}/${relative}`)
         for (const name of Object.keys(definitions) as Array<keyof typeof definitions>) {
           definitions[name].push(...Array.from({ length: exportedConstDefinitions(source, name) }, () => relative))
@@ -365,9 +375,7 @@ describe("version policy", () => {
         if (relative === "packages/client-ts") expect(published.dependencies?.["@expand/contracts"]).toBe("9.8.7")
       }
 
-      const tracked = yield* runCommand("git", ["ls-files", "-z", "--", "apps", "packages"], { cwd: root })
-      expect(tracked.exitCode).toBe(0)
-      for (const relative of selectPolicySources(tracked.stdout.split("\0").filter(Boolean))) {
+      for (const relative of yield* policySourcesAtRoot(root)) {
         expect(forbiddenGitUses(yield* fs.readFileString(path.join(root, relative))), relative).toEqual([])
       }
     }).pipe(Effect.scoped)))

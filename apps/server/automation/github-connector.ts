@@ -19,12 +19,6 @@ import {
 } from "./github-transport.js"
 import type { GithubTransportOptions } from "./github-transport.js"
 
-export class GithubConnectorError extends Data.TaggedError("GithubConnectorError")<{
-  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
-  readonly message: string
-  readonly status?: number
-}> {}
-
 export interface GithubConnectorOptions extends GithubTransportOptions {}
 
 export interface GithubConnectorServices {
@@ -44,9 +38,24 @@ export interface GithubConnectionStatus {
   readonly status?: number
 }
 
-export const GithubCredentialSlot = "token"
+export {
+  unionLabels,
+  listGithubLabels,
+  readGithubIssue,
+  applyGithubLabel,
+  checkGithubConnection,
+  makeGithubConnectorExtension
+}
 
-export function unionLabels(
+class GithubConnectorError extends Data.TaggedError("GithubConnectorError")<{
+  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
+  readonly message: string
+  readonly status?: number
+}> {}
+
+const GithubCredentialSlot = "token"
+
+function unionLabels(
   existing: ReadonlyArray<string>,
   configured: ReadonlyArray<string>
 ): ReadonlyArray<string> {
@@ -61,7 +70,7 @@ export function unionLabels(
   return result
 }
 
-export const resolveGithubToken = Effect.fn("GithubConnector.resolveToken")(function*(
+const resolveGithubToken = Effect.fn("GithubConnector.resolveToken")(function*(
   scope: unknown,
   integration: unknown
 ) {
@@ -81,7 +90,7 @@ export const resolveGithubToken = Effect.fn("GithubConnector.resolveToken")(func
   return yield* decodeSecret(secret)
 })
 
-export const listGithubLabels = Effect.fn("GithubConnector.listLabels")(function*(
+const listGithubLabels = Effect.fn("GithubConnector.listLabels")(function*(
   scope: unknown,
   integration: unknown,
   options?: GithubConnectorOptions
@@ -94,7 +103,7 @@ export const listGithubLabels = Effect.fn("GithubConnector.listLabels")(function
   )
 })
 
-export const readGithubIssue = Effect.fn("GithubConnector.readIssue")(function*(
+const readGithubIssue = Effect.fn("GithubConnector.readIssue")(function*(
   scope: unknown,
   integration: unknown,
   issueNumber: unknown,
@@ -111,7 +120,7 @@ export const readGithubIssue = Effect.fn("GithubConnector.readIssue")(function*(
   )
 })
 
-export const applyGithubLabel = Effect.fn("GithubConnector.applyLabel")(function*(
+const applyGithubLabel = Effect.fn("GithubConnector.applyLabel")(function*(
   scope: unknown,
   integration: unknown,
   issueNumber: unknown,
@@ -143,7 +152,7 @@ export const applyGithubLabel = Effect.fn("GithubConnector.applyLabel")(function
   )
 })
 
-export const checkGithubConnection = (
+const checkGithubConnection = (
   scope: unknown,
   integration: unknown,
   options?: GithubConnectorOptions
@@ -193,7 +202,7 @@ export const checkGithubConnection = (
     return { ...configuredBase, ok: true, labels: labels.value.length }
   })
 
-export const makeGithubConnectorExtension = (options: GithubConnectorOptions | undefined, services: GithubConnectorServices) => {
+const makeGithubConnectorExtension = (options: GithubConnectorOptions | undefined, services: GithubConnectorServices) => {
   const action = defineAction({
     definition: githubLabelActionReference,
     title: "GitHub label issue",

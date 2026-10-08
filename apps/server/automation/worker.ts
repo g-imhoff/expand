@@ -65,13 +65,23 @@ export interface AutomationWorkerEnvironment {
   readonly notifications?: NotificationRepository["Service"]
 }
 
-export type WorkerDecide = (
+export {
+  type WorkerDecide,
+  type WorkerOutcomeKind,
+  DefaultAutomationWorkerOptions,
+  reclaimInterruptedRuns,
+  sweepOnce,
+  startAutomationWorker,
+  processRun
+}
+
+type WorkerDecide = (
   input: ClassificationDecideInput & { readonly scope: PersonalScope }
 ) => Effect.Effect<typeof JevDecisionResult.Type, unknown, HttpClient.HttpClient>
 
-export type WorkerOutcomeKind = "completed" | "unresolved" | "failed" | "cancelled" | "skipped"
+type WorkerOutcomeKind = "completed" | "unresolved" | "failed" | "cancelled" | "skipped"
 
-export const DefaultAutomationWorkerOptions: AutomationWorkerOptions = {
+const DefaultAutomationWorkerOptions: AutomationWorkerOptions = {
   pollIntervalMs: 250,
   maxConcurrency: 4,
   maxAttempts: 3,
@@ -79,8 +89,7 @@ export const DefaultAutomationWorkerOptions: AutomationWorkerOptions = {
   baseBackoffMs: 100
 }
 
-
-export const listPendingScopes = (
+const listPendingScopes = (
   sql: SqlClient
 ): Effect.Effect<ReadonlyArray<PersonalScope>, StorageError> =>
   Effect.gen(function*() {
@@ -99,7 +108,7 @@ export const listPendingScopes = (
     return scopes as ReadonlyArray<PersonalScope>
   })
 
-export const reclaimInterruptedRuns = (
+const reclaimInterruptedRuns = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions = DefaultAutomationWorkerOptions
 ): Effect.Effect<number, StorageError> =>
@@ -145,7 +154,7 @@ export const reclaimInterruptedRuns = (
     return reclaimed
   })
 
-export const sweepOnce = (
+const sweepOnce = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions = DefaultAutomationWorkerOptions
 ): Effect.Effect<number, StorageError, HttpClient.HttpClient> =>
@@ -172,7 +181,7 @@ export const sweepOnce = (
     return processed
   })
 
-export const startAutomationWorker = (
+const startAutomationWorker = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions = DefaultAutomationWorkerOptions
 ): Effect.Effect<void, never, HttpClient.HttpClient> =>
@@ -186,7 +195,7 @@ export const startAutomationWorker = (
     }
   })
 
-export const processRun = (
+const processRun = (
   environment: AutomationWorkerEnvironment,
   options: AutomationWorkerOptions,
   scope: PersonalScope,

@@ -40,26 +40,36 @@ export interface JevLiveCheck {
   readonly status?: number
 }
 
-export const JevDefaultTimeoutMs = 10000
-export const JevDefaultMaxRetries = 2
-export const JevDefaultQuestionId = "decision"
-export const JevDefaultInstructions = "Select the outcome that best matches the input."
-export const JevAbstainChoice = "no_match"
-export const JevUnknownChoice = "unknown"
-export const ZenApiKeyEnvironments = ["OPENCODE_ZEN_API_KEY", "OPENCODE_API_KEY"] as const
-export const ZenApiKeyFileEnvironment = "EXPAND_ZEN_API_KEY_FILE"
-export const ZenApiKeyFileSuffix = ".config/expand/zen-api-key"
+export {
+  dryRunJevRequest,
+  mapZenAnswerToDecision,
+  classifyJev,
+  classifyJevWithCredential,
+  jevCredentialStatus,
+  resolveZenApiKey,
+  checkJevLive
+}
 
-export const JevDescriptions = Schema.Record(Schema.String, Schema.String.check(Schema.isMinLength(1)))
-export type JevDescriptions = typeof JevDescriptions.Type
+const JevDefaultTimeoutMs = 10000
+const JevDefaultMaxRetries = 2
+const JevDefaultQuestionId = "decision"
+const JevDefaultInstructions = "Select the outcome that best matches the input."
+const JevAbstainChoice = "no_match"
+const JevUnknownChoice = "unknown"
+const ZenApiKeyEnvironments = ["OPENCODE_ZEN_API_KEY", "OPENCODE_API_KEY"] as const
+const ZenApiKeyFileEnvironment = "EXPAND_ZEN_API_KEY_FILE"
+const ZenApiKeyFileSuffix = ".config/expand/zen-api-key"
 
-export const dryRunJevRequest = Effect.fn("JevClient.dryRun")(function*(request: unknown, descriptions: unknown, options?: JevClassifyOptions) {
+const JevDescriptions = Schema.Record(Schema.String, Schema.String.check(Schema.isMinLength(1)))
+type JevDescriptions = typeof JevDescriptions.Type
+
+const dryRunJevRequest = Effect.fn("JevClient.dryRun")(function*(request: unknown, descriptions: unknown, options?: JevClassifyOptions) {
   const settings = yield* resolveSettings(options)
   const prepared = yield* prepareDecision(request, descriptions, settings.questionId, settings.instructions)
   return prepared.body
 })
 
-export const mapZenAnswerToDecision = Effect.fn("JevClient.mapAnswer")(function*(outcomes: ReadonlyArray<string>, answer: unknown) {
+const mapZenAnswerToDecision = Effect.fn("JevClient.mapAnswer")(function*(outcomes: ReadonlyArray<string>, answer: unknown) {
   const parsed = yield* Schema.decodeUnknownEffect(ZenChoiceAnswer, { onExcessProperty: "error" })(answer).pipe(
     Effect.mapError(() => new JevDecisionError({ code: "invalid-contract", message: "Zen answer does not match the decision contract" }))
   )
@@ -81,7 +91,7 @@ export const mapZenAnswerToDecision = Effect.fn("JevClient.mapAnswer")(function*
   )
 })
 
-export const classifyJev = Effect.fn("JevClient.classify")(function*(request: unknown, descriptions: unknown, apiKey: string, options?: JevClassifyOptions) {
+const classifyJev = Effect.fn("JevClient.classify")(function*(request: unknown, descriptions: unknown, apiKey: string, options?: JevClassifyOptions) {
   if (typeof apiKey !== "string" || apiKey.length === 0) {
     return yield* new JevDecisionError({ code: "auth", message: "Missing Zen API key" })
   }
@@ -93,7 +103,7 @@ export const classifyJev = Effect.fn("JevClient.classify")(function*(request: un
   }, 0)
 })
 
-export const classifyJevWithCredential = Effect.fn("JevClient.classifyWithCredential")(function*(
+const classifyJevWithCredential = Effect.fn("JevClient.classifyWithCredential")(function*(
   scope: unknown, reference: unknown, request: unknown, descriptions: unknown, options?: JevClassifyOptions
 ) {
   const provedScope = yield* Schema.decodeUnknownEffect(PersonalScope, { onExcessProperty: "error" })(scope).pipe(
@@ -113,7 +123,7 @@ export const classifyJevWithCredential = Effect.fn("JevClient.classifyWithCreden
   return yield* classifyJev(request, descriptions, apiKey, options)
 })
 
-export const jevCredentialStatus = Effect.fn("JevClient.credentialStatus")(function*(scope: unknown, credentialId: unknown) {
+const jevCredentialStatus = Effect.fn("JevClient.credentialStatus")(function*(scope: unknown, credentialId: unknown) {
   const provedScope = yield* Schema.decodeUnknownEffect(PersonalScope, { onExcessProperty: "error" })(scope).pipe(
     Effect.mapError(() => new JevDecisionError({ code: "invalid-contract", message: "Credential scope does not match the automation contract" }))
   )
@@ -124,7 +134,7 @@ export const jevCredentialStatus = Effect.fn("JevClient.credentialStatus")(funct
   return yield* repository.getStatus(provedScope, provedId)
 })
 
-export const resolveZenApiKey = Effect.fn("JevClient.resolveApiKey")(function*(explicit?: string) {
+const resolveZenApiKey = Effect.fn("JevClient.resolveApiKey")(function*(explicit?: string) {
   if (typeof explicit === "string" && explicit.length > 0) return explicit
   for (const name of ZenApiKeyEnvironments) {
     const candidate = yield* Config.option(Config.String(name))
@@ -145,7 +155,7 @@ export const resolveZenApiKey = Effect.fn("JevClient.resolveApiKey")(function*(e
   return trimmed
 })
 
-export const checkJevLive = Effect.fn("JevClient.checkLive")(function*(input?: JevCheckInput) {
+const checkJevLive = Effect.fn("JevClient.checkLive")(function*(input?: JevCheckInput) {
   const apiKey = yield* resolveZenApiKey(input?.apiKey)
   if (apiKey === null) {
     const blocked: JevLiveCheck = {

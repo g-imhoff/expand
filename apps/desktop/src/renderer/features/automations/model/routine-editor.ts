@@ -51,19 +51,42 @@ export interface UnmatchedBehaviorOption {
   readonly label: string
 }
 
-export const blankTemplateKey = "blank"
+export {
+  blankTemplateKey,
+  triggeredOutcomeId,
+  abstainChoice,
+  unmatchedBehaviorOptions,
+  blankEditorForm,
+  catalogTriggers,
+  catalogActions,
+  catalogTemplates,
+  triggerForKey,
+  actionForKey,
+  integrationForTrigger,
+  actionArgumentNames,
+  triggerIsGithubIssue,
+  routineIdProblem,
+  formFromTemplate,
+  formFromRoutine,
+  headForRoutine,
+  routineWriteFromForm,
+  previewDecision,
+  definitionKeyOf
+}
 
-export const leaveUnchangedBehavior = "leave-unchanged"
+const blankTemplateKey = "blank"
 
-export const triggeredOutcomeId = "triggered"
+const leaveUnchangedBehavior = "leave-unchanged"
 
-export const abstainChoice = "abstain"
+const triggeredOutcomeId = "triggered"
 
-export const unmatchedBehaviorOptions: ReadonlyArray<UnmatchedBehaviorOption> = [
+const abstainChoice = "abstain"
+
+const unmatchedBehaviorOptions: ReadonlyArray<UnmatchedBehaviorOption> = [
   { value: leaveUnchangedBehavior, label: "Leave unchanged" }
 ]
 
-export const blankEditorForm = (): RoutineEditorForm => ({
+const blankEditorForm = (): RoutineEditorForm => ({
   routineId: "",
   templateKey: blankTemplateKey,
   triggerKey: "",
@@ -77,25 +100,25 @@ export const blankEditorForm = (): RoutineEditorForm => ({
   notifyOnNoMatch: true
 })
 
-export const catalogTriggers = (catalog: Catalog): ReadonlyArray<TriggerDescriptor> =>
+const catalogTriggers = (catalog: Catalog): ReadonlyArray<TriggerDescriptor> =>
   catalog.definitions.filter((definition): definition is TriggerDescriptor => definition.kind === "trigger")
 
-export const catalogActions = (catalog: Catalog): ReadonlyArray<ActionDescriptor> =>
+const catalogActions = (catalog: Catalog): ReadonlyArray<ActionDescriptor> =>
   catalog.definitions.filter((definition): definition is ActionDescriptor => definition.kind === "action")
 
-export const catalogTemplates = (catalog: Catalog): ReadonlyArray<RoutineDescriptor> =>
+const catalogTemplates = (catalog: Catalog): ReadonlyArray<RoutineDescriptor> =>
   catalog.definitions.filter((definition): definition is RoutineDescriptor => definition.kind === "routine-template")
 
-export const triggerForKey = (catalog: Catalog, key: string): TriggerDescriptor | undefined =>
+const triggerForKey = (catalog: Catalog, key: string): TriggerDescriptor | undefined =>
   catalogTriggers(catalog).find((trigger) => definitionKeyOf(trigger.definition) === key)
 
-export const actionForKey = (catalog: Catalog, key: string): ActionDescriptor | undefined =>
+const actionForKey = (catalog: Catalog, key: string): ActionDescriptor | undefined =>
   catalogActions(catalog).find((action) => definitionKeyOf(action.definition) === key)
 
-export const templateForKey = (catalog: Catalog, key: string): RoutineDescriptor | undefined =>
+const templateForKey = (catalog: Catalog, key: string): RoutineDescriptor | undefined =>
   catalogTemplates(catalog).find((template) => definitionKeyOf(template.definition) === key)
 
-export const integrationForTrigger = (
+const integrationForTrigger = (
   catalog: Catalog,
   trigger: TriggerDescriptor
 ): IntegrationDescriptor | undefined =>
@@ -104,7 +127,7 @@ export const integrationForTrigger = (
     definition.definition.id === trigger.integration.id &&
     definition.definition.version === trigger.integration.version)
 
-export const actionArgumentNames = (action: ActionDescriptor): ReadonlyArray<string> => {
+const actionArgumentNames = (action: ActionDescriptor): ReadonlyArray<string> => {
   const schema = action.argumentsSchema.schema
   if (typeof schema !== "object" || schema === null || Array.isArray(schema)) return []
   const properties = (schema as { readonly properties?: unknown }).properties
@@ -112,15 +135,15 @@ export const actionArgumentNames = (action: ActionDescriptor): ReadonlyArray<str
   return Object.keys(properties)
 }
 
-export const triggerIsGithubIssue = (catalog: Catalog, form: RoutineEditorForm): boolean => {
+const triggerIsGithubIssue = (catalog: Catalog, form: RoutineEditorForm): boolean => {
   const trigger = form.triggerKey === "" ? undefined : triggerForKey(catalog, form.triggerKey)
   return trigger?.definition.id === "github:issue-opened"
 }
 
-export const routineIdProblem = (form: RoutineEditorForm): string | undefined =>
+const routineIdProblem = (form: RoutineEditorForm): string | undefined =>
   form.routineId.trim().length === 0 ? "Enter a routine id." : undefined
 
-export const formFromTemplate = (template: RoutineDescriptor): RoutineEditorForm => {
+const formFromTemplate = (template: RoutineDescriptor): RoutineEditorForm => {
   const extracted = extractProcessForm(template.process)
   return {
     ...blankEditorForm(),
@@ -132,7 +155,7 @@ export const formFromTemplate = (template: RoutineDescriptor): RoutineEditorForm
   }
 }
 
-export const formFromRoutine = (record: RoutineRecord): RoutineEditorForm => {
+const formFromRoutine = (record: RoutineRecord): RoutineEditorForm => {
   const extracted = extractProcessForm(record.configuration.process)
   const stored = readRecord(record.configuration.configuration)
   const integration = record.configuration.integrations[0]
@@ -157,9 +180,9 @@ export const formFromRoutine = (record: RoutineRecord): RoutineEditorForm => {
   }
 }
 
-export const headForRoutine = (record: RoutineRecord): RoutineHead => record.head
+const headForRoutine = (record: RoutineRecord): RoutineHead => record.head
 
-export const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog): RoutineWriteResult => {
+const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog): RoutineWriteResult => {
   const problems: Array<string> = []
   const trigger = form.triggerKey === "" ? undefined : triggerForKey(catalog, form.triggerKey)
   if (trigger === undefined) problems.push("Choose exactly one trigger from the catalog.")
@@ -263,12 +286,12 @@ export const routineWriteFromForm = (form: RoutineEditorForm, catalog: Catalog):
   return { write, problems }
 }
 
-export const previewDecision = (outcomeId: string | undefined, reason: string): JevDecisionResult =>
+const previewDecision = (outcomeId: string | undefined, reason: string): JevDecisionResult =>
   outcomeId === undefined
     ? { schemaVersion: 1, kind: "abstained", reason: reason.trim().length === 0 ? "No candidate matched the input" : reason.trim() }
     : { schemaVersion: 1, kind: "selected", outcomeId, data: {} }
 
-export const definitionKeyOf = (reference: { readonly id: string; readonly version: number }): string =>
+const definitionKeyOf = (reference: { readonly id: string; readonly version: number }): string =>
   `${reference.id}@${reference.version}`
 
 interface ExtractedProcessForm {

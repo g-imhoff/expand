@@ -1,12 +1,6 @@
 import { Data, Duration, Effect, Option, Schema } from "effect"
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
 
-export class GithubPrTransportError extends Data.TaggedError("GithubPrTransportError")<{
-  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "invalid-contract"
-  readonly message: string
-  readonly status?: number
-}> {}
-
 export interface GithubPrTransportOptions {
   readonly baseUrl?: string
   readonly timeoutMs?: number
@@ -23,12 +17,23 @@ export interface GithubPullRequest {
   readonly mergeableState: string | null
 }
 
-export const GithubPrApiBaseUrl = "https://api.github.com"
-export const GithubPrDefaultTimeoutMs = 10000
-export const GithubPrDefaultMaxRetries = 2
-export const GithubPrListLimit = 30
+export {
+  getPullRequest,
+  listOpenPulls
+}
 
-export const getPullRequest = Effect.fn("GithubPrTransport.getPullRequest")(function*(
+class GithubPrTransportError extends Data.TaggedError("GithubPrTransportError")<{
+  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "invalid-contract"
+  readonly message: string
+  readonly status?: number
+}> {}
+
+const GithubPrApiBaseUrl = "https://api.github.com"
+const GithubPrDefaultTimeoutMs = 10000
+const GithubPrDefaultMaxRetries = 2
+const GithubPrListLimit = 30
+
+const getPullRequest = Effect.fn("GithubPrTransport.getPullRequest")(function*(
   owner: string,
   repo: string,
   pullNumber: number,
@@ -44,7 +49,7 @@ export const getPullRequest = Effect.fn("GithubPrTransport.getPullRequest")(func
   return yield* decodePull(raw)
 })
 
-export const listOpenPulls = Effect.fn("GithubPrTransport.listOpenPulls")(function*(
+const listOpenPulls = Effect.fn("GithubPrTransport.listOpenPulls")(function*(
   owner: string,
   repo: string,
   token: string,
@@ -54,29 +59,6 @@ export const listOpenPulls = Effect.fn("GithubPrTransport.listOpenPulls")(functi
   const path = yield* repoPath(owner, repo)
   const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}${path}/pulls?state=open&per_page=${GithubPrListLimit}`, token, transport }, 0)
   return yield* decodePullList(raw)
-})
-
-export const updatePullBranch = Effect.fn("GithubPrTransport.updatePullBranch")(function*(
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  expectedHeadSha: string,
-  token: string,
-  options?: GithubPrTransportOptions
-) {
-  if (!Number.isSafeInteger(pullNumber) || pullNumber <= 0) {
-    return yield* new GithubPrTransportError({ code: "invalid-contract", message: "GitHub pull number is out of range" })
-  }
-  if (expectedHeadSha.length === 0) {
-    return yield* new GithubPrTransportError({ code: "invalid-contract", message: "Expected head sha is not usable" })
-  }
-  const transport = yield* resolveTransport(options)
-  const path = yield* repoPath(owner, repo)
-  const validated = yield* Schema.decodeUnknownEffect(GithubUpdateBranchRequest, { onExcessProperty: "error" })({ expected_head_sha: expectedHeadSha }).pipe(
-    Effect.mapError(() => new GithubPrTransportError({ code: "invalid-contract", message: "Update branch payload is not usable" }))
-  )
-  const raw = yield* fetchWithRetry({ method: "PUT", url: `${transport.baseUrl}${path}/pulls/${pullNumber}/update-branch`, token, body: validated, transport }, 0)
-  return yield* decodeUpdateResult(raw)
 })
 
 interface ResolvedTransport {
@@ -108,7 +90,6 @@ const GithubPullResponse = Schema.Struct({
 })
 const GithubPullListResponse = Schema.Array(GithubPullResponse)
 const GithubUpdateBranchRequest = Schema.Struct({ expected_head_sha: Schema.String.check(Schema.isMinLength(1)) })
-const GithubUpdateBranchResponse = Schema.Struct({ message: Schema.optional(Schema.String), merge_commit_sha: Schema.optional(Schema.Union([Schema.String, Schema.Null])) })
 
 function decodePull(input: unknown): Effect.Effect<GithubPullRequest, GithubPrTransportError> {
   return Schema.decodeUnknownEffect(GithubPullResponse, { onExcessProperty: "ignore" })(input).pipe(
@@ -138,13 +119,6 @@ function decodePullList(input: unknown): Effect.Effect<ReadonlyArray<GithubPullR
       }
       return Effect.forEach(pulls, decodePull)
     })
-  )
-}
-
-function decodeUpdateResult(input: unknown): Effect.Effect<{ readonly mergedSha: string | null }, GithubPrTransportError> {
-  return Schema.decodeUnknownEffect(GithubUpdateBranchResponse, { onExcessProperty: "ignore" })(input).pipe(
-    Effect.mapError(() => new GithubPrTransportError({ code: "api", message: "GitHub returned an unexpected update result" })),
-    Effect.map((result) => ({ mergedSha: result.merge_commit_sha ?? null }))
   )
 }
 

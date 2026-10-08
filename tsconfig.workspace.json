@@ -2,9 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node", "react", "react-dom"]
+    "types": ["node", "react", "react-dom", "vite/client"]
   },
   "include": [
+    ".expskill/design",
     "apps",
     "packages",
     "scripts",

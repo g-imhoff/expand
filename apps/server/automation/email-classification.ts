@@ -19,7 +19,6 @@ import {
   validateGmailClassificationInput
 } from "@expand/contracts/automation/gmail"
 import { AutomationRegistry } from "./registry.js"
-import { classifyJev } from "./jev-client.js"
 import type { JevClassifyOptions, JevDecisionError } from "./jev-client.js"
 export interface EmailInput {
   readonly messageId: string
@@ -69,13 +68,16 @@ export interface EmailFailedOutcome {
   readonly latencyMs: number
   readonly executed: boolean
 }
-export interface EmailDueService {
-  readonly assertDue: (scope: unknown, routineId: string) => Effect.Effect<unknown, unknown>
+
+export {
+  type EmailDecide,
+  buildEmailClassificationRequest,
+  runEmailClassification
 }
-export type EmailDecide = (input: EmailDecideInput) => Effect.Effect<typeof JevDecisionResult.Type, JevDecisionError, HttpClient.HttpClient>
-export type EmailOutcome = EmailClassifiedOutcome | EmailUnresolvedOutcome | EmailFailedOutcome
-export type EmailWorkerOutcome = "completed" | "unresolved" | "failed" | "cancelled" | "skipped"
-export const buildEmailClassificationRequest = Effect.fn("EmailClassification.build")(function*(
+
+type EmailDecide = (input: EmailDecideInput) => Effect.Effect<typeof JevDecisionResult.Type, JevDecisionError, HttpClient.HttpClient>
+
+const buildEmailClassificationRequest = Effect.fn("EmailClassification.build")(function*(
   input: { readonly configuration: RoutineConfiguration; readonly email: EmailInput; readonly inputId?: string }
 ) {
   const validated = yield* validateGmailClassificationInput({
@@ -114,13 +116,12 @@ export const buildEmailClassificationRequest = Effect.fn("EmailClassification.bu
   })
   return { classification: validated.classification, process: validated.process, request, descriptions, triggerPayload }
 })
-export const makeEmailLiveDecide = (apiKey: string, baseOptions?: JevClassifyOptions): EmailDecide =>
-  (input) => classifyJev(input.request, input.descriptions, apiKey, input.options ?? baseOptions)
-export const toEmailClassificationFailure = (error: JevDecisionError): AutomationFailure => ({
+
+const toEmailClassificationFailure = (error: JevDecisionError): AutomationFailure => ({
   code: error.code,
   message: error.message
 })
-export const buildEmailClassificationAuthority = Effect.fn("EmailClassification.authority")(function*(
+const buildEmailClassificationAuthority = Effect.fn("EmailClassification.authority")(function*(
   configuration: RoutineConfiguration,
   registry: AutomationRegistry
 ) {
@@ -150,7 +151,7 @@ export const buildEmailClassificationAuthority = Effect.fn("EmailClassification.
     actionGrants
   })
 })
-export const runEmailClassification = Effect.fn("EmailClassification.run")(function*(
+const runEmailClassification = Effect.fn("EmailClassification.run")(function*(
   input: EmailRunInput
 ) {
   const built = yield* buildEmailClassificationRequest({ configuration: input.configuration, email: input.email })
@@ -274,25 +275,4 @@ export const runEmailClassification = Effect.fn("EmailClassification.run")(funct
     results
   }
   return outcome
-})
-export const processEmailWithDue = Effect.fn("EmailClassification.processWithDue")(function*(
-  routines: EmailDueService,
-  scope: unknown,
-  routineId: string,
-  input: EmailRunInput
-) {
-  const dueCheck = yield* Effect.exit(routines.assertDue(scope, routineId))
-  if (dueCheck._tag === "Failure") {
-    return "cancelled" as EmailWorkerOutcome
-  }
-  if (input.mode === "preview") {
-    const preview = yield* runEmailClassification({ ...input, mode: "preview" })
-    if (preview.kind === "unresolved") return "unresolved" as EmailWorkerOutcome
-    if (preview.kind === "failed") return "failed" as EmailWorkerOutcome
-    return "completed" as EmailWorkerOutcome
-  }
-  const live = yield* runEmailClassification(input)
-  if (live.kind === "unresolved") return "unresolved" as EmailWorkerOutcome
-  if (live.kind === "failed") return "failed" as EmailWorkerOutcome
-  return "completed" as EmailWorkerOutcome
 })

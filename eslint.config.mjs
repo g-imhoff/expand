@@ -5,6 +5,9 @@ export default tseslint.config(
   {
     ignores: [
       "**/node_modules/**",
+      "**/.tmp/**",
+      "**/.cache/**",
+      "**/.worktrees/**",
       "**/dist/**",
       "**/out/**",
       "**/build/**",
@@ -15,7 +18,7 @@ export default tseslint.config(
     ]
   },
   {
-    files: ["apps/**/*.{ts,tsx,mts,cts}", "packages/**/*.{ts,tsx,mts,cts}", "examples/**/*.{ts,tsx,mts,cts}"],
+    files: [".expskill/design/**/*.{ts,tsx,mts,cts}", "apps/**/*.{ts,tsx,mts,cts}", "packages/**/*.{ts,tsx,mts,cts}", "examples/**/*.{ts,tsx,mts,cts}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } }

@@ -23,10 +23,16 @@ export interface SonarIssue {
   readonly line?: number
 }
 
-export const SonarDefaultTimeoutMs = 10000
-export const SonarDefaultMaxRetries = 2
+export {
+  getSonarIssue,
+  listSonarIssues,
+  verifySonarIssue
+}
 
-export const getSonarIssue = Effect.fn("SonarTransport.getSonarIssue")(function*(
+const SonarDefaultTimeoutMs = 10000
+const SonarDefaultMaxRetries = 2
+
+const getSonarIssue = Effect.fn("SonarTransport.getSonarIssue")(function*(
   baseUrl: string,
   issueKey: string,
   token: string,
@@ -46,7 +52,7 @@ export const getSonarIssue = Effect.fn("SonarTransport.getSonarIssue")(function*
   return found
 })
 
-export const listSonarIssues = Effect.fn("SonarTransport.listSonarIssues")(function*(
+const listSonarIssues = Effect.fn("SonarTransport.listSonarIssues")(function*(
   baseUrl: string,
   projectKey: string,
   token: string,
@@ -61,7 +67,7 @@ export const listSonarIssues = Effect.fn("SonarTransport.listSonarIssues")(funct
   return yield* decodeSearch(raw)
 })
 
-export const verifySonarIssue = Effect.fn("SonarTransport.verifySonarIssue")(function*(
+const verifySonarIssue = Effect.fn("SonarTransport.verifySonarIssue")(function*(
   baseUrl: string,
   issueKey: string,
   token: string,
@@ -72,7 +78,7 @@ export const verifySonarIssue = Effect.fn("SonarTransport.verifySonarIssue")(fun
   return { key: issue.key, status: issue.status, resolved }
 })
 
-export const isResolvedStatus = (status: string): boolean => {
+const isResolvedStatus = (status: string): boolean => {
   return status === "CLOSED" || status === "RESOLVED"
 }
 

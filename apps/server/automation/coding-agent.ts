@@ -1,7 +1,8 @@
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { join, sep } from "node:path"
-import { spawnSync } from "node:child_process"
-import { Clock, Data, Effect, Schema } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { ChildProcess } from "effect/process"
+import { Clock, Data, Effect, Schema, Stream } from "effect"
 import { runAcpPrompt } from "./acp-transport.js"
 import type { AcpTransportError } from "./acp-transport.js"
 
@@ -115,10 +116,7 @@ export const executeCodingSession = (
       return yield* new CodingAgentError({ code: "invalid", message: "Timeout is out of range" })
     }
     const adapter = yield* resolveCodingAdapter(input.agentKind, input.requestedCapabilities)
-    const worktree = yield* Effect.try({
-      try: () => createWorktreeSync(worktreeRoot, input.repository, input.runId),
-      catch: () => new CodingAgentError({ code: "worktree", message: "Worktree creation failed" })
-    })
+    const worktree = yield* createWorktree(worktreeRoot, input.repository, input.runId)
     const startedAt = yield* Clock.currentTimeMillis
     const outcome = yield* Effect.gen(function*() {
       const session = yield* adapter.spawn({
@@ -143,9 +141,9 @@ export const executeCodingSession = (
               ))
           ))
       )
-      const diffSummary = runGitSync(worktree, ["status", "--porcelain"]).slice(0, 2000) +
+      const diffSummary = (yield* runGit(worktree, ["status", "--porcelain"])).slice(0, 2000) +
         "\n" +
-        runGitSync(worktree, ["diff", "--stat", "HEAD"]).slice(0, 2000)
+        (yield* runGit(worktree, ["diff", "--stat", "HEAD"])).slice(0, 2000)
       const endedAt = yield* Clock.currentTimeMillis
       void startedAt
       return { session, diffSummary, endedAt }
@@ -232,47 +230,53 @@ const isManagedWorktree = (root: string, worktree: string): boolean => {
   }
   return target === base || target.startsWith(base + sep)
 }
-const createWorktreeSync = (root: string, repository: string, runId: string): string => {
-  if (root.length === 0) throw new Error("Worktree root is not configured")
-  const base = canonicalBase(root)
-  const safeRun = runId.replace(/[^a-zA-Z0-9-_]/g, "-").slice(0, 60)
-  const prefix = join(base, `coding-${safeRun}-`)
-  const worktree = mkdtempSync(prefix)
-  if (!isManagedWorktree(base, worktree)) {
-    try {
-      if (isManagedWorktree(base, worktree)) rmSync(worktree, { recursive: true, force: true })
-    } catch {}
-    throw new Error("Worktree escaped the managed directory")
-  }
-  try {
-    const run = (args: Array<string>): void => {
-      const result = spawnSync("git", args, { cwd: worktree, stdio: "ignore" })
-      if (result.status !== 0) throw new Error(`git ${args[0] ?? ""} failed`)
-    }
-    run(["init"])
-    run(["config", "user.email", "automation@example.invalid"])
-    run(["config", "user.name", "automation"])
-    writeFileSync(join(worktree, "REPOSITORY"), `${repository}\n`, "utf-8")
-    run(["add", "REPOSITORY"])
-    const commit = spawnSync("git", ["-c", "commit.gpgsign=false", "commit", "-m", "initial"], { cwd: worktree, stdio: "ignore" })
-    if (commit.status !== 0) throw new Error("git commit failed")
+const createWorktree = Effect.fn("CodingAgent.createWorktree")(function*(root: string, repository: string, runId: string) {
+  const worktree = yield* Effect.try({
+    try: () => {
+      if (root.length === 0) throw new Error("Worktree root is not configured")
+      const base = canonicalBase(root)
+      const safeRun = runId.replace(/[^a-zA-Z0-9-_]/g, "-").slice(0, 60)
+      const worktree = mkdtempSync(join(base, `coding-${safeRun}-`))
+      if (!isManagedWorktree(base, worktree)) throw new Error("Worktree escaped the managed directory")
+      return worktree
+    },
+    catch: () => new CodingAgentError({ code: "worktree", message: "Worktree creation failed" })
+  })
+  return yield* Effect.gen(function*() {
+    yield* gitCommand(worktree, ["init"])
+    yield* gitCommand(worktree, ["config", "user.email", "automation@example.invalid"])
+    yield* gitCommand(worktree, ["config", "user.name", "automation"])
+    yield* Effect.try({
+      try: () => writeFileSync(join(worktree, "REPOSITORY"), `${repository}\n`, "utf-8"),
+      catch: () => new CodingAgentError({ code: "worktree", message: "Worktree creation failed" })
+    })
+    yield* gitCommand(worktree, ["add", "REPOSITORY"])
+    yield* gitCommand(worktree, ["-c", "commit.gpgsign=false", "commit", "-m", "initial"])
     return worktree
-  } catch (error) {
-    try {
-      if (isManagedWorktree(base, worktree)) rmSync(worktree, { recursive: true, force: true })
-    } catch {
-      throw error
-    }
-    throw error
-  }
-}
+  }).pipe(Effect.onExit((exit) => exit._tag === "Success" ? Effect.void : Effect.sync(() => {
+    if (isManagedWorktree(root, worktree)) rmSync(worktree, { recursive: true, force: true })
+  })))
+})
 
-const runGitSync = (worktree: string, args: Array<string>): string => {
-  try {
-    const result = spawnSync("git", args, { cwd: worktree, encoding: "utf-8" })
-    const out = typeof result.stdout === "string" ? result.stdout : ""
-    return out.slice(0, 2000)
-  } catch {
-    return ""
-  }
-}
+const gitCommand = Effect.fn("CodingAgent.gitCommand")((worktree: string, args: ReadonlyArray<string>) =>
+  Effect.scoped(Effect.gen(function*() {
+    const handle = yield* ChildProcess.make("git", args, { cwd: worktree, stdin: "ignore" })
+    let output = ""
+    const [, , status] = yield* Effect.all([
+      handle.stdout.pipe(Stream.decodeText(), Stream.runForEach((chunk) => Effect.sync(() => {
+        output = (output + chunk).slice(0, 2000)
+      }))),
+      handle.stderr.pipe(Stream.runDrain),
+      handle.exitCode
+    ], { concurrency: "unbounded" })
+    if (Number(status) !== 0) return yield* new CodingAgentError({ code: "worktree", message: "Worktree creation failed" })
+    return output
+  })).pipe(
+    Effect.mapError(() => new CodingAgentError({ code: "worktree", message: "Worktree creation failed" })),
+    Effect.provide(NodeServices.layer)
+  )
+)
+
+const runGit = Effect.fn("CodingAgent.runGit")((worktree: string, args: ReadonlyArray<string>) =>
+  gitCommand(worktree, args).pipe(Effect.catch(() => Effect.succeed("")))
+)

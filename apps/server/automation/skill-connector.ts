@@ -34,9 +34,13 @@ export interface SkillConnectorServices {
   readonly credentials: CredentialRepository["Service"]
 }
 
-export const SkillCredentialSlot = "token"
+export {
+  makeSkillConnectorExtension
+}
 
-export const makeSkillConnectorExtension = (options: SkillConnectorOptions, services: SkillConnectorServices) => {
+const SkillCredentialSlot = "token"
+
+const makeSkillConnectorExtension = (options: SkillConnectorOptions, services: SkillConnectorServices) => {
   registerCodingAdapter(makeOpencodeAdapter(options.agentCommand, options.agentArgs))
   const action = defineAction({
     definition: { ...skillActionReference },

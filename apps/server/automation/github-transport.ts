@@ -29,17 +29,20 @@ export interface GithubWorkflowRun {
   readonly htmlUrl?: string
 }
 
-export interface GithubWorkflowJob {
-  readonly id: number
-  readonly name: string
-  readonly conclusion: string | null
+export {
+  listRepositoryLabels,
+  listIssueLabels,
+  getIssue,
+  addIssueLabels,
+  getWorkflowRun,
+  fetchWorkflowRunLogs
 }
 
-export const GithubApiBaseUrl = "https://api.github.com"
-export const GithubDefaultTimeoutMs = 10000
-export const GithubDefaultMaxRetries = 2
+const GithubApiBaseUrl = "https://api.github.com"
+const GithubDefaultTimeoutMs = 10000
+const GithubDefaultMaxRetries = 2
 
-export const listRepositoryLabels = Effect.fn("GithubTransport.listRepositoryLabels")(function*(
+const listRepositoryLabels = Effect.fn("GithubTransport.listRepositoryLabels")(function*(
   owner: string,
   repo: string,
   token: string,
@@ -51,7 +54,7 @@ export const listRepositoryLabels = Effect.fn("GithubTransport.listRepositoryLab
   return yield* decodeLabelNames(raw)
 })
 
-export const listIssueLabels = Effect.fn("GithubTransport.listIssueLabels")(function*(
+const listIssueLabels = Effect.fn("GithubTransport.listIssueLabels")(function*(
   owner: string,
   repo: string,
   issueNumber: number,
@@ -67,7 +70,7 @@ export const listIssueLabels = Effect.fn("GithubTransport.listIssueLabels")(func
   return yield* decodeLabelNames(raw)
 })
 
-export const getIssue = Effect.fn("GithubTransport.getIssue")(function*(
+const getIssue = Effect.fn("GithubTransport.getIssue")(function*(
   owner: string,
   repo: string,
   issueNumber: number,
@@ -83,7 +86,7 @@ export const getIssue = Effect.fn("GithubTransport.getIssue")(function*(
   return yield* decodeIssue(raw)
 })
 
-export const addIssueLabels = Effect.fn("GithubTransport.addIssueLabels")(function*(
+const addIssueLabels = Effect.fn("GithubTransport.addIssueLabels")(function*(
   owner: string,
   repo: string,
   issueNumber: number,
@@ -106,7 +109,7 @@ export const addIssueLabels = Effect.fn("GithubTransport.addIssueLabels")(functi
   return yield* decodeLabelNames(raw)
 })
 
-export const getWorkflowRun = Effect.fn("GithubTransport.getWorkflowRun")(function*(
+const getWorkflowRun = Effect.fn("GithubTransport.getWorkflowRun")(function*(
   owner: string,
   repo: string,
   runId: number,
@@ -122,23 +125,7 @@ export const getWorkflowRun = Effect.fn("GithubTransport.getWorkflowRun")(functi
   return yield* decodeWorkflowRun(raw)
 })
 
-export const listWorkflowJobs = Effect.fn("GithubTransport.listWorkflowJobs")(function*(
-  owner: string,
-  repo: string,
-  runId: number,
-  token: string,
-  options?: GithubTransportOptions
-) {
-  if (!Number.isSafeInteger(runId) || runId <= 0) {
-    return yield* new GithubTransportError({ code: "invalid-contract", message: "GitHub workflow run id is out of range" })
-  }
-  const transport = yield* resolveTransport(options)
-  const path = yield* repoPath(owner, repo)
-  const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}${path}/actions/runs/${runId}/jobs?per_page=100`, token, transport }, 0)
-  return yield* decodeWorkflowJobs(raw)
-})
-
-export const fetchWorkflowRunLogs = Effect.fn("GithubTransport.fetchWorkflowRunLogs")(function*(
+const fetchWorkflowRunLogs = Effect.fn("GithubTransport.fetchWorkflowRunLogs")(function*(
   owner: string,
   repo: string,
   runId: number,
@@ -319,14 +306,6 @@ const GithubWorkflowRunResponse = Schema.Struct({
   html_url: Schema.optional(Schema.Union([Schema.String, Schema.Null]))
 })
 
-const GithubWorkflowJobsResponse = Schema.Struct({
-  jobs: Schema.Array(Schema.Struct({
-    id: Schema.Number,
-    name: Schema.String,
-    conclusion: Schema.Union([Schema.String, Schema.Null])
-  }))
-})
-
 function decodeWorkflowRun(input: unknown): Effect.Effect<GithubWorkflowRun, GithubTransportError> {
   return Schema.decodeUnknownEffect(GithubWorkflowRunResponse, { onExcessProperty: "ignore" })(input).pipe(
     Effect.mapError(() => new GithubTransportError({ code: "api", message: "GitHub returned an unexpected workflow payload" })),
@@ -342,13 +321,6 @@ function decodeWorkflowRun(input: unknown): Effect.Effect<GithubWorkflowRun, Git
         })
         : Effect.fail(new GithubTransportError({ code: "api", message: "GitHub returned an unexpected workflow payload" }))
     )
-  )
-}
-
-function decodeWorkflowJobs(input: unknown): Effect.Effect<ReadonlyArray<GithubWorkflowJob>, GithubTransportError> {
-  return Schema.decodeUnknownEffect(GithubWorkflowJobsResponse, { onExcessProperty: "ignore" })(input).pipe(
-    Effect.mapError(() => new GithubTransportError({ code: "api", message: "GitHub returned an unexpected jobs payload" })),
-    Effect.map((decoded) => decoded.jobs.map((job) => ({ id: job.id, name: job.name, conclusion: job.conclusion })))
   )
 }
 

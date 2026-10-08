@@ -20,12 +20,6 @@ import {
 } from "./sonar-transport.js"
 import type { SonarTransportOptions } from "./sonar-transport.js"
 
-export class SonarConnectorError extends Data.TaggedError("SonarConnectorError")<{
-  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
-  readonly message: string
-  readonly status?: number
-}> {}
-
 export interface SonarConnectorOptions extends SonarTransportOptions {}
 
 export interface SonarConnectorServices {
@@ -45,9 +39,21 @@ export interface SonarConnectionStatus {
   readonly status?: number
 }
 
-export const SonarCredentialSlot = "token"
+export {
+  readSonarFinding,
+  checkSonarConnection,
+  makeSonarConnectorExtension
+}
 
-export const resolveSonarToken = Effect.fn("SonarConnector.resolveToken")(function*(
+class SonarConnectorError extends Data.TaggedError("SonarConnectorError")<{
+  readonly code: "connection" | "auth" | "forbidden" | "not-found" | "rate-limited" | "api" | "missing-credential" | "invalid-credential" | "invalid-contract"
+  readonly message: string
+  readonly status?: number
+}> {}
+
+const SonarCredentialSlot = "token"
+
+const resolveSonarToken = Effect.fn("SonarConnector.resolveToken")(function*(
   scope: unknown,
   integration: unknown
 ) {
@@ -67,7 +73,7 @@ export const resolveSonarToken = Effect.fn("SonarConnector.resolveToken")(functi
   return yield* decodeSecret(secret)
 })
 
-export const readSonarFinding = Effect.fn("SonarConnector.readFinding")(function*(
+const readSonarFinding = Effect.fn("SonarConnector.readFinding")(function*(
   scope: unknown,
   integration: unknown,
   issueKey: unknown,
@@ -93,20 +99,7 @@ export const readSonarFinding = Effect.fn("SonarConnector.readFinding")(function
   )
 })
 
-export const listOpenSonarFindings = Effect.fn("SonarConnector.listOpenFindings")(function*(
-  scope: unknown,
-  integration: unknown,
-  options?: SonarConnectorOptions
-) {
-  const provedIntegration = yield* decodeIntegration(integration)
-  const project = yield* decodeProject(provedIntegration.configuration)
-  const token = yield* resolveSonarToken(scope, integration)
-  return yield* listSonarIssues(project.baseUrl, project.projectKey, token, { ...options, baseUrl: project.baseUrl }).pipe(
-    Effect.mapError(transportError)
-  )
-})
-
-export const checkSonarConnection = (
+const checkSonarConnection = (
   scope: unknown,
   integration: unknown,
   options?: SonarConnectorOptions
@@ -156,7 +149,7 @@ export const checkSonarConnection = (
     return { ...configuredBase, ok: true, issues: listed.value.length }
   })
 
-export const makeSonarConnectorExtension = (options: SonarConnectorOptions | undefined, services: SonarConnectorServices) => {
+const makeSonarConnectorExtension = (options: SonarConnectorOptions | undefined, services: SonarConnectorServices) => {
   const fetchAction = defineAction({
     definition: sonarFetchActionReference,
     title: "SonarQube fetch finding",

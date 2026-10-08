@@ -5,7 +5,12 @@ export interface AutomationRunContextValue {
   readonly rpc: AutomationRpcApi
 }
 
-export const AutomationRunContextProvider = ({
+export {
+  AutomationRunContextProvider,
+  useOptionalAutomationRpc
+}
+
+const AutomationRunContextProvider = ({
   value,
   children
 }: {
@@ -13,15 +18,7 @@ export const AutomationRunContextProvider = ({
   readonly children: ReactNode
 }) => <AutomationRunContext.Provider value={value}>{children}</AutomationRunContext.Provider>
 
-export const useAutomationRpc = (): AutomationRpcApi => {
-  const value = useOptionalAutomationRpc()
-  if (value === undefined) {
-    throw new Error("automation rpc must be used within <AutomationRunContextProvider>")
-  }
-  return value
-}
-
-export const useOptionalAutomationRpc = (): AutomationRpcApi | undefined => {
+const useOptionalAutomationRpc = (): AutomationRpcApi | undefined => {
   const value = useContext(AutomationRunContext)
   return value === null ? undefined : value.rpc
 }

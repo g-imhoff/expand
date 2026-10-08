@@ -29,10 +29,19 @@ export interface GmailModifyResult {
   readonly threadId: string
   readonly labelIds: ReadonlyArray<string>
 }
-export const GmailApiBaseUrl = "https://gmail.googleapis.com"
-export const GmailDefaultTimeoutMs = 10000
-export const GmailDefaultMaxRetries = 2
-export const readMailboxHistoryId = Effect.fn("GmailTransport.readMailboxHistoryId")(function*(
+
+export {
+  readMailboxHistoryId,
+  listMessages,
+  listHistory,
+  getMessage,
+  modifyMessage
+}
+
+const GmailApiBaseUrl = "https://gmail.googleapis.com"
+const GmailDefaultTimeoutMs = 10000
+const GmailDefaultMaxRetries = 2
+const readMailboxHistoryId = Effect.fn("GmailTransport.readMailboxHistoryId")(function*(
   userId: string,
   token: string,
   options?: GmailTransportOptions
@@ -45,7 +54,7 @@ export const readMailboxHistoryId = Effect.fn("GmailTransport.readMailboxHistory
   )
   return profile.historyId
 })
-export const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
+const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
   userId: string,
   token: string,
   options?: GmailTransportOptions
@@ -66,7 +75,7 @@ export const listMessages = Effect.fn("GmailTransport.listMessages")(function*(
     seen.add(pageToken)
   }
 })
-export const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
+const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
   userId: string,
   startHistoryId: string,
   token: string,
@@ -91,7 +100,7 @@ export const listHistory = Effect.fn("GmailTransport.listHistory")(function*(
     seen.add(pageToken)
   }
 })
-export const getMessage = Effect.fn("GmailTransport.getMessage")(function*(
+const getMessage = Effect.fn("GmailTransport.getMessage")(function*(
   userId: string,
   messageId: string,
   token: string,
@@ -105,7 +114,7 @@ export const getMessage = Effect.fn("GmailTransport.getMessage")(function*(
   const raw = yield* fetchWithRetry({ method: "GET", url: `${transport.baseUrl}/gmail/v1/users/${user}/messages/${encodeURIComponent(messageId)}?format=full`, token, transport }, 0)
   return yield* decodeMessage(raw)
 })
-export const modifyMessage = Effect.fn("GmailTransport.modifyMessage")(function*(
+const modifyMessage = Effect.fn("GmailTransport.modifyMessage")(function*(
   userId: string,
   messageId: string,
   changes: { readonly addLabelIds: ReadonlyArray<string>; readonly removeLabelIds: ReadonlyArray<string> },

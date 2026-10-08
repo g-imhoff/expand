@@ -18,41 +18,27 @@ export interface CapacityAdapter {
   readonly probe: () => Effect.Effect<typeof CapacityProbe.Type, CodingCapacityError>
 }
 
-export const registerCapacityAdapter = (adapter: CapacityAdapter): void => {
+export {
+  registerCapacityAdapter,
+  clearCapacityAdapters,
+  isCapacityAdapterRegistered,
+  makeFixedCapacityAdapter,
+  makeUnknownCapacityAdapter,
+  selectCodingProvider,
+  selectionEvidenceLines
+}
+
+const registerCapacityAdapter = (adapter: CapacityAdapter): void => {
   adapters.set(adapter.kind, adapter)
 }
 
-export const clearCapacityAdapters = (): void => {
+const clearCapacityAdapters = (): void => {
   adapters.clear()
 }
 
-export const isCapacityAdapterRegistered = (kind: string): boolean => adapters.has(kind)
+const isCapacityAdapterRegistered = (kind: string): boolean => adapters.has(kind)
 
-export const resetCapacityAdaptersForTests = (): void => {
-  clearCapacityAdapters()
-}
-
-export const resolveCapacityAdapter = (
-  kind: string,
-  requested: ReadonlyArray<string>
-): Effect.Effect<CapacityAdapter, CodingCapacityError> =>
-  Effect.gen(function*() {
-    const adapter = adapters.get(kind)
-    if (adapter === undefined) {
-      return yield* new CodingCapacityError({ code: "unknown-provider", message: `Provider ${kind} is not registered` })
-    }
-    for (const capability of requested) {
-      if (!adapter.capabilities.includes(capability)) {
-        return yield* new CodingCapacityError({
-          code: "unknown-provider",
-          message: `Provider ${kind} does not support capability ${capability}`
-        })
-      }
-    }
-    return adapter
-  })
-
-export const makeFixedCapacityAdapter = (
+const makeFixedCapacityAdapter = (
   kind: string,
   state: CapacityState,
   detail?: string,
@@ -82,12 +68,12 @@ export const makeFixedCapacityAdapter = (
     })
 })
 
-export const makeUnknownCapacityAdapter = (
+const makeUnknownCapacityAdapter = (
   kind: string,
   capabilities: ReadonlyArray<string> = ["execute", "worktree", "transcript", "diff"]
 ): CapacityAdapter => makeFixedCapacityAdapter(kind, "unknown", undefined, capabilities)
 
-export const selectCodingProvider = (
+const selectCodingProvider = (
   input: unknown,
   requestedCapabilities: ReadonlyArray<string> = ["execute"]
 ): Effect.Effect<typeof CodingSelectionResult.Type, CodingCapacityError> =>
@@ -179,7 +165,7 @@ export const selectCodingProvider = (
     })
   })
 
-export const selectionEvidenceLines = (result: typeof CodingSelectionResult.Type): Array<string> => [
+const selectionEvidenceLines = (result: typeof CodingSelectionResult.Type): Array<string> => [
   `outcome:${result.outcome}`,
   ...result.evidence.map((probe) => `${probe.kind}:${probe.state}:${probe.detail}`)
 ]
