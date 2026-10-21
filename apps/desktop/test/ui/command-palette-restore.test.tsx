@@ -52,6 +52,6 @@ describe("CommandPalette — archived projects stay reachable", () => {
 
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(screen.getByRole("alert").textContent).toContain("route unavailable")
-      }))
+      }, { interval: 5 }))
     })))
 })

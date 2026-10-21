@@ -8,8 +8,9 @@ describe("no dead code", () => {
   it.live("knip finds no unused files, exports, types, or dependencies", () =>
     Effect.gen(function*() {
       const path = yield* Path.Path
-      const result = yield* runCommand("npm", ["exec", "--", "knip", "--no-progress"], {
-        cwd: path.resolve(".")
+      const cwd = path.resolve(".")
+      const result = yield* runCommand(path.join(cwd, "node_modules", ".bin", "knip"), ["--no-progress"], {
+        cwd
       }).pipe(Effect.exit)
       expect(Exit.isSuccess(result)).toBe(true)
       if (Exit.isFailure(result)) return

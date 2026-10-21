@@ -113,6 +113,6 @@ describe("ProjectContextProvider", () => {
       yield* Effect.tryPromise(() => waitFor(() => {
         expect(result.current.error).toBe(duplicate)
         expect(callbackError).toBe(duplicate)
-      }))
+      }, { interval: 5 }))
     })))
 })

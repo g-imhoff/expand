@@ -4,6 +4,7 @@ import { Clock, Context, Deferred, Effect, Fiber, FileSystem, Layer, Option, Pat
 import { TestClock } from "effect/testing"
 import { expect } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { ProcessServices } from "../process-services"
 import { findOrSpawnBackend } from "../../spawn"
 import { makeNodeAdapter } from "../../adapters/node"
@@ -23,8 +24,11 @@ const TestDirectoryLive = Layer.effect(
 const TestLayer = Layer.mergeAll(TestDirectoryLive, ProcessServices.layer, NodeServices.layer)
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
+
 const reviverOwnedAdapter = {
   protocolLayer: nodeAdapter.protocolLayer,
   spawnBackend: () => Effect.void

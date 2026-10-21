@@ -44,7 +44,7 @@ const event = (seq: number): SequencedEvent => ({
 /** Poll `predicate` until it returns true or `timeoutMs` elapses. */
 const PollPending = Data.TaggedError("AuditTestPollPending")
 
-const pollUntil = <E, R>(predicate: Effect.Effect<boolean, E, R>, timeoutMs: number, stepMs = 100) =>
+const pollUntil = <E, R>(predicate: Effect.Effect<boolean, E, R>, timeoutMs: number, stepMs = 10) =>
   predicate.pipe(
     Effect.filterOrFail((matched) => matched, () => new PollPending(undefined)),
     Effect.retry(Schedule.addDelay(

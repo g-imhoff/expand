@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest"
-import { describe, expect } from "vitest"
+import { beforeAll, describe, expect } from "vitest"
 import { Effect, Exit, Queue, Fiber, FileSystem, Layer, Option, Path, PlatformError, Schedule, Schema, Stream } from "effect"
 import { NetAddress } from "effect/net"
 import { HttpServer } from "effect/http"
@@ -27,10 +27,39 @@ import * as Socket from "effect/socket/Socket"
 import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
 import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
+import { buildFixture } from "../../../../test/support/precompiled"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
+
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.all(
+      [
+        buildFixture("apps/server/main.ts"),
+        buildFixture("apps/server/test/fixtures/trust-boundary-host.ts")
+      ],
+      { concurrency: "unbounded" }
+    )
+  )
+)
+
+
+beforeAll(() =>
+  Effect.runPromise(
+    offLoopbackTargets.pipe(
+      Effect.provide(NodeServices.layer),
+      Effect.tap((targets) =>
+        Effect.sync(() => {
+          cachedOffLoopbackTargets = targets
+        })
+      )
+    )
+  )
+)
 
 
 const awaitEndpointUp = readEndpoint.pipe(
@@ -90,7 +119,9 @@ const startChild = (args: ReadonlyArray<string>) => Effect.gen(function*() {
 })
 
 const startTrustBoundaryHost = (args: ReadonlyArray<string>) =>
-  startChild(["--import", "tsx", "apps/server/test/fixtures/trust-boundary-host.ts", ...args])
+  buildFixture("apps/server/test/fixtures/trust-boundary-host.ts").pipe(
+    Effect.flatMap((bundle) => startChild([bundle, ...args]))
+  )
 
 type TrustBoundaryHost = Effect.Success<ReturnType<typeof startTrustBoundaryHost>>
 type ChildExitCode = Effect.Success<TrustBoundaryHost["child"]["exitCode"]>
@@ -100,6 +131,15 @@ const childOutput = (
   stderr: Fiber.Fiber<string, PlatformError.PlatformError>
 ) =>
   Effect.all([Fiber.join(stdout), Fiber.join(stderr)], { concurrency: "unbounded" })
+
+let cachedOffLoopbackTargets: ReadonlyArray<string> | undefined
+
+const readCachedOffLoopbackTargets = Effect.sync(() => {
+  if (cachedOffLoopbackTargets === undefined) {
+    throw new Error("off-loopback targets were not resolved in beforeAll")
+  }
+  return cachedOffLoopbackTargets
+})
 
 const offLoopbackTargets = Effect.scoped(Effect.gen(function*() {
   const { child, stdout, stderr } = yield* startTrustBoundaryHost(["network-targets"])
@@ -200,7 +240,7 @@ describe("trust boundary", { concurrent: false }, () => {
       const port = Number(new URL(endpoint.url).port)
       const loopback = yield* probeTcp("127.0.0.1", port)
       const offLoopback = yield* Effect.forEach(
-        yield* offLoopbackTargets,
+        yield* readCachedOffLoopbackTargets,
         (host) => Effect.map(probeTcp(host, port), (result) => ({ host, result })),
         { concurrency: "unbounded" }
       )

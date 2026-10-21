@@ -175,7 +175,7 @@ describe("endpoint file (I-3)", () => {
         Effect.retry(Schedule.spaced("25 millis")),
         Effect.timeout("5 seconds")
       )
-      const server = yield* runObservedServer({ dbPath: path.join(directory, "active-interrupt.db") }).pipe(
+      const server = yield* runObservedServer({ dbPath: path.join(directory, "active-interrupt.db"), httpShutdownGraceMs: 100 }).pipe(
         Effect.provideService(AppContext, appContext),
         Effect.forkChild
       )
@@ -245,7 +245,7 @@ describe("endpoint file (I-3)", () => {
         Effect.retry(Schedule.spaced("25 millis")),
         Effect.timeout("5 seconds")
       )
-      const server = yield* runObservedServer({ dbPath: path.join(directory, "delayed.db") }).pipe(
+      const server = yield* runObservedServer({ dbPath: path.join(directory, "delayed.db"), httpShutdownGraceMs: 100 }).pipe(
         Effect.provideService(AppContext, appContext),
         Effect.forkChild
       )

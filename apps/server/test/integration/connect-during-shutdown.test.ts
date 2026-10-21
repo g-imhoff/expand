@@ -6,13 +6,16 @@ import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { BackendUnavailable, readEndpoint, withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { EndpointFromJson, type Endpoint } from "@expand/contracts/endpoint"
 import { PROTOCOL_VERSION } from "@expand/contracts/rpc/version"
 import { ProcessControl } from "@expand/contracts/process-control"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
 const writeTestEndpoint = (file: string, endpoint: Endpoint) =>
   Effect.gen(function*() {
@@ -32,7 +35,7 @@ describe("connect-during-shutdown race (Bug 2)", { concurrent: false }, () => {
         const serverFiber = yield* Effect.forkChild(runServer({ dbPath }))
         const realEndpoint = yield* readEndpoint.pipe(
           Effect.flatMap((o) => (Option.isSome(o) ? Effect.succeed(o.value) : Effect.fail("pending" as const))),
-          Effect.retry(Schedule.spaced("25 millis")),
+          Effect.retry(Schedule.spaced("5 millis")),
           Effect.timeoutOrElse({
             duration: "5 seconds",
             orElse: () => Effect.fail("real server never advertised")

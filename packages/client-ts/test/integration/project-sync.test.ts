@@ -3,9 +3,10 @@ import { it } from "@effect/vitest"
 import { Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Schema, Scope, Stream, SubscriptionRef } from "effect"
 import { catch as catchEffect } from "effect/Effect"
 import { ChildProcess } from "effect/process"
-import { describe, expect } from "vitest"
+import { describe, expect, beforeAll } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
 import { runCommand } from "../../../../test/support/effect-process"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { ProcessServices } from "../process-services"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
@@ -25,7 +26,7 @@ import { ProjectClient } from "../../project/client"
 const waitUntil = (predicate: () => boolean, timeout: Duration.Input) =>
   Effect.sync(predicate).pipe(
     Effect.filterOrFail(Boolean, () => "pending" as const),
-    Effect.retry(Schedule.spaced("10 millis")),
+    Effect.retry(Schedule.spaced("2 millis")),
     Effect.timeoutOrElse({ duration: timeout, orElse: () => Effect.fail("timed out" as const) }),
     Effect.asVoid
   )
@@ -34,7 +35,7 @@ const waitForFile = Effect.fn("ProjectSyncIntegration.waitForFile")(function*(fi
   const fs = yield* FileSystem.FileSystem
   yield* fs.exists(file).pipe(
     Effect.filterOrFail(Boolean, () => "pending" as const),
-    Effect.retry(Schedule.spaced("10 millis")),
+    Effect.retry(Schedule.spaced("2 millis")),
     Effect.timeout("5 seconds")
   )
 })
@@ -55,7 +56,7 @@ const awaitProcessDeath = Effect.fn("ProjectSyncIntegration.awaitProcessDeath")(
   const processControl = yield* ProcessControl
   yield* processControl.probe(pid).pipe(
     Effect.filterOrFail((status) => status === "dead", () => "pending" as const),
-    Effect.retry(Schedule.spaced("10 millis")),
+    Effect.retry(Schedule.spaced("2 millis")),
     Effect.timeoutOrElse({
       duration: "5 seconds",
       orElse: () => Effect.fail(`backend ${pid} did not terminate`)
@@ -74,7 +75,7 @@ const stopEndpoint = Effect.fn("ProjectSyncIntegration.stopEndpoint")(function*(
 
 const awaitEndpointPid = (directory: string) => endpointPid(directory).pipe(
   Effect.filterOrFail((pid): pid is number => typeof pid === "number", () => "pending" as const),
-  Effect.retry(Schedule.spaced("10 millis")),
+  Effect.retry(Schedule.spaced("2 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
     orElse: () => Effect.fail(`backend endpoint did not appear in ${directory}`)
@@ -86,7 +87,7 @@ const awaitReplacementPid = (directory: string, previousPid: number) => endpoint
     (pid): pid is number => typeof pid === "number" && pid !== previousPid,
     () => "pending" as const
   ),
-  Effect.retry(Schedule.spaced("10 millis")),
+  Effect.retry(Schedule.spaced("2 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
     orElse: () => Effect.fail(`replacement backend endpoint did not appear in ${directory}`)
@@ -136,7 +137,9 @@ const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(
 ) {
   const path = yield* Path.Path
   const adapter = transformAdapter(makeNodeAdapter({
-    backendCommand: Effect.succeed(["node", "--import", "tsx", path.resolve("apps/server/main.ts")])
+    backendCommand: buildFixture("apps/server/main.ts").pipe(
+      Effect.map((bundle) => ["node", bundle])
+    )
   }))
   return ClientLayer(adapter).pipe(
     Layer.provide(ProcessServices.layer),
@@ -149,6 +152,7 @@ const makeLayer = Effect.fn("ProjectSyncIntegration.makeLayer")(function*(
 })
 
 describe("ProjectSync integration", { concurrent: false }, () => {
+  beforeAll(() => Effect.runPromise(buildFixture("apps/server/main.ts")))
   it.live("waits for confirmed backend death after signaling teardown", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -161,7 +165,7 @@ describe("ProjectSync integration", { concurrent: false }, () => {
       const script = [
         "trap 'printf signaled > \"$2\"; while [[ ! -e \"$3\" ]]; do sleep 0.01; done; exit 0' TERM",
         "printf ready > \"$1\"",
-        "while :; do sleep 1; done"
+        "while :; do sleep 0.05; done"
       ].join("\n")
       const handle = yield* ChildProcess.make(
         "bash",
@@ -219,7 +223,7 @@ describe("ProjectSync integration", { concurrent: false }, () => {
       yield* Queue.take(backendSpawned)
       observedPid = yield* endpointPid(directory).pipe(
         Effect.filterOrFail((pid): pid is number => typeof pid === "number", () => "pending" as const),
-        Effect.retry(Schedule.spaced("10 millis")),
+        Effect.retry(Schedule.spaced("2 millis")),
         Effect.timeout("5 seconds")
       )
       yield* Fiber.interrupt(acquisition)
@@ -256,12 +260,9 @@ describe("ProjectSync integration", { concurrent: false }, () => {
       const replacementPid = yield* Effect.gen(function*() {
         const ownership = yield* ownBackend(directory).pipe(Scope.provide(fixtureScope))
         const adapter = ownership.track(makeNodeAdapter({
-          backendCommand: Effect.succeed([
-            "node",
-            "--import",
-            "tsx",
-            path.resolve("apps/server/main.ts")
-          ])
+          backendCommand: buildFixture("apps/server/main.ts").pipe(
+            Effect.map((bundle) => ["node", bundle])
+          )
         }))
         yield* adapter.spawnBackend(directory)
         const firstPid = yield* awaitEndpointPid(directory)
@@ -279,7 +280,7 @@ describe("ProjectSync integration", { concurrent: false }, () => {
             (pid): pid is number => typeof pid === "number" && pid !== firstPid,
             () => "pending" as const
           ),
-          Effect.retry(Schedule.spaced("10 millis")),
+          Effect.retry(Schedule.spaced("2 millis")),
           Effect.timeout("5 seconds")
         )
         observedReplacementPid = replacementPid
@@ -402,7 +403,7 @@ describe("ProjectSync integration", { concurrent: false }, () => {
             (pid): pid is number => typeof pid === "number" && pid !== firstPid,
             () => "pending" as const
           ),
-          Effect.retry(Schedule.spaced("10 millis")),
+          Effect.retry(Schedule.spaced("2 millis")),
           Effect.timeout("20 seconds")
         )
         ownership.capture(finalPid)
