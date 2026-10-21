@@ -39,7 +39,7 @@ describe("test colocation", () => {
     expect(testInclude).not.toContain("apps/desktop/e2e/effect-test.test.ts")
   })
 
-  it("runs process-heavy suites serially after the normal project", () => {
+  it("runs process-heavy suites after the normal project, files in parallel", () => {
     expect(testInclude).toEqual(
       expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
     )
@@ -62,7 +62,7 @@ describe("test colocation", () => {
       test: {
         name: "process-heavy",
         include: processHeavyTestInclude,
-        fileParallelism: false,
+        fileParallelism: true,
         sequence: { groupOrder: 1 }
       }
     })

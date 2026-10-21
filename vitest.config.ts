@@ -34,7 +34,7 @@ export const processHeavyTestProject = {
   test: {
     name: "process-heavy",
     include: processHeavyTestInclude,
-    fileParallelism: false,
+    fileParallelism: true,
     sequence: { groupOrder: 1 }
   }
 } satisfies TestProjectInlineConfiguration
