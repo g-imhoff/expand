@@ -239,6 +239,8 @@ describe("manifest orchestration", () => {
         "gen:fold-version": "tsx scripts/fold-version.ts",
         typecheck: "tsc --noEmit -p tsconfig.workspace.json",
         test: "vitest run",
+        "test:normal": "vitest run --project normal",
+        "test:heavy": "vitest run --project process-heavy",
         "test:coverage": "vitest run --coverage",
         knip: "knip",
         build: "tsx scripts/build.ts",

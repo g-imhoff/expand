@@ -237,16 +237,40 @@ const reducerBoundaryViolations = (file: string, source: string): ReadonlyArray<
   return violations
 }
 
+const boundaryCompilerOptions: ts.CompilerOptions = {
+  allowJs: true,
+  module: ts.ModuleKind.NodeNext,
+  moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  skipLibCheck: true,
+  target: ts.ScriptTarget.ES2022
+}
+
+const boundaryEntrypointFiles = [
+  "packages/electron-ipc/contract.ts",
+  "packages/electron-ipc/main.ts",
+  "packages/electron-ipc/preload.ts",
+  "packages/electron-ipc/renderer.ts",
+  "packages/ink-input/index.ts"
+]
+
+let sharedBoundaryProgram: ts.Program | undefined
+
+const boundaryProgram = (): ts.Program => {
+  if (sharedBoundaryProgram === undefined) {
+    const roots = boundaryEntrypointFiles.map((file) => ts.sys.resolvePath(file))
+    sharedBoundaryProgram = ts.createProgram(roots, boundaryCompilerOptions)
+  }
+  return sharedBoundaryProgram
+}
+
 const makeChecker = (file: string): { readonly sourceFile: ts.SourceFile; readonly checker: ts.TypeChecker } => {
   const absolute = ts.sys.resolvePath(file)
-  const program = ts.createProgram([absolute], {
-    allowJs: true,
-    module: ts.ModuleKind.NodeNext,
-    moduleResolution: ts.ModuleResolutionKind.NodeNext,
-    skipLibCheck: true,
-    target: ts.ScriptTarget.ES2022
-  })
-  const sourceFile = program.getSourceFile(absolute)
+  let program = boundaryProgram()
+  let sourceFile = program.getSourceFile(absolute)
+  if (sourceFile === undefined) {
+    program = ts.createProgram([absolute], boundaryCompilerOptions)
+    sourceFile = program.getSourceFile(absolute)
+  }
   if (sourceFile === undefined) throw new Error(`missing source file: ${file}`)
   return { sourceFile, checker: program.getTypeChecker() }
 }
