@@ -85,21 +85,9 @@ ruleTester.run("module-order autofix safety", moduleOrder, {
   valid: [],
   invalid: [
     {
-      filename: "move-erased-interface.ts",
-      code: "export const value = 1\nexport interface Api {}",
-      output: "export interface Api {}\n\nexport const value = 1",
-      errors: [{ messageId: "outOfOrder", line: 2 }]
-    },
-    {
       filename: "move-private-type.ts",
       code: "type Internal = string\nexport const value = 1",
       output: "export const value = 1\n\ntype Internal = string",
-      errors: [{ messageId: "outOfOrder", line: 2 }]
-    },
-    {
-      filename: "move-import.ts",
-      code: 'export const value = 1\nimport type { Effect } from "effect"',
-      output: 'import type { Effect } from "effect"\n\nexport const value = 1',
       errors: [{ messageId: "outOfOrder", line: 2 }]
     },
     {

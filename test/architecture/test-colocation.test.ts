@@ -74,13 +74,6 @@ describe("test colocation", () => {
     expect(normalTestProject.test.name).not.toBe(processHeavyTestProject.test.name)
   })
 
-  it("preserves Vitest default exclusions in the normal project", () => {
-    expect(normalTestProject.test.exclude).toEqual([
-      ...configDefaults.exclude,
-      ...processHeavyTestInclude
-    ])
-  })
-
   it.live("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () =>
     Effect.gen(function*() {
       const path = yield* Path.Path

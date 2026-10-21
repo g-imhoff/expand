@@ -5,18 +5,12 @@ import { ProjectDeleteResult } from "@expand/contracts/project"
 import { ExpandHandlers } from "@expand/server/rpc/handlers"
 
 describe("ExpandRpcs contract", () => {
-  it("is a defined RpcGroup", () => {
-    expect(ExpandRpcs).toBeDefined()
-  })
   it("ProjectNotFound constructs with an id", () => {
     const e = new ProjectNotFound({ id: "p1" })
     expect(e._tag).toBe("ProjectNotFound")
     expect(e.id).toBe("p1")
   })
   it("ExpandHandlers covers every RPC (typechecks) and is defined", () => {
-    expect(ExpandHandlers).toBeDefined()
-  })
-  it("ExpandHandlers layer includes the change-directory handler and constructs", () => {
     expect(ExpandHandlers).toBeDefined()
   })
   it("exposes the five procedures by tag", () => {

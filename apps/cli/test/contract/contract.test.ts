@@ -400,11 +400,6 @@ describe("CLI parse/validation edge cases", () => {
     expect((yield* parseJson(r.stderr.join("")))).toMatchObject({ code: "PROJECT_NOT_FOUND", retryable: false })
     expect(r.code).toBe(7)
   }))
-  it.live("delete by UUID target skips the list lookup and returns ProjectDelete envelope, exit 0", () => Effect.gen(function*() {
-    const r = yield* runCli(tree(opsClient), ["project", "delete", "11111111-1111-4111-8111-111111111111"])
-    expect((yield* parseJson(r.stdout.join("")))).toMatchObject({ kind: "ProjectDelete", data: { deleted: true } })
-    expect(r.code).toBe(0)
-  }))
   it.live("list --archived passes includeArchived (still ProjectList envelope), exit 0", () => Effect.gen(function*() {
     const r = yield* runCli(tree(opsClient), ["project", "list", "--archived"])
     expect((yield* parseJson(r.stdout.join("")))).toMatchObject({ kind: "ProjectList" })

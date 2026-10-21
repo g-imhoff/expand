@@ -122,10 +122,6 @@ const verifyFixtureClosed = Effect.fn("Harness.verifyFixtureClosed")(function*(f
 const TestServices = Layer.mergeAll(ProcessServices.layer, NodeServices.layer)
 
 describe("test harness", () => {
-  it("runs", () => {
-    expect(1 + 1).toBe(2)
-  })
-
   it.live("finalizes the database, server, listener, socket, child process, and temporary directory on failure", () =>
     Effect.gen(function*() {
       const acquired = yield* Queue.unbounded<HarnessFixture>()
