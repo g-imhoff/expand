@@ -135,13 +135,10 @@ describe("test harness", () => {
         Scope.provide(fixtureScope)
       )
       const blocker = yield* Effect.never.pipe(Effect.forkIn(fixtureScope))
-      yield* Fiber.interrupt(blocker)
-      expect(Exit.isFailure(yield* Fiber.await(blocker))).toBe(true)
-      const exit = yield* Effect.fail("forced assertion failure" as const).pipe(
-        Effect.ensuring(Scope.close(fixtureScope, Exit.fail("forced assertion failure" as const))),
-        Effect.exit
-      )
-      expect(Exit.isFailure(exit)).toBe(true)
+      yield* Scope.close(fixtureScope, Exit.interrupt())
+      const blockerExit = yield* Fiber.await(blocker)
+      expect(Exit.isFailure(blockerExit)).toBe(true)
+      expect(Exit.hasInterrupts(blockerExit)).toBe(true)
       yield* verifyFixtureClosed(fixture)
     }).pipe(Effect.provide(TestServices)))
 })

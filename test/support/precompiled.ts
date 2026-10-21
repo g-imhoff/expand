@@ -1,5 +1,7 @@
 import { Effect } from "effect"
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
+import * as NodeFs from "node:fs"
+import * as NodeFsPromises from "node:fs/promises"
 import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
 import { pathToFileURL } from "node:url"
@@ -17,6 +19,14 @@ import { pathToFileURL } from "node:url"
  * The cache is keyed by absolute entrypoint path and lives for the worker
  * lifetime, which covers the requesting test file. Output files are unique
  * per entrypoint (`<basename>-<sha1>.cjs` under the OS temp dir).
+ *
+ * Vitest workers are separate processes with separate module-level caches, so
+ * parallel files would esbuild to the same stable path concurrently and a
+ * cache hit could read a partially written bundle. Each build therefore
+ * writes to a unique temp path (`<output>.<pid>.<rand>.tmp`) and is
+ * atomically renamed over the stable path, so observers only ever see a
+ * complete bundle or ENOENT. Cache hits verify the file still exists and
+ * rebuild when it does not (e.g. a fresh boot after a tmpdir clear).
  */
 const bundleCache = new Map<string, string>()
 const bundleInflight = new Map<string, Promise<string>>()
@@ -35,13 +45,20 @@ const bundleOutput = (absolute: string): string => {
 export const bundlePathFor = (entrypoint: string): string =>
   bundleOutput(absoluteEntrypoint(entrypoint))
 
+const uniqueTempOutput = (output: string): string =>
+  `${output}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`
+
 export const buildFixture = Effect.fn("TestSupport.buildFixture")(function*(entrypoint: string) {
   const absolute = absoluteEntrypoint(entrypoint)
   const cached = bundleCache.get(absolute)
-  if (cached !== undefined) return cached
+  if (cached !== undefined) {
+    if (NodeFs.existsSync(cached)) return cached
+    bundleCache.delete(absolute)
+  }
   const ongoing = bundleInflight.get(absolute)
   if (ongoing !== undefined) return yield* Effect.promise(() => ongoing)
   const output = bundleOutput(absolute)
+  const tempOutput = uniqueTempOutput(output)
   const pending = import("esbuild").then(({ build }) =>
     build({
       entryPoints: [absolute],
@@ -49,20 +66,22 @@ export const buildFixture = Effect.fn("TestSupport.buildFixture")(function*(entr
       platform: "node",
       target: "node24",
       format: "cjs",
-      outfile: output,
+      outfile: tempOutput,
       absWorkingDir: process.cwd(),
       logLevel: "warning"
     })
   ).then(
-    () => {
-      bundleCache.set(absolute, output)
-      bundleInflight.delete(absolute)
-      return output
-    },
-    (cause) => {
-      bundleInflight.delete(absolute)
-      throw cause
-    }
+    () =>
+      NodeFsPromises.rename(tempOutput, output).then(() => {
+        bundleCache.set(absolute, output)
+        bundleInflight.delete(absolute)
+        return output
+      }),
+    (cause) =>
+      NodeFsPromises.unlink(tempOutput).catch(() => undefined).then(() => {
+        bundleInflight.delete(absolute)
+        throw cause
+      })
   )
   bundleInflight.set(absolute, pending)
   return yield* Effect.promise(() => pending)
@@ -102,13 +121,17 @@ export const exampleBundlePathFor = (entrypoint: string): string =>
 export const buildExample = Effect.fn("TestSupport.buildExample")(function*(entrypoint: string) {
   const absolute = absoluteEntrypoint(entrypoint)
   const cached = exampleCache.get(absolute)
-  if (cached !== undefined) return cached
+  if (cached !== undefined) {
+    if (NodeFs.existsSync(cached)) return cached
+    exampleCache.delete(absolute)
+  }
   const ongoing = exampleInflight.get(absolute)
   // tryPromise (not promise): an esbuild rejection (e.g. a missing entrypoint
   // in startup-failure tests) must be a catchable failure so spawnExample can
   // fall back to tsx, not a defect.
   if (ongoing !== undefined) return yield* Effect.tryPromise(() => ongoing)
   const output = exampleOutput(absolute)
+  const tempOutput = uniqueTempOutput(output)
   const url = pathToFileURL(absolute).href
   const pending = import("esbuild").then(({ build }) =>
     build({
@@ -117,7 +140,7 @@ export const buildExample = Effect.fn("TestSupport.buildExample")(function*(entr
       platform: "node",
       target: "node24",
       format: "cjs",
-      outfile: output,
+      outfile: tempOutput,
       absWorkingDir: process.cwd(),
       logLevel: "warning",
       define: {
@@ -126,15 +149,17 @@ export const buildExample = Effect.fn("TestSupport.buildExample")(function*(entr
       }
     })
   ).then(
-    () => {
-      exampleCache.set(absolute, output)
-      exampleInflight.delete(absolute)
-      return output
-    },
-    (cause) => {
-      exampleInflight.delete(absolute)
-      throw cause
-    }
+    () =>
+      NodeFsPromises.rename(tempOutput, output).then(() => {
+        exampleCache.set(absolute, output)
+        exampleInflight.delete(absolute)
+        return output
+      }),
+    (cause) =>
+      NodeFsPromises.unlink(tempOutput).catch(() => undefined).then(() => {
+        exampleInflight.delete(absolute)
+        throw cause
+      })
   )
   exampleInflight.set(absolute, pending)
   return yield* Effect.tryPromise(() => pending)

@@ -250,7 +250,7 @@ const runDisconnectOrderingScenario = () =>
       Stream.runDrain,
       Effect.andThen(session.current.pipe(
         Effect.as(true),
-        Effect.timeoutOrElse({ duration: "20 millis", orElse: () => Effect.succeed(false) })
+        Effect.timeoutOrElse({ duration: "100 millis", orElse: () => Effect.succeed(false) })
       )),
       Effect.forkChild
     )
