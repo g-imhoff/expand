@@ -10,7 +10,7 @@ import type { ProjectClientApi } from "@expand/client-ts/project"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ArchiveRpcError, archiveStale, waitForBackendShutdown } from "../archive-stale"
 import { ExampleReadinessError, makeDataDir, makeFixtureDir, runExample, spawnExample, waitForLine } from "./helpers"
-import { buildFixture, bundlePathFor } from "../../../test/support/precompiled"
+import { buildExample, buildFixture, bundlePathFor } from "../../../test/support/precompiled"
 
 const clientLayer = (client: ProjectClientApi) => Layer.succeed(ProjectClient, client)
 
@@ -26,6 +26,13 @@ describe("example: archive-stale", () => {
   beforeAll(() => {
     previousBackendCmd = process.env.EXPAND_BACKEND_CMD
     process.env.EXPAND_BACKEND_CMD = backendCommandValue
+    // Warm the prebuilt example bundles once; every spawn afterwards reuses
+    // the cached bundle via spawnExample instead of paying tsx per spawn.
+    return Effect.runPromise(Effect.all([
+      buildExample("examples/client-ts/archive-stale.ts"),
+      buildExample("examples/client-ts/audit-log.ts"),
+      buildExample("examples/client-ts/bootstrap-projects.ts")
+    ], { concurrency: "unbounded" }))
   })
   afterAll(() => {
     if (previousBackendCmd === undefined) delete process.env.EXPAND_BACKEND_CMD

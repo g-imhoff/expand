@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { createHash } from "node:crypto"
 import * as NodeOs from "node:os"
 import * as NodePath from "node:path"
+import { pathToFileURL } from "node:url"
 
 /**
  * esbuild each spawned TS fixture to a stable temp `.cjs` bundle once, then
@@ -65,4 +66,76 @@ export const buildFixture = Effect.fn("TestSupport.buildFixture")(function*(entr
   )
   bundleInflight.set(absolute, pending)
   return yield* Effect.promise(() => pending)
+})
+
+/**
+ * esbuild each spawned client-ts example to a stable temp `.cjs` bundle once,
+ * then boot it with plain `node` instead of `node --import tsx`.
+ *
+ * Examples gate their entrypoint on `import.meta.main` and locate the backend
+ * source entry via `import.meta.url` (in `../adapter.ts`). CJS has no
+ * `import.meta`, so both are shimmed with `define`: `import.meta.main` is
+ * `true` (a bundle is always the entrypoint) and `import.meta.url` is the file
+ * URL of the ORIGINAL source entrypoint, so relative resolution
+ * (`exampleDirectory` -> `../../apps/server/main.ts`) keeps working. The shim
+ * is global to the bundle, which is sound here because every example lives in
+ * the same directory as `adapter.ts` (only the dirname is ever used). ESM
+ * output is not an option: bundled `ws` dynamic requires fail under ESM.
+ *
+ * Each example bundle was verified behaviorally identical to its tsx run in
+ * scratch runs under /tmp (same stdout/exit on invalid-input runs; a full
+ * backend round-trip for archive-stale, including once without the backend
+ * override so the url shim resolved the tsx backend itself).
+ */
+const exampleCache = new Map<string, string>()
+const exampleInflight = new Map<string, Promise<string>>()
+
+const exampleOutput = (absolute: string): string => {
+  const hash = createHash("sha1").update(`example:${absolute}`).digest("hex").slice(0, 12)
+  const base = NodePath.basename(absolute).replace(/[^a-zA-Z0-9_-]+/g, "_")
+  return NodePath.join(NodeOs.tmpdir(), `expand-example-${base}-${hash}.cjs`)
+}
+
+export const exampleBundlePathFor = (entrypoint: string): string =>
+  exampleOutput(absoluteEntrypoint(entrypoint))
+
+export const buildExample = Effect.fn("TestSupport.buildExample")(function*(entrypoint: string) {
+  const absolute = absoluteEntrypoint(entrypoint)
+  const cached = exampleCache.get(absolute)
+  if (cached !== undefined) return cached
+  const ongoing = exampleInflight.get(absolute)
+  // tryPromise (not promise): an esbuild rejection (e.g. a missing entrypoint
+  // in startup-failure tests) must be a catchable failure so spawnExample can
+  // fall back to tsx, not a defect.
+  if (ongoing !== undefined) return yield* Effect.tryPromise(() => ongoing)
+  const output = exampleOutput(absolute)
+  const url = pathToFileURL(absolute).href
+  const pending = import("esbuild").then(({ build }) =>
+    build({
+      entryPoints: [absolute],
+      bundle: true,
+      platform: "node",
+      target: "node24",
+      format: "cjs",
+      outfile: output,
+      absWorkingDir: process.cwd(),
+      logLevel: "warning",
+      define: {
+        "import.meta.url": JSON.stringify(url),
+        "import.meta.main": "true"
+      }
+    })
+  ).then(
+    () => {
+      exampleCache.set(absolute, output)
+      exampleInflight.delete(absolute)
+      return output
+    },
+    (cause) => {
+      exampleInflight.delete(absolute)
+      throw cause
+    }
+  )
+  exampleInflight.set(absolute, pending)
+  return yield* Effect.tryPromise(() => pending)
 })

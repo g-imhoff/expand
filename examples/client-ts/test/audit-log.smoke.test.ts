@@ -12,7 +12,7 @@ import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { AuditAppendError, AuditLineFromJson, AuditParseError, AuditSessionError, runAuditLog } from "../audit-log"
 import { makeDataDir, makeFixtureDir, runExample, spawnExample } from "./helpers"
-import { buildFixture, bundlePathFor } from "../../../test/support/precompiled"
+import { buildExample, buildFixture, bundlePathFor } from "../../../test/support/precompiled"
 
 /** Parse the audit JSONL, tolerating an absent/partial file mid-write. */
 const auditLines = (outfile: string) => Effect.gen(function*() {
@@ -68,6 +68,12 @@ describe("example: audit-log", () => {
   beforeAll(() => {
     previousBackendCmd = process.env.EXPAND_BACKEND_CMD
     process.env.EXPAND_BACKEND_CMD = backendCommandValue
+    // Warm the prebuilt example bundles once; every spawn afterwards reuses
+    // the cached bundle via spawnExample instead of paying tsx per spawn.
+    return Effect.runPromise(Effect.all([
+      buildExample("examples/client-ts/audit-log.ts"),
+      buildExample("examples/client-ts/bootstrap-projects.ts")
+    ], { concurrency: "unbounded" }))
   })
   afterAll(() => {
     if (previousBackendCmd === undefined) delete process.env.EXPAND_BACKEND_CMD

@@ -1,5 +1,6 @@
-import { Cause, Data, Deferred, Effect, Exit, FileSystem, Path, Ref, Stream, SubscriptionRef } from "effect"
+import { Cause, Data, Deferred, Effect, Exit, FileSystem, Option, Path, Ref, Stream, SubscriptionRef } from "effect"
 import { ChildProcess } from "effect/process"
+import { buildExample } from "../../../test/support/precompiled"
 
 export interface RunResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 
@@ -56,9 +57,17 @@ export const spawnExample = Effect.fn("ClientExampleTest.spawnExample")(function
 ) {
   const path = yield* Path.Path
   const examplesDir = yield* path.fromFileUrl(new URL("../", import.meta.url)).pipe(Effect.orDie)
+  const entry = path.join(examplesDir, relPath)
+  // Prefer the prebuilt CJS bundle (plain node, no per-spawn tsx transform);
+  // fall back to tsx when the entry cannot be bundled (e.g. a missing path in
+  // startup-failure tests).
+  const bundled = yield* buildExample(entry).pipe(Effect.option)
+  const argv = Option.isSome(bundled)
+    ? [bundled.value, ...args, "--data-dir", dataDir]
+    : ["--import", "tsx", entry, ...args, "--data-dir", dataDir]
   const handle = yield* ChildProcess.make(
     "node",
-    ["--import", "tsx", path.join(examplesDir, relPath), ...args, "--data-dir", dataDir],
+    argv,
     { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
   ).pipe(Effect.mapError((cause) => new ExampleProcessError({ operation: "spawn", cause })))
   const stdout = yield* Ref.make("")
