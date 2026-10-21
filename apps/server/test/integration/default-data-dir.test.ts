@@ -2,7 +2,10 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, Fiber, FileSystem, Option, Path, PlatformError, Schedule, Stream } from "effect"
 import { ChildProcess } from "effect/process"
-import { describe, expect } from "vitest"
+import { beforeAll, describe, expect } from "vitest"
+import { buildFixture } from "../../../../test/support/precompiled"
+
+beforeAll(() => Effect.runPromise(buildFixture("apps/server/main.ts")))
 
 const childOutput = (
   stdout: Fiber.Fiber<string, PlatformError.PlatformError>,
@@ -69,9 +72,10 @@ describe("default data directory", () => {
       yield* fs.writeFileString(path.join(legacyDir, "events.db"), "")
       yield* fs.writeFileString(path.join(legacyDir, "marker"), "legacy")
 
+      const serverBundle = yield* buildFixture("apps/server/main.ts")
       const child = yield* ChildProcess.make(
         "node",
-        ["--import", "tsx", "apps/server/main.ts"],
+        [serverBundle],
         {
           cwd: path.resolve("."),
           env: { HOME: root, EXPAND_LOG_LEVEL: "None" },

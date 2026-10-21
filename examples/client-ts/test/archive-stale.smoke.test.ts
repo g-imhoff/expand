@@ -4,16 +4,40 @@ import { it } from "@effect/vitest"
 import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Path, Queue, Ref, Schedule, Schema, SubscriptionRef } from "effect"
 import { TestClock } from "effect/testing"
 import * as Socket from "effect/socket/Socket"
-import { describe, expect } from "vitest"
+import { describe, expect, beforeAll, afterAll } from "vitest"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import type { ProjectClientApi } from "@expand/client-ts/project"
 import { ProjectClient } from "@expand/client-ts/project"
 import { ArchiveRpcError, archiveStale, waitForBackendShutdown } from "../archive-stale"
 import { ExampleReadinessError, makeDataDir, makeFixtureDir, runExample, spawnExample, waitForLine } from "./helpers"
+import { buildExample, buildFixture, bundlePathFor } from "../../../test/support/precompiled"
 
 const clientLayer = (client: ProjectClientApi) => Layer.succeed(ProjectClient, client)
 
 describe("example: archive-stale", () => {
+  // Boot spawned backends from a prebuilt bundle instead of per-spawn tsx:
+  // identical server code, ~1s saved on each boot. Plain hooks, not Effect
+  // code, so the child example processes inherit the real environment.
+  const backendCommandValue = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)))([
+    "node",
+    bundlePathFor("apps/server/main.ts")
+  ])
+  let previousBackendCmd: string | undefined
+  beforeAll(() => {
+    previousBackendCmd = process.env.EXPAND_BACKEND_CMD
+    process.env.EXPAND_BACKEND_CMD = backendCommandValue
+    // Warm the prebuilt example bundles once; every spawn afterwards reuses
+    // the cached bundle via spawnExample instead of paying tsx per spawn.
+    return Effect.runPromise(Effect.all([
+      buildExample("examples/client-ts/archive-stale.ts"),
+      buildExample("examples/client-ts/audit-log.ts"),
+      buildExample("examples/client-ts/bootstrap-projects.ts")
+    ], { concurrency: "unbounded" }))
+  })
+  afterAll(() => {
+    if (previousBackendCmd === undefined) delete process.env.EXPAND_BACKEND_CMD
+    else process.env.EXPAND_BACKEND_CMD = previousBackendCmd
+  })
   it.effect("uses TestClock-compatible bounded polling for backend shutdown", () => {
     let checks = 0
     return Effect.gen(function*() {
@@ -51,6 +75,8 @@ describe("example: archive-stale", () => {
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+      // Ensure the prebuilt backend bundle exists; the command override above points at it.
+      yield* buildFixture("apps/server/main.ts")
       const dataDir = yield* makeDataDir()
       const fixture = yield* makeFixtureDir(["gone"]) // becomes project "gone" -> <fixture>/gone
       const endpointFile = path.join(dataDir, "server.json")
@@ -119,6 +145,8 @@ describe("example: archive-stale", () => {
       expect(Exit.isSuccess(replay)).toBe(true)
       expect(lines.pubsub.subscribers.size).toBe(0)
       expect(yield* Ref.get(releases)).toBe(1)
+      // Ensure the prebuilt backend bundle exists; the command override above points at it.
+      yield* buildFixture("apps/server/main.ts")
       const dataDir = yield* makeDataDir()
       const handle = yield* spawnExample("audit-log.ts", ["ignored.jsonl"], dataDir)
       const readiness = yield* Effect.exit(handle.waitForLine("missing", 10))
@@ -180,6 +208,8 @@ describe("example: archive-stale", () => {
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+      // Ensure the prebuilt backend bundle exists; the command override above points at it.
+      yield* buildFixture("apps/server/main.ts")
       let ownedDataDir = ""
       const exit = yield* Effect.exit(Effect.scoped(Effect.gen(function*() {
         ownedDataDir = yield* makeDataDir()

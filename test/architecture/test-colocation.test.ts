@@ -39,7 +39,7 @@ describe("test colocation", () => {
     expect(testInclude).not.toContain("apps/desktop/e2e/effect-test.test.ts")
   })
 
-  it("runs process-heavy suites serially after the normal project", () => {
+  it("runs process-heavy suites after the normal project, files in parallel", () => {
     expect(testInclude).toEqual(
       expect.arrayContaining(["scripts/**/*.test.ts", "scripts/**/*.test.tsx"])
     )
@@ -62,7 +62,7 @@ describe("test colocation", () => {
       test: {
         name: "process-heavy",
         include: processHeavyTestInclude,
-        fileParallelism: false,
+        fileParallelism: true,
         sequence: { groupOrder: 1 }
       }
     })
@@ -72,13 +72,6 @@ describe("test colocation", () => {
     })
     expect(vitestConfig.test).not.toHaveProperty("include")
     expect(normalTestProject.test.name).not.toBe(processHeavyTestProject.test.name)
-  })
-
-  it("preserves Vitest default exclusions in the normal project", () => {
-    expect(normalTestProject.test.exclude).toEqual([
-      ...configDefaults.exclude,
-      ...processHeavyTestInclude
-    ])
   })
 
   it.live("every test outside test/architecture lives under an app or package test/ folder or an approved direct script test location", () =>

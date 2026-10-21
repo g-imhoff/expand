@@ -34,7 +34,7 @@ export const processHeavyTestProject = {
   test: {
     name: "process-heavy",
     include: processHeavyTestInclude,
-    fileParallelism: false,
+    fileParallelism: true,
     sequence: { groupOrder: 1 }
   }
 } satisfies TestProjectInlineConfiguration
@@ -44,7 +44,6 @@ export default defineConfig({
     env: { NODE_ENV: "test" },
     maxWorkers: "50%",
     projects: [normalTestProject, processHeavyTestProject],
-    setupFiles: ["apps/desktop/test/ui/setup.ts"],
     environment: "node",
     globals: false,
     testTimeout: 30_000,

@@ -1,5 +1,5 @@
 import { layer as effectLayer } from "@effect/vitest"
-import { expect, expectTypeOf } from "vitest"
+import { beforeAll, expect, expectTypeOf } from "vitest"
 import { TestClock } from "effect/testing"
 import {
   Cause,
@@ -34,6 +34,11 @@ import {
   stateRootLock,
   stateRootLockForStartup
 } from "@expand/server/runtime/state-root-lock"
+import { buildFixture } from "../../../../test/support/precompiled"
+
+beforeAll(() =>
+  Effect.runPromise(buildFixture("apps/server/test/fixtures/state-root-lock-contender.ts"))
+)
 
 effectLayer(ProcessServices.layer, { excludeTestServices: true, timeout: "2 minutes" })("state root ownership (I-2)", (test) => {
   test("exposes typed lock errors and service environments", () => {
@@ -1361,7 +1366,9 @@ const runContenders = Effect.fn("StateRootLockTest.runContenders")(function*(
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const dir = yield* makeTestDirectory()
   const root = path.resolve(".")
-  const contenderPath = path.join(root, "apps/server/test/fixtures/state-root-lock-contender.ts")
+  const contenderBundle = yield* buildFixture(
+    path.join(root, "apps/server/test/fixtures/state-root-lock-contender.ts")
+  )
   const coordinationDir = path.join(dir, `coordination-${yield* cryptoService.randomUUIDv4}`)
   const startPath = path.join(coordinationDir, "start")
   const releasePath = path.join(coordinationDir, "release")
@@ -1374,7 +1381,7 @@ const runContenders = Effect.fn("StateRootLockTest.runContenders")(function*(
         const resultPath = path.join(coordinationDir, `result-${index}`)
         const handle = yield* spawner.spawn(ChildProcess.make(
           "node",
-          ["--import", "tsx", contenderPath, stateRoot, readyPath, startPath, releasePath, resultPath],
+          [contenderBundle, stateRoot, readyPath, startPath, releasePath, resultPath],
           {
             cwd: root,
             detached: false,

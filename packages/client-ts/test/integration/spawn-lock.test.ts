@@ -1,5 +1,5 @@
 import { layer as effectLayer } from "@effect/vitest"
-import { expect } from "vitest"
+import { beforeAll, expect } from "vitest"
 import { ProcessServices } from "../process-services"
 import {
   Cause,
@@ -36,9 +36,12 @@ import {
   type SpawnLockOptions
 } from "../../spawn-lock"
 import { makeNodeAdapter } from "../../adapters/node"
+import { buildFixture } from "../../../../test/support/precompiled"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
 
 class TestDirectory extends Context.Service<TestDirectory, string>()("expand/SpawnLockTest/Directory") {}
@@ -51,6 +54,18 @@ const TestDirectoryLive = Layer.effect(
 )
 
 const TestLayer = TestDirectoryLive.pipe(Layer.provideMerge(ProcessServices.layer))
+
+beforeAll(() =>
+  Effect.runPromise(
+    Effect.all(
+      [
+        buildFixture("apps/server/main.ts"),
+        buildFixture("packages/client-ts/test/fixtures/spawn-lock-contender.ts")
+      ],
+      { concurrency: "unbounded" }
+    )
+  )
+)
 
 effectLayer(TestLayer, { excludeTestServices: true, timeout: "2 minutes" })("client spawn lock", (test) => {
   test.effect("elects exactly one of 64 real processes for a fresh lock", () =>
@@ -865,7 +880,9 @@ const runContenders = Effect.fn("SpawnLockTest.runContenders")(function*(
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const dir = yield* TestDirectory
   const root = path.resolve(".")
-  const contenderPath = path.join(root, "packages/client-ts/test/fixtures/spawn-lock-contender.ts")
+  const contenderBundle = yield* buildFixture(
+    path.join(root, "packages/client-ts/test/fixtures/spawn-lock-contender.ts")
+  )
   const coordinationDir = path.join(dir, `coordination-${yield* cryptoService.randomUUIDv4}`)
   const startPath = path.join(coordinationDir, "start")
   const releasePath = path.join(coordinationDir, "release")
@@ -878,7 +895,7 @@ const runContenders = Effect.fn("SpawnLockTest.runContenders")(function*(
         const resultPath = path.join(coordinationDir, `result-${index}`)
         const handle = yield* spawner.spawn(ChildProcess.make(
           "node",
-          ["--import", "tsx", contenderPath, lockPath, readyPath, startPath, releasePath, resultPath],
+          [contenderBundle, lockPath, readyPath, startPath, releasePath, resultPath],
           {
             cwd: root,
             detached: false,

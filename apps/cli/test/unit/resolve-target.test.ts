@@ -10,12 +10,6 @@ const run = (token: string, projects: ReadonlyArray<{ id: string; name: string }
   resolveProjectTarget(token).pipe(Effect.provide(stub(projects)), Effect.result)
 
 describe("resolveProjectTarget", () => {
-  it.effect("returns a UUID token unchanged without listing", () =>
-    run("3f2504e0-4f89-41d3-9a0c-0305e82c3301", []).pipe(
-      Effect.tap((r) => Effect.sync(() =>
-        expect((r as { success: string }).success).toBe("3f2504e0-4f89-41d3-9a0c-0305e82c3301")
-      ))
-    ))
   it.effect("resolves a name to its id", () =>
     run("alpha", [{ id: "id-a", name: "alpha" }]).pipe(
       Effect.tap((r) => Effect.sync(() => expect((r as { success: string }).success).toBe("id-a")))

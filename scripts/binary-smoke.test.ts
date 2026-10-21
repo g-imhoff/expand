@@ -7,6 +7,9 @@ import { TestClock } from "effect/testing"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { describe, expect } from "vitest"
 import { processSpawnerFixture } from "../test/support/process-spawner"
+
+process.env.EXPAND_BINARY_SMOKE_CLEANUP_WAIT_MS ??= "15"
+
 import {
   assessArtifacts,
   assessDeparture,

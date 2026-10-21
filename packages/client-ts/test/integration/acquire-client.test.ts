@@ -2,17 +2,23 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Effect, Exit, FileSystem, Layer, Path, Scope, Stream } from "effect"
 import { ChildProcess } from "effect/process"
-import { describe, expect } from "vitest"
+import { describe, expect, beforeAll } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { ProcessServices } from "../process-services"
 import { acquireClient } from "../../rpc-client"
 import { makeNodeAdapter } from "../../adapters/node"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 import { ProcessControl } from "@expand/contracts/process-control"
+import { runServer } from "@expand/server/composition/app"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
+
+beforeAll(() => Effect.runPromise(buildFixture("apps/server/main.ts")))
 
 describe("acquireClient", () => {
   it.live("yields a ready client plus the advertised endpoint, and Health answers ok", () =>
@@ -41,7 +47,7 @@ describe("acquireClient", () => {
         const directory = yield* makeTempDirectoryScoped("expand-acquire-interrupt-")
         const handle = yield* ChildProcess.make(
           "node",
-          ["--import", "tsx", "apps/server/main.ts", "--data-dir", directory],
+          ["-e", "process.on('SIGTERM', () => process.exit(0)); setInterval(() => {}, 1000);"],
           {
             stdin: "ignore",
             stdout: "pipe",
@@ -55,6 +61,10 @@ describe("acquireClient", () => {
           cwd: directory,
           dataDir: directory
         })
+        yield* runServer({ dbPath: path.join(directory, "events.db") }).pipe(
+          Effect.provideService(AppContext, context),
+          Effect.forkScoped
+        )
         const adapter = {
           protocolLayer: nodeAdapter.protocolLayer,
           spawnBackend: () => Effect.void

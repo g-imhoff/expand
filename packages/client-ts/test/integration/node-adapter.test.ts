@@ -1,8 +1,9 @@
 import { NodeServices } from "@effect/platform-node"
 import { layer as effectLayer } from "@effect/vitest"
 import { Context, Effect, Layer, Path } from "effect"
-import { expect, vi } from "vitest"
+import { expect, vi, beforeAll } from "vitest"
 import { makeTempDirectoryScoped } from "../../../../test/support/effect-files"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { ProcessServices } from "../process-services"
 import { ProjectClient, ProjectClientLayer } from "../../project/client"
 import { makeNodeAdapter } from "../../adapters/node"
@@ -18,6 +19,8 @@ const TestDirectoryLive = Layer.effect(
 
 const TestLayer = Layer.mergeAll(TestDirectoryLive, NodeServices.layer)
 
+beforeAll(() => Effect.runPromise(buildFixture("apps/server/main.ts")))
+
 const withRestoredMocks = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(Effect.ensuring(Effect.sync(() => vi.restoreAllMocks())))
 
@@ -32,7 +35,9 @@ effectLayer(TestLayer, { excludeTestServices: true })("Node adapter", (it) => {
     }).pipe(
       Effect.provide(
         ProjectClientLayer(makeNodeAdapter({
-          backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+          backendCommand: buildFixture("apps/server/main.ts").pipe(
+            Effect.map((bundle) => ["node", bundle])
+          )
         })).pipe(
           Layer.provide(ProcessServices.layer),
           Layer.provide(Layer.effect(AppContext, Effect.gen(function*() {

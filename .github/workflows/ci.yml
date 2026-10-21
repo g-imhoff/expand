@@ -36,8 +36,8 @@ jobs:
       - name: Unused dependency and export analysis
         run: npm run knip
 
-  tests:
-    name: Tests
+  tests-normal:
+    name: Tests (normal)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -50,8 +50,27 @@ jobs:
         run: npm install --global npm@11.12.1
       - name: Install dependencies
         run: npm ci
-      - name: Run tests with a conflicting inherited environment
-        run: npm test
+      - name: Run normal tests with a conflicting inherited environment
+        run: npm run test:normal -- --maxWorkers=4 --reporter=default
+        env:
+          NODE_ENV: production
+
+  tests-heavy:
+    name: Tests (heavy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Use declared npm version
+        run: npm install --global npm@11.12.1
+      - name: Install dependencies
+        run: npm ci
+      - name: Run process-heavy tests with a conflicting inherited environment
+        run: npm run test:heavy -- --reporter=default
         env:
           NODE_ENV: production
 

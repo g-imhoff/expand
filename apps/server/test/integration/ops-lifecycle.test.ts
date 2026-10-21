@@ -6,17 +6,20 @@ import { ProcessServices } from "@expand/server/runtime/node-process-control"
 import { runServer } from "@expand/server/composition/app"
 import { withClient } from "@expand/client-ts"
 import { makeNodeAdapter } from "@expand/client-ts/adapters/node"
+import { buildFixture } from "../../../../test/support/precompiled"
 import { readEndpoint } from "@expand/client-ts"
 import { AppContext, makeAppContext } from "@expand/contracts/app-context"
 
 const nodeAdapter = makeNodeAdapter({
-  backendCommand: Effect.succeed(["node", "--import", "tsx", "apps/server/main.ts"])
+  backendCommand: buildFixture("apps/server/main.ts").pipe(
+    Effect.map((bundle) => ["node", bundle])
+  )
 })
 
 
 const awaitEndpointUp = readEndpoint.pipe(
   Effect.flatMap((o) => (Option.isSome(o) ? Effect.void : Effect.fail("pending" as const))),
-  Effect.retry(Schedule.spaced("25 millis")),
+  Effect.retry(Schedule.spaced("5 millis")),
   Effect.timeoutOrElse({
     duration: "5 seconds",
     orElse: () => Effect.fail("server never advertised an endpoint (I-3)")
@@ -36,7 +39,7 @@ describe("project operations over the wire", { concurrent: false }, () => {
       const outcome = yield* withClient(nodeAdapter, (client) =>
         Effect.gen(function* () {
           const events = yield* client.Events({}, { asQueue: true })
-          yield* Effect.sleep("500 millis")
+          yield* Effect.sleep("25 millis")
 
           const { project } = yield* client.ProjectCreate({ name: "ops", ensure: false })
           const renamed = yield* client.ProjectRename({ id: project.id, name: "ops-renamed" })

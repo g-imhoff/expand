@@ -20,6 +20,7 @@ import { DatabaseReadyLayer } from "@expand/server/migrations/sqlite"
 export interface RunServerOptions {
   readonly dbPath: string
   readonly port?: number
+  readonly httpShutdownGraceMs?: number
 }
 
 export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.Layer<never> }>("expand/ServerComposition", {
@@ -29,6 +30,7 @@ export const ServerComposition = Context.Reference<{ readonly coreLayer: Layer.L
 export const runServer = Effect.fn("Server.run")(function*(options: RunServerOptions) {
   const dbPath = options.dbPath
   const portHint = options.port ?? 0
+  const httpShutdownGraceMs = options.httpShutdownGraceMs ?? 1_000
   const token = yield* newId()
   const processControl = yield* ProcessControl
   const pid = processControl.currentPid
@@ -42,7 +44,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
     yield* Scope.addFinalizerExit(parentScope, (exit) => Scope.close(coreScope, exit))
     const core = yield* Layer.buildWithScope(coreLayerDefinition, coreScope)
     const httpScope = yield* Scope.make()
-    yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit))
+    yield* Scope.addFinalizerExit(parentScope, (exit) => closeHttpScope(httpScope, exit, httpShutdownGraceMs))
     const transport = yield* Layer.buildWithScope(
       httpServerLayer(portHint, token).pipe(Layer.provide(Layer.succeedContext(core))),
       httpScope
@@ -77,7 +79,7 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
 
       yield* removeEndpointFile(fs, endpointFile)
 
-      yield* closeHttpScope(httpScope, Exit.void)
+      yield* closeHttpScope(httpScope, Exit.void, httpShutdownGraceMs)
     })
 
     return yield* lifecycle.pipe(Effect.provide(core))
@@ -86,11 +88,10 @@ export const runServer = Effect.fn("Server.run")(function*(options: RunServerOpt
   return yield* program.pipe(Effect.scoped)
 })
 
-const HTTP_SHUTDOWN_GRACE = "1 second"
-
 const closeHttpScope = Effect.fn("Server.closeHttpScope")((
   scope: Scope.Closeable,
-  exit: Exit.Exit<unknown, unknown>
+  exit: Exit.Exit<unknown, unknown>,
+  graceMs: number
 ): Effect.Effect<void> =>
   Effect.uninterruptibleMask(() =>
     Effect.gen(function*() {
@@ -101,7 +102,7 @@ const closeHttpScope = Effect.fn("Server.closeHttpScope")((
       const waiting = yield* Effect.forkDetach(
         Fiber.join(closing).pipe(
           Effect.timeoutOrElse({
-            duration: HTTP_SHUTDOWN_GRACE,
+            duration: graceMs,
             orElse: () => Effect.logInfo("http server did not stop within grace window — abandoning")
           })
         ),

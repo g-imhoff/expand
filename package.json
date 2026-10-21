@@ -26,6 +26,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.workspace.json",
     "gen:fold-version": "tsx scripts/fold-version.ts",
     "test": "vitest run",
+    "test:normal": "vitest run --project normal",
+    "test:heavy": "vitest run --project process-heavy",
     "test:coverage": "vitest run --coverage",
     "knip": "knip",
     "build": "tsx scripts/build.ts",

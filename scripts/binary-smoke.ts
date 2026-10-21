@@ -31,6 +31,14 @@ export class BinarySmokeError extends Data.TaggedError("BinarySmokeError")<{
   readonly cleanup?: ReadonlyArray<string>
 }> {}
 
+// Bounded-cleanup pacing between TERM and KILL. Production waits a full
+// second; tests override via EXPAND_BINARY_SMOKE_CLEANUP_WAIT_MS.
+const cleanupSignalWait: Effect.Effect<void> = Config.Int("EXPAND_BINARY_SMOKE_CLEANUP_WAIT_MS").pipe(
+  Config.withDefault(1_000),
+  Effect.flatMap((ms) => Effect.sleep(ms)),
+  Effect.orDie
+)
+
 export interface JobControlFact {
   readonly job: string
   readonly pid: number
@@ -439,7 +447,7 @@ export const runOwnedCli = Effect.fn("BinarySmoke.runOwnedCli")(
           Effect.map(([endpoint, endpointLock, backendLock]) => endpoint || endpointLock || backendLock),
           Effect.mapError((cause) => commandError("cleanup", "owned server artifacts could not be observed", cause))
         ),
-        wait: Effect.sleep("1 second")
+        wait: cleanupSignalWait
       })
       const body = Effect.gen(function*() {
         yield* handle.stdout.pipe(Stream.runDrain, Effect.forkScoped)
@@ -654,7 +662,7 @@ const autoSpawnHealth = Effect.fn("BinarySmoke.autoSpawnHealth")(function*(optio
             Effect.map(([endpoint, endpointLock, backendLock]) => endpoint || endpointLock || backendLock),
             Effect.mapError((cause) => commandError("cleanup", "owned artifacts could not be observed", cause))
           ),
-          wait: Effect.sleep("1 second")
+          wait: cleanupSignalWait
         })),
         Effect.tapError(() => Ref.set(cleanupStarted, false))
       )

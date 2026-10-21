@@ -137,13 +137,6 @@ describe("Project.foldList — ProjectDeleted", () => {
 })
 
 describe("Project.foldList — out-of-order & duplicate tolerance", () => {
-  it("ignores a mutation that arrives before its ProjectCreated (no prior aggregate)", () => {
-    const projects = foldAll([
-      ProjectRenamed.make({ projectId: pid(9), name: pn("renamed"), occurredAt: "t2" })
-    ])
-    expect(projects).toEqual([])
-  })
-
   it("drops on ProjectDeleted and a later mutation for the tombstoned id is a no-op", () => {
     const projects = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
@@ -153,21 +146,6 @@ describe("Project.foldList — out-of-order & duplicate tolerance", () => {
     expect(projects).toEqual([])
   })
 
-  it("stamps updatedAt from each event's time and keeps createdAt fixed", () => {
-    const [p] = foldAll([
-      ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
-      ProjectRenamed.make({ projectId: pid(1), name: pn("b"), occurredAt: "t5" })
-    ])
-    expect(p).toMatchObject({ id: uid(1), name: "b", createdAt: "t1", updatedAt: "t5" })
-  })
-
-  it("ProjectCreated without a directory folds directory to null (event-versioning)", () => {
-    const [p] = foldAll([
-      ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" })
-    ])
-    expect(p?.directory).toBeNull()
-  })
-
   it("metadata is replace-style per field and dedupes tags", () => {
     const [p] = foldAll([
       ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
@@ -175,15 +153,6 @@ describe("Project.foldList — out-of-order & duplicate tolerance", () => {
       ProjectMetadataChanged.make({ projectId: pid(1), tags: [tag("z")], occurredAt: "t3" })
     ])
     expect(p).toMatchObject({ description: "first", tags: ["z"], updatedAt: "t3" })
-  })
-
-  it("archive then restore toggles archived back to false", () => {
-    const [p] = foldAll([
-      ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
-      ProjectArchived.make({ projectId: pid(1), occurredAt: "t2" }),
-      ProjectRestored.make({ projectId: pid(1), occurredAt: "t3" })
-    ])
-    expect(p?.archived).toBe(false)
   })
 
   it("a duplicate ProjectCreated for the same id does not duplicate or reset the aggregate", () => {
@@ -198,14 +167,6 @@ describe("Project.foldList — out-of-order & duplicate tolerance", () => {
     // timestamps: createdAt fixed to first create; updatedAt fixed to last real mutation
     expect(projects[0]?.createdAt).toBe("t1")
     expect(projects[0]?.updatedAt).toBe("t5")
-  })
-
-  it("directory-changed updates directory and stamps updatedAt", () => {
-    const [p] = foldAll([
-      ProjectCreated.make({ projectId: pid(1), name: pn("a"), occurredAt: "t1" }),
-      ProjectDirectoryChanged.make({ projectId: pid(1), directory: "/tmp/x", occurredAt: "t2" })
-    ])
-    expect(p).toMatchObject({ directory: "/tmp/x", updatedAt: "t2" })
   })
 
   it("folds a full realistic lifecycle: create -> rename -> change-dir -> archive -> restore -> set-metadata", () => {

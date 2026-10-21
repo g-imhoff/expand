@@ -122,7 +122,7 @@ const makeScriptedBackend = Effect.fn("ClientSessionTest.makeScriptedBackend")(f
       currentTimeNanos: clock.currentTimeNanos,
       monotonicTimeNanosUnsafe: () => clock.monotonicTimeNanosUnsafe(),
       monotonicTimeNanos: clock.monotonicTimeNanos,
-      sleep: (duration) => clock.sleep(Duration.min(duration, Duration.millis(500)))
+      sleep: (duration) => clock.sleep(Duration.min(duration, Duration.millis(5)))
     })
     const node = NodeHttpServer.layerTest
     const serverLayer = HttpRouter.serve(rpc, { disableLogger: true }).pipe(
@@ -225,6 +225,7 @@ let reconnectCount = (): number => 0
 
 const runReconnectScenario = <A>(observe: (session: ClientSessionApi) => Effect.Effect<A>) =>
   Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
     const backend = yield* makeScriptedBackend()
     const { session, scope } = yield* openSession(backend)
     reconnectCount = backend.reconnectCount
@@ -233,7 +234,8 @@ const runReconnectScenario = <A>(observe: (session: ClientSessionApi) => Effect.
     }).pipe(Effect.andThen(Scope.close(scope, Exit.void))))
     const observer = yield* Effect.forkChild(observe(session))
     yield* Effect.yieldNow
-    yield* backend.disconnect
+    yield* backend.disconnectHook
+    yield* fs.remove(backend.appContext.paths.endpointFile, { force: true })
     return yield* Fiber.join(observer)
   }))
 
@@ -253,12 +255,13 @@ const runDisconnectOrderingScenario = () =>
       Effect.forkChild
     )
     yield* Effect.yieldNow
-    yield* backend.disconnect
+    yield* backend.disconnectHook
     return { currentResolvedWhileReconnecting: yield* Fiber.join(probe) }
   }))
 
 const runAcquireDisconnectRaceScenario = () =>
   Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
     const backend = yield* makeScriptedBackend()
     const { session, scope } = yield* openSession(backend)
     yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
@@ -281,7 +284,7 @@ const runAcquireDisconnectRaceScenario = () =>
       Effect.forkChild
     )
     yield* backend.disconnectHook
-    yield* backend.disconnect
+    yield* fs.remove(backend.appContext.paths.endpointFile, { force: true })
     yield* Queue.offer(acquireReleased, undefined)
     return yield* Effect.race(
       Fiber.join(publication),
@@ -417,7 +420,7 @@ const runInternalAcquireRetryScenario = () =>
       )
     }
     const context = yield* Layer.build(
-      ClientSessionLayer(adapter).pipe(
+      ClientSessionLayer(adapter, { connectTimeoutMs: 100 }).pipe(
         Layer.provide(ProcessServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
@@ -469,7 +472,7 @@ const runEndpointReplacementRaceScenario = () =>
         reason: "replacement endpoint should be discovered without spawning"
       }))))
     }
-    const acquisition = yield* acquireClient(adapter).pipe(
+    const acquisition = yield* acquireClient(adapter, { connectTimeoutMs: 100 }).pipe(
       Effect.provideService(AppContext, backend.appContext),
       Effect.forkChild
     )
@@ -491,6 +494,7 @@ const runEndpointReplacementRaceScenario = () =>
 
 const runCurrentWaitScenario = () =>
   Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
     const backend = yield* makeScriptedBackend()
     const { session, scope } = yield* openSession(backend)
     yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void))
@@ -502,7 +506,8 @@ const runCurrentWaitScenario = () =>
       Effect.forkChild
     )
     yield* Effect.yieldNow
-    yield* backend.disconnect
+    yield* backend.disconnectHook
+    yield* fs.remove(backend.appContext.paths.endpointFile, { force: true })
     yield* Fiber.join(reconnecting)
     const second = yield* session.current
     const health = yield* second.Health()
@@ -511,10 +516,12 @@ const runCurrentWaitScenario = () =>
 
 const runScopeClosureScenario = () =>
   Effect.scoped(Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
     const backend = yield* makeScriptedBackend()
     backend.blockNextSpawn()
     const { session, scope } = yield* openSession(backend)
-    yield* backend.disconnect
+    yield* backend.disconnectHook
+    yield* fs.remove(backend.appContext.paths.endpointFile, { force: true })
     yield* backend.retryStarted.pipe(
       Effect.timeoutOrElse({
         duration: "5 seconds",

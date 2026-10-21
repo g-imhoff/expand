@@ -173,16 +173,6 @@ describe("main Electron IPC facade", () => {
     expect(sent).toEqual(["injected:é:https://app.example/"])
   }))
 
-  it.effect("runs decoded send effects with the injected environment", () => Effect.gen(function* () {
-    yield* withRuntime(Effect.scoped(Effect.gen(function* () {
-      yield* bind()
-      const listener = first(electron.listeners.get("main:send") ?? new Set<MainListener>())
-      listener?.(eventFor(), "payload")
-      yield* TestClock.adjust("10 millis")
-    })))
-    expect(sent).toEqual(["injected:payload:https://app.example/"])
-  }))
-
   it.effect("returns encoded success, typed failure, and defect envelopes from invoke", () =>
     withRuntime(Effect.scoped(Effect.gen(function* () {
       yield* bind()

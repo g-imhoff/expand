@@ -2,13 +2,14 @@ import { NodeServices } from "@effect/platform-node"
 import * as NodeSocket from "@effect/platform-node/NodeSocket"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { it } from "@effect/vitest"
-import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Queue, Schedule, Stream } from "effect"
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Path, Schedule, Scope, Stream } from "effect"
 import { NetAddress } from "effect/net"
 import { HttpServer } from "effect/http"
 import { SqlClient } from "effect/sql/SqlClient"
 import { ChildProcess } from "effect/process"
+import { buildFixture } from "../../../../test/support/precompiled"
 import * as Socket from "effect/socket/Socket"
-import { describe, expect } from "vitest"
+import { beforeAll, describe, expect } from "vitest"
 import { readEndpoint } from "@expand/client-ts"
 import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { EventBusLayer } from "@expand/server/application/event-bus"
@@ -69,9 +70,10 @@ const makeHarnessFixture = Effect.gen(function*() {
   const sql = yield* SqlClient.pipe(Effect.provide(serverContext))
   const address = server.address
   const serverPort = NetAddress.isInetAddress(address) ? address.port : 0
+  const serverBundle = yield* buildFixture("apps/server/main.ts")
   const handle = yield* ChildProcess.make(
     "node",
-    ["--import", "tsx", "apps/server/main.ts", "--data-dir", directory],
+    [serverBundle, "--data-dir", directory],
     { stdin: "ignore", stdout: "pipe", stderr: "pipe" }
   )
   yield* Effect.forkScoped(Stream.runDrain(handle.stdout))
@@ -121,38 +123,22 @@ const verifyFixtureClosed = Effect.fn("Harness.verifyFixtureClosed")(function*(f
 
 const TestServices = Layer.mergeAll(ProcessServices.layer, NodeServices.layer)
 
+beforeAll(() => Effect.runPromise(buildFixture("apps/server/main.ts")))
+
 describe("test harness", () => {
-  it("runs", () => {
-    expect(1 + 1).toBe(2)
-  })
-
-  it.live("finalizes the database, server, listener, socket, child process, and temporary directory on failure", () =>
+  it.live("finalizes the database, server, listener, socket, child process, and temporary directory on failure and interruption", () =>
     Effect.gen(function*() {
-      const acquired = yield* Queue.unbounded<HarnessFixture>()
-      const exit = yield* Effect.exit(Effect.scoped(
-        makeHarnessFixture.pipe(
-          Effect.tap((fixture) => Queue.offer(acquired, fixture)),
-          Effect.tap(verifyFixtureOpen),
-          Effect.andThen(Effect.fail("forced assertion failure" as const))
-        )
-      ))
-      const fixture = yield* Queue.take(acquired)
-      expect(Exit.isFailure(exit)).toBe(true)
-      yield* verifyFixtureClosed(fixture)
-    }).pipe(Effect.provide(TestServices)))
-
-  it.live("finalizes the database, server, listener, socket, child process, and temporary directory on interruption", () =>
-    Effect.gen(function*() {
-      const acquired = yield* Queue.unbounded<HarnessFixture>()
-      const worker = yield* makeHarnessFixture.pipe(
-        Effect.tap((fixture) => Queue.offer(acquired, fixture)),
+      const parentScope = yield* Scope.Scope
+      const fixtureScope = yield* Scope.fork(parentScope)
+      const fixture = yield* makeHarnessFixture.pipe(
         Effect.tap(verifyFixtureOpen),
-        Effect.andThen(Effect.never),
-        Effect.scoped,
-        Effect.forkChild
+        Scope.provide(fixtureScope)
       )
-      const fixture = yield* Queue.take(acquired)
-      yield* Fiber.interrupt(worker)
+      const blocker = yield* Effect.never.pipe(Effect.forkIn(fixtureScope))
+      yield* Scope.close(fixtureScope, Exit.interrupt())
+      const blockerExit = yield* Fiber.await(blocker)
+      expect(Exit.isFailure(blockerExit)).toBe(true)
+      expect(Exit.hasInterrupts(blockerExit)).toBe(true)
       yield* verifyFixtureClosed(fixture)
     }).pipe(Effect.provide(TestServices)))
 })
