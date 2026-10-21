@@ -7,9 +7,12 @@ import { ClientSession, ClientSessionLayer } from "./client-session"
 import type { BackendUnavailable } from "./errors"
 import type { ExpandRpcClientApi } from "./rpc-client"
 
+import type { AcquireClientOptions } from "./rpc-client"
+
 export const withClient = Effect.fn("Client.withClient")(<A, E, R>(
   adapter: RuntimeAdapter,
-  use: (client: ExpandRpcClientApi) => Effect.Effect<A, E, R>
+  use: (client: ExpandRpcClientApi) => Effect.Effect<A, E, R>,
+  options?: AcquireClientOptions
 ): Effect.Effect<
   A,
   E | BackendUnavailable,
@@ -17,6 +20,6 @@ export const withClient = Effect.fn("Client.withClient")(<A, E, R>(
 > =>
   Effect.flatMap(ClientSession, (session) => Effect.flatMap(session.current, use)).pipe(
     Effect.scoped,
-    Effect.provide(ClientSessionLayer(adapter))
+    Effect.provide(ClientSessionLayer(adapter, options))
   )
 )

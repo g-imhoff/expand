@@ -11,15 +11,21 @@ import { findOrSpawnBackend } from "./spawn"
 import { supervised } from "./supervise"
 import type { RuntimeAdapter } from "./adapter"
 
+export interface AcquireClientOptions {
+  readonly connectTimeoutMs?: number
+}
+
 export type ExpandRpcClientApi = RpcClient.FromGroup<typeof ExpandRpcs, RpcClientError.RpcClientError>
 
 export const acquireClient = Effect.fn("Client.acquireClient")((
-  adapter: RuntimeAdapter
+  adapter: RuntimeAdapter,
+  options?: AcquireClientOptions
 ): Effect.Effect<
   { readonly client: ExpandRpcClientApi; readonly endpoint: Endpoint },
   BackendUnavailable,
   FileSystem.FileSystem | Path.Path | Crypto.Crypto | Scope.Scope | AppContext | ProcessControl
 > => {
+  const connectTimeoutMs = options?.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS
   const acquireOnce = (rejectedEndpoints: ReadonlyArray<Endpoint>) => findOrSpawnBackend(
     adapter,
     rejectedEndpoints
@@ -43,12 +49,12 @@ export const acquireClient = Effect.fn("Client.acquireClient")((
         )
         yield* Deferred.await(ready).pipe(
           Effect.timeoutOrElse({
-            duration: CONNECT_TIMEOUT,
+            duration: connectTimeoutMs,
             orElse: () =>
               Effect.fail(
                 new StaleEndpoint({
                   endpoint,
-                  reason: `no presence from ${endpoint.url} within ${CONNECT_TIMEOUT}`
+                  reason: `no presence from ${endpoint.url} within ${formatConnectTimeoutMs(connectTimeoutMs)}`
                 })
               )
           })
@@ -104,8 +110,11 @@ const mapAcquisitionFailure = (error: BackendUnavailable | ProcessProbeError | P
   }
 }
 
-const CONNECT_TIMEOUT = "3 seconds"
+const DEFAULT_CONNECT_TIMEOUT_MS = 3_000
 const MAX_ATTEMPTS = 3
+
+const formatConnectTimeoutMs = (ms: number): string =>
+  ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000} seconds` : `${ms}ms`
 
 class StaleEndpoint extends Data.TaggedError("StaleEndpoint")<{
   readonly endpoint: Endpoint

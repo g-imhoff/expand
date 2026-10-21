@@ -420,7 +420,7 @@ const runInternalAcquireRetryScenario = () =>
       )
     }
     const context = yield* Layer.build(
-      ClientSessionLayer(adapter).pipe(
+      ClientSessionLayer(adapter, { connectTimeoutMs: 100 }).pipe(
         Layer.provide(ProcessServices.layer),
         Layer.provide(Layer.succeed(AppContext, backend.appContext))
       )
@@ -472,7 +472,7 @@ const runEndpointReplacementRaceScenario = () =>
         reason: "replacement endpoint should be discovered without spawning"
       }))))
     }
-    const acquisition = yield* acquireClient(adapter).pipe(
+    const acquisition = yield* acquireClient(adapter, { connectTimeoutMs: 100 }).pipe(
       Effect.provideService(AppContext, backend.appContext),
       Effect.forkChild
     )

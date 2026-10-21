@@ -64,7 +64,7 @@ export { BackendCommandError, BackendUnavailable } from "./errors"
 export type RpcClientError = RpcClientErrorNS.RpcClientError
 
 // Advanced / plumbing — rarely needed directly
-export { type ExpandRpcClientApi } from "./rpc-client"
+export { type AcquireClientOptions, type ExpandRpcClientApi } from "./rpc-client"
 export { readEndpoint } from "./discovery"
 
 // Stream vocabulary — the envelope every domain event stream emits
