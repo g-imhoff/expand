@@ -51,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run normal tests with a conflicting inherited environment
-        run: npm run test:normal -- --maxWorkers=4 --reporter=basic
+        run: npm run test:normal -- --maxWorkers=4 --reporter=default
         env:
           NODE_ENV: production
 
@@ -70,7 +70,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Run process-heavy tests with a conflicting inherited environment
-        run: npm run test:heavy -- --reporter=basic
+        run: npm run test:heavy -- --reporter=default
         env:
           NODE_ENV: production
 
