@@ -31,6 +31,9 @@ const bundleOutput = (absolute: string): string => {
   return NodePath.join(NodeOs.tmpdir(), `expand-fixture-${base}-${hash}.cjs`)
 }
 
+export const bundlePathFor = (entrypoint: string): string =>
+  bundleOutput(absoluteEntrypoint(entrypoint))
+
 export const buildFixture = Effect.fn("TestSupport.buildFixture")(function*(entrypoint: string) {
   const absolute = absoluteEntrypoint(entrypoint)
   const cached = bundleCache.get(absolute)

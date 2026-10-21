@@ -2,7 +2,7 @@ import { NodeServices } from "@effect/platform-node"
 import { it } from "@effect/vitest"
 import { Cause, Data, Duration, Effect, Exit, Fiber, FileSystem, Layer, Path, Schedule, Schema, Stream, SubscriptionRef } from "effect"
 import { ChildProcess } from "effect/process"
-import { describe, expect } from "vitest"
+import { describe, expect, beforeAll, afterAll } from "vitest"
 import { EndpointFromJson } from "@expand/contracts/endpoint"
 import { ProjectRenamed } from "@expand/contracts/events/project"
 import type { SequencedEvent } from "@expand/contracts/events/domain"
@@ -12,6 +12,7 @@ import { ProcessServices } from "@expand/client-ts/adapters/node"
 import { ProjectClient, type ProjectClientApi } from "@expand/client-ts/project"
 import { AuditAppendError, AuditLineFromJson, AuditParseError, AuditSessionError, runAuditLog } from "../audit-log"
 import { makeDataDir, makeFixtureDir, runExample, spawnExample } from "./helpers"
+import { buildFixture, bundlePathFor } from "../../../test/support/precompiled"
 
 /** Parse the audit JSONL, tolerating an absent/partial file mid-write. */
 const auditLines = (outfile: string) => Effect.gen(function*() {
@@ -56,6 +57,22 @@ const pollUntil = <E, R>(predicate: Effect.Effect<boolean, E, R>, timeoutMs: num
   )
 
 describe("example: audit-log", () => {
+  // Boot spawned backends from a prebuilt bundle instead of per-spawn tsx:
+  // identical server code, ~1s saved on each boot. Plain hooks, not Effect
+  // code, so the child example processes inherit the real environment.
+  const backendCommandValue = Schema.encodeSync(Schema.fromJsonString(Schema.Array(Schema.String)))([
+    "node",
+    bundlePathFor("apps/server/main.ts")
+  ])
+  let previousBackendCmd: string | undefined
+  beforeAll(() => {
+    previousBackendCmd = process.env.EXPAND_BACKEND_CMD
+    process.env.EXPAND_BACKEND_CMD = backendCommandValue
+  })
+  afterAll(() => {
+    if (previousBackendCmd === undefined) delete process.env.EXPAND_BACKEND_CMD
+    else process.env.EXPAND_BACKEND_CMD = previousBackendCmd
+  })
   it.effect("fails loudly with a typed error when the output cannot be appended", () =>
     Effect.scoped(Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
@@ -153,35 +170,27 @@ describe("example: audit-log", () => {
       yield* Fiber.interrupt(fiber)
     })).pipe(Effect.provide(NodeServices.layer)))
 
-  it.live("appends a JSONL line for each project change", () =>
+  it.live("appends a JSONL line per project change and resumes after backend reconnect", () =>
     Effect.scoped(Effect.gen(function*() {
       const path = yield* Path.Path
+      // Ensure the prebuilt backend bundle exists; the command override above points at it.
+      yield* buildFixture("apps/server/main.ts")
       const dataDir = yield* makeDataDir()
       const outfile = path.join(dataDir, "audit.jsonl")
-      const scan = yield* makeFixtureDir(["audited"])
+      const fs = yield* FileSystem.FileSystem
+      const scan = yield* makeFixtureDir(["before"])
       // Start the long-running audit-log in the background against the shared data dir.
       const audit = yield* spawnExample("audit-log.ts", [outfile], dataDir)
       yield* audit.waitForLine("audit-log: writing to", 30_000)
       // Cause a change on the same backend: bootstrap a project from a throwaway fixture.
-      const boot = yield* runExample("bootstrap-projects.ts", [scan], dataDir) // creates project "audited"
-      expect(boot.code, boot.stderr).toBe(0)
-      // Poll the outfile for the event instead of a flat sleep.
-      const seen = yield* pollUntil(auditLines(outfile).pipe(Effect.map((lines) => lines.some((entry) => entry.tag === "ProjectCreated"))), 5_000)
-      expect(seen, "expected a ProjectCreated line in the audit log").toBe(true)
-    })).pipe(Effect.provide(NodeServices.layer)), 45_000)
-
-  it.live("continues from the last sequence after the backend reconnects", () =>
-    Effect.scoped(Effect.gen(function*() {
-      const path = yield* Path.Path
-      const dataDir = yield* makeDataDir()
-      const outfile = path.join(dataDir, "audit.jsonl")
-      const before = yield* makeFixtureDir(["before-reconnect"])
-      const after = yield* makeFixtureDir(["after-reconnect"])
-      const audit = yield* spawnExample("audit-log.ts", [outfile], dataDir)
-      yield* audit.waitForLine("audit-log: writing to", 30_000)
-      const first = yield* runExample("bootstrap-projects.ts", [before], dataDir)
+      const first = yield* runExample("bootstrap-projects.ts", [scan], dataDir) // creates project "before"
       expect(first.code, first.stderr).toBe(0)
+      // Poll the outfile for the event instead of a flat sleep.
       expect(yield* pollUntil(auditLines(outfile).pipe(Effect.map((lines) => lines.some((entry) => entry.seq === 1))), 5_000)).toBe(true)
+      expect(
+        (yield* auditLines(outfile)).some((entry) => entry.tag === "ProjectCreated"),
+        "expected a ProjectCreated line in the audit log"
+      ).toBe(true)
       const firstPid = yield* endpointPid(dataDir)
       expect(firstPid).toBeTypeOf("number")
       if (firstPid === undefined) return yield* Effect.fail("missing backend pid" as const)
@@ -196,7 +205,8 @@ describe("example: audit-log", () => {
       ), 15_000)).toBe(true)
       const processControl = yield* ProcessControl
       expect(yield* processControl.probe(firstPid)).toBe("dead")
-      const second = yield* runExample("bootstrap-projects.ts", [after], dataDir)
+      yield* fs.makeDirectory(path.join(scan, "after"))
+      const second = yield* runExample("bootstrap-projects.ts", [scan], dataDir)
       expect(second.code, second.stderr).toBe(0)
       expect(yield* pollUntil(auditLines(outfile).pipe(Effect.map((lines) => lines.some((entry) => entry.seq === 2))), 5_000)).toBe(true)
       expect((yield* auditLines(outfile)).map((entry) => entry.seq)).toEqual([1, 2])
